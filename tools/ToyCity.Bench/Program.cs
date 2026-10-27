@@ -9,7 +9,24 @@ ulong seed = args.Length > 2 ? ulong.Parse(args[2]) : 42;
 
 var content = ContentDb.LoadDefault();
 var w = World.Create(content, seed, size, "Benchville");
-if (!StarterTown.Apply(w)) { Console.WriteLine("No flat site for the starter town on this seed."); return 1; }
+if (Environment.GetEnvironmentVariable("TOYCITY_BIG") == "1")
+{
+    // Stress mode: a starter town on every dry 40x40 block, paid for directly.
+    w.Funds = 50_000_000;
+    int towns = 0;
+    for (int oy = 2; oy + 38 < w.HeightCells; oy += 40)
+    for (int ox = 2; ox + 38 < w.Width; ox += 40)
+    {
+        bool dry = true;
+        for (int y = oy; y < oy + 36 && dry; y++)
+            for (int x = ox; x < ox + 38; x++) if (w.IsWater(w.Idx(x, y))) { dry = false; break; }
+        if (!dry) continue;
+        foreach (var a in StarterTown.Build(ox, oy)) w.Enqueue(a);
+        towns++;
+    }
+    Console.WriteLine($"stress mode: {towns} towns");
+}
+else if (!StarterTown.Apply(w)) { Console.WriteLine("No flat site for the starter town on this seed."); return 1; }
 
 var sw = Stopwatch.StartNew();
 long slowest = 0;

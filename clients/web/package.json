@@ -1,0 +1,20 @@
+{
+  "name": "toycity-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "ToyCity 2D web client (SimCity 1 style). Also the debug and admin client.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "protobufjs": "7.4.0"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3",
+    "vite": "5.4.10"
+  }
+}

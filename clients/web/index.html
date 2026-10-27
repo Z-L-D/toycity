@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ToyCity</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='1' y='7' width='4' height='8' fill='%234caf50'/><rect x='6' y='3' width='4' height='12' fill='%234a7fe0'/><rect x='11' y='9' width='4' height='6' fill='%23e0b030'/></svg>" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="top">
+        <div class="brand">ToyCity</div>
+        <div class="stat" id="city-name">…</div>
+        <div class="stat" id="date">…</div>
+        <div class="stat" id="funds" title="Treasury">$0</div>
+        <div class="stat" id="pop" title="Population">👥 0</div>
+        <div class="speed" id="speed">
+          <button data-speed="0" title="Pause (Space)">⏸</button>
+          <button data-speed="1" title="Slow (1)">▶</button>
+          <button data-speed="2" title="Normal (2)">▶▶</button>
+          <button data-speed="3" title="Fast (3)">▶▶▶</button>
+        </div>
+        <div class="rci" id="rci" title="Demand: bars up mean the city wants more of that zone">
+          <div class="bar"><span class="r"></span><label>R</label></div>
+          <div class="bar"><span class="c"></span><label>C</label></div>
+          <div class="bar"><span class="i"></span><label>I</label></div>
+        </div>
+        <div class="spacer"></div>
+        <button id="btn-new">New city</button>
+        <button id="btn-save">Save</button>
+        <button id="btn-load">Load</button>
+        <div id="conn" class="conn off" title="Server connection"></div>
+      </header>
+      <aside id="tools"></aside>
+      <main id="view">
+        <canvas id="map"></canvas>
+        <div id="cost" class="cost hidden"></div>
+        <div id="hints"></div>
+        <div id="toasts"></div>
+      </main>
+      <aside id="panel">
+        <nav id="tabs">
+          <button data-tab="why" class="active">Why</button>
+          <button data-tab="inspect">Inspect</button>
+          <button data-tab="budget">Budget</button>
+          <button data-tab="layers">Layers</button>
+        </nav>
+        <section id="tab-why" class="tab active"><p class="muted">Pick the query tool (Q) and click anything on the map to see why it is the way it is.</p></section>
+        <section id="tab-inspect" class="tab"><p class="muted">Query a cell to see its raw values.</p></section>
+        <section id="tab-budget" class="tab"></section>
+        <section id="tab-layers" class="tab"></section>
+      </aside>
+    </div>
+    <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
