@@ -1,0 +1,9 @@
+bin/
+obj/
+node_modules/
+clients/web/dist/
+saves/
+*.user
+.vs/
+.idea/
+TestResults/

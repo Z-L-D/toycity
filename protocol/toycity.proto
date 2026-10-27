@@ -1,0 +1,406 @@
+// ToyCity protocol v0: the wire format between server and front ends, and the save format.
+// Cell arrays are row-major: index = y * width + x.
+syntax = "proto3";
+
+package toycity.v0;
+
+option csharp_namespace = "ToyCity.Protocol.V0";
+
+// ---------------------------------------------------------------------------
+// Client -> server
+// ---------------------------------------------------------------------------
+
+message ClientMessage {
+  uint32 seq = 1;
+  oneof body {
+    Hello hello = 2;
+    Action action = 3;
+    WhyRequest why = 4;
+    OverlayRequest overlay = 5;
+    InspectRequest inspect = 6;
+    SaveRequest save = 7;
+    LoadRequest load = 8;
+    NewCityRequest new_city = 9;
+    SetSpeed speed = 10;
+  }
+}
+
+message Hello {
+  string client_name = 1;
+  uint32 protocol_version = 2;
+}
+
+message Rect {
+  int32 x0 = 1;
+  int32 y0 = 2;
+  int32 x1 = 3;
+  int32 y1 = 4;
+}
+
+message Action {
+  oneof kind {
+    PlacePath path = 1;
+    PaintZone zone = 2;
+    PlaceBuilding building = 3;
+    Bulldoze bulldoze = 4;
+    Terraform terraform = 5;
+    SetTax tax = 6;
+    SetFunding funding = 7;
+    TakeLoan loan = 8;
+    PlaceUtility utility = 9;
+  }
+}
+
+// A straight or L-shaped run of path cells from (x0,y0) to (x1,y1): horizontal first.
+message PlacePath {
+  int32 x0 = 1;
+  int32 y0 = 2;
+  int32 x1 = 3;
+  int32 y1 = 4;
+  string profile_id = 5;
+}
+
+enum ZoneKind {
+  ZONE_NONE = 0;
+  ZONE_RESIDENTIAL = 1;
+  ZONE_COMMERCIAL = 2;
+  ZONE_INDUSTRIAL = 3;
+}
+
+enum Density {
+  DENSITY_LOW = 0;
+  DENSITY_MEDIUM = 1;
+  DENSITY_HIGH = 2;
+}
+
+enum Wealth {
+  WEALTH_LOW = 0;
+  WEALTH_MEDIUM = 1;
+  WEALTH_HIGH = 2;
+}
+
+message PaintZone {
+  Rect area = 1;
+  ZoneKind zone = 2;  // ZONE_NONE de-zones
+  Density density = 3;
+}
+
+message PlaceBuilding {
+  int32 x = 1;
+  int32 y = 2;
+  string type_id = 3;
+}
+
+message Bulldoze {
+  Rect area = 1;
+  bool underground = 2;  // true clears water pipes only
+}
+
+enum TerraformMode {
+  TERRAFORM_RAISE = 0;
+  TERRAFORM_LOWER = 1;
+  TERRAFORM_LEVEL = 2;
+}
+
+message Terraform {
+  Rect area = 1;
+  TerraformMode mode = 2;
+}
+
+message SetTax {
+  ZoneKind zone = 1;
+  Wealth wealth = 2;
+  int32 percent_tenths = 3;  // 90 = 9.0%
+}
+
+message SetFunding {
+  int32 building_id = 1;
+  int32 percent = 2;  // 0..200
+}
+
+message TakeLoan {
+  int64 amount = 1;
+}
+
+enum UtilityKind {
+  UTILITY_POWER_LINE = 0;
+  UTILITY_WATER_PIPE = 1;
+}
+
+message PlaceUtility {
+  int32 x0 = 1;
+  int32 y0 = 2;
+  int32 x1 = 3;
+  int32 y1 = 4;
+  UtilityKind kind = 5;
+}
+
+message WhyRequest {
+  int32 x = 1;
+  int32 y = 2;
+}
+
+enum OverlayKind {
+  OVERLAY_NONE = 0;
+  OVERLAY_LAND_VALUE = 1;
+  OVERLAY_DESIRABILITY_R = 2;
+  OVERLAY_DESIRABILITY_C = 3;
+  OVERLAY_DESIRABILITY_I = 4;
+  OVERLAY_GROUND_POLLUTION = 5;
+  OVERLAY_WATER_POLLUTION = 6;
+  OVERLAY_POWER = 7;
+  OVERLAY_WATER = 8;
+  OVERLAY_TRAFFIC = 9;
+  OVERLAY_NOISE = 10;
+  OVERLAY_POLICE = 11;
+  OVERLAY_FIRE = 12;
+  OVERLAY_HEALTH = 13;
+  OVERLAY_EDUCATION = 14;
+  OVERLAY_PARKS = 15;
+  OVERLAY_COMMUTE = 16;
+  OVERLAY_ELEVATION = 17;
+}
+
+message OverlayRequest {
+  OverlayKind kind = 1;
+}
+
+message InspectRequest {
+  int32 x = 1;
+  int32 y = 2;
+}
+
+message SaveRequest {
+  string name = 1;  // empty: just list the saves
+}
+
+message LoadRequest {
+  string name = 1;
+}
+
+message NewCityRequest {
+  string name = 1;
+  uint64 seed = 2;
+  int32 size = 3;  // 64, 128 or 256 cells per side
+  bool starter_town = 4;  // lay out a small working town to explore
+}
+
+message SetSpeed {
+  int32 speed = 1;  // 0 = paused, 1..3
+}
+
+// ---------------------------------------------------------------------------
+// Server -> client
+// ---------------------------------------------------------------------------
+
+message ServerMessage {
+  uint32 reply_to = 1;  // seq of the client message this answers, 0 if unsolicited
+  oneof body {
+    Welcome welcome = 2;
+    FullState full = 3;
+    TickDelta delta = 4;
+    WhyResult why = 5;
+    OverlayData overlay = 6;
+    InspectResult inspect = 7;
+    Notice notice = 8;
+    Error error = 9;
+    SaveList saves = 10;
+  }
+}
+
+message Welcome {
+  uint32 protocol_version = 1;
+  string server_name = 2;
+}
+
+message PathProfileInfo {
+  string id = 1;
+  string name = 2;
+  string kind = 3;  // "path"
+  int32 speed_kmh = 4;
+  bool cars = 5;
+  bool bikes = 6;
+  bool pedestrians = 7;
+  bool one_way = 8;
+  int64 cost_per_cell = 9;
+  string color = 10;
+  int32 width_m = 11;
+}
+
+message BuildingTypeInfo {
+  string id = 1;
+  string name = 2;
+  string category = 3;  // "zoned", "power", "water", "garbage", "police", "fire", "health", "education", "park"
+  ZoneKind zone = 4;
+  Density density = 5;
+  Wealth wealth = 6;
+  int32 width = 7;
+  int32 height = 8;
+  int64 cost = 9;
+  bool placeable = 10;  // true for buildings the mayor places directly
+  string color = 11;
+}
+
+message Catalog {
+  repeated PathProfileInfo profiles = 1;
+  repeated BuildingTypeInfo building_types = 2;
+}
+
+message BuildingState {
+  int32 id = 1;
+  string type_id = 2;
+  int32 x = 3;
+  int32 y = 4;
+  int32 width = 5;
+  int32 height = 6;
+  ZoneKind zone = 7;
+  Density density = 8;
+  Wealth wealth = 9;
+  string name = 10;
+  int32 residents = 11;
+  int32 jobs = 12;
+  int32 workers = 13;
+  bool powered = 14;
+  bool watered = 15;
+  bool abandoned = 16;
+  int32 construction_days_left = 17;
+  int32 funding_percent = 18;
+  int32 condition = 19;  // 0..100
+}
+
+message CityStats {
+  int64 tick = 1;
+  int32 year = 2;
+  int32 month = 3;  // 1..12
+  int32 day = 4;    // 1..30
+  int64 funds = 5;
+  int32 population = 6;
+  int32 jobs = 7;
+  int32 workers = 8;
+  repeated int32 demand = 9;  // R low, R med, R high, C low, C med, C high, I low, I med, I high; -100..100
+  repeated int32 tax_tenths = 10;  // same order as demand
+  int64 last_month_income = 11;
+  int64 last_month_expenses = 12;
+  int64 debt = 13;
+  int32 speed = 14;
+  int64 power_capacity_kw = 15;
+  int64 power_demand_kw = 16;
+  int64 water_capacity = 17;
+  int64 water_demand = 18;
+  int64 garbage_capacity = 19;
+  int64 garbage_produced = 20;
+  string city_name = 21;
+  repeated BudgetLine budget = 22;
+}
+
+message BudgetLine {
+  string label = 1;
+  int64 amount = 2;  // positive income, negative expense
+}
+
+message FullState {
+  int32 width = 1;
+  int32 height = 2;
+  int32 water_level = 3;
+  bytes heights = 4;        // one byte per cell
+  bytes zones = 5;          // zone kind * 3 + density, 0 = none; see ZoneCode in the sim
+  bytes paths = 6;          // uint16 little-endian per cell: profile index + 1, 0 = none
+  bytes power_lines = 7;    // one byte per cell, 0/1
+  bytes water_pipes = 8;    // one byte per cell, 0/1
+  repeated BuildingState buildings = 9;
+  CityStats stats = 10;
+  Catalog catalog = 11;
+  uint64 seed = 12;
+}
+
+message CellUpdate {
+  int32 index = 1;
+  int32 height = 2;
+  int32 zone = 3;
+  int32 path = 4;
+  bool power_line = 5;
+  bool water_pipe = 6;
+}
+
+message TickDelta {
+  repeated CellUpdate cells = 1;
+  repeated BuildingState buildings = 2;
+  repeated int32 removed_buildings = 3;
+  CityStats stats = 4;
+  repeated Notice notices = 5;
+}
+
+message Requirement {
+  string key = 1;
+  string label = 2;
+  bool met = 3;
+  string detail = 4;  // plain-language value vs threshold, and what would fix it
+}
+
+message WhyResult {
+  int32 x = 1;
+  int32 y = 2;
+  string subject = 3;   // what is on the cell, in plain words
+  string summary = 4;   // one-line verdict
+  repeated Requirement requirements = 5;
+  repeated Factor factors = 6;
+}
+
+message Factor {
+  string label = 1;
+  int32 value = 2;  // signed contribution, for example to desirability
+}
+
+message OverlayData {
+  OverlayKind kind = 1;
+  bytes values = 2;  // one byte per cell, 0..255
+  string legend_low = 3;
+  string legend_high = 4;
+}
+
+message InspectResult {
+  int32 x = 1;
+  int32 y = 2;
+  repeated KeyValue fields = 3;
+  BuildingState building = 4;
+}
+
+message KeyValue {
+  string key = 1;
+  string value = 2;
+}
+
+message Notice {
+  string text = 1;
+  string severity = 2;  // "info", "warning", "good"
+  int32 x = 3;          // -1 when not located
+  int32 y = 4;
+}
+
+message Error {
+  string message = 1;
+}
+
+message SaveList {
+  repeated string names = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Save format
+// ---------------------------------------------------------------------------
+
+message SaveGame {
+  uint32 format_version = 1;
+  string city_name = 2;
+  uint64 seed = 3;
+  int32 width = 4;
+  int32 height = 5;
+  int64 tick = 6;
+  bytes world = 7;  // the sim's own binary world snapshot (versioned by format_version)
+  repeated ActionRecord log = 8;
+}
+
+message ActionRecord {
+  int64 tick = 1;
+  Action action = 2;
+}
