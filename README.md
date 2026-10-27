@@ -76,4 +76,4 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit and
 
 ## License
 
-Not chosen yet. ToyCity is planned as fully open source, with no paid add-ons or editions.
+GNU General Public License v3.0. See [LICENSE](LICENSE).
