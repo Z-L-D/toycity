@@ -67,7 +67,7 @@ public sealed partial class World
     void AddExclusiveStops()
     {
         foreach (var b in Buildings)
-            if (b != null && TypeOf(b).Id == "bus-stop" && ExclusiveHeld(DistrictOf(b.X, b.Y), out _)) _leasedStops.Add(b.Id);
+            if (b != null && TypeOf(b).LotKind == "bus-stop" && ExclusiveHeld(DistrictOf(b.X, b.Y), out _)) _leasedStops.Add(b.Id);
     }
 
     void FillOffers(HostedGame hg, CityToGame input, List<(string GameId, AuthorityResult Result)> results)

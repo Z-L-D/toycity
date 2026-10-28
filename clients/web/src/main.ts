@@ -1,6 +1,6 @@
 import './style.css';
 import { Connection, type Msg } from './net';
-import { City, curveCells, lCells } from './state';
+import { City, curveCells, lCells, SIDE_DX, SIDE_DY, type BuildingType } from './state';
 import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
 import { Seats } from './seats';
@@ -336,6 +336,37 @@ function lineCells(x0: number, y0: number, x1: number, y1: number, verticalFirst
   return verticalFirst ? [...lCells(x0, y0, x0, y1), ...lCells(x0, y1, x1, y1).slice(1)] : lCells(x0, y0, x1, y1);
 }
 
+/**
+ * Where a roadside stop goes for the cursor at screen (sx, sy) over a cell: on the kerb of the road under it nearest
+ * the cursor, or on the kerb of a road beside clicked land, facing it. Mirrors World.CheckKerb.
+ */
+function kerbSpot(t: BuildingType, cell: { x: number; y: number }, sx: number, sy: number): { x: number; y: number; side: number; why: string } {
+  const carries = (x: number, y: number) => {
+    if (!city.inBounds(x, y)) return false;
+    const p = city.profileAt(y * city.width + x);
+    return !!p && (t.transit === 'bus' ? p.cars : t.transit === 'tram' ? !!p.tram : t.transit === 'rail' ? p.rail : true);
+  };
+  const kerb = (x: number, y: number, k: number) => {
+    const nx = x + SIDE_DX[k], ny = y + SIDE_DY[k];
+    return !city.inBounds(nx, ny) || !city.paths[ny * city.width + nx];
+  };
+  const { x: fx, y: fy } = renderer.cellFrac(sx, sy);
+  const edge = [fy, 1 - fx, 1 - fy, fx];  // the cursor's distance to the north, east, south and west edges
+  const order = [0, 1, 2, 3].sort((a, b) => edge[a] - edge[b]);
+  const what = t.transit === 'bus' ? 'a road buses can use' : t.transit === 'tram' ? 'a tram line' : t.transit === 'rail' ? 'a rail line' : 'a road';
+  let { x, y } = cell;
+  let side = -1;
+  if (carries(x, y)) side = order.find((k) => kerb(x, y, k)) ?? -1;
+  else if (city.inBounds(x, y) && !city.paths[y * city.width + x]) {
+    // Beside a road: the stop faces the land, on the road toward the cursor's nearest edge.
+    const k = order.find((k) => carries(x + SIDE_DX[k], y + SIDE_DY[k]));
+    if (k !== undefined) { x += SIDE_DX[k]; y += SIDE_DY[k]; side = (k + 2) % 4; }
+  }
+  if (side < 0) return { x, y, side: 0, why: carries(x, y) ? 'no kerb here: roads join on every side' : `must go beside ${what}` };
+  if (city.stopsAt(x, y).some((b) => b.side === side)) return { x, y, side, why: 'a stop is already on that side' };
+  return { x, y, side, why: '' };
+}
+
 /** Updates the tool preview and the cost tag under the cursor. */
 function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
   renderer.hover = city.inBounds(cell.x, cell.y) ? cell : null;
@@ -343,7 +374,13 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
   let text = '';
   let ok = true;
   renderer.preview = null;
-  if (tool.kind === 'building') {
+  if (tool.kind === 'building' && city.typeById.get(buildingTypeId)?.roadside) {
+    const t = city.typeById.get(buildingTypeId)!;
+    const k = kerbSpot(t, cell, sx, sy);
+    renderer.preview = { kind: 'cell', x0: k.x, y0: k.y, x1: k.x, y1: k.y, ok: !k.why, color: t.color + 'dd', catchment: t.catchment || undefined, side: k.side };
+    text = `${t.name}: ${money(t.cost)} · ${k.why || `${['north', 'east', 'south', 'west'][k.side]} side of the road, serves ${t.catchment} cells around`}`;
+    ok = !k.why;
+  } else if (tool.kind === 'building') {
     const f = footprintAt(cell.x, cell.y);
     const t = city.typeById.get(buildingTypeId);
     for (let y = f.y; y < f.y + f.h; y++)
@@ -517,6 +554,13 @@ canvas.addEventListener('mousedown', (e) => {
     if (city.inBounds(cell.x, cell.y)) act({ disaster: { kind: disasterKind, x: cell.x, y: cell.y } }, `${DISASTER_NAMES[disasterKind]} at ${cell.x},${cell.y}`);
     return;
   }
+  if (tool.kind === 'building' && city.typeById.get(buildingTypeId)?.roadside) {
+    const t = city.typeById.get(buildingTypeId)!;
+    const k = kerbSpot(t, cell, sx, sy);
+    if (k.why) { toast(`${t.name}: ${k.why}.`, 'warning'); return; }
+    act({ building: { x: k.x, y: k.y, typeId: buildingTypeId, side: k.side + 1 } }, `${t.name} on the ${['north', 'east', 'south', 'west'][k.side]} side at ${k.x},${k.y}`);
+    return;
+  }
   if (tool.kind === 'building') {
     const f = footprintAt(cell.x, cell.y);
     act({ building: { x: f.x, y: f.y, typeId: buildingTypeId } }, `${city.typeById.get(buildingTypeId)?.name ?? buildingTypeId} at ${f.x},${f.y}`);
@@ -639,14 +683,30 @@ function renderWhy(w: Msg) {
     .join('');
   const b = queriedBuilding;
   const isCivic = b && city.typeById.get(b.typeId)?.placeable;
+  const gauges = ((w.gauges ?? []) as Msg[]).map((g) => {
+    const pct = g.max > 0 ? (g.value * 100) / g.max : 0;
+    const level = g.fun ? 'fun' : pct > 100 ? 'over' : pct >= 85 ? 'full' : 'ok';
+    const note = g.fun ? 'City statistic, this month'
+      : pct > 100 ? `Over capacity by ${(g.value - g.max).toLocaleString()}: build another nearby`
+      : pct >= 85 ? 'Nearly full: plan another one' : `Room for ${(g.max - g.value).toLocaleString()} more`;
+    return `<div class="gauge ${level}">
+      <div class="g-label">${g.fun ? '✨ ' : ''}${esc(g.label)}</div>
+      <div class="g-num"><b>${Number(g.value).toLocaleString()}</b> / ${Number(g.max).toLocaleString()} <span>${esc(g.unit)}</span></div>
+      <div class="g-track"><span style="width:${Math.min(100, pct)}%"></span></div>
+      <div class="g-note">${note}</div>
+    </div>`;
+  }).join('');
   $('#tab-why').innerHTML = `
     <h3>${esc(w.subject)}</h3>
+    ${gauges ? `<div class="gauges">${gauges}</div>` : ''}
     <div class="muted">Cell ${w.x}, ${w.y}</div>
     <p class="summary">${esc(w.summary)}</p>
     ${reqs ? `<h4>Needs</h4>${reqs}` : ''}
     ${fac ? `<h4>${(w.requirements as Msg[]).some((r) => r.key === 'desirability') ? 'Desirability factors' : 'Land value factors'}</h4>${fac}` : ''}
+    <div class="upgrade-slot"></div>
     <div id="funding-slot"></div>
     <div id="lease-slot"></div>`;
+  fillUpgrades();
   if (isCivic) renderFunding(b!);
   if (isCivic) seats?.renderLease(b!, $('#lease-slot'));
   document.querySelectorAll<HTMLAnchorElement>('#tab-why a.topic').forEach((a) =>
@@ -658,7 +718,7 @@ function renderFunding(b: Msg) {
   const slot = document.getElementById('funding-slot');
   if (!slot) return;
   slot.innerHTML = `<h4>Funding</h4><div class="slider"><span>Budget</span><input type="range" min="0" max="200" step="10" value="${b.fundingPercent}" id="funding"><span id="funding-val">${b.fundingPercent}%</span></div>
-    <p class="muted">Funding scales running cost and output. Coverage radius grows with the square root of funding.</p>`;
+    <p class="muted">Funding scales running cost, output and how many people it can serve. Coverage radius grows with the square root of funding.</p>`;
   const input = $<HTMLInputElement>('#funding');
   input.addEventListener('input', () => ($('#funding-val').textContent = `${input.value}%`));
   input.addEventListener('change', () => {
@@ -670,9 +730,41 @@ function renderFunding(b: Msg) {
 function renderInspect(r: Msg) {
   lastInspect = r;
   const rows = (r.fields as Msg[]).map((f) => `<tr><td>${esc(f.key)}</td><td>${esc(f.value)}</td></tr>`).join('');
-  $('#tab-inspect').innerHTML = `<h3>Cell ${r.x}, ${r.y}</h3><table class="kv">${rows}</table><div class="residents-slot"></div>`;
+  $('#tab-inspect').innerHTML = `<h3>Cell ${r.x}, ${r.y}</h3><div class="upgrade-slot"></div><table class="kv">${rows}</table><div class="residents-slot"></div>`;
+  fillUpgrades();
   if (queriedBuilding && city.typeById.get(queriedBuilding.typeId)?.placeable) renderFunding(queriedBuilding);
   fillResidents();
+}
+
+/** The upgrades on offer for the inspected building, as buttons; the ones not yet on offer say what they need. */
+function fillUpgrades() {
+  const r = lastInspect;
+  const b = r?.building;
+  const ups = (r && queried && r.x === queried.x && r.y === queried.y ? r.upgrades ?? [] : []) as Msg[];
+  const html = !ups.length || !b ? '' : `<h4>Upgrade</h4>
+    ${ups.length > 1 ? '<p class="muted small">Pick one: the others are gone once it’s built.</p>' : ''}
+    ${ups.map((u) => {
+      const t = city.typeById.get(u.toTypeId);
+      const newCost = t?.cost ?? 0;
+      const facts = t ? `${t.capacity ? `${t.capacity.toLocaleString()} riders a day, ` : ''}upkeep ${money(t.maintenance)}/mo${t.leaseRent ? `, lease ${money(t.leaseRent)}/mo` : ''}` : '';
+      return `<div class="upgrade ${u.available ? '' : 'locked'}">
+        <button data-upgrade="${esc(u.toTypeId)}" ${u.available && city.stats.funds >= u.cost ? '' : 'disabled'}>${esc(u.name)}: ${money(u.cost)}</button>
+        <div class="small">${esc(u.text)}${newCost ? ` <span class="muted">(${money(newCost)} to build new)</span>` : ''}</div>
+        <div class="small muted">${facts}</div>
+        ${u.available ? '' : `<div class="small warn">${esc(u.whyNot)}</div>`}
+      </div>`;
+    }).join('')}`;
+  document.querySelectorAll<HTMLElement>('.upgrade-slot').forEach((slot) => {
+    slot.innerHTML = html;
+    slot.querySelectorAll<HTMLButtonElement>('button[data-upgrade]').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        const name = city.typeById.get(btn.dataset.upgrade!)?.name ?? btn.dataset.upgrade;
+        conn.action({ upgrade: { buildingId: b.id, toTypeId: btn.dataset.upgrade } });
+        toast(`Upgrading to a ${name}…`, 'info');
+        setTimeout(() => queried && query(queried.x, queried.y, false), 700);
+      }),
+    );
+  });
 }
 
 /** The last inspect reply, so a Follow click can redraw its residents. */

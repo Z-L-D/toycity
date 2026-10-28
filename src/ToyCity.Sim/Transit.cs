@@ -113,6 +113,9 @@ public sealed partial class World
             var t = TypeOf(b);
             var info = new StopInfo { Id = b.Id, Kind = t.Transit };
             var states = new List<int>();
+            // A roadside stop serves its own road cell; others the cells around them.
+            if (t.Roadside) { if (Carries(t.Transit, Idx(b.X, b.Y))) states.Add((int)t.Transit * N + Idx(b.X, b.Y)); }
+            else
             for (int y = b.Y - 1; y <= b.Y + b.H; y++)
             for (int x = b.X - 1; x <= b.X + b.W; x++)
             {

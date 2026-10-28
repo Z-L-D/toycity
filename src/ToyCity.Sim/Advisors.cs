@@ -105,7 +105,7 @@ public sealed partial class World
                     int jam = -1, level = 0;
                     for (int i = 0; i < N; i++) if (Path[i] != 0 && Traffic[i] > level) { level = Traffic[i]; jam = i; }
                     if (jam >= 0 && level > 128)
-                        Tell("jam", "warning", new() { ["street"] = Content.Voice.Street(jam % Width, jam / Width), ["percent"] = (level * 100 / 128).ToString() }, jam % Width, jam / Width, "traffic");
+                        Tell("jam", "warning", new() { ["street"] = StreetNear(jam % Width, jam / Width), ["percent"] = (level * 100 / 128).ToString() }, jam % Width, jam / Width, "traffic");
                     long pol = 0, people = 0;
                     foreach (var b in Buildings)
                         if (b != null && b.Operating && b.Residents > 0) { pol += (long)Pollution[Idx(b.X, b.Y)] * b.Residents; people += b.Residents; }

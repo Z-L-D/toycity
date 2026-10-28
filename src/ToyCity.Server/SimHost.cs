@@ -217,7 +217,7 @@ public sealed partial class SimHost : IDisposable
                     else reply = Error(msg.Seq, "Unknown action.");
                     break;
                 case P.ClientMessage.BodyOneofCase.Why:
-                    reply = new P.ServerMessage { Why = Mapping.Why(_world.Why(msg.Why.X, msg.Why.Y)) };
+                    reply = new P.ServerMessage { Why = Mapping.Why(_world, _world.Why(msg.Why.X, msg.Why.Y)) };
                     break;
                 case P.ClientMessage.BodyOneofCase.Inspect:
                     reply = new P.ServerMessage { Inspect = InspectWithResidents(msg.Inspect.X, msg.Inspect.Y) };

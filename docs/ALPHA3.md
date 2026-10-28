@@ -186,6 +186,69 @@ A bus stop's walking reach is 8 cells (it was 4 in Alpha 2). At 4, a line throug
 starter town reached too few homes and jobs for anyone to ride. Each line shows how many homes and
 jobs its stops reach and, with no riders yet, why.
 
+## Roadside stops and upgrades
+
+Bus stops stand on the **kerb of a road** instead of taking a cell of land: any road with cars,
+on the side you pick. The placement preview follows the cursor, so pointing at the top half of a
+road puts the stop on its north kerb and the bottom half on its south kerb; clicking land beside a
+road puts it on that road's kerb facing the land. A road cell can have a stop on each kerb, but not
+on a side where another road joins. On the map a stop is a sign along the kerb in its type's colour
+(longer for the bigger stops) with a **B** painted in the lane in front of it. Stops take no land, so
+lots and zones beside them are untouched, and a stop goes when its road is bulldozed.
+
+Civic buildings can **upgrade in place**. A building's panel (Why and Inspect) lists the upgrades
+its type offers as buttons; one not yet on offer says what it still needs. An upgrade is cheaper than
+building the bigger type new, keeps the building's place, lease and side, and costs more upkeep after.
+Where a type offers more than one, picking one closes the others for that building.
+
+| | Cost new | Upgrade | Needs | Riders a day | Reach | Upkeep | Standard lease |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Bus Stop | $150 | | | 400 | 8 | $15 | $40 |
+| Bus Shelter | $600 | $250 from a stop | 150 riders | 800 | 8 | $30 | $80 |
+| Bus Bay | $2,000 | $900 from a shelter | 500 riders | 1,600 | 9, 1-minute wait | $60 | $160 |
+| Kiosk Shelter | $1,300 | $450 from a shelter | 200 riders, shops or offices within 3 cells | 900 | 8, 1-minute wait, 3 jobs, $40 a month to the city | $35 | $120 |
+
+A side game that leases a stop keeps it as a bus-stop lot whatever it grows into. When an upgrade
+lifts the standard rent above a business lease's rent, the new rent is proposed with the lease's
+notice period, like any change of terms. Upgrades are data (`upgrades` on a building type in
+`content/buildings.json`), so other services, such as garbage collection, can use the same
+mechanic.
+
+## Street names, petitions and service loads
+
+- **Street names come from the roads.** A road running east-west is named for its row ("Fiddle Lane"),
+  and one running north-south is a numbered avenue for its column ("24th Avenue"). Every cell of a
+  straight road has the same name, and clicking a road shows it (a crossing shows both roads).
+  Petitions, news, alerts and notices name the road a home or building faces. Before this,
+  names were made up for each 8x8 patch of map, so "Elm Lane" in a petition matched no road you
+  could click, and the same name turned up in several places.
+- **Petitions clear the day they're met.** Coverage is now worked out daily, not monthly, and open
+  petitions are checked daily. Before, the director checked them before the month's coverage update,
+  so a new station took up to two months to count. Each open petition shows where its goal stands
+  ("Police coverage here (%): 12").
+- **Coverage petitions ask for 20% at the petitioners' homes** (it was 30%). Coverage fades with
+  distance, so 30% meant a station within about 13 cells of the home. "A few blocks away" didn't count.
+- **Schools and clinics count who they serve.** Each home sends its pupils (of the school's ages)
+  or patients to the nearest working school or clinic that reaches it, so nobody is counted twice:
+
+| | Elementary School | High School | Clinic | Hospital |
+| --- | --- | --- | --- | --- |
+| Serves | 400 pupils aged 5–11 | 900 pupils aged 12–17 | 60 patients a month | 400 patients a month |
+
+  Police stations count 2,500 residents patrolled and fire stations 3,000 protected. Parks count
+  visitors a day (a quarter of the residents in reach): 100 for a pocket park, 300 small, 500 for a
+  plaza, 1,200 large. Plants, pumps and the landfill count their share of the city's demand against
+  their output, and stops count riders. Capacity scales with the building's budget, as in SC4: at 50% funding a
+  school has half the seats (and its reach shrinks with the square root of funding, as before). Patients are 2% of the residents in reach each month. Being
+  over capacity is shown but has no effect yet.
+- **Gauges.** A public building's Why panel opens with its gauge: served of capacity, with a bar that
+  turns amber at 85% ("Nearly full: plan another one") and red past 100% ("Over capacity by N:
+  build another nearby"). Beside it is one of the city's quirky statistics for that kind of building
+  (bears spotted in a park, pencils found at a school, cats rescued by the police), scaled by how busy
+  the building is. It changes each month. The lists are in `content/voice.json` under `quirks`.
+- **Road names on the map.** From a moderate zoom, each straight run of road on screen is labelled
+  with its name. Avenues read up the road.
+
 ## Authority rating, paid actions and house rules
 
 Each side game has a rating in each district it has lots in, from -1000 to 1000, shown on its
@@ -234,3 +297,6 @@ state at hand-off with the computer's notes so far, and the last report), the le
 standings (rating, target, statue, exclusive rights, bribe ban), paid actions waiting for an answer,
 compensation waiting to be paid, and each player's consent settings. The content files changed too (district
 names, the bus depot), so Alpha 2 saves don't load.
+
+Format version 4 adds each building's kerb side for roadside stops. Bus stops changed in the content
+files, so earlier Alpha 3 saves don't load.

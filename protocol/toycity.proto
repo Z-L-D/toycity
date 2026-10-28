@@ -65,6 +65,7 @@ message Action {
     SetLeaseTerms lease_terms = 19;
     EndLease end_lease = 20;
     SetConsent consent = 21;
+    UpgradeBuilding upgrade = 22;
   }
 }
 
@@ -267,6 +268,13 @@ message PlaceBuilding {
   int32 x = 1;
   int32 y = 2;
   string type_id = 3;
+  int32 side = 4;  // roadside types: 1 north, 2 east, 3 south, 4 west kerb; 0 picks one
+}
+
+// Upgrades a building in place to one of the types its own type offers (see BuildingTypeInfo.upgrades).
+message UpgradeBuilding {
+  int32 building_id = 1;
+  string to_type_id = 2;
 }
 
 message Bulldoze {
@@ -453,12 +461,29 @@ message BuildingTypeInfo {
   string transit = 16;  // "bus", "tram", "rail" or empty
   int32 capacity = 17;  // transit: people a day
   int32 catchment = 18; // transit: walking reach in cells
+  bool roadside = 19;   // stands on a road's kerb instead of on land (bus stops)
+  string lot_kind = 20; // side games can lease it as this kind of lot; empty when not
+  int32 maintenance = 21;  // a month
+  int64 lease_rent = 22;   // standard lease rent a month
+  repeated UpgradeInfo upgrades = 23;
+}
+
+// An upgrade a type offers: what it becomes, what it costs and what the building must earn first.
+message UpgradeInfo {
+  string to_type_id = 1;
+  int64 cost = 2;
+  int32 riders = 3;      // riders a day needed; 0 when not
+  int32 population = 4;  // city population needed; 0 when not
+  ZoneKind near_zone = 5;  // zoned buildings needed within 3 cells; ZONE_NONE when not
+  string text = 6;
 }
 
 message Catalog {
   repeated PathProfileInfo profiles = 1;
   repeated BuildingTypeInfo building_types = 2;
   repeated int32 lot_depth = 3;  // deepest lot a zoned building can grow on, by density (low, medium, high)
+  repeated string street_names = 4;  // for naming roads as the server does (see World.StreetAt)
+  repeated string street_kinds = 5;
 }
 
 message BuildingState {
@@ -485,6 +510,7 @@ message BuildingState {
   int32 burning_days = 21;
   BuildingLook look = 22;
   int32 riders = 23;  // transit stops: people getting on or off a day
+  int32 side = 24;    // roadside buildings: 0 north, 1 east, 2 south, 3 west kerb of the road cell at x, y
 }
 
 message CityStats {
@@ -568,6 +594,16 @@ message WhyResult {
   string summary = 4;   // one-line verdict
   repeated Requirement requirements = 5;
   repeated Factor factors = 6;
+  repeated Gauge gauges = 7;  // public buildings: what they serve against their capacity, then a quirky statistic
+}
+
+// One gauge on a building's panel: value of max, in unit. A fun one is one of the city's quirky statistics.
+message Gauge {
+  string label = 1;
+  int64 value = 2;
+  int64 max = 3;
+  string unit = 4;
+  bool fun = 5;
 }
 
 message Factor {
@@ -588,6 +624,16 @@ message InspectResult {
   repeated KeyValue fields = 3;
   BuildingState building = 4;
   repeated CitizenInfo residents = 5;  // the people who live here, one by one
+  repeated UpgradeChoice upgrades = 6;  // what the building could become, on offer or not yet
+}
+
+message UpgradeChoice {
+  string to_type_id = 1;
+  string name = 2;
+  int64 cost = 3;
+  bool available = 4;
+  string why_not = 5;  // what it still needs; empty when available
+  string text = 6;
 }
 
 // One resident. Citizens are the home's counts seen one person at a time, so they always add up to the city's totals.
@@ -782,6 +828,7 @@ message Prompt {
   string result_text = 11;
   string fix_type = 12;  // petitions: the building whose coverage would satisfy them, empty when none
   Rect area = 13;        // the petitioners' neighbourhood (x0 = -1 when not located)
+  string progress = 14;  // open petitions: where the goal's measures stand now, e.g. "Police coverage here (%): 22"
 }
 
 message Headline {

@@ -218,6 +218,23 @@ public sealed partial class World
             Raise(e => e.Kind == EventKind.News);
     }
 
+    /// <summary>Daily: a petition whose goal is met is fulfilled at once, not at the next month's turn.</summary>
+    void CheckPetitions()
+    {
+        foreach (var p in Prompts)
+            if (p.Status == PromptStatus.Open && p.Kind == EventKind.Petition && Content.Events[p.Event].Goal is { } goal
+                && EvaluateRules(goal, new RuleContext(p.X, p.Y)).Last.Number != 0)
+                Resolve(p, PromptStatus.Fulfilled);
+    }
+
+    /// <summary>How far an open petition is from its goal, from the goal's labelled measures: "Police coverage here (%): 22".</summary>
+    public string PromptProgress(Prompt p)
+    {
+        if (p.Kind != EventKind.Petition || p.Status != PromptStatus.Open || Content.Events[p.Event].Goal is not { } goal) return "";
+        var o = EvaluateRules(goal, new RuleContext(p.X, p.Y), trace: true);
+        return string.Join(", ", o.Trace.Select(t => $"{t.Label}: {t.Value}"));
+    }
+
     /// <summary>Picks an eligible template by weight and raises it. Eligibility: population, cooldown, location, trigger.</summary>
     void Raise(Func<EventDef, bool> filter)
     {
@@ -270,7 +287,7 @@ public sealed partial class World
     Dictionary<string, string> Facts(EventDef ev, int x, int y, Building? at, ulong seed)
     {
         var facts = new Dictionary<string, string> { ["name"] = Content.Voice.Name(seed) };
-        if (x >= 0) facts["street"] = Content.Voice.Street(x, y);
+        if (x >= 0) facts["street"] = StreetNear(x, y);
         int count = at != null ? Math.Max(at.Residents, at.Jobs) : x >= 0 ? Trips[Idx(x, y)] : 0;
         facts["count"] = Math.Max(3, count).ToString("N0");
         var yes = ev.Yes != null ? EvaluateRules(ev.Yes.Graph, new RuleContext(x, y)) : null;

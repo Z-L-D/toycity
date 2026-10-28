@@ -55,11 +55,15 @@ public sealed partial class World
     public const int CureMonths = 3;
 
     /// <summary>What kind of lot a building is, for leasing: its type id when side games may lease it, else empty.</summary>
-    public string LotKindOf(Building b) => TypeOf(b).Id is "bus-stop" or "bus-depot" ? TypeOf(b).Id : "";
+    public string LotKindOf(Building b) => TypeOf(b).LotKind;
 
     /// <summary>The terms the city offers anyone who asks: a business lease, rent by size, a 10% fare tax, three months' notice.</summary>
     public static LeaseTerms StandardTerms(string kind) =>
         new(LeaseMode.Business, kind == "bus-depot" ? 300 : 40, 100, 0, 0, 3);
+
+    /// <summary>The standard terms for a particular building: rent by its size (a bus bay costs more than a stop).</summary>
+    public LeaseTerms StandardTermsFor(Building b) =>
+        TypeOf(b).LeaseRent > 0 ? StandardTerms(LotKindOf(b)) with { RentPerMonth = TypeOf(b).LeaseRent } : StandardTerms(LotKindOf(b));
 
     public Lease? LeaseOn(int buildingId) => Leases.FirstOrDefault(l => l.BuildingId == buildingId);
     public Lease? LeaseById(int id) => Leases.FirstOrDefault(l => l.Id == id);
@@ -78,7 +82,7 @@ public sealed partial class World
     static bool AtLeastStandard(LeaseTerms t, LeaseTerms std) =>
         t.Mode == LeaseMode.Business && t.RentPerMonth >= std.RentPerMonth && t.TaxTenths >= std.TaxTenths;
 
-    string LotName(Building b) => $"the {TypeOf(b).Name.ToLowerInvariant()} on {Content.Voice.Street(b.X, b.Y)}";
+    string LotName(Building b) => $"the {TypeOf(b).Name.ToLowerInvariant()} on {StreetNear(b.X, b.Y)}";
 
     string GameName(string id) => SideGame(id)?.Game.Manifest.Name ?? id;
 
@@ -106,7 +110,7 @@ public sealed partial class World
             Reject($"{DistrictName(district)} won't have more of {GameName(gameId)}: its rating there is {RatingOf(gameId, district)}.", b.X, b.Y);
             return null;
         }
-        var std = StandardTerms(kind);
+        var std = StandardTermsFor(b);
         var t = terms ?? std;
         if (CheckTerms(t) is { } err) { Reject(err, b.X, b.Y); return null; }
         // Only the mayor, playing by hand, can agree to terms worse for the city than its standard offer.
@@ -197,7 +201,7 @@ public sealed partial class World
             if (b == null || !b.Operating || LeaseOn(b.Id) != null) continue;
             string kind = LotKindOf(b);
             if (kind.Length == 0 || !kinds.Contains(kind)) continue;
-            input.OpenLots.Add(new OpenLot(b.Id, kind, b.X, b.Y, b.W, b.H, b.Access, DistrictOf(b.X, b.Y), StandardTerms(kind)));
+            input.OpenLots.Add(new OpenLot(b.Id, kind, b.X, b.Y, b.W, b.H, b.Access, DistrictOf(b.X, b.Y), StandardTermsFor(b)));
         }
     }
 

@@ -25,6 +25,8 @@ export interface Building {
   /** BuildingLook: 0 fine, 1 building, 2 struggling, 3 run down, 4 abandoned, 5 derelict, 6 burning. */
   look: number;
   riders: number;
+  /** Roadside buildings: the kerb of the road cell at x, y. 0 north, 1 east, 2 south, 3 west. */
+  side: number;
 }
 
 export interface Profile {
@@ -64,7 +66,17 @@ export interface BuildingType {
   transit: string;
   capacity: number;
   catchment: number;
+  /** Stands on a road's kerb instead of on land (bus stops). */
+  roadside: boolean;
+  lotKind: string;
+  maintenance: number;
+  leaseRent: number;
+  upgrades: { toTypeId: string; cost: number; riders: number; population: number; nearZone: number; text: string }[];
 }
+
+/** Kerb directions by side: north, east, south, west. */
+export const SIDE_DX = [0, 1, 0, -1];
+export const SIDE_DY = [-1, 0, 1, 0];
 
 /** The client's mirror of the city, kept current from FullState and TickDelta messages. */
 export class City {
@@ -84,6 +96,8 @@ export class City {
   types: BuildingType[] = [];
   typeById = new Map<string, BuildingType>();
   lotDepth: number[] = [2, 3, 4];
+  streetNames: string[] = ['Main'];
+  streetKinds: string[] = ['Street'];
   /** Placeable building types the mayor may build now (landmarks and reward lots unlock over time). */
   unlocked = new Set<string>();
   /** Bumped when terrain changes, so the renderer can rebuild its cached ground layer. */
@@ -107,6 +121,8 @@ export class City {
     this.types = f.catalog.buildingTypes;
     this.typeById = new Map(this.types.map((t) => [t.id, t]));
     if (f.catalog.lotDepth?.length === 3) this.lotDepth = f.catalog.lotDepth;
+    if (f.catalog.streetNames?.length) this.streetNames = f.catalog.streetNames;
+    if (f.catalog.streetKinds?.length) this.streetKinds = f.catalog.streetKinds;
     this.buildings.clear();
     this.buildingAt = new Int32Array(n);
     for (const b of f.buildings as Building[]) this.putBuilding(b);
@@ -137,6 +153,7 @@ export class City {
 
   private putBuilding(b: Building) {
     this.buildings.set(b.id, b);
+    if (this.isRoadside(b)) return;
     for (let y = b.y; y < b.y + b.height; y++)
       for (let x = b.x; x < b.x + b.width; x++) this.buildingAt[y * this.width + x] = b.id + 1;
   }
@@ -144,6 +161,7 @@ export class City {
   private removeBuilding(id: number) {
     const b = this.buildings.get(id);
     if (!b) return;
+    if (this.isRoadside(b)) { this.buildings.delete(id); return; }
     for (let y = b.y; y < b.y + b.height; y++)
       for (let x = b.x; x < b.x + b.width; x++) {
         const i = y * this.width + x;
@@ -152,12 +170,58 @@ export class City {
     this.buildings.delete(id);
   }
 
+  /** A road's name from the line it runs along, as the server names it (Voice.RoadName). */
+  roadName(northSouth: boolean, line: number): string {
+    if (northSouth) {
+      const n = line + 1, t = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th';
+      return `${n}${t} Avenue`;
+    }
+    const kinds = this.streetKinds.filter((k) => k !== 'Avenue');
+    if (!kinds.length) kinds.push('Street');
+    const n = this.streetNames.length;
+    const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+    const name = n === 1 ? 0 : gcd(7, n) === 1 ? (line * 7) % n : line % n;
+    return `${this.streetNames[name]} ${kinds[Math.floor(line / n) % kinds.length]}`;
+  }
+
+  /** Whether a path cell has a path to its east or west, and to its north or south. */
+  roadEW(x: number, y: number) {
+    return (x > 0 && !!this.paths[y * this.width + x - 1]) || (x < this.width - 1 && !!this.paths[y * this.width + x + 1]);
+  }
+
+  roadNS(x: number, y: number) {
+    return (y > 0 && !!this.paths[(y - 1) * this.width + x]) || (y < this.height - 1 && !!this.paths[(y + 1) * this.width + x]);
+  }
+
   inBounds(x: number, y: number) {
     return x >= 0 && y >= 0 && x < this.width && y < this.height;
   }
 
   isWater(i: number) {
     return this.heights[i] < this.waterLevel;
+  }
+
+  isRoadside(b: Building) {
+    return !!this.typeById.get(b.typeId)?.roadside;
+  }
+
+  /** The roadside buildings (bus stops) on a road cell. */
+  stopsAt(x: number, y: number): Building[] {
+    const out: Building[] = [];
+    for (const b of this.buildings.values()) if (b.x === x && b.y === y && this.isRoadside(b)) out.push(b);
+    return out;
+  }
+
+  /** The building on a cell, or else a stop on its kerb, or a stop on the kerb of a road beside it facing it. */
+  buildingOrStopAt(x: number, y: number): Building | undefined {
+    return this.buildingAtCell(x, y) ?? this.stopsAt(x, y)[0] ?? this.stopsFacing(x, y)[0];
+  }
+
+  /** Stops on the kerbs of the roads beside a cell that face it. */
+  stopsFacing(x: number, y: number): Building[] {
+    const out: Building[] = [];
+    for (let k = 0; k < 4; k++) for (const s of this.stopsAt(x - SIDE_DX[k], y - SIDE_DY[k])) if (s.side === k) out.push(s);
+    return out;
   }
 
   buildingAtCell(x: number, y: number): Building | undefined {

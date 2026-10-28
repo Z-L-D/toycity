@@ -28,6 +28,8 @@ public sealed class Building
     public int Id;
     public int Type;
     public int X, Y, W, H;
+    /// <summary>Roadside buildings: which kerb of their road cell they stand on (0 north, 1 east, 2 south, 3 west).</summary>
+    public int Side;
     // Totals for this building: zoned templates are per cell, so a bigger lot holds more. Derived, not saved.
     public int Residents, Jobs, PowerKw, WaterUse, Garbage;
     public int Funding = 100;
@@ -66,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 3;
+    public const int FormatVersion = 4;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -240,6 +242,9 @@ public sealed partial class World
 
         if (Day == 1 && Tick > 0) RunMonthly();
         RunUtilities();
+        // Coverage is cheap and petitions hang on it, so a new station counts from the day it opens.
+        RunCoverage();
+        if (!stasis && Tick > 0) CheckPetitions();
         if (!stasis)
         {
             RunConstruction();
@@ -316,7 +321,7 @@ public sealed partial class World
             {
                 w.Write(b != null);
                 if (b == null) continue;
-                w.Write(b.Type); w.Write(b.X); w.Write(b.Y); w.Write(b.W); w.Write(b.H);
+                w.Write(b.Type); w.Write(b.X); w.Write(b.Y); w.Write(b.W); w.Write(b.H); w.Write(b.Side);
                 w.Write(b.Funding); w.Write(b.Condition); w.Write(b.Abandoned); w.Write(b.ConstructionLeft);
                 w.Write(b.UnmetMonths); w.Write(b.GoodMonths); w.Write(b.Powered); w.Write(b.Watered);
                 w.Write(b.Workers); w.Write(b.Employed); w.Write(b.CommuteMinutes); w.Write(b.Graffiti); w.Write(b.BurningDays); w.Write(b.Riders);
@@ -387,7 +392,7 @@ public sealed partial class World
             if (!r.ReadBoolean()) { w.Buildings.Add(null); continue; }
             var b = new Building
             {
-                Id = id, Type = r.ReadInt32(), X = r.ReadInt32(), Y = r.ReadInt32(), W = r.ReadInt32(), H = r.ReadInt32(),
+                Id = id, Type = r.ReadInt32(), X = r.ReadInt32(), Y = r.ReadInt32(), W = r.ReadInt32(), H = r.ReadInt32(), Side = r.ReadInt32(),
                 Funding = r.ReadInt32(), Condition = r.ReadInt32(), Abandoned = r.ReadBoolean(), ConstructionLeft = r.ReadInt32(),
                 UnmetMonths = r.ReadInt32(), GoodMonths = r.ReadInt32(), Powered = r.ReadBoolean(), Watered = r.ReadBoolean(),
                 Workers = r.ReadInt32(), Employed = r.ReadInt32(), CommuteMinutes = r.ReadInt32(),

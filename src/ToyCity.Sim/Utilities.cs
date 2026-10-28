@@ -217,10 +217,11 @@ public sealed partial class World
     void RebuildAccess()
     {
         _sitesByAccess.Clear();
+        ClearStrandedRoadside();
         foreach (var b in Buildings)
         {
             if (b == null) continue;
-            b.Access = FindAccess(b.X, b.Y, b.W, b.H);
+            b.Access = TypeOf(b).Roadside ? Idx(b.X, b.Y) : FindAccess(b.X, b.Y, b.W, b.H);
             if (b.Access >= 0 && b.Jobs > 0)
             {
                 if (!_sitesByAccess.TryGetValue(b.Access, out var list)) _sitesByAccess[b.Access] = list = new List<int>();

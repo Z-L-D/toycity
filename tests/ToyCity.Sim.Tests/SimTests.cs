@@ -537,7 +537,7 @@ public class TalkBackTests
         Assert.All(w.DemandReport(), z => Assert.Contains(z.Topic, ids));
         foreach (var t in Fixture.Content.Types.Where(t => t.Placeable)) Assert.Contains(t.Id, ids);
         foreach (var p in Fixture.Content.Profiles) Assert.Contains(p.Id, ids);
-        var proto = Mapping.Why(w.Why(plant.X + 6, plant.Y));
+        var proto = Mapping.Why(w, w.Why(plant.X + 6, plant.Y));
         Assert.All(proto.Requirements.Where(r => r.Topic != ""), r => Assert.Contains(r.Topic, ids));
     }
 

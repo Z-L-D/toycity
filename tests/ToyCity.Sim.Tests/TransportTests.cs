@@ -45,7 +45,7 @@ public class TransportTests
         {
             w.Enqueue(new PlaceBuildingAction(x, y, type));
             w.ApplyPending();
-            placed.Add(w.BuildingAt[w.Idx(x, y)] - 1);
+            placed.Add(w.Buildings.Count - 1);
         }
         Assert.Equal(count, placed.Count);
         return placed;
