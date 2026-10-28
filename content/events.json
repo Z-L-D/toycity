@@ -26,8 +26,8 @@
       "locate": "home.lowest:police",
       "deadlineMonths": 12,
       "trigger": [ { "id": "p", "op": "measure.here", "layer": "police" }, { "op": "test.lt", "in": ["p", 15] } ],
-      "goal": [ { "id": "p", "op": "measure.here", "layer": "police", "label": "Police coverage here (%)" }, { "op": "test.ge", "in": ["p", 30] } ],
-      "goalText": "Police coverage of at least 30% at their homes.",
+      "goal": [ { "id": "p", "op": "measure.here", "layer": "police", "label": "Police coverage here (%)" }, { "op": "test.ge", "in": ["p", 20] } ],
+      "goalText": "Police coverage of at least 20% at their homes.",
       "onFulfilled": { "nodes": [ { "op": "act.mood", "in": [8] } ] },
       "onIgnored": { "nodes": [ { "op": "act.mood", "in": [-8] } ] }
     },
@@ -40,8 +40,8 @@
       "locate": "home.lowest:education",
       "deadlineMonths": 12,
       "trigger": [ { "id": "p", "op": "measure.here", "layer": "education" }, { "op": "test.lt", "in": ["p", 15] } ],
-      "goal": [ { "id": "p", "op": "measure.here", "layer": "education", "label": "School coverage here (%)" }, { "op": "test.ge", "in": ["p", 30] } ],
-      "goalText": "School coverage of at least 30% at their homes.",
+      "goal": [ { "id": "p", "op": "measure.here", "layer": "education", "label": "School coverage here (%)" }, { "op": "test.ge", "in": ["p", 20] } ],
+      "goalText": "School coverage of at least 20% at their homes.",
       "onFulfilled": { "nodes": [ { "op": "act.mood", "in": [10] } ] },
       "onIgnored": { "nodes": [ { "op": "act.mood", "in": [-8] } ] }
     },
@@ -54,8 +54,8 @@
       "locate": "home.lowest:health",
       "deadlineMonths": 12,
       "trigger": [ { "id": "p", "op": "measure.here", "layer": "health" }, { "op": "test.lt", "in": ["p", 15] } ],
-      "goal": [ { "id": "p", "op": "measure.here", "layer": "health", "label": "Health coverage here (%)" }, { "op": "test.ge", "in": ["p", 30] } ],
-      "goalText": "Health coverage of at least 30% at their homes.",
+      "goal": [ { "id": "p", "op": "measure.here", "layer": "health", "label": "Health coverage here (%)" }, { "op": "test.ge", "in": ["p", 20] } ],
+      "goalText": "Health coverage of at least 20% at their homes.",
       "onFulfilled": { "nodes": [ { "op": "act.mood", "in": [8] } ] },
       "onIgnored": { "nodes": [ { "op": "act.mood", "in": [-6] } ] }
     },

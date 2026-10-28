@@ -97,7 +97,7 @@ public sealed partial class World
             }
         }
         Disasters.Add(d);
-        var facts = new Dictionary<string, string> { ["street"] = Content.Voice.Street(d.CellX, d.CellY) };
+        var facts = new Dictionary<string, string> { ["street"] = StreetNear(d.CellX, d.CellY) };
         string text = Say($"disaster.{DisasterName(kind)}.start", d.Id, 0, facts);
         Notices.Add(new SimNotice(text, "warning", d.CellX, d.CellY));
         AddHeadline(text, "warning", d.CellX, d.CellY);
@@ -174,7 +174,7 @@ public sealed partial class World
             int x = Math.Clamp(d.CellX, 0, Width - 1), y = Math.Clamp(d.CellY, 0, HeightCells - 1);
             var facts = new Dictionary<string, string>
             {
-                ["street"] = Content.Voice.Street(x, y), ["count"] = d.Destroyed.ToString("N0"), ["damaged"] = d.Damaged.ToString("N0"),
+                ["street"] = StreetNear(x, y), ["count"] = d.Destroyed.ToString("N0"), ["damaged"] = d.Damaged.ToString("N0"),
             };
             string text = Say($"disaster.{DisasterName(d.Kind)}.end", d.Id, 1, facts);
             Notices.Add(new SimNotice(text, "info", x, y));

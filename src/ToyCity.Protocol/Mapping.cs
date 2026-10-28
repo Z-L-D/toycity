@@ -281,7 +281,7 @@ public static class Mapping
                 Id = p.Id, EventId = ev.Id, Kind = p.Kind == EventKind.Deal ? "deal" : "petition", X = p.X, Y = p.Y,
                 Petitioner = p.Petitioner, Text = p.Text, Goal = ev.GoalText, Status = (P.PromptStatus)(int)p.Status,
                 MonthsLeft = p.Status == PromptStatus.Open ? (int)Math.Max(0, (p.Deadline - w.Tick + World.DaysPerMonth - 1) / World.DaysPerMonth) : 0,
-                ResultText = p.ResultText, FixType = fix, Area = Rect(area),
+                ResultText = p.ResultText, FixType = fix, Area = Rect(area), Progress = w.PromptProgress(p),
             });
         }
         for (int t = 0; t < w.TypeUnlocked.Length; t++)

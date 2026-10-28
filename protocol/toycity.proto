@@ -816,6 +816,7 @@ message Prompt {
   string result_text = 11;
   string fix_type = 12;  // petitions: the building whose coverage would satisfy them, empty when none
   Rect area = 13;        // the petitioners' neighbourhood (x0 = -1 when not located)
+  string progress = 14;  // open petitions: where the goal's measures stand now, e.g. "Police coverage here (%): 22"
 }
 
 message Headline {

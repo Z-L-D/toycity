@@ -109,6 +109,11 @@ public sealed class BuildingType
     public int LeaseRent { get; set; }
     /// <summary>What it can become, and when. Several make a branch: taking one rules out the others.</summary>
     public List<UpgradeDef> Upgrades { get; set; } = new();
+    /// <summary>Schools: pupils it has seats for. Clinics and hospitals: patients a month it can see. 0 when not counted.</summary>
+    public int Serves { get; set; }
+    /// <summary>Schools: the ages it teaches.</summary>
+    public int MinAge { get; set; }
+    public int MaxAge { get; set; }
 
     [JsonIgnore] public int Index { get; set; }
     [JsonIgnore] public bool Placeable => Category != Category.Zoned;
@@ -208,6 +213,9 @@ public sealed class ContentDb
         public string LotKind { get; set; } = "";
         public int LeaseRent { get; set; }
         public List<UpgradeDef> Upgrades { get; set; } = new();
+        public int Serves { get; set; }
+        public int MinAge { get; set; }
+        public int MaxAge { get; set; }
     }
 
     sealed class BuildingsFile
@@ -322,6 +330,7 @@ public sealed class ContentDb
                 Transit = c.Transit switch { "" => TransitKind.None, "bus" => TransitKind.Bus, "tram" => TransitKind.Tram, "rail" => TransitKind.Rail, _ => throw new InvalidDataException($"{c.Id}: bad transit '{c.Transit}'") },
                 Capacity = c.Capacity, Catchment = c.Catchment, Wait = c.Wait,
                 Roadside = c.Roadside, LotKind = c.LotKind, LeaseRent = c.LeaseRent, Upgrades = c.Upgrades,
+                Serves = c.Serves, MinAge = c.MinAge, MaxAge = c.MaxAge,
                 Unlock = c.Unlock is { } u ? RuleGraph.Compile(u, c.Id + " unlock") : null,
             });
         }

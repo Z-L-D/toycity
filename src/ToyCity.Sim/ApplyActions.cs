@@ -180,7 +180,7 @@ public sealed partial class World
         if (type.Roadside)
         {
             AddBuilding(type, at.X, at.Y, constructionDays: 0).Side = at.Side;
-            Notices.Add(new SimNotice($"Built {type.Name} on {Content.Voice.Street(at.X, at.Y)}.", "info", at.X, at.Y));
+            Notices.Add(new SimNotice($"Built {type.Name} on {StreetNear(at.X, at.Y)}.", "info", at.X, at.Y));
             return;
         }
         for (int y = a.Y; y < a.Y + type.H; y++)

@@ -82,7 +82,7 @@ public sealed partial class World
     static bool AtLeastStandard(LeaseTerms t, LeaseTerms std) =>
         t.Mode == LeaseMode.Business && t.RentPerMonth >= std.RentPerMonth && t.TaxTenths >= std.TaxTenths;
 
-    string LotName(Building b) => $"the {TypeOf(b).Name.ToLowerInvariant()} on {Content.Voice.Street(b.X, b.Y)}";
+    string LotName(Building b) => $"the {TypeOf(b).Name.ToLowerInvariant()} on {StreetNear(b.X, b.Y)}";
 
     string GameName(string id) => SideGame(id)?.Game.Manifest.Name ?? id;
 

@@ -29,7 +29,8 @@ public sealed partial class World
         {
             int level = Traffic[i];
             string load = level < 64 ? "light" : level < 128 ? "busy" : level < 192 ? "congested" : "gridlocked";
-            return new WhyReport(x, y, p.Name, $"{Trips[i]} commuter trips a day: {load} ({level * 100 / 128}% of capacity).", reqs, factors);
+            string cross = CrossStreetAt(x, y) is { } c ? $", at the corner of {c}" : "";
+            return new WhyReport(x, y, StreetAt(x, y), $"A {p.Name.ToLowerInvariant()}{cross}. {Trips[i]} commuter trips a day: {load} ({level * 100 / 128}% of capacity).", reqs, factors);
         }
 
         var b = BuildingAtCell(i);
@@ -86,7 +87,7 @@ public sealed partial class World
             Category.Transit when t.Transit == TransitKind.None => LeaseOn(b.Id) == null
                 ? "A lot for a side game to lease: a bus company keeps its buses here and hires drivers." : "",
             Category.Transit => TransitSummary(b),
-            _ => b.Powered || t.PowerKw == 0 ? $"Covers a radius of {EffectiveRadius(b)} cells at {b.Funding}% funding." : "Not working: no power.",
+            _ => b.Powered || t.PowerKw == 0 ? $"Covers a radius of {EffectiveRadius(b)} cells at {b.Funding}% funding. {LoadLine(b)}".Trim() : "Not working: no power.",
         };
         if (t.PowerKw > 0 && !b.Powered && t.Category != Category.Power) reqs.Add(new Requirement("grid", "Grid", false, "Run a power line from a plant, or place it next to powered buildings or zones."));
         if (b.ConstructionLeft == 0) reqs.Add(ConditionRequirement(b));
@@ -146,7 +147,12 @@ public sealed partial class World
         f.Add(("Cell", $"{x}, {y}"));
         f.Add(("Elevation", $"{Height[i]} (water level {WaterLevel})"));
         if (ZoneCode[i] != 0) f.Add(("Zone", $"{ZoneName(ZoneOf(ZoneCode[i]))}, {DensityOf(ZoneCode[i]).ToString().ToLowerInvariant()} density"));
-        if (ProfileAt(i) is { } p) f.Add(("Path", $"{p.Name} ({p.SpeedKmh} km/h)"));
+        if (ProfileAt(i) is { } p)
+        {
+            f.Add(("Street", CrossStreetAt(x, y) is { } c ? $"{StreetAt(x, y)} at {c}" : StreetAt(x, y)));
+            f.Add(("Path", $"{p.Name} ({p.SpeedKmh} km/h)"));
+        }
+        else f.Add(("Street", StreetNear(x, y)));
         f.Add(("Land value", LandValue[i].ToString()));
         f.Add(("Desirability R / C / I", $"{DesR[i]} / {DesC[i]} / {DesI[i]}"));
         f.Add(("Pollution (ground / water)", $"{Pollution[i]} / {WaterPollution[i]}"));
@@ -166,6 +172,7 @@ public sealed partial class World
                 int ride = b.Assignments.Where(a => a.ByTransit).Sum(a => a.Count);
                 f.Add(("Getting to work", $"{b.Employed - ride} on the street, {ride} by transit; {CarlessOf(b)} of {LaborOf(b)} workers have no car"));
             }
+            if (ServiceLoad(b) is { } load) f.Add((t.Category == Category.Education ? "Pupils" : "Patients", $"{load.Served:N0} of {load.Capacity:N0} {load.Unit.Replace("pupils ", "").Replace("patients ", "")}".Trim()));
             if (t.Transit != TransitKind.None) f.Add(("Riders", $"{b.Riders} a day of {t.Capacity}, wait {StopWait(b) / 600.0:0.#} min"));
             f.Add(("Lot", t.Roadside ? $"roadside, {SideNames[b.Side]} kerb" : $"{b.W} × {b.H}"));
             if (b.Jobs > 0) f.Add(("Jobs", $"{b.Workers} of {b.Jobs} filled"));

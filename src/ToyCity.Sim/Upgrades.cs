@@ -50,7 +50,7 @@ public sealed partial class World
         InitTotals(b);
         var lease = LeaseOn(b.Id);
         if (lease != null) b.Jobs += lease.Jobs;
-        Notices.Add(new SimNotice($"The {from} on {Content.Voice.Street(b.X, b.Y)} is now a {opt.To.Name}.", "good", b.X, b.Y));
+        Notices.Add(new SimNotice($"The {from} on {StreetNear(b.X, b.Y)} is now a {opt.To.Name}.", "good", b.X, b.Y));
         // A bigger lot costs more to lease: a business lease below the new standard rent moves up after notice.
         var std = StandardTermsFor(b);
         if (lease is { Terms.Mode: LeaseMode.Business } && lease.Terms.RentPerMonth < std.RentPerMonth && lease.PendingTerms == null)

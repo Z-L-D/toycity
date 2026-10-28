@@ -214,6 +214,30 @@ notice period, like any change of terms. Upgrades are data (`upgrades` on a buil
 `content/buildings.json`), so other services, such as garbage collection, can use the same
 mechanic.
 
+## Street names, petitions and service loads
+
+- **Street names come from the roads.** A road running east-west is named for its row ("Fiddle Lane"),
+  and one running north-south is a numbered avenue for its column ("24th Avenue"). Every cell of a
+  straight road has the same name, and clicking a road shows it (a crossing shows both roads).
+  Petitions, news, alerts and notices name the road a home or building faces. Before this,
+  names were made up for each 8x8 patch of map, so "Elm Lane" in a petition matched no road you
+  could click, and the same name turned up in several places.
+- **Petitions clear the day they're met.** Coverage is now worked out daily, not monthly, and open
+  petitions are checked daily. Before, the director checked them before the month's coverage update,
+  so a new station took up to two months to count. Each open petition shows where its goal stands
+  ("Police coverage here (%): 12").
+- **Coverage petitions ask for 20% at the petitioners' homes** (it was 30%). Coverage fades with
+  distance, so 30% meant a station within about 13 cells of the home. "A few blocks away" didn't count.
+- **Schools and clinics count who they serve.** Each home sends its pupils (of the school's ages)
+  or patients to the nearest working school or clinic that reaches it, so nobody is counted twice:
+
+| | Elementary School | High School | Clinic | Hospital |
+| --- | --- | --- | --- | --- |
+| Serves | 400 pupils aged 5–11 | 900 pupils aged 12–17 | 60 patients a month | 400 patients a month |
+
+  The count is shown on the panel ("Teaching 98 of 400 pupils"). Patients are 2% of the residents
+  in reach each month. Being over capacity is shown but has no effect yet.
+
 ## Authority rating, paid actions and house rules
 
 Each side game has a rating in each district it has lots in, from -1000 to 1000, shown on its

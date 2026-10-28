@@ -242,6 +242,9 @@ public sealed partial class World
 
         if (Day == 1 && Tick > 0) RunMonthly();
         RunUtilities();
+        // Coverage is cheap and petitions hang on it, so a new station counts from the day it opens.
+        RunCoverage();
+        if (!stasis && Tick > 0) CheckPetitions();
         if (!stasis)
         {
             RunConstruction();

@@ -45,12 +45,22 @@ public sealed class Voice
     /// <summary>A person's name, the same every time for the same seed.</summary>
     public string Name(ulong seed) => $"{Pick(_first, seed, "first")} {Pick(_last, seed, "last")}";
 
-    /// <summary>A street name for a cell. Cells in the same 8×8 block share a name, so a neighbourhood stays recognisable.</summary>
-    public string Street(int x, int y)
+    /// <summary>
+    /// A road's name from the line it runs along. North-south roads are numbered avenues by column (12th Avenue);
+    /// east-west roads are named streets by row, every row a different name until the names run out.
+    /// </summary>
+    public string RoadName(bool northSouth, int line)
     {
-        ulong seed = (ulong)(x / 8) * 7919 + (ulong)(y / 8) * 104729;
-        return $"{Pick(_streets, seed, "street")} {Pick(_kinds, seed, "kind")}";
+        if (northSouth) return $"{Ordinal(line + 1)} Avenue";
+        var kinds = _kinds.Where(k => k != "Avenue").DefaultIfEmpty("Street").ToList();
+        int n = _streets.Count;
+        int name = n == 1 ? 0 : Coprime(7, n) ? line * 7 % n : line % n;
+        return $"{_streets[name]} {kinds[line / n % kinds.Count]}";
     }
+
+    static bool Coprime(int a, int b) { while (b != 0) (a, b) = (b, a % b); return a == 1; }
+
+    static string Ordinal(int n) => n + (n % 100 is >= 11 and <= 13 ? "th" : (n % 10) switch { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" });
 
     /// <summary>A district's name, the same every time for the same district number.</summary>
     public string District(int id)
