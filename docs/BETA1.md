@@ -134,7 +134,7 @@ city (every dry block built up: about 5,700 buildings).
 CI runs the benchmark on every push, but its runner has no GPU and renders in software at about 7 fps
 whatever the scene, so its frame times say nothing about the target. Its triangle, draw-call and memory
 numbers do: about 1 million triangles and 420 draw calls at the far zoom levels, and 560 MB for the whole
-process. Real frame times need a run on real hardware:
+process. The [gate run](GATE-BETA1.md) adds the free camera and the Alpha 3 loop on the server's own benchmark city, with the budget checked part by part. Real frame times need a run on real hardware:
 
 ```
 godot --path clients/godot -- --bench bench.json

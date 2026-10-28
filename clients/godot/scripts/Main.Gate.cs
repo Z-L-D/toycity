@@ -84,7 +84,10 @@ public partial class Main
             }
             yield return w;
         }
+        // The away report, left open, from the classic view.
         if (_camera.IsFree) _camera.ToggleFree();
+        int frames = 0;
+        yield return new GateWait("the report drawn", () => ++frames > 5, 30);
         Shot("report");
     }
 
@@ -114,7 +117,7 @@ public partial class Main
                 _free.Distance = 30;
                 for (int k = 0; k < 6 && !_free.RideName.EndsWith(" bus"); k++) _free.NextRide();
                 break;
-            case "results":
+            case "taking back":
                 Shot("autopilot ride-along");
                 break;
         }

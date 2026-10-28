@@ -182,7 +182,6 @@ public sealed class GateRun
         var report = _panel.Mayor?.Report;
         Check("the away report covers the time away", report != null && report.FromTick <= away + 1 && report.ToTick >= c.Stats.Tick - 1,
             report == null ? "no report" : $"days {report.FromTick}–{report.ToTick} (left on day {away}), {report.Changes.Count} changes, {report.Notes.Count} notes");
-        _panel.Click("close");
         Phase = "done";
     }
 
