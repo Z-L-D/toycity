@@ -23,6 +23,11 @@ public sealed partial class SimHost : IDisposable
     volatile bool _running = true;
     World _world;
     int _speed = 1;
+    // Alerts are recomputed at most twice a second and sent only when they change.
+    string _alertSig = "";
+    P.AlertList _alerts = new();
+    long _alertsAt = -1;
+    readonly Stopwatch _clock = Stopwatch.StartNew();
 
     /// <summary>Milliseconds per tick (one day) at speeds 1, 2 and 3.</summary>
     static readonly int[] TickMs = { 0, 500, 150, 50 };
@@ -82,13 +87,25 @@ public sealed partial class SimHost : IDisposable
         catch (Exception e) { _log.LogWarning(e, "autosave failed"); }
     }
 
-    /// <summary>One delta per client, with the notices since the last tick. Caller holds the gate.</summary>
-    List<(Client, P.ServerMessage)> BuildDeltas()
+    /// <summary>One delta per client, with the notices since the last tick, plus alerts when they change. Caller holds the gate.</summary>
+    List<(Client, P.ServerMessage)> BuildDeltas(bool forceAlerts = false)
     {
         var notices = _world.Notices.ToList();
         _world.Notices.Clear();
         var list = new List<(Client, P.ServerMessage)>();
         foreach (var c in _clients) list.Add((c, new P.ServerMessage { Delta = c.Tracker.Next(_world, _speed, notices) }));
+        if (forceAlerts || _clock.ElapsedMilliseconds - _alertsAt >= 500)
+        {
+            _alertsAt = _clock.ElapsedMilliseconds;
+            var alerts = Mapping.Alerts(_world.Alerts());
+            string sig = alerts.ToString();
+            if (forceAlerts || sig != _alertSig)
+            {
+                _alertSig = sig;
+                _alerts = alerts;
+                foreach (var c in _clients) list.Add((c, new P.ServerMessage { Alerts = alerts }));
+            }
+        }
         return list;
     }
 
@@ -124,6 +141,9 @@ public sealed partial class SimHost : IDisposable
         await SendAsync(client, new P.ServerMessage { Welcome = new P.Welcome { ProtocolVersion = Mapping.ProtocolVersion, ServerName = "ToyCity" } });
         await SendAsync(client, full);
         await SendAsync(client, new P.ServerMessage { Saves = ListSaves() });
+        P.AlertList alerts;
+        lock (_gate) alerts = Mapping.Alerts(_world.Alerts());
+        await SendAsync(client, new P.ServerMessage { Alerts = alerts });
 
         var buffer = new byte[64 * 1024];
         using var ms = new MemoryStream();
@@ -168,7 +188,7 @@ public sealed partial class SimHost : IDisposable
                         if (_speed == 0)
                         {
                             _world.ApplyPending();
-                            broadcast = BuildDeltas();
+                            broadcast = BuildDeltas(forceAlerts: true);
                         }
                     }
                     else reply = Error(msg.Seq, "Unknown action.");
@@ -201,7 +221,7 @@ public sealed partial class SimHost : IDisposable
                     {
                         if (!ValidName(msg.Load.Name)) throw new InvalidDataException("bad save name");
                         _world = Mapping.Load(_content, File.ReadAllBytes(SavePath(msg.Load.Name)));
-                        broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).ToList();
+                        broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).Concat(BuildDeltas(forceAlerts: true)).ToList();
                     }
                     catch (Exception e) when (e is IOException or InvalidDataException or InvalidProtocolBufferException)
                     {
@@ -214,7 +234,33 @@ public sealed partial class SimHost : IDisposable
                     int size = n.Size is 64 or 128 or 256 ? n.Size : 128;
                     ulong seed = n.Seed != 0 ? n.Seed : (ulong)Random.Shared.NextInt64(1, long.MaxValue);
                     _world = NewWorld(string.IsNullOrWhiteSpace(n.Name) ? "New City" : n.Name.Trim(), seed, size, n.StarterTown);
-                    broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).ToList();
+                    broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).Concat(BuildDeltas(forceAlerts: true)).ToList();
+                    break;
+                }
+                case P.ClientMessage.BodyOneofCase.Demand:
+                    reply = new P.ServerMessage { Demand = Mapping.Demand(_world.DemandReport()) };
+                    break;
+                case P.ClientMessage.BodyOneofCase.Encyclopedia:
+                    reply = new P.ServerMessage { Encyclopedia = Mapping.Encyclopedia(_world.Encyclopedia()) };
+                    break;
+                case P.ClientMessage.BodyOneofCase.Forecast:
+                {
+                    // Copy the city under the gate, then run the copy on a worker so the live city keeps ticking.
+                    var snapshot = _world.Snapshot();
+                    var plan = msg.Forecast.Plan.Select(Mapping.ToSim).Where(a => a != null).Select(a => a!).ToList();
+                    int months = msg.Forecast.Months is > 0 and <= 120 ? msg.Forecast.Months : 12;
+                    _ = Task.Run(async () =>
+                    {
+                        P.ServerMessage m;
+                        try
+                        {
+                            var copy = World.FromSnapshot(_content, snapshot);
+                            m = new P.ServerMessage { Forecast = Mapping.Forecast(copy.RunForecast(months, plan), plan.Count > 0) };
+                        }
+                        catch (Exception e) { _log.LogWarning(e, "forecast failed"); m = Error(0, "The forecast failed."); }
+                        m.ReplyTo = msg.Seq;
+                        await SendAsync(c, m);
+                    });
                     break;
                 }
                 case P.ClientMessage.BodyOneofCase.Hello:

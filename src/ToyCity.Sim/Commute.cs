@@ -137,7 +137,8 @@ public sealed partial class World
         {
             var p = ProfileAt(i);
             if (p == null) { Traffic[i] = 0; TravelCost[i] = 0; continue; }
-            int capacityPerDay = Math.Max(1, p.CapacityPerHour / 4);
+            // Commuters spread over two peak hours, so a path carries about twice its hourly capacity in a day.
+            int capacityPerDay = Math.Max(1, p.CapacityPerHour * 2);
             int level = (int)Math.Min(255, (long)Trips[i] * 128 / capacityPerDay);
             Traffic[i] = (byte)level;
             // BPR congestion curve: time = free * (1 + 0.15 (v/c)^4), capped at 5x.

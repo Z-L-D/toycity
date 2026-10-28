@@ -56,6 +56,8 @@ public sealed class BuildingType
     public int Pollution { get; set; }
     public int WaterPollution { get; set; }
     public int Noise { get; set; }
+    /// <summary>Draws visitors: feeds tourist shopping demand and people who move here for the sights.</summary>
+    public int Attraction { get; set; }
     public int BuildDays { get; set; }
     public string Color { get; set; } = "#888888";
 
@@ -139,6 +141,7 @@ public sealed class ContentDb
         public int Pollution { get; set; }
         public int WaterPollution { get; set; }
         public int Noise { get; set; }
+        public int Attraction { get; set; }
         public string Color { get; set; } = "#888888";
     }
 
@@ -243,7 +246,7 @@ public sealed class ContentDb
                 Id = c.Id, Name = c.Name, Category = ParseCategory(c.Category), W = c.W, H = c.H, Cost = c.Cost,
                 Maintenance = c.Maintenance, Jobs = c.Jobs, PowerKw = c.PowerKw, WaterUse = c.WaterUse, Garbage = c.Garbage,
                 PowerOutKw = c.PowerOutKw, WaterOut = c.WaterOut, GarbageCap = c.GarbageCap, Radius = c.Radius,
-                Pollution = c.Pollution, WaterPollution = c.WaterPollution, Noise = c.Noise, BuildDays = 1, Color = c.Color,
+                Pollution = c.Pollution, WaterPollution = c.WaterPollution, Noise = c.Noise, Attraction = c.Attraction, BuildDays = 1, Color = c.Color,
             });
         }
         var bytes = System.Text.Encoding.UTF8.GetBytes(profilesJson + "\n" + buildingsJson);

@@ -2,6 +2,7 @@ import './style.css';
 import { Connection, type Msg } from './net';
 import { City, lCells } from './state';
 import { Renderer, type OverlayView } from './render';
+import { TalkBack } from './talkback';
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -62,6 +63,9 @@ let lastOverlayMonth = -1;
 let queried: { x: number; y: number } | null = null;
 let queriedBuilding: Msg | null = null;
 let dirty = true;
+let activeTab = 'why';
+// Created after the connection; messages that arrive first are handled once it exists.
+let talk: TalkBack | null = null;
 
 const conn = new Connection({
   onStatus(ok) {
@@ -69,6 +73,7 @@ const conn = new Connection({
     if (!ok) toast('Lost connection to the server. Reconnecting…', 'error');
   },
   onMessage(kind, body) {
+    if (talk?.onMessage(kind, body)) return;
     switch (kind) {
       case 'full': {
         const first = !city.loaded || city.width !== body.width;
@@ -91,6 +96,7 @@ const conn = new Connection({
         if (city.stats.day === 1) {
           renderBudget();
           if (queried) query(queried.x, queried.y, false);
+          talk?.onMonth(activeTab);
         }
         if (activeOverlay && city.stats.month !== lastOverlayMonth) requestOverlay();
         dirty = true;
@@ -135,17 +141,25 @@ function updateTopBar() {
   $('#pop').textContent = `👥 ${s.population.toLocaleString('en-US')}`;
   document.querySelectorAll<HTMLButtonElement>('#speed button').forEach((b) => b.classList.toggle('active', Number(b.dataset.speed) === s.speed));
   const d: number[] = s.demand ?? [];
-  const bars = ['.r', '.c', '.i'];
-  bars.forEach((sel, z) => {
+  const raw: number[] = s.demandRaw?.length ? s.demandRaw : d;
+  const bars = ['r', 'c', 'i'];
+  bars.forEach((cls, z) => {
+    const place = (el: HTMLElement, v: number) => {
+      const h = Math.abs(v) / 2;
+      el.style.height = `${h}%`;
+      el.style.top = v >= 0 ? `${50 - h}%` : '50%';
+    };
     const v = Math.max(d[z * 3], d[z * 3 + 1], d[z * 3 + 2]);
-    const el = $(`#rci ${sel}`);
-    const h = Math.abs(v) / 2;
-    el.style.height = `${h}%`;
-    el.style.top = v >= 0 ? `${50 - h}%` : '50%';
+    const rv = Math.max(raw[z * 3], raw[z * 3 + 1], raw[z * 3 + 2]);
+    const el = $(`#rci .${cls}`);
+    place(el, v);
     el.style.opacity = v >= 0 ? '1' : '0.45';
+    // The outline shows demand before limits such as power: the gap is demand the city can't use yet.
+    place($(`#rci .ghost-${cls}`), rv > v ? rv : v);
   });
   const tags = ['R$', 'R$$', 'R$$$', 'C$', 'C$$', 'C$$$', 'I dirty', 'I manufacturing', 'I high-tech'];
-  $('#rci').title = 'Demand (up means the city wants more):\n' + tags.map((t, k) => `${t}: ${d[k] > 0 ? '+' : ''}${d[k]}`).join('\n');
+  $('#rci').title = 'Demand (up means the city wants more). Click for where it comes from.\n' +
+    tags.map((t, k) => `${t}: ${d[k] > 0 ? '+' : ''}${d[k]}${raw[k] > d[k] ? ` (limited from ${raw[k] > 0 ? '+' : ''}${raw[k]})` : ''}`).join('\n');
 }
 
 document.querySelectorAll<HTMLButtonElement>('#speed button').forEach((b) =>
@@ -310,7 +324,14 @@ function rect(a: { x: number; y: number }, b: { x: number; y: number }) {
   return { x0: a.x, y0: a.y, x1: b.x, y1: b.y };
 }
 
+/** Sends an action, or adds it to the what-if plan when planning is on. */
+function act(action: Record<string, any>, label: string) {
+  if (talk?.capture(action, label)) { toast(`Planned: ${label}`, 'info'); return; }
+  conn.action(action);
+}
+
 function commit(start: { x: number; y: number }, end: { x: number; y: number }) {
+  const size = `${Math.abs(end.x - start.x) + 1}×${Math.abs(end.y - start.y) + 1}`;
   switch (tool.kind) {
     case 'path':
     case 'utility': {
@@ -318,22 +339,22 @@ function commit(start: { x: number; y: number }, end: { x: number; y: number }) 
         ? [[start.x, start.y, start.x, end.y], [start.x, end.y, end.x, end.y]]
         : [[start.x, start.y, end.x, end.y]];
       for (const [x0, y0, x1, y1] of legs) {
-        if (tool.kind === 'path') conn.action({ path: { x0, y0, x1, y1, profileId } });
-        else conn.action({ utility: { x0, y0, x1, y1, kind: tool.utility } });
+        if (tool.kind === 'path') act({ path: { x0, y0, x1, y1, profileId } }, `${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${x0},${y0} to ${x1},${y1}`);
+        else act({ utility: { x0, y0, x1, y1, kind: tool.utility } }, `${tool.utility ? 'Water pipe' : 'Power line'} from ${x0},${y0} to ${x1},${y1}`);
       }
       break;
     }
     case 'zone':
-      conn.action({ zone: { area: rect(start, end), zone: tool.zone, density } });
+      act({ zone: { area: rect(start, end), zone: tool.zone, density } }, `Zone ${size} ${['', 'residential', 'commercial', 'industrial'][tool.zone]} (${DENSITY_NAMES[density].toLowerCase()})`);
       break;
     case 'dezone':
-      conn.action({ zone: { area: rect(start, end), zone: 0, density: 0 } });
+      act({ zone: { area: rect(start, end), zone: 0, density: 0 } }, `De-zone ${size}`);
       break;
     case 'bulldoze':
-      conn.action({ bulldoze: { area: rect(start, end), underground: renderer.underground } });
+      act({ bulldoze: { area: rect(start, end), underground: renderer.underground } }, `Bulldoze ${size} at ${start.x},${start.y}`);
       break;
     case 'terraform':
-      conn.action({ terraform: { area: rect(start, end), mode: terraformMode } });
+      act({ terraform: { area: rect(start, end), mode: terraformMode } }, `${TERRAFORM_NAMES[terraformMode]} ${size}`);
       break;
   }
 }
@@ -359,7 +380,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (tool.kind === 'query') { if (city.inBounds(cell.x, cell.y)) query(cell.x, cell.y); return; }
   if (tool.kind === 'building') {
     const f = footprintAt(cell.x, cell.y);
-    conn.action({ building: { x: f.x, y: f.y, typeId: buildingTypeId } });
+    act({ building: { x: f.x, y: f.y, typeId: buildingTypeId } }, `${city.typeById.get(buildingTypeId)?.name ?? buildingTypeId} at ${f.x},${f.y}`);
     return;
   }
   drag = cell;
@@ -433,16 +454,19 @@ setInterval(() => {
 // ---------------------------------------------------------------------------
 
 function showTab(name: string) {
+  activeTab = name;
   document.querySelectorAll<HTMLButtonElement>('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll<HTMLElement>('.tab').forEach((t) => t.classList.toggle('active', t.id === `tab-${name}`));
   if (name === 'budget') renderBudget();
   if (name === 'layers') renderLayers();
 }
-document.querySelectorAll<HTMLButtonElement>('#tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab!)));
+document.querySelectorAll<HTMLButtonElement>('#tabs button').forEach((b) =>
+  b.addEventListener('click', () => (talk ? talk.open(b.dataset.tab!) : showTab(b.dataset.tab!))),
+);
 
 function renderWhy(w: Msg) {
   const reqs = (w.requirements as Msg[])
-    .map((r) => `<div class="req ${r.met ? 'met' : 'unmet'}"><span class="mark">${r.met ? '✓' : '✗'}</span><span class="label">${esc(r.label)}</span><span class="detail">${esc(r.detail)}</span></div>`)
+    .map((r) => `<div class="req ${r.met ? 'met' : 'unmet'}"><span class="mark">${r.met ? '✓' : '✗'}</span><span class="label">${esc(r.label)}${r.topic ? ` <a href="#" class="topic" data-topic="${esc(r.topic)}">?</a>` : ''}</span><span class="detail">${esc(r.detail)}</span></div>`)
     .join('');
   const factors = w.factors as Msg[];
   const max = Math.max(20, ...factors.map((f) => Math.abs(f.value)));
@@ -462,6 +486,9 @@ function renderWhy(w: Msg) {
     ${fac ? `<h4>${(w.requirements as Msg[]).some((r) => r.key === 'desirability') ? 'Desirability factors' : 'Land value factors'}</h4>${fac}` : ''}
     <div id="funding-slot"></div>`;
   if (isCivic) renderFunding(b!);
+  document.querySelectorAll<HTMLAnchorElement>('#tab-why a.topic').forEach((a) =>
+    a.addEventListener('click', (e) => { e.preventDefault(); talk?.article(a.dataset.topic!); }),
+  );
 }
 
 function renderFunding(b: Msg) {
@@ -571,12 +598,17 @@ function toast(text: string, severity = 'info', x = -1, y = -1) {
   el.textContent = text;
   if (x >= 0) {
     el.title = 'Click to go there';
-    el.addEventListener('click', () => { renderer.centerOn(x, y); query(x, y); });
+    el.addEventListener('click', () => jumpTo(x, y));
   }
   const box = $('#toasts');
   box.appendChild(el);
   while (box.children.length > 5) box.firstElementChild!.remove();
   setTimeout(() => el.remove(), severity === 'info' ? 4000 : 9000);
+}
+
+function jumpTo(x: number, y: number) {
+  renderer.centerOn(x, y);
+  query(x, y);
 }
 
 const dlg = $<HTMLDialogElement>('#dlg');
@@ -642,7 +674,8 @@ setInterval(() => (dirty = true), 600); // blink power and water warnings
 renderer.resize();
 updateHints();
 renderLayers();
+talk = new TalkBack({ conn, city, jumpTo, showTab });
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.
-(window as any).toycity = { city, renderer, conn, setTool, query };
+(window as any).toycity = { city, renderer, conn, setTool, query, talk };

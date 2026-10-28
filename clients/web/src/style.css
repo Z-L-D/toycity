@@ -49,7 +49,7 @@ select, input {
 
 #app {
   display: grid;
-  grid-template-columns: 168px 1fr 320px;
+  grid-template-columns: 168px 1fr 360px;
   grid-template-rows: 46px 1fr;
   height: 100vh;
 }
@@ -74,6 +74,8 @@ select, input {
 .rci .bar { position: relative; width: 16px; background: #0f131b; border-radius: 3px; overflow: hidden; }
 .rci .bar span { position: absolute; left: 0; right: 0; }
 .rci .bar label { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; font-weight: 700; color: #fff; text-shadow: 0 0 2px #000; }
+.rci { cursor: pointer; }
+.rci .ghost { border: 1px dashed rgba(255, 255, 255, 0.55); border-radius: 2px; }
 .rci .r { background: var(--r); }
 .rci .c { background: var(--c); }
 .rci .i { background: var(--i); }
@@ -167,8 +169,8 @@ select, input {
   flex-direction: column;
   min-height: 0;
 }
-#tabs { display: flex; gap: 2px; padding: 6px; border-bottom: 1px solid var(--line); }
-#tabs button { flex: 1; padding: 4px 0; }
+#tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 6px; border-bottom: 1px solid var(--line); }
+#tabs button { padding: 3px 0; font-size: 12px; }
 .tab { display: none; padding: 10px 12px; overflow-y: auto; flex: 1; }
 .tab.active { display: block; }
 .tab h3 { margin: 0 0 4px; font-size: 15px; }
@@ -221,3 +223,57 @@ dialog input[type='text'], dialog input[type='number'], dialog select { width: 1
 dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 dialog .saves { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
 dialog .saves button { text-align: left; }
+
+/* Alerts badge */
+#btn-alerts { padding: 2px 8px; }
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; font-weight: 700; text-align: center; background: #3a4660; }
+.badge.danger { background: var(--bad); color: #000; }
+.badge.warning { background: var(--warn); color: #000; }
+.badge.none { opacity: 0.5; }
+
+a.topic { color: var(--accent); text-decoration: none; margin-left: 4px; font-size: 12px; }
+a.topic:hover { text-decoration: underline; }
+.small { font-size: 11px; }
+.go { color: var(--accent); white-space: nowrap; }
+.row-flex { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+/* Demand panel */
+.zone-card { border: 1px solid var(--line); border-left: 4px solid; border-radius: 6px; padding: 8px 10px; margin: 10px 0; background: var(--panel-2); }
+.zone-card.r { border-left-color: var(--r); }
+.zone-card.c { border-left-color: var(--c); }
+.zone-card.i { border-left-color: var(--i); }
+.zone-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.levels { display: flex; gap: 10px; }
+.lvl { font-variant-numeric: tabular-nums; }
+.lvl .tag { color: var(--muted); font-size: 11px; margin-right: 3px; }
+.lvl b.pos { color: var(--good); }
+.lvl b.neg { color: var(--bad); }
+.binding { margin: 6px 0 2px; padding: 6px 8px; border-radius: 5px; background: rgba(255, 107, 94, 0.12); border: 1px solid rgba(255, 107, 94, 0.35); }
+.binding.ok { background: rgba(76, 194, 122, 0.1); border-color: rgba(76, 194, 122, 0.35); }
+.binding[data-jump] { cursor: pointer; }
+.line-detail { font-size: 11px; margin: -2px 0 6px; }
+table.kv.adj td { padding: 2px 0; }
+
+/* Alerts list */
+.alert { border-left: 4px solid var(--muted); background: var(--panel-2); border-radius: 5px; padding: 6px 9px; margin: 6px 0; }
+.alert.danger { border-color: var(--bad); }
+.alert.warning { border-color: var(--warn); }
+.alert.good { border-color: var(--good); }
+.alert[data-jump] { cursor: pointer; }
+.alert[data-jump]:hover { background: #2c3549; }
+.alert-foot { display: flex; justify-content: space-between; margin-top: 3px; font-size: 12px; }
+
+/* Forecast */
+.summary-list { margin: 4px 0 8px; padding-left: 18px; }
+.chart { margin: 8px 0; }
+.chart-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.chart-head b { color: var(--text); }
+.chart svg { width: 100%; height: 56px; background: #0f131b; border-radius: 4px; }
+.chart polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.chart line.zero { stroke: #56627c; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+ol.plan { margin: 4px 0; padding-left: 20px; }
+
+/* Guide */
+#guide-search { width: 100%; margin: 4px 0; }
+.see { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.see a.topic { margin-left: 0; }

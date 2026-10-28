@@ -1,0 +1,289 @@
+// The panels that let the city explain itself: demand by source, alerts, the forecast and the encyclopedia.
+import type { Connection, Msg } from './net';
+import type { City } from './state';
+
+export interface TalkBackHost {
+  conn: Connection;
+  city: City;
+  /** Centres the map on a cell and opens the why panel for it. */
+  jumpTo(x: number, y: number): void;
+  showTab(name: string): void;
+}
+
+const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+const money = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-US');
+const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const ZONES = ['', 'Residential', 'Commercial', 'Industrial'];
+const WEALTH_TAGS = [
+  ['R$', 'R$$', 'R$$$'],
+  ['C$', 'C$$', 'C$$$'],
+  ['Dirty', 'Manuf.', 'High-tech'],
+];
+
+export class TalkBack {
+  private alerts: Msg[] = [];
+  private articles: Msg[] = [];
+  private articleById = new Map<string, Msg>();
+  private currentArticle = '';
+  private search = '';
+  private forecastMonths = 12;
+  private forecastBusy = false;
+  private lastForecast: Msg | null = null;
+  /** "What if" mode: actions are collected here instead of being sent. */
+  planning = false;
+  plan: { action: Msg; label: string }[] = [];
+
+  constructor(private readonly host: TalkBackHost) {
+    this.renderAlerts();
+    this.renderForecast();
+    this.renderGuide();
+    $('#rci').addEventListener('click', () => this.open('demand'));
+    $('#btn-alerts').addEventListener('click', () => this.open('alerts'));
+  }
+
+  /** Opens a tab and asks the server for fresh data when the tab needs it. */
+  open(tab: string) {
+    this.host.showTab(tab);
+    this.refresh(tab);
+  }
+
+  refresh(tab: string) {
+    if (tab === 'demand') this.host.conn.send({ demand: {} });
+    if (tab === 'guide') this.host.conn.send({ encyclopedia: {} });
+  }
+
+  /** Called on the first day of each month so open panels stay live. */
+  onMonth(activeTab: string) {
+    if (activeTab === 'demand' || activeTab === 'guide') this.refresh(activeTab);
+  }
+
+  onMessage(kind: string, body: Msg): boolean {
+    switch (kind) {
+      case 'demand': this.renderDemand(body); return true;
+      case 'alerts': this.alerts = body.alerts; this.renderAlerts(); return true;
+      case 'forecast': this.forecastBusy = false; this.lastForecast = body; this.renderForecast(); return true;
+      case 'encyclopedia':
+        this.articles = body.articles;
+        this.articleById = new Map(this.articles.map((a) => [a.id, a]));
+        this.renderGuide();
+        return true;
+    }
+    return false;
+  }
+
+  /** Shows an encyclopedia article, fetching live data first. */
+  article(id: string) {
+    if (!id) return;
+    this.currentArticle = id;
+    this.search = '';
+    this.open('guide');
+    this.renderGuide();
+  }
+
+  private topicLink(topic: string, text = 'Learn more') {
+    return topic ? `<a href="#" class="topic" data-topic="${esc(topic)}">${esc(text)}</a>` : '';
+  }
+
+  private wireLinks(root: HTMLElement) {
+    root.querySelectorAll<HTMLAnchorElement>('a.topic').forEach((a) =>
+      a.addEventListener('click', (e) => { e.preventDefault(); this.article(a.dataset.topic!); }),
+    );
+    root.querySelectorAll<HTMLElement>('[data-jump]').forEach((el) =>
+      el.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('a.topic')) return;
+        const [x, y] = el.dataset.jump!.split(',').map(Number);
+        this.host.jumpTo(x, y);
+      }),
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Demand
+  // -------------------------------------------------------------------------
+
+  private renderDemand(r: Msg) {
+    const bar = (v: number, cls: string) => {
+      const w = Math.min(50, Math.abs(v) / 2);
+      return `<span class="track"><span class="fill ${v >= 0 ? 'pos' : 'neg'} ${cls}" style="width:${w}%"></span></span>`;
+    };
+    const line = (d: Msg, k?: number) => {
+      const v = d.points.length === 1 ? d.points[0] : d.points[k ?? 0];
+      return `<div class="factor" title="${esc(d.detail)}"><span>${esc(d.label)}</span>${bar(v, '')}<span class="val">${signed(v)}</span></div>
+        <div class="line-detail muted">${esc(d.detail)}</div>`;
+    };
+    const zones = (r.zones as Msg[]).map((z) => {
+      const zi = z.zone - 1;
+      const cls = 'rci'[zi];
+      const levels = [0, 1, 2]
+        .map((k) => {
+          const capped = z.final[k] < z.raw[k];
+          return `<div class="lvl"><span class="tag">${WEALTH_TAGS[zi][k]}</span><b class="${z.final[k] > 0 ? 'pos' : 'neg'}">${signed(z.final[k])}</b>${capped ? `<span class="muted" title="before limits"> of ${signed(z.raw[k])}</span>` : ''}</div>`;
+        })
+        .join('');
+      const adjust = (z.adjustments as Msg[])
+        .map((a) => `<tr><td>${esc(a.label)}</td>${[0, 1, 2].map((k) => `<td class="num">${signed(a.points[k] ?? a.points[0])}</td>`).join('')}</tr>`)
+        .join('');
+      const limits = (z.limits as Msg[])
+        .map((l) => `<tr><td>${esc(l.label)}</td><td class="num">${l.key === 'power' ? (l.points[0] >= 100 ? 'no limit' : `caps at ${l.points[0]}`) : l.points[0].toLocaleString('en-US') + ' cells'}</td></tr><tr><td colspan="2" class="muted small">${esc(l.detail)}</td></tr>`)
+        .join('');
+      const located = z.x >= 0;
+      return `<div class="zone-card ${cls}">
+        <div class="zone-head"><h3>${ZONES[z.zone]}</h3><div class="levels">${levels}</div></div>
+        <div class="binding ${z.bindingKey === 'growing' ? 'ok' : ''}" ${located ? `data-jump="${z.x},${z.y}" title="Click to go there"` : ''}>
+          ${esc(z.binding)} ${located ? '<span class="go">Show me →</span>' : ''} ${this.topicLink(z.topic)}
+        </div>
+        <h4>Where demand comes from</h4>
+        ${(z.sources as Msg[]).map((s) => line(s)).join('')}
+        <h4>By wealth</h4>
+        <table class="kv adj"><tr><td></td>${WEALTH_TAGS[zi].map((t) => `<td class="num muted">${t}</td>`).join('')}</tr>${adjust}</table>
+        <h4>Limits</h4>
+        <table class="kv">${limits}</table>
+      </div>`;
+    });
+    const el = $('#tab-demand');
+    el.innerHTML = `<p class="muted">Demand is what the city wants more of. Each zone lists its sources, then the one thing holding it back.</p>${zones.join('')}`;
+    this.wireLinks(el);
+  }
+
+  // -------------------------------------------------------------------------
+  // Alerts
+  // -------------------------------------------------------------------------
+
+  private renderAlerts() {
+    const serious = this.alerts.filter((a) => a.severity !== 'info').length;
+    const badge = $('#alert-count');
+    badge.textContent = String(this.alerts.length);
+    badge.className = `badge ${serious ? (this.alerts.some((a) => a.severity === 'danger') ? 'danger' : 'warning') : this.alerts.length ? 'info' : 'none'}`;
+    const el = $('#tab-alerts');
+    if (!this.alerts.length) {
+      el.innerHTML = '<h3>Alerts</h3><p class="muted">Nothing needs your attention right now.</p>';
+      return;
+    }
+    el.innerHTML = `<h3>Alerts</h3><p class="muted">Click an alert to go to its source.</p>` +
+      this.alerts
+        .map((a) => `<div class="alert ${a.severity}" ${a.x >= 0 ? `data-jump="${a.x},${a.y}"` : ''}>
+          <div>${esc(a.text)}</div>
+          <div class="alert-foot">${a.x >= 0 ? '<span class="go">Go there →</span>' : '<span></span>'}${this.topicLink(a.topic, 'Why?')}</div>
+        </div>`)
+        .join('');
+    this.wireLinks(el);
+  }
+
+  // -------------------------------------------------------------------------
+  // Forecast and what-if planning
+  // -------------------------------------------------------------------------
+
+  /** Called with every action the player makes. Returns true when it was captured into the plan. */
+  capture(action: Msg, label: string): boolean {
+    if (!this.planning) return false;
+    this.plan.push({ action, label });
+    this.renderForecast();
+    return true;
+  }
+
+  private runForecast(withPlan: boolean) {
+    this.forecastBusy = true;
+    this.host.conn.send({ forecast: { months: this.forecastMonths, plan: withPlan ? this.plan.map((p) => p.action) : [] } });
+    this.renderForecast();
+  }
+
+  private renderForecast() {
+    const f = this.lastForecast;
+    const opts = [3, 6, 12, 24, 60].map((m) => `<option value="${m}" ${m === this.forecastMonths ? 'selected' : ''}>${m < 12 ? `${m} months` : `${m / 12} year${m > 12 ? 's' : ''}`}</option>`).join('');
+    let result = '';
+    if (f) {
+      const pts = f.points as Msg[];
+      const label = (p: Msg) => `${MONTHS[p.month - 1]} ${p.year}`;
+      result = `
+        <h4>${f.withPlan ? 'With your plan' : 'If nothing changes'}, ${f.months} months ahead</h4>
+        <ul class="summary-list">${(f.summary as string[]).map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
+        ${chart('Population', pts.map((p) => p.population), (v) => v.toLocaleString('en-US'), 'var(--r)')}
+        ${chart('Treasury', pts.map((p) => p.funds), money, 'var(--accent)')}
+        ${chart('Jobs', pts.map((p) => p.jobs), (v) => v.toLocaleString('en-US'), 'var(--c)')}
+        <div class="muted small">${label(pts[0])} to ${label(pts[pts.length - 1])}</div>
+        <h4>What happens</h4>
+        ${(f.events as Msg[]).length ? (f.events as Msg[]).map((e) => `<div class="alert ${e.severity === 'good' ? 'good' : e.severity}" ${e.x >= 0 ? `data-jump="${e.x},${e.y}"` : ''}><span class="muted">${MONTHS[e.month - 1]} ${e.year}</span> ${esc(e.text)}</div>`).join('') : '<p class="muted">Nothing notable.</p>'}`;
+    }
+    const planList = this.plan.length
+      ? `<ol class="plan">${this.plan.map((p) => `<li>${esc(p.label)}</li>`).join('')}</ol>`
+      : '<p class="muted">Turn on planning, then use the tools as usual. Nothing is built until you say so.</p>';
+    const el = $('#tab-forecast');
+    el.innerHTML = `
+      <h3>Forecast</h3>
+      <p class="muted">Runs a copy of the city ahead. The simulation is deterministic, so this is exactly what happens if you change nothing. ${this.topicLink('forecast')}</p>
+      <div class="row-flex"><select id="fc-months">${opts}</select><button id="fc-run" ${this.forecastBusy ? 'disabled' : ''}>${this.forecastBusy ? 'Running…' : 'Run forecast'}</button></div>
+      <h4>What if…</h4>
+      <div class="row-flex"><button id="fc-plan" class="${this.planning ? 'active' : ''}">${this.planning ? 'Planning: on' : 'Plan changes'}</button>
+        ${this.plan.length ? `<button id="fc-plan-run" ${this.forecastBusy ? 'disabled' : ''}>Forecast plan</button><button id="fc-plan-build">Build it</button><button id="fc-plan-clear">Discard</button>` : ''}</div>
+      ${planList}
+      ${result}`;
+    $<HTMLSelectElement>('#fc-months').addEventListener('change', (e) => (this.forecastMonths = Number((e.target as HTMLSelectElement).value)));
+    $('#fc-run').addEventListener('click', () => this.runForecast(false));
+    $('#fc-plan').addEventListener('click', () => { this.planning = !this.planning; this.renderForecast(); });
+    document.getElementById('fc-plan-run')?.addEventListener('click', () => this.runForecast(true));
+    document.getElementById('fc-plan-build')?.addEventListener('click', () => {
+      for (const p of this.plan) this.host.conn.action(p.action);
+      this.plan = [];
+      this.planning = false;
+      this.renderForecast();
+    });
+    document.getElementById('fc-plan-clear')?.addEventListener('click', () => { this.plan = []; this.renderForecast(); });
+    this.wireLinks(el);
+  }
+
+  // -------------------------------------------------------------------------
+  // Encyclopedia
+  // -------------------------------------------------------------------------
+
+  private renderGuide() {
+    const el = $('#tab-guide');
+    const a = this.articleById.get(this.currentArticle);
+    if (a && !this.search) {
+      el.innerHTML = `
+        <a href="#" id="guide-back" class="muted">← All articles</a>
+        <h3>${esc(a.title)}</h3><div class="muted small">${esc(a.category)}</div>
+        ${(a.paragraphs as string[]).map((p) => `<p>${esc(p)}</p>`).join('')}
+        ${(a.facts as Msg[]).length ? `<h4>In your city now</h4><table class="kv">${(a.facts as Msg[]).map((f) => `<tr><td>${esc(f.key)}</td><td>${esc(f.value)}</td></tr>`).join('')}</table>` : ''}
+        ${(a.seeAlso as string[]).length ? `<h4>See also</h4><div class="see">${(a.seeAlso as string[]).map((s) => this.topicLink(s, this.articleById.get(s)?.title ?? s)).join('')}</div>` : ''}`;
+      $('#guide-back').addEventListener('click', (e) => { e.preventDefault(); this.currentArticle = ''; this.renderGuide(); });
+      this.wireLinks(el);
+      return;
+    }
+    const q = this.search.toLowerCase();
+    const hits = this.articles.filter((x) => !q || x.title.toLowerCase().includes(q) || (x.paragraphs as string[]).some((p) => p.toLowerCase().includes(q)));
+    const groups = new Map<string, Msg[]>();
+    for (const h of hits) groups.set(h.category, [...(groups.get(h.category) ?? []), h]);
+    el.innerHTML = `
+      <h3>Guide</h3>
+      <p class="muted">Every rule in the game, written from the live city.</p>
+      <input type="search" id="guide-search" placeholder="Search…" value="${esc(this.search)}">
+      ${this.articles.length ? '' : '<p class="muted">Loading…</p>'}
+      ${[...groups].map(([cat, list]) => `<h4>${esc(cat)}</h4><div class="see">${list.map((x) => this.topicLink(x.id, x.title)).join('')}</div>`).join('')}`;
+    const input = $<HTMLInputElement>('#guide-search');
+    input.addEventListener('input', () => {
+      this.search = input.value;
+      this.currentArticle = '';
+      this.renderGuide();
+      const again = $<HTMLInputElement>('#guide-search');
+      again.focus();
+      again.setSelectionRange(again.value.length, again.value.length);
+    });
+    this.wireLinks(el);
+  }
+}
+
+/** A small line chart as inline SVG, with the first and last values labelled. */
+function chart(title: string, values: number[], fmt: (v: number) => string, color: string) {
+  if (!values.length) return '';
+  const w = 300;
+  const h = 56;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const pts = values.map((v, i) => `${(i / Math.max(1, values.length - 1)) * w},${h - 4 - ((v - min) / span) * (h - 8)}`).join(' ');
+  const zero = min < 0 && max > 0 ? `<line x1="0" x2="${w}" y1="${h - 4 - ((0 - min) / span) * (h - 8)}" y2="${h - 4 - ((0 - min) / span) * (h - 8)}" class="zero"/>` : '';
+  return `<div class="chart"><div class="chart-head"><span>${title}</span><span>${fmt(values[0])} → <b>${fmt(values[values.length - 1])}</b></span></div>
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${zero}<polyline points="${pts}" style="stroke:${color}"/></svg></div>`;
+}

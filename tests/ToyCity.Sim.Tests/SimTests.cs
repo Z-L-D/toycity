@@ -211,8 +211,12 @@ public class GrowthTests
         w.Run(30 * 6);
         var still = w.Buildings.Where(b => b is { Abandoned: true }).ToList();
         Assert.True(still.Count * 4 < peak, $"{still.Count} of {peak} still abandoned");
-        // Whatever stays abandoned must say why.
-        Assert.All(still, b => Assert.Contains(w.Why(b!.X, b.Y).Requirements, r => !r.Met));
+        // Whatever stays abandoned must say why: an unmet need, or how long until people move back.
+        Assert.All(still, b =>
+        {
+            var why = w.Why(b!.X, b.Y);
+            Assert.True(why.Requirements.Any(r => !r.Met) || why.Summary.Contains("move back in"), why.Summary);
+        });
     }
 }
 
@@ -388,5 +392,140 @@ public class ProtocolTests
         w.Step();
         d = t.Next(w, 1, Array.Empty<SimNotice>());
         Assert.True(d.Cells.Count > 0 || w.IsWater(0));
+    }
+}
+
+public class TalkBackTests
+{
+    /// <summary>Runs a road from the starter town straight out to the nearest map edge it can reach.</summary>
+    static bool ConnectToEdge(World w, (int X, int Y) site)
+    {
+        int ox = site.X, oy = site.Y;
+        var tries = new List<PlacePathAction>
+        {
+            new(0, oy, ox, oy, "road"), new(ox, 0, ox, oy, "road"),
+            new(ox + StarterTown.Size, oy, w.Width - 1, oy, "road"), new(ox, oy + 25, ox, w.HeightCells - 1, "road"),
+        };
+        foreach (var t in tries)
+        {
+            w.Enqueue(new TerraformAction(new CellRect(t.X0, t.Y0, t.X1, t.Y1), TerraformMode.Level));
+            w.ApplyPending();
+            if (w.ValidatePath(t, out _, out _, out _) == null) { w.Enqueue(t); w.ApplyPending(); return true; }
+        }
+        return false;
+    }
+
+    [Fact]
+    public void DemandSourcesAddUpToRawDemand()
+    {
+        var w = Fixture.Starter();
+        w.Run(720);
+        foreach (var z in w.DemandReport())
+            for (int k = 0; k < 3; k++)
+            {
+                int sum = z.Sources.Sum(s => s.Points[0]) + z.Adjustments.Sum(a => a.Points.Length == 1 ? a.Points[0] : a.Points[k]);
+                Assert.Equal(Math.Clamp(sum, -100, 100), z.Raw[k]);
+                Assert.True(z.Final[k] <= z.Raw[k]);
+                Assert.False(string.IsNullOrEmpty(z.Binding));
+            }
+    }
+
+    [Fact]
+    public void NoPlantCapsDemandAndSaysSo()
+    {
+        var w = Fixture.Starter();
+        w.Run(360);
+        var plant = w.Buildings.First(b => b != null && w.TypeOf(b).Id == "coal-plant")!;
+        w.Enqueue(new BulldozeAction(new CellRect(plant.X, plant.Y, plant.X, plant.Y)));
+        w.Run(2);
+        Assert.All(w.Demand, d => Assert.True(d <= 0));
+        Assert.Contains(w.DemandRaw, d => d > 0);
+        Assert.All(w.DemandReport(), z => Assert.Equal("power", z.BindingKey));
+        var alert = Assert.Single(w.Alerts(), a => a.Key == "no-power");
+        Assert.True(w.InBounds(alert.X, alert.Y));
+    }
+
+    [Fact]
+    public void RoadToTheMapEdgeRaisesRegionalDemand()
+    {
+        var w = World.Create(Fixture.Content, 42, 128, "Edge");
+        var site = StarterTown.FindSite(w)!.Value;
+        foreach (var a in StarterTown.Build(site.X, site.Y)) w.Enqueue(a);
+        w.Run(60);
+        Assert.Equal(0, w.EdgeCapacity);
+        int before = w.DemandReport()[0].Sources.Single(s => s.Key == "regional").Points[0];
+        Assert.True(ConnectToEdge(w, site), "no clear run to the edge");
+        Assert.True(w.EdgeCapacity >= 1200);
+        Assert.True(w.InBounds(w.EdgeCell % w.Width, w.EdgeCell / w.Width));
+        w.Step();
+        int after = w.DemandReport()[0].Sources.Single(s => s.Key == "regional").Points[0];
+        Assert.True(after > before, $"regional {before} -> {after}");
+        // The connection is saved with the city.
+        var loaded = World.FromSnapshot(Fixture.Content, w.Snapshot());
+        Assert.Equal(w.EdgeCapacity, loaded.EdgeCapacity);
+    }
+
+    [Fact]
+    public void ForecastIsExactAndLeavesTheCityAlone()
+    {
+        var w = Fixture.Starter();
+        w.Run(200);
+        ulong hash = w.StateHash();
+        var f = w.Forecast(4);
+        Assert.Equal(hash, w.StateHash());
+        Assert.Equal(4, f.Points.Count);
+        Assert.NotEmpty(f.Summary);
+        w.Run(4 * World.DaysPerMonth);
+        Assert.Equal(w.Population, f.Points[^1].Population);
+        Assert.Equal(w.Funds, f.Points[^1].Funds);
+    }
+
+    [Fact]
+    public void ForecastWithAPlanShowsItsEffect()
+    {
+        var w = Fixture.Starter();
+        w.Run(360);
+        var plant = w.Buildings.First(b => b != null && w.TypeOf(b).Id == "coal-plant")!;
+        var f = w.Forecast(2, new SimAction[] { new BulldozeAction(new CellRect(plant.X, plant.Y, plant.X, plant.Y)) });
+        Assert.Contains(f.Events, e => e.Text.Contains("no power plant", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(w.Buildings[plant.Id]);
+    }
+
+    [Fact]
+    public void EveryTopicHasAnArticle()
+    {
+        var w = Fixture.Starter();
+        w.Run(400);
+        var plant = w.Buildings.First(b => b != null && w.TypeOf(b).Id == "coal-plant")!;
+        w.Enqueue(new BulldozeAction(new CellRect(plant.X, plant.Y, plant.X, plant.Y)));
+        w.Run(40);
+        var ids = w.Encyclopedia().Select(a => a.Id).ToHashSet();
+        Assert.Equal(ids.Count, w.Encyclopedia().Count);
+        foreach (var a in w.Encyclopedia())
+        {
+            Assert.NotEmpty(a.Paragraphs);
+            Assert.All(a.SeeAlso, s => Assert.Contains(s, ids));
+        }
+        Assert.All(w.Alerts(), a => Assert.Contains(a.Topic, ids));
+        Assert.All(w.DemandReport(), z => Assert.Contains(z.Topic, ids));
+        foreach (var t in Fixture.Content.Types.Where(t => t.Placeable)) Assert.Contains(t.Id, ids);
+        foreach (var p in Fixture.Content.Profiles) Assert.Contains(p.Id, ids);
+        var proto = Mapping.Why(w.Why(plant.X + 6, plant.Y));
+        Assert.All(proto.Requirements.Where(r => r.Topic != ""), r => Assert.Contains(r.Topic, ids));
+    }
+
+    [Fact]
+    public void AlertsPointAtTheirSource()
+    {
+        var w = Fixture.Starter();
+        w.Run(720);
+        var plant = w.Buildings.First(b => b != null && w.TypeOf(b).Id == "coal-plant")!;
+        // Swap the coal plant for a wind turbine: the town browns out.
+        w.Enqueue(new BulldozeAction(new CellRect(plant.X, plant.Y, plant.X, plant.Y)));
+        w.Enqueue(new PlaceBuildingAction(plant.X, plant.Y, "wind-turbine"));
+        w.Run(3);
+        var brownout = Assert.Single(w.Alerts(), a => a.Key == "brownout");
+        Assert.Equal(2, w.Powered[w.Idx(brownout.X, brownout.Y)]);
+        Assert.Equal("danger", w.Alerts()[0].Severity);
     }
 }

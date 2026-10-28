@@ -795,7 +795,8 @@
       "garbageCap": 0,
       "pollution": 0,
       "waterPollution": 0,
-      "noise": 0
+      "noise": 0,
+      "attraction": 1
     },
     {
       "id": "plaza",
@@ -816,7 +817,8 @@
       "garbageCap": 0,
       "pollution": 0,
       "waterPollution": 0,
-      "noise": 0
+      "noise": 0,
+      "attraction": 2
     },
     {
       "id": "large-park",
@@ -837,7 +839,8 @@
       "garbageCap": 0,
       "pollution": 0,
       "waterPollution": 0,
-      "noise": 0
+      "noise": 0,
+      "attraction": 4
     }
   ]
 }

@@ -49,7 +49,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 1;
+    public const int FormatVersion = 2;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -188,8 +188,14 @@ public sealed partial class World
         {
             Log.Add(new LoggedAction(Tick, a));
             Apply(a);
+            if (a is PlacePathAction or BulldozeAction) _edgeDirty = true;
         }
         _pending.Clear();
+        if (_edgeDirty)
+        {
+            RebuildAccess();
+            RunNeighborConnections();
+        }
     }
 
     /// <summary>Advances the city by one day.</summary>
@@ -213,6 +219,7 @@ public sealed partial class World
 
     void RunMonthly()
     {
+        RunNeighborConnections();
         RecountWorkers();
         RunPollutionAndNoise();
         RunCoverage();
@@ -273,6 +280,10 @@ public sealed partial class World
             w.Write(LastBudget.Count);
             foreach (var (label, amount) in LastBudget) { w.Write(label); w.Write(amount); }
             w.Write(EducationIndex); w.Write(MilestoneIndex);
+            w.Write(EdgeCapacity); w.Write(EdgeCell);
+            // Utility totals from the last tick: queries and demand limits read them before the next tick measures again.
+            w.Write(PowerCapacity); w.Write(PowerDemand); w.Write(WaterCapacity); w.Write(WaterDemand);
+            w.Write(GarbageCapacity); w.Write(GarbageProduced);
         }
         return ms.ToArray();
     }
@@ -328,8 +339,15 @@ public sealed partial class World
         int nb = r.ReadInt32();
         for (int i = 0; i < nb; i++) w.LastBudget.Add((r.ReadString(), r.ReadInt64()));
         w.EducationIndex = r.ReadInt32(); w.MilestoneIndex = r.ReadInt32();
+        w.EdgeCapacity = r.ReadInt32(); w.EdgeCell = r.ReadInt32();
+        w.PowerCapacity = r.ReadInt64(); w.PowerDemand = r.ReadInt64(); w.WaterCapacity = r.ReadInt64(); w.WaterDemand = r.ReadInt64();
+        w.GarbageCapacity = r.ReadInt64(); w.GarbageProduced = r.ReadInt64();
         w.RebuildAccess();
+        // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
+        // applied while paused may have changed the counts since.
+        var demand = (int[])w.Demand.Clone();
         w.UpdateStats();
+        demand.CopyTo(w.Demand, 0);
         return w;
     }
 

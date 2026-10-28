@@ -22,6 +22,9 @@ message ClientMessage {
     LoadRequest load = 8;
     NewCityRequest new_city = 9;
     SetSpeed speed = 10;
+    DemandRequest demand = 11;
+    ForecastRequest forecast = 12;
+    EncyclopediaRequest encyclopedia = 13;
   }
 }
 
@@ -189,6 +192,16 @@ message SetSpeed {
   int32 speed = 1;  // 0 = paused, 1..3
 }
 
+message DemandRequest {}
+
+// Runs a copy of the city ahead. With no plan it shows exactly what happens if the player does nothing.
+message ForecastRequest {
+  int32 months = 1;          // 1..120
+  repeated Action plan = 2;  // optional "what if": applied to the copy first
+}
+
+message EncyclopediaRequest {}
+
 // ---------------------------------------------------------------------------
 // Server -> client
 // ---------------------------------------------------------------------------
@@ -205,6 +218,10 @@ message ServerMessage {
     Notice notice = 8;
     Error error = 9;
     SaveList saves = 10;
+    DemandReport demand = 11;
+    ForecastResult forecast = 12;
+    Encyclopedia encyclopedia = 13;
+    AlertList alerts = 14;  // sent whenever the list changes
   }
 }
 
@@ -293,6 +310,7 @@ message CityStats {
   int64 garbage_produced = 20;
   string city_name = 21;
   repeated BudgetLine budget = 22;
+  repeated int32 demand_raw = 23;  // demand before capacity limits, same order as demand
 }
 
 message BudgetLine {
@@ -337,6 +355,7 @@ message Requirement {
   string label = 2;
   bool met = 3;
   string detail = 4;  // plain-language value vs threshold, and what would fix it
+  string topic = 5;   // encyclopedia article that explains the rule
 }
 
 message WhyResult {
@@ -377,6 +396,89 @@ message Notice {
   string severity = 2;  // "info", "warning", "good"
   int32 x = 3;          // -1 when not located
   int32 y = 4;
+}
+
+// One line of a zone's demand. points has one value shared by every wealth level, or three (low, medium, high).
+message DemandLine {
+  string key = 1;
+  string label = 2;
+  repeated int32 points = 3;
+  string detail = 4;
+}
+
+message ZoneDemand {
+  ZoneKind zone = 1;
+  repeated int32 raw = 2;    // by wealth, before limits
+  repeated int32 final = 3;  // by wealth, what growth uses
+  repeated DemandLine sources = 4;      // local, regional, external, and what already exists
+  repeated DemandLine adjustments = 5;  // per wealth: taxes, education, city size
+  repeated DemandLine limits = 6;       // capacity limits: power headroom, room to grow
+  string binding_key = 7;  // the one thing holding this zone back
+  string binding = 8;
+  int32 x = 9;  // where to look, -1 if nowhere in particular
+  int32 y = 10;
+  string topic = 11;
+}
+
+message DemandReport {
+  repeated ZoneDemand zones = 1;
+}
+
+message Alert {
+  string key = 1;
+  string severity = 2;  // "danger", "warning", "info"
+  string text = 3;
+  int32 x = 4;  // -1 when not located
+  int32 y = 5;
+  int32 count = 6;
+  string topic = 7;
+}
+
+message AlertList {
+  repeated Alert alerts = 1;
+}
+
+message ForecastPoint {
+  int32 year = 1;
+  int32 month = 2;
+  int32 population = 3;
+  int32 jobs = 4;
+  int32 workers = 5;
+  int64 funds = 6;
+  repeated int32 demand = 7;
+  int32 power_percent = 8;
+  int32 water_percent = 9;
+  int32 abandoned = 10;
+}
+
+message ForecastEvent {
+  int32 year = 1;
+  int32 month = 2;
+  string severity = 3;
+  string text = 4;
+  int32 x = 5;
+  int32 y = 6;
+}
+
+message ForecastResult {
+  int32 months = 1;
+  repeated ForecastPoint points = 2;
+  repeated ForecastEvent events = 3;
+  repeated string summary = 4;
+  bool with_plan = 5;
+}
+
+message Article {
+  string id = 1;
+  string title = 2;
+  string category = 3;
+  repeated string paragraphs = 4;
+  repeated KeyValue facts = 5;
+  repeated string see_also = 6;
+}
+
+message Encyclopedia {
+  repeated Article articles = 1;
 }
 
 message Error {

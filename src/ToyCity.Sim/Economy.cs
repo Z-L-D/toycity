@@ -11,12 +11,14 @@ public sealed partial class World
     {
         int pop = 0, pendingPop = 0, labor = 0, employed = 0;
         int jobsC = 0, jobsI = 0, jobsCivic = 0, liveJobs = 0;
+        int attraction = 0;
         long eduWeighted = 0;
         foreach (var b in Buildings)
         {
             if (b == null || b.Abandoned) continue;
             var t = TypeOf(b);
             bool built = b.ConstructionLeft == 0;
+            if (built && t.Attraction > 0 && (b.Powered || t.PowerKw == 0)) attraction += t.Attraction;
             if (b.Residents > 0)
             {
                 if (built)
@@ -45,28 +47,13 @@ public sealed partial class World
         Jobs = liveJobs;
         EducationIndex = pop > 0 ? (int)(eduWeighted * 100 / 255 / pop) : 0;
 
-        // Demand. Counts include buildings under construction so the city doesn't overshoot while they build.
-        int p = pop + pendingPop;
-        int l = p / 2;
-        int jobs = jobsC + jobsI + jobsCivic;
-        int r = 40 * 2000 / (2000 + p) + 60 * (jobs - l) / Math.Max(l, 100);
-        int tc = p / 4;
-        int c = 100 * (tc - jobsC) / Math.Max(tc, 40);
-        int ti = 50 + l * 45 / 100;
-        int ind = 100 * (ti - jobsI) / Math.Max(ti, 50);
-        int edu = EducationIndex;
-        int[] bias =
-        {
-            0, -5 + edu * 20 / 100, -20 + edu * 40 / 100,
-            0, -5 + Math.Min(20, p / 500), -25 + Math.Min(40, p / 250),
-            5 - edu * 30 / 100, 0, -40 + edu * 70 / 100,
-        };
-        int[] baseDemand = { r, c, ind };
-        for (int k = 0; k < 9; k++)
-        {
-            int d = baseDemand[k / 3] + bias[k] - (TaxTenths[k] - 90) * 6 / 10;
-            Demand[k] = Math.Clamp(d, -100, 100);
-        }
+        // Demand counts buildings under construction so the city doesn't overshoot while they build.
+        PendingPopulation = pendingPop;
+        JobsCommercial = jobsC;
+        JobsIndustrial = jobsI;
+        JobsCivic = jobsCivic;
+        Attraction = attraction;
+        ComputeDemand();
 
         while (MilestoneIndex < Milestones.Length && pop >= Milestones[MilestoneIndex])
         {

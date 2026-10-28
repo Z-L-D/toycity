@@ -87,6 +87,7 @@ public static class Mapping
             GarbageProduced = w.GarbageProduced, CityName = w.Name,
         };
         s.Demand.AddRange(w.Demand);
+        s.DemandRaw.AddRange(w.DemandRaw);
         s.TaxTenths.AddRange(w.TaxTenths);
         foreach (var (label, amount) in w.LastBudget) s.Budget.Add(new P.BudgetLine { Label = label, Amount = amount });
         return s;
@@ -117,9 +118,80 @@ public static class Mapping
     public static P.WhyResult Why(WhyReport r)
     {
         var p = new P.WhyResult { X = r.X, Y = r.Y, Subject = r.Subject, Summary = r.Summary };
-        foreach (var q in r.Requirements) p.Requirements.Add(new P.Requirement { Key = q.Key, Label = q.Label, Met = q.Met, Detail = q.Detail });
+        foreach (var q in r.Requirements)
+            p.Requirements.Add(new P.Requirement { Key = q.Key, Label = q.Label, Met = q.Met, Detail = q.Detail, Topic = TopicOf(q.Key) });
         foreach (var f in r.Factors) p.Factors.Add(new P.Factor { Label = f.Label, Value = f.Value });
         return p;
+    }
+
+    /// <summary>The encyclopedia article that explains a why-panel requirement.</summary>
+    static string TopicOf(string key) => key switch
+    {
+        "road" => "lots", "power" or "grid" => "power", "water" or "pipe" => "water", "desirability" => "desirability",
+        "demand" => "demand", "jobs" or "workers" => "traffic", _ => "",
+    };
+
+    static P.DemandLine Line(DemandLine d)
+    {
+        var p = new P.DemandLine { Key = d.Key, Label = d.Label, Detail = d.Detail };
+        p.Points.AddRange(d.Points);
+        return p;
+    }
+
+    public static P.DemandReport Demand(List<ZoneDemandReport> zones)
+    {
+        var r = new P.DemandReport();
+        foreach (var z in zones)
+        {
+            var p = new P.ZoneDemand { Zone = (P.ZoneKind)(int)z.Zone, BindingKey = z.BindingKey, Binding = z.Binding, X = z.X, Y = z.Y, Topic = z.Topic };
+            p.Raw.AddRange(z.Raw);
+            p.Final.AddRange(z.Final);
+            foreach (var d in z.Sources) p.Sources.Add(Line(d));
+            foreach (var d in z.Adjustments) p.Adjustments.Add(Line(d));
+            foreach (var d in z.Limits) p.Limits.Add(Line(d));
+            r.Zones.Add(p);
+        }
+        return r;
+    }
+
+    public static P.AlertList Alerts(List<Alert> alerts)
+    {
+        var r = new P.AlertList();
+        foreach (var a in alerts)
+            r.Alerts.Add(new P.Alert { Key = a.Key, Severity = a.Severity, Text = a.Text, X = a.X, Y = a.Y, Count = a.Count, Topic = a.Topic });
+        return r;
+    }
+
+    public static P.ForecastResult Forecast(ForecastReport f, bool withPlan)
+    {
+        var r = new P.ForecastResult { Months = f.Months, WithPlan = withPlan };
+        foreach (var p in f.Points)
+        {
+            var q = new P.ForecastPoint
+            {
+                Year = p.Year, Month = p.Month, Population = p.Population, Jobs = p.Jobs, Workers = p.Workers, Funds = p.Funds,
+                PowerPercent = p.PowerPercent, WaterPercent = p.WaterPercent, Abandoned = p.Abandoned,
+            };
+            q.Demand.AddRange(p.Demand);
+            r.Points.Add(q);
+        }
+        foreach (var e in f.Events) r.Events.Add(new P.ForecastEvent { Year = e.Year, Month = e.Month, Severity = e.Severity, Text = e.Text, X = e.X, Y = e.Y });
+        r.Summary.AddRange(f.Summary);
+        return r;
+    }
+
+    public static P.Encyclopedia Encyclopedia(List<Article> articles)
+    {
+        var r = new P.Encyclopedia();
+        foreach (var a in articles)
+        {
+            var p = new P.Article { Id = a.Id, Title = a.Title, Category = a.Category };
+            p.Paragraphs.AddRange(a.Paragraphs);
+            foreach (var (k, v) in a.Facts) p.Facts.Add(new P.KeyValue { Key = k, Value = v });
+            p.SeeAlso.AddRange(a.SeeAlso);
+            r.Articles.Add(p);
+        }
+        return r;
     }
 
     public static P.InspectResult Inspect(World w, int x, int y)
