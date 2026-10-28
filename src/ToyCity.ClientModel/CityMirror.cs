@@ -24,6 +24,8 @@ public sealed class CityMirror
     public IReadOnlyList<PathProfileInfo> Profiles { get; private set; } = Array.Empty<PathProfileInfo>();
     public IReadOnlyList<BuildingTypeInfo> Types { get; private set; } = Array.Empty<BuildingTypeInfo>();
     public readonly Dictionary<string, BuildingTypeInfo> TypeById = new();
+    /// <summary>The deepest lot a zoned building grows on, by density.</summary>
+    public int[] LotDepth { get; private set; } = { 2, 3, 4 };
     public StreetNamer Streets { get; private set; } = new(new[] { "Main" }, new[] { "Street" });
     public bool Loaded { get; private set; }
 
@@ -67,6 +69,7 @@ public sealed class CityMirror
         Types = f.Catalog.BuildingTypes.ToList();
         TypeById.Clear();
         foreach (var t in Types) TypeById[t.Id] = t;
+        if (f.Catalog.LotDepth.Count == 3) LotDepth = f.Catalog.LotDepth.ToArray();
         if (f.Catalog.StreetNames.Count > 0) Streets = new StreetNamer(f.Catalog.StreetNames.ToList(), f.Catalog.StreetKinds.ToList());
         Buildings.Clear();
         BuildingAt = new int[n];
@@ -168,4 +171,57 @@ public sealed class CityMirror
 
     /// <summary>The name of the road on a path cell, as the server names it (World.StreetAt).</summary>
     public string StreetAt(int x, int y) => !RoadEW(x, y) && RoadNS(x, y) ? Streets.RoadName(true, x) : Streets.RoadName(false, y);
+
+    static readonly (int Dx, int Dy)[] Dirs = { (1, 0), (-1, 0), (0, 1), (0, -1) };
+
+    /// <summary>The block of open land around a cell, enclosed by paths, or null when it isn't enclosed. Mirrors World.BlockAt.</summary>
+    public List<int>? BlockAt(int x, int y, int max = 1600)
+    {
+        if (!InBounds(x, y)) return null;
+        bool Open(int i) => Paths[i] == 0 && !IsWater(i) && !(BuildingAt[i] > 0 && Buildings.TryGetValue(BuildingAt[i] - 1, out var b) && TypeById.TryGetValue(b.TypeId, out var t) && t.Placeable);
+        int start = Idx(x, y);
+        if (!Open(start)) return null;
+        var cells = new List<int> { start };
+        var seen = new HashSet<int> { start };
+        for (int q = 0; q < cells.Count; q++)
+        {
+            int c = cells[q], cx = c % Width, cy = c / Width;
+            foreach (var (dx, dy) in Dirs)
+            {
+                if (!InBounds(cx + dx, cy + dy)) return null;
+                int n = Idx(cx + dx, cy + dy);
+                if (!Open(n) || !seen.Add(n)) continue;
+                cells.Add(n);
+                if (cells.Count > max) return null;
+            }
+        }
+        return cells;
+    }
+
+    /// <summary>Steps from the nearest frontage path for each block cell (1 touches the road), 0 when no road reaches it.</summary>
+    public Dictionary<int, int> FrontageDepth(List<int> block)
+    {
+        var inBlock = block.ToHashSet();
+        var depth = new Dictionary<int, int>();
+        var queue = new List<int>();
+        foreach (int c in block)
+        {
+            int cx = c % Width, cy = c / Width;
+            if (Dirs.Any(d => InBounds(cx + d.Dx, cy + d.Dy) && ProfileAt(Idx(cx + d.Dx, cy + d.Dy)) is { Frontage: true })) { depth[c] = 1; queue.Add(c); }
+        }
+        for (int q = 0; q < queue.Count; q++)
+        {
+            int c = queue[q], cx = c % Width, cy = c / Width;
+            foreach (var (dx, dy) in Dirs)
+            {
+                if (!InBounds(cx + dx, cy + dy)) continue;
+                int n = Idx(cx + dx, cy + dy);
+                if (!inBlock.Contains(n) || depth.ContainsKey(n)) continue;
+                depth[n] = depth[c] + 1;
+                queue.Add(n);
+            }
+        }
+        foreach (int c in block) depth.TryAdd(c, 0);
+        return depth;
+    }
 }

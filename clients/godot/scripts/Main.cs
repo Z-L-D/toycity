@@ -1,5 +1,6 @@
 using Godot;
 using ToyCity.ClientModel;
+using ToyCity.ClientModel.Tools;
 
 namespace ToyCity.Godot;
 
@@ -15,6 +16,7 @@ public partial class Main : Node
     CityView? _view;
     ClassicCamera? _camera;
     MapView? _map;
+    ToolController? _tools;
     DirectionalLight3D? _sun;
     DisasterView? _disasters;
     Label? _status, _hover;
@@ -22,9 +24,6 @@ public partial class Main : Node
     string? _shots, _bench;
     bool _frozen;  // the bench city is drawn from a fixed state; the server's deltas would undo it
     double _smokeTime;
-
-    const string Hints = ", .  rotate     + −  wheel  zoom     T  top-down     Y  side view\n"
-        + "WASD  arrows  right-drag  screen edge  pan     click the minimap to jump";
 
     public override void _Ready()
     {
@@ -76,12 +75,10 @@ public partial class Main : Node
 
         var hud = new CanvasLayer();
         AddChild(hud);
-        _status = new Label { Text = $"Connecting to {server}…", Position = new Vector2(12, 8) };
-        _hover = new Label { Position = new Vector2(12, 32) };
-        var hints = new Label { Text = Hints, Modulate = new Color(1, 1, 1, 0.8f) };
-        hints.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.Minsize, 12);
-        hints.GrowVertical = Control.GrowDirection.Begin;
-        foreach (var l in new[] { _status, _hover, hints })
+        // Below the toolbar, which runs across the top.
+        _status = new Label { Text = $"Connecting to {server}…", Position = new Vector2(12, 84) };
+        _hover = new Label { Position = new Vector2(12, 108) };
+        foreach (var l in new[] { _status, _hover })
         {
             l.AddThemeColorOverride("font_outline_color", Colors.Black);
             l.AddThemeConstantOverride("outline_size", 4);
@@ -89,18 +86,11 @@ public partial class Main : Node
         }
         _map = new MapView(_client.City);
         hud.AddChild(_map);
+        _tools = new ToolController(_client, _view, _camera, _map);
+        AddChild(_tools);
     }
 
     void SetStatus(string text) { if (_status != null) _status.Text = text; }
-
-    public override void _UnhandledInput(InputEvent e)
-    {
-        if (e is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } b && _map!.CellAt(b.Position) is { } c)
-        {
-            _camera!.CentreOn(c.X + 0.5f, c.Y + 0.5f);
-            GetViewport().SetInputAsHandled();
-        }
-    }
 
     public override void _Process(double delta)
     {
@@ -158,7 +148,8 @@ public partial class Main : Node
     int _shot = -1, _wait;
     static readonly (int Rotation, int Zoom, ViewMode Mode)[] ShotViews =
         { (0, 1, ViewMode.Classic), (1, 1, ViewMode.Classic), (2, 1, ViewMode.Classic), (3, 1, ViewMode.Classic),
-          (0, 0, ViewMode.Classic), (0, 3, ViewMode.Classic), (0, 1, ViewMode.TopDown), (0, 1, ViewMode.Side) };
+          (0, 0, ViewMode.Classic), (0, 3, ViewMode.Classic), (0, 1, ViewMode.TopDown), (0, 1, ViewMode.Side),
+          (0, 2, ViewMode.Classic), (0, 2, ViewMode.Classic) };  // the last two show the zone and road tools' previews
 
     /// <summary>The smoke test: once the city is drawn, picking at the screen centre must find it at every rotation.</summary>
     void Smoke(CityMirror c, double delta)
@@ -198,6 +189,9 @@ public partial class Main : Node
         }
         if (_shot == ShotViews.Length) { GetTree().Quit(0); return; }
         (v.Rotation, v.Zoom, v.Mode) = ShotViews[_shot++];
+        int tx = (int)v.Target.X, ty = (int)v.Target.Y;
+        if (_shot == ShotViews.Length - 1) { _tools!.SetTool(ToolKind.Zone); _tools.Hold((tx + 4, ty + 3), (tx - 4, ty - 3)); }
+        else if (_shot == ShotViews.Length) { _tools!.SetTool(ToolKind.Path); _tools.Hold((tx + 6, ty), (tx - 6, ty)); }
         _wait = 5;
     }
 

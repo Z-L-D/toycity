@@ -105,4 +105,15 @@ public partial class ClassicCamera : Camera3D
         var (o, d) = View.Ray(screen.X, screen.Y, size.X, size.Y);
         return ClassicView.Pick(o, d, MapWidth, MapHeight, city.Top, city.MaxTop);
     }
+
+    /// <summary>The cell under a screen point and where in it the ray meets its top (0..1 east and south), for tools.</summary>
+    public (int X, int Y, float Fx, float Fy)? PickPoint(Vector2 screen, CityView city)
+    {
+        var size = GetViewport().GetVisibleRect().Size;
+        var (o, d) = View.Ray(screen.X, screen.Y, size.X, size.Y);
+        if (ClassicView.Pick(o, d, MapWidth, MapHeight, city.Top, city.MaxTop) is not { } c) return null;
+        float t = d.Y < -1e-6f ? (o.Y - city.Top(c.X, c.Y)) / -d.Y : 0;
+        var hit = o + d * t;
+        return (c.X, c.Y, Mathf.Clamp(hit.X - c.X, 0, 1), Mathf.Clamp(hit.Z - c.Y, 0, 1));
+    }
 }

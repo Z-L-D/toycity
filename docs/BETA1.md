@@ -25,9 +25,11 @@ Command-line options go after `--`, for example
 - `src/ToyCity.ClientModel`: everything a client knows that isn't drawing. `CityMirror` keeps a copy of the
   city from Full and Delta messages and tracks what changed; `ClassicView` is the camera's geometry and
   picking; `Voxels/` holds the .vox reader and writer, the greedy mesher and the placeholder models;
-  `DenseCity` makes the benchmark city. No Godot types, so it is all tested in `tests/ToyCity.ClientModel.Tests`.
+  `DenseCity` makes the benchmark city; `Tools/Planner` turns a tool and a pointer into a preview and the
+  actions to send, with the server's own rules for lines, curves, zoning, footprints and kerbs. No Godot types, so it is all tested in `tests/ToyCity.ClientModel.Tests`.
 - `clients/godot/scripts`: the Godot side. `Main` wires it up, `CityView` draws terrain, water and buildings,
-  `ClassicCamera` handles input, `MapView` is the minimap, `BuildingModels` turns voxel models into meshes.
+  `ClassicCamera` handles input, `MapView` is the minimap, `BuildingModels` turns voxel models into meshes,
+  `ToolController` is the toolbar, tool previews and notices.
 
 ## Classic camera
 
@@ -44,6 +46,30 @@ Orthographic, at the SC4 angle, as in SimCity 4.
 
 Hovering shows the cell, street or building under the cursor. Picking walks the cells under the cursor's
 ray, so it finds the roof of a tall building in front rather than the ground behind it.
+
+## Tools
+
+The toolbar runs across the top; each tool shows its options under it and its keys in the lower left.
+The preview tints the cells a click or drag would change (red where it can't) and the tag at the cursor
+gives the cost. What the preview accepts is what the server accepts: the planner is tested against it.
+
+| Keys | |
+| --- | --- |
+| `Q` | query: click a cell to select it |
+| `B` | bulldoze (drag an area; `U` for underground lines) |
+| `R` | roads, rail and other paths (drag; `C` for a curve: drag the ends, then click to set the bend) |
+| `Z` | zone (drag an area; `Z` again cycles R, C, I; `V` density; `G` block zoning by click) |
+| `X` | de-zone |
+| `L` | power lines and water pipes (`L` again switches) |
+| `N` | buildings and roadside stops (click; snaps to the nearest spot that touches a road) |
+| `F` | terraform |
+| `H` | disasters |
+| `Alt` | free placement: no snapping, lines go any way |
+| `Shift` | an L-shaped line takes its vertical leg first |
+| `Space` | pause or resume |
+| `Esc` | cancel a drag, or back to query |
+
+Errors and warnings from the city show as notices above the bottom of the screen.
 
 ## Voxels
 
