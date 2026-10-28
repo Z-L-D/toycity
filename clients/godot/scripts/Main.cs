@@ -127,7 +127,7 @@ public partial class Main : Node
             _view!.Hover(cell);
             _hover!.Text = cell is { } h ? Describe(c, h.X, h.Y) : "";
             _map!.Marker = _camera.View.Target;
-            _view.SetFar(_camera.View.Zoom <= 1);
+            _view.SetFar(_camera.View.Zoom <= 2);
             // Shadows only as far as the view reaches, so close zoom levels don't cast the whole city.
             _sun!.DirectionalShadowMaxDistance = _camera.View.Distance + _camera.View.Size * 1.5f;
         }
@@ -233,7 +233,7 @@ public partial class Main : Node
         double video = Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed) / 1048576.0;
         double engine = OS.GetStaticMemoryUsage() / 1048576.0, managed = GC.GetTotalMemory(false) / 1048576.0;
         double process = System.Environment.WorkingSet / 1048576.0;
-        string row = $"{{\"zoom\":{v.Zoom},\"lod\":\"{(v.Zoom <= 1 ? "far" : "near")}\",\"avgMs\":{avg:F2},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"fps\":{1000 / avg:F1},"
+        string row = $"{{\"zoom\":{v.Zoom},\"lod\":\"{(v.Zoom <= 2 ? "far" : "near")}\",\"avgMs\":{avg:F2},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"fps\":{1000 / avg:F1},"
             + $"\"triangles\":{tris},\"drawCalls\":{calls},\"objects\":{objects},\"videoMB\":{video:F0},\"engineMB\":{engine:F0},\"managedMB\":{managed:F0},\"processMB\":{process:F0}}}";
         _benchRows.Add(row);
         GD.Print($"BENCH zoom {v.Zoom}: {avg:F2} ms avg ({1000 / avg:F0} fps), p95 {p95:F2} ms, {tris:N0} triangles, {calls} draw calls, process {process:F0} MB, video {video:F0} MB");
