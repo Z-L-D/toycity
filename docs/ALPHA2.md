@@ -344,7 +344,11 @@ right up to its arc.
 | --- | --- | --- | --- | --- |
 | Dev VM, 4 cores, Ubuntu 24.04.5 | quick, 1,586 people | 0.63 ms | 6.11 µs | 3,600 / 36,000 |
 | Dev VM, 4 cores, Ubuntu 24.04.5 | full, 48,108 people | 3.63 ms | 0.91 µs | 11,500 / 115,000 |
-RUNNER_ROWS
+| GitHub Actions runner, 4 cores, Ubuntu 24.04.5 | quick, 1,586 people | 0.65 ms | 7.52 µs | 2,900 / 29,000 |
+| GitHub Actions runner, 4 cores, Ubuntu 24.04.5 | full, 48,108 people | 3.25 ms | 1.03 µs | 11,600 / 116,000 |
+
+CI measures its runner on every push and puts both profiles in the job summary. Runs on the
+same machine vary by about a tenth, so a machine's tiers are measured once and kept.
 The quick city's agents cost more each because its commutes are longer for its size and a
 seventh of them search a route each day; the full city has many short local commutes.
 
