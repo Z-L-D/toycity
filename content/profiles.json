@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Built-in path profiles: the 15 pathway types from the original brief. A profile is a cross-section of strips; Alpha 1 uses the summary fields, and the path designer will edit strips later. Speeds in km/h, capacity in vehicles or people per hour, money in dollars, noise in dB at the kerb, maintenance per cell per month.",
+  "notes": "Built-in path profiles: the 15 pathway types from the original brief, plus tram and rail (Alpha 2). tram is shared (trams run in traffic) or dedicated (their own lane); rail lines carry only trains. A profile is a cross-section of strips; Alpha 1 uses the summary fields, and the path designer will edit strips later. Speeds in km/h, capacity in vehicles or people per hour, money in dollars, noise in dB at the kerb, maintenance per cell per month.",
   "profiles": [
     { "id": "walking-trail", "name": "Walking trail", "speedKmh": 5, "capacityPerHour": 400, "cars": false, "bikes": true, "pedestrians": true, "oneWay": false, "frontage": true, "costPerCell": 5, "maintenancePerCell": 0.05, "noiseDb": 30, "widthM": 3, "color": "#b9a27a",
       "strips": [ { "type": "shared-path", "widthM": 3 } ] },
@@ -31,6 +31,12 @@
     { "id": "highway-4", "name": "4-lane highway", "speedKmh": 100, "capacityPerHour": 4800, "cars": true, "bikes": false, "pedestrians": false, "oneWay": false, "frontage": false, "costPerCell": 100, "maintenancePerCell": 1.0, "noiseDb": 74, "widthM": 22, "color": "#33333f",
       "strips": [ { "type": "shoulder", "widthM": 2 }, { "type": "car", "widthM": 3.7 }, { "type": "car", "widthM": 3.7 }, { "type": "median", "widthM": 2 }, { "type": "car", "widthM": 3.7 }, { "type": "car", "widthM": 3.7 }, { "type": "shoulder", "widthM": 2 } ] },
     { "id": "highway-6", "name": "6-lane highway", "speedKmh": 110, "capacityPerHour": 7200, "cars": true, "bikes": false, "pedestrians": false, "oneWay": false, "frontage": false, "costPerCell": 150, "maintenancePerCell": 1.5, "noiseDb": 77, "widthM": 30, "color": "#2b2b36",
-      "strips": [ { "type": "shoulder", "widthM": 2.5 }, { "type": "car", "widthM": 3.7 }, { "type": "car", "widthM": 3.7 }, { "type": "car", "widthM": 3.7 }, { "type": "median", "widthM": 2 }, { "type": "car", "widthM": 3.7 }, { "type": "car", "widthM": 3.7 }, { "type": "car", "widthM": 3.7 }, { "type": "shoulder", "widthM": 2.5 } ] }
+      "strips": [ { "type": "shoulder", "widthM": 2.5 }, { "type": "car", "widthM": 3.7 }, { "type": "car", "widthM": 3.7 }, { "type": "car", "widthM": 3.7 }, { "type": "median", "widthM": 2 }, { "type": "car", "widthM": 3.7 }, { "type": "car", "widthM": 3.7 }, { "type": "car", "widthM": 3.7 }, { "type": "shoulder", "widthM": 2.5 } ] },
+    { "id": "tram-street", "name": "Street with tram", "speedKmh": 30, "capacityPerHour": 500, "cars": true, "bikes": true, "pedestrians": true, "oneWay": false, "frontage": true, "costPerCell": 45, "maintenancePerCell": 0.4, "noiseDb": 54, "widthM": 12, "color": "#857594", "tram": "shared",
+      "strips": [ { "type": "walk", "widthM": 2 }, { "type": "car-tram", "widthM": 4 }, { "type": "car-tram", "widthM": 4 }, { "type": "walk", "widthM": 2 } ] },
+    { "id": "tram-avenue", "name": "Avenue with tram median", "speedKmh": 50, "capacityPerHour": 1200, "cars": true, "bikes": true, "pedestrians": true, "oneWay": false, "frontage": true, "costPerCell": 90, "maintenancePerCell": 0.8, "noiseDb": 58, "widthM": 26, "color": "#6d5c8a", "tram": "dedicated",
+      "strips": [ { "type": "walk", "widthM": 3 }, { "type": "bike", "widthM": 2 }, { "type": "car", "widthM": 3.5 }, { "type": "tram", "widthM": 3.25 }, { "type": "tram", "widthM": 3.25 }, { "type": "car", "widthM": 3.5 }, { "type": "bike", "widthM": 2 }, { "type": "walk", "widthM": 3 } ] },
+    { "id": "rail", "name": "Rail line", "speedKmh": 100, "capacityPerHour": 0, "cars": false, "bikes": false, "pedestrians": false, "oneWay": false, "frontage": false, "costPerCell": 70, "maintenancePerCell": 0.5, "noiseDb": 68, "widthM": 10, "color": "#5b4636", "rail": true,
+      "strips": [ { "type": "ballast", "widthM": 1 }, { "type": "rail", "widthM": 4 }, { "type": "rail", "widthM": 4 }, { "type": "ballast", "widthM": 1 } ] }
   ]
 }

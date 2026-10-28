@@ -253,6 +253,38 @@ funnel, a clanking tin robot and a shaking view during a quake. `DisasterTests` 
 coverage, the robot's lane, the quake radius, the sandbox with disasters off, and save/load and
 replay mid-disaster.
 
+## Transit: bus, tram and rail
+
+Stops are civic buildings placed touching the path their vehicles use:
+
+| Stop | Vehicles run on | Catchment | Capacity a day | Wait | Cost / upkeep |
+| --- | --- | --- | --- | --- | --- |
+| Bus Stop (1x1) | any path with cars, at the traffic's speed x1.1 | 4 cells | 400 | 2 min | $150 / $15 |
+| Tram Stop (1x1) | Street with tram (in traffic, at least 40 km/h time) or Avenue with tram median (own lane, 40 km/h) | 5 cells | 1,200 | 2 min | $600 / $40 |
+| Rail Station (2x2, needs power) | Rail line, 100 km/h | 7 cells | 4,000 | 2 min | $4,000 / $150 |
+
+New path profiles: Street with tram, Avenue with tram median, and Rail line (trains only, no
+frontage; it replaces any road it crosses, as there are no level crossings yet).
+
+The commute search now runs over a street layer and one ride layer per vehicle kind. From a
+home, people can start on the street (from the driveway) or at any stop whose catchment reaches
+the home: half a minute plus half a minute a cell to get there, then the wait. They ride, get off
+(half a minute), and either walk to a workplace within the stop's catchment or walk to another
+stop within 3 cells to change. Everyone takes the fastest way, so:
+
+- Households without a car (35% of low-wealth workers, 15% medium, 5% high) search first, with an
+  8 minute penalty on the street (a lift, a long walk). Buses help them most.
+- Buses crawl with the traffic; trams on their own lane and trains don't.
+- Riders take their cars off the road; a bus adds one vehicle per twenty riders to the traffic.
+- Waits grow on the BPR curve when a stop handles more than its capacity, and with less funding.
+- The city keeps 4 cents a boarding: fares show as a budget line.
+
+Alerts flag a stop that doesn't touch its line and a crowded stop. The Why panel on a stop gives
+riders, wait, and the homes and workplaces in reach; Inspect on a home splits its workers by
+street and transit; the Transit riders overlay (20) shows the busy legs. `TransitTests` cover a
+train beating a slow road and emptying it, buses carrying carless workers and earning fares, a
+stop off its line, and save/load with transit commutes.
+
 ## Balance changes
 
 - A path now carries twice its hourly capacity in commuter trips a day (Alpha 1 used a quarter).
@@ -264,4 +296,5 @@ replay mid-disaster.
 
 Format version 2 adds the neighbour connection and the utility totals of the last tick, so a
 loaded city's queries and demand limits match the city that was saved. Part 4 adds graffiti and burning days per building, the litter and blight
-layers, the disaster setting and the disasters in progress.
+layers, the disaster setting and the disasters in progress. Part 5 adds transit legs and stops to
+each commute, riders per cell and per stop, and the day's boardings.

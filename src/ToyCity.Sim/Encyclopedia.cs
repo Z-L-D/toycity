@@ -114,7 +114,21 @@ public sealed partial class World
         }, new()
         {
             ("Workers with a job", $"{Workers:N0} of {LaborForce:N0}"), ("Busiest path cell", $"{busiest:N0} trips a day"),
-        }, "road", "noise", "pollution");
+        }, "road", "noise", "pollution", "transit");
+
+        Add("transit", "Buses, trams and trains", "Rules", new()
+        {
+            $"Transit stops serve people within their catchment: 4 cells for a bus stop, 5 for a tram stop, 7 for a rail station. Getting to or from a stop takes half a minute plus half a minute a cell; then people wait (2 minutes, longer at a crowded or underfunded stop), ride, may change at another stop within {TransferReach} cells, and walk to work.",
+            "Buses run on any road with cars and crawl with the traffic. Trams need a tram line: in shared lanes they are as slow as the traffic, on an avenue with a tram median they keep 40 km/h. Trains run on rail lines at 100 km/h, and a rail station needs power.",
+            $"Everyone picks the fastest way to work. Households without a car ({CarlessPercent[0]}% of low-wealth workers, {CarlessPercent[1]}% medium, {CarlessPercent[2]}% high) still get there, but {CarlessPenalty / 600} minutes slower, so transit helps them most. Riders take cars off the road; a bus adds one vehicle per twenty riders.",
+            $"The city keeps {FareCents} cents a boarding in fares. Stops cost upkeep, scaled by funding; underfunded lines run less often.",
+        }, new()
+        {
+            ("Stops in service", _stops.Count.ToString("N0")),
+            ("Boardings a day", TransitBoardings.ToString("N0")),
+            ("Commuters by transit", Buildings.Sum(b => b == null ? 0 : b.Assignments.Where(a => a.ByTransit).Sum(a => a.Count)).ToString("N0")),
+            ("Fares last month", $"${TransitFares():N0}"),
+        }, "traffic", "bus-stop", "tram-stop", "rail-station", "tram-street", "tram-avenue", "rail");
 
         Add("land-value", "Land value", "Rules", new()
         {
@@ -287,6 +301,16 @@ public sealed partial class World
             if (t.Jobs > 0) facts.Add(("Jobs", t.Jobs.ToString()));
             if (t.Income > 0) { facts.Add(("Pays the city", $"{Money(t.Income)} a month")); paras.Add($"Pays the city {Money(t.Income)} a month while it runs."); }
             if (t.Pollution > 0 && t.Category == Category.Reward) paras.Add("Pollutes the land around it.");
+            if (t.Transit != TransitKind.None)
+            {
+                string line = t.Transit switch { TransitKind.Bus => "a road", TransitKind.Tram => "a tram line", _ => "a rail line" };
+                paras.Add($"A {t.Transit.ToString().ToLowerInvariant()} stop. Place it touching {line}. People within {t.Catchment} cells may ride from it, and people may ride to work within {t.Catchment} cells of it.");
+                facts.Add(("Catchment", $"{t.Catchment} cells"));
+                facts.Add(("Capacity", $"{t.Capacity:N0} people a day"));
+                facts.Add(("Wait", $"{t.Wait} minutes"));
+                int riders = built.Sum(b => b!.Riders);
+                if (built.Count > 0) facts.Add(("Riders", $"{riders:N0} a day across all of them"));
+            }
             if (paras.Count == 0) paras.Add($"A {t.Category.ToString().ToLowerInvariant()} building.");
             if (t.Unlock != null) facts.Add(("Unlock", TypeUnlocked[t.Index] ? "unlocked" : t.UnlockText));
             if (t.Unique) facts.Add(("Limit", "one per city"));
@@ -299,7 +323,7 @@ public sealed partial class World
             string rule = t.Category switch
             {
                 Category.Power => "power", Category.Water => "water", Category.Garbage => "garbage",
-                Category.Landmark or Category.Reward => "landmarks", _ => "services",
+                Category.Landmark or Category.Reward => "landmarks", Category.Transit => "transit", _ => "services",
             };
             Add(t.Id, t.Name, cat, paras, facts, rule);
         }
@@ -316,6 +340,8 @@ public sealed partial class World
             if (p.Cars) modes.Add("cars");
             if (p.Bikes) modes.Add("bikes");
             if (p.Pedestrians) modes.Add("people on foot");
+            if (p.Tram != "") modes.Add(p.Tram == "dedicated" ? "trams on their own lane" : "trams in the traffic");
+            if (p.Rail) modes.Add("trains");
             var paras = new List<string>
             {
                 $"Carries {string.Join(", ", modes)} at up to {p.SpeedKmh} km/h." + (p.Frontage ? " Lots beside it get road access." : " No frontage: lots beside it get no access."),

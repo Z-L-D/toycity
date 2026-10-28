@@ -31,7 +31,7 @@ public class ContentTests
     public void LoadsAllProfilesAndTemplates()
     {
         var c = Fixture.Content;
-        Assert.Equal(15, c.Profiles.Count);
+        Assert.Equal(18, c.Profiles.Count);
         Assert.Equal(27, c.Types.Count(t => !t.Placeable));
         Assert.Equal("Rustbucket Bungalow", c.Zoned(Zone.Residential, Level.Low, Level.Low).Name);
         Assert.True(c.ProfileIndex("highway-4") >= 0);
@@ -379,7 +379,7 @@ public class ProtocolTests
         Assert.Equal(w.N * 2, f.Paths.Length);
         Assert.Equal(w.Buildings.Count(b => b != null), f.Buildings.Count);
         Assert.Equal(9, f.Stats.Demand.Count);
-        Assert.Equal(15, f.Catalog.Profiles.Count);
+        Assert.Equal(18, f.Catalog.Profiles.Count);
     }
 
     [Fact]
@@ -985,5 +985,107 @@ public class WearTests
         var f = new List<Factor>();
         w.LandValueOf(i, f);
         Assert.Contains(f, x => x.Label == "Run-down area" && x.Value < 0);
+    }
+}
+
+public class TransitTests
+{
+    /// <summary>
+    /// A hand-built lab: a home and a factory 26 cells apart on a slow dirt road, a coal plant between them, and
+    /// optionally a rail line with a station at each end.
+    /// </summary>
+    static (World W, Building Home, Building Work, int RoadY) Lab(bool rail)
+    {
+        var (w, x, y) = Fixture.FlatSite();
+        int road = y + 10;
+        w.Enqueue(new PlacePathAction(x, road, x + 30, road, "dirt-road"));
+        w.Enqueue(new PlaceBuildingAction(x + 12, road - 4, "coal-plant"));
+        if (rail)
+        {
+            w.Enqueue(new PlacePathAction(x, road + 3, x + 30, road + 3, "rail"));
+            w.Enqueue(new PlaceBuildingAction(x + 1, road + 1, "rail-station"));
+            w.Enqueue(new PlaceBuildingAction(x + 27, road + 1, "rail-station"));
+        }
+        w.Step();
+        var home = w.AddBuilding(Fixture.Content.Zoned(Zone.Residential, Level.Medium, Level.High), x + 1, road - 2, 0, 2, 2);
+        var work = w.AddBuilding(Fixture.Content.Zoned(Zone.Industrial, Level.Medium, Level.Medium), x + 27, road - 2, 0, 2, 2);
+        // Long enough for the home to pick its jobs and for the month's traffic count to see them.
+        w.Run(61);
+        return (w, home, work, road);
+    }
+
+    [Fact]
+    public void TrainsWinOverASlowRoadAndTakeCarsOffIt()
+    {
+        var (car, carHome, _, road) = Lab(rail: false);
+        var (train, trainHome, _, _) = Lab(rail: true);
+        Assert.NotEmpty(carHome.Assignments);
+        Assert.All(carHome.Assignments, a => Assert.False(a.ByTransit));
+        var rode = trainHome.Assignments.Where(a => a.ByTransit).ToList();
+        Assert.NotEmpty(rode);
+        Assert.True(rode.Sum(a => a.Count) * 2 > trainHome.Employed, "most should take the train");
+        Assert.All(rode, a => Assert.Equal(2, a.Stops.Length));
+        Assert.True(trainHome.CommuteMinutes < carHome.CommuteMinutes, $"{trainHome.CommuteMinutes} vs {carHome.CommuteMinutes} min");
+        // The road between them carries fewer trips.
+        int roadTrips(World w) => Enumerable.Range(0, w.Width).Select(x => w.Trips[w.Idx(x, road)]).Max();
+        Assert.True(roadTrips(train) < roadTrips(car), $"{roadTrips(train)} vs {roadTrips(car)} trips");
+        Assert.True(train.TransitBoardings > 0);
+        var station = train.Buildings.First(b => b != null && train.TypeOf(b).Id == "rail-station")!;
+        Assert.True(station.Riders > 0);
+        Assert.Contains("people get on or off", train.Why(station.X, station.Y).Summary);
+    }
+
+    [Fact]
+    public void BusesCarryPeopleWithoutCarsAndEarnFares()
+    {
+        var w = Fixture.Starter(42);
+        w.Run(360);
+        var spots = new List<(int X, int Y)>();
+        for (int y = 0; y < w.HeightCells; y++)
+        for (int x = 0; x < w.Width; x++)
+        {
+            int i = w.Idx(x, y);
+            if (w.BuildingAt[i] != 0 || w.Path[i] != 0 || w.IsWater(i)) continue;
+            bool road = new[] { (1, 0), (-1, 0), (0, 1), (0, -1) }.Any(d => w.InBounds(x + d.Item1, y + d.Item2) && w.Carries(TransitKind.Bus, w.Idx(x + d.Item1, y + d.Item2)));
+            if (!road || spots.Any(s => Math.Abs(s.X - x) + Math.Abs(s.Y - y) < 7)) continue;
+            spots.Add((x, y));
+            w.Enqueue(new PlaceBuildingAction(x, y, "bus-stop"));
+        }
+        w.Run(60);
+        int riders = w.Buildings.Sum(b => b == null ? 0 : b.Assignments.Where(a => a.ByTransit).Sum(a => a.Count));
+        Assert.True(riders > 0, "nobody took the bus");
+        Assert.True(w.TransitBoardings > 0);
+        Assert.Contains(w.LastBudget, l => l.Label == "Transit fares" && l.Amount > 0);
+        // Low-wealth homes lean on the bus more than rich ones.
+        double Share(Level wealth)
+        {
+            var homes = w.Buildings.Where(b => b is { Residents: > 0 } && w.TypeOf(b).Wealth == wealth).ToList();
+            int all = homes.Sum(h => h!.Employed), bus = homes.Sum(h => h!.Assignments.Where(a => a.ByTransit).Sum(a => a.Count));
+            return all == 0 ? 0 : bus / (double)all;
+        }
+        Assert.True(Share(Level.Low) > 0);
+        Assert.Contains(w.Encyclopedia(), a => a.Id == "transit");
+    }
+
+    [Fact]
+    public void TransitCommutesSurviveSaveAndReplay()
+    {
+        var (w, _, _, _) = Lab(rail: true);
+        var loaded = World.FromSnapshot(Fixture.Content, w.Snapshot());
+        Assert.Equal(w.StateHash(), loaded.StateHash());
+        w.Run(45);
+        loaded.Run(45);
+        Assert.Equal(w.StateHash(), loaded.StateHash());
+    }
+
+    [Fact]
+    public void AStopAwayFromItsLineSaysSo()
+    {
+        var (w, x, y) = Fixture.FlatSite();
+        w.Enqueue(new PlaceBuildingAction(x + 5, y + 5, "tram-stop"));
+        w.Step();
+        var stop = w.Buildings.First(b => b != null && w.TypeOf(b).Id == "tram-stop")!;
+        Assert.Contains(w.Alerts(), a => a.Key == "stop-no-line" && a.Topic == "transit");
+        Assert.Contains("must touch a tram line", w.Why(stop.X, stop.Y).Summary);
     }
 }

@@ -227,6 +227,7 @@ public sealed partial class World
                 list.Add(b.Id);
             }
         }
+        RebuildTransit();
     }
 
     void RunGarbage()

@@ -5,7 +5,7 @@ public enum OverlayKind
 {
     None = 0, LandValue = 1, DesirabilityR = 2, DesirabilityC = 3, DesirabilityI = 4, GroundPollution = 5,
     WaterPollution = 6, Power = 7, Water = 8, Traffic = 9, Noise = 10, Police = 11, Fire = 12, Health = 13,
-    Education = 14, Parks = 15, Commute = 16, Elevation = 17, Litter = 18, Blight = 19,
+    Education = 14, Parks = 15, Commute = 16, Elevation = 17, Litter = 18, Blight = 19, Transit = 20,
 }
 
 public sealed record WhyReport(int X, int Y, string Subject, string Summary, List<Requirement> Requirements, List<Factor> Factors);
@@ -81,6 +81,7 @@ public sealed partial class World
                 : "Not pumping: a pump needs power.",
             Category.Garbage => HasFrontage(b) ? $"Takes {t.GarbageCap * FundingFactor(b.Funding) / 100:N0} units a day. City makes {GarbageProduced:N0}, can handle {GarbageCapacity:N0}."
                 : "Not collecting: garbage trucks need a road next to the landfill.",
+            Category.Transit => TransitSummary(b),
             _ => b.Powered || t.PowerKw == 0 ? $"Covers a radius of {EffectiveRadius(b)} cells at {b.Funding}% funding." : "Not working: no power.",
         };
         if (t.PowerKw > 0 && !b.Powered && t.Category != Category.Power) reqs.Add(new Requirement("grid", "Grid", false, "Run a power line from a plant, or place it next to powered buildings or zones."));
@@ -100,6 +101,17 @@ public sealed partial class World
             : $"Owners keep it at {target}: " + string.Join(", ", parts.Select(p => $"{p.Label.ToLowerInvariant()} {(p.Value > 0 ? "+" : "")}{p.Value}")) + ".";
         string tags = b.Graffiti > 0 ? $" Graffiti: {b.Graffiti} of 3." : "";
         return new Requirement("condition", "Condition", b.Condition >= RunDownBelow, $"{b.Condition} of 100 ({LookOf(b).ToString().ToLowerInvariant()}). {why}{tags}");
+    }
+
+    string TransitSummary(Building b)
+    {
+        var t = TypeOf(b);
+        if (!StopWorks(b)) return t.PowerKw > 0 && !b.Powered ? "Closed: a station needs power." : "Closed.";
+        if (!_stopById.TryGetValue(b.Id, out var info))
+            return $"Nothing stops here: it must touch {(t.Transit == TransitKind.Bus ? "a road" : t.Transit == TransitKind.Tram ? "a tram line" : "a rail line")}.";
+        int homes = Buildings.Count(h => h is { Residents: > 0 } && RectGap(h, b) <= t.Catchment);
+        return $"{b.Riders:N0} people get on or off a day (built for {t.Capacity:N0}); the wait is {StopWait(b) / 600.0:0.#} minutes. "
+            + $"Within {t.Catchment} cells: {homes} homes and {info.Sites.Length} workplaces. Changes to {info.Transfers.Length} other stops nearby.";
     }
 
     bool WaterPipeTouches(Building b)
@@ -133,7 +145,13 @@ public sealed partial class World
         {
             var t = TypeOf(b);
             f.Add(("Building", $"#{b.Id} {t.Name}"));
-            if (b.Residents > 0) f.Add(("Residents", $"{b.Residents}, {b.Employed} employed, {b.CommuteMinutes} min commute"));
+            if (b.Residents > 0)
+            {
+                f.Add(("Residents", $"{b.Residents}, {b.Employed} employed, {b.CommuteMinutes} min commute"));
+                int ride = b.Assignments.Where(a => a.ByTransit).Sum(a => a.Count);
+                f.Add(("Getting to work", $"{b.Employed - ride} on the street, {ride} by transit; {CarlessOf(b)} of {LaborOf(b)} workers have no car"));
+            }
+            if (t.Transit != TransitKind.None) f.Add(("Riders", $"{b.Riders} a day of {t.Capacity}, wait {StopWait(b) / 600.0:0.#} min"));
             f.Add(("Lot", $"{b.W} × {b.H}"));
             if (b.Jobs > 0) f.Add(("Jobs", $"{b.Workers} of {b.Jobs} filled"));
             if (t.Placeable) f.Add(("Funding", $"{b.Funding}%"));
@@ -172,6 +190,7 @@ public sealed partial class World
                 }
                 low = "short"; high = "long or none"; break;
             case OverlayKind.Litter: Array.Copy(Litter, v, N); low = "tidy"; high = "strewn"; break;
+            case OverlayKind.Transit: for (int i = 0; i < N; i++) v[i] = (byte)Math.Min(255, Riders[i] * 2); low = "none"; high = "busy"; break;
             case OverlayKind.Blight: Array.Copy(Blight, v, N); low = "kept up"; high = "run down"; break;
             case OverlayKind.Elevation: for (int i = 0; i < N; i++) v[i] = (byte)(Height[i] * 255 / MaxHeight); break;
         }

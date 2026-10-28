@@ -11,7 +11,14 @@ public sealed class Assignment
     public int SiteId;
     public int Count;
     public int Minutes;
+    /// <summary>Street cells driven, walked or cycled: these make traffic.</summary>
     public int[] PathCells = Array.Empty<int>();
+    /// <summary>Transit legs: search states (layer * N + cell) ridden.</summary>
+    public int[] RideCells = Array.Empty<int>();
+    /// <summary>Stops used, in order: where each leg got on, then off.</summary>
+    public int[] Stops = Array.Empty<int>();
+
+    public bool ByTransit => RideCells.Length > 0;
 }
 
 public sealed class Building
@@ -40,6 +47,8 @@ public sealed class Building
     public int Graffiti;
     /// <summary>Days this building has been on fire, 0 when it isn't.</summary>
     public int BurningDays;
+    /// <summary>Transit stops: people getting on and off a day, from last month's commutes.</summary>
+    public int Riders;
     /// <summary>Driveway: the path cell this building uses to reach the network, or -1. Derived, not saved.</summary>
     public int Access = -1;
     public List<Assignment> Assignments = new();
@@ -148,6 +157,7 @@ public sealed partial class World
         Coverage = new byte[5][];
         for (int i = 0; i < 5; i++) Coverage[i] = new byte[N];
         Litter = new byte[N];
+        Riders = new int[N];
         Blight = new byte[N];
         Array.Fill(TaxTenths, 90);
         InitOrdinances();
@@ -272,7 +282,7 @@ public sealed partial class World
             w.Write(Pollution); w.Write(WaterPollution); w.Write(Noise); w.Write(Traffic);
             WriteI32(w, Trips); WriteI32(w, TravelCost); w.Write(WaterDistance);
             foreach (var c in Coverage) w.Write(c);
-            w.Write(Litter); w.Write(Blight);
+            w.Write(Litter); w.Write(Blight); WriteI32(w, Riders); w.Write(TransitBoardings);
 
             w.Write(Buildings.Count);
             foreach (var b in Buildings)
@@ -282,13 +292,17 @@ public sealed partial class World
                 w.Write(b.Type); w.Write(b.X); w.Write(b.Y); w.Write(b.W); w.Write(b.H);
                 w.Write(b.Funding); w.Write(b.Condition); w.Write(b.Abandoned); w.Write(b.ConstructionLeft);
                 w.Write(b.UnmetMonths); w.Write(b.GoodMonths); w.Write(b.Powered); w.Write(b.Watered);
-                w.Write(b.Workers); w.Write(b.Employed); w.Write(b.CommuteMinutes); w.Write(b.Graffiti); w.Write(b.BurningDays);
+                w.Write(b.Workers); w.Write(b.Employed); w.Write(b.CommuteMinutes); w.Write(b.Graffiti); w.Write(b.BurningDays); w.Write(b.Riders);
                 w.Write(b.Assignments.Count);
                 foreach (var a in b.Assignments)
                 {
                     w.Write(a.SiteId); w.Write(a.Count); w.Write(a.Minutes);
                     w.Write(a.PathCells.Length);
                     foreach (var c in a.PathCells) w.Write(c);
+                    w.Write(a.RideCells.Length);
+                    foreach (var c in a.RideCells) w.Write(c);
+                    w.Write(a.Stops.Length);
+                    foreach (var c in a.Stops) w.Write(c);
                 }
             }
 
@@ -330,7 +344,7 @@ public sealed partial class World
         ReadBytes(r, w.Pollution); ReadBytes(r, w.WaterPollution); ReadBytes(r, w.Noise); ReadBytes(r, w.Traffic);
         ReadI32(r, w.Trips); ReadI32(r, w.TravelCost); ReadBytes(r, w.WaterDistance);
         foreach (var c in w.Coverage) ReadBytes(r, c);
-        ReadBytes(r, w.Litter); ReadBytes(r, w.Blight);
+        ReadBytes(r, w.Litter); ReadBytes(r, w.Blight); ReadI32(r, w.Riders); w.TransitBoardings = r.ReadInt32();
 
         int count = r.ReadInt32();
         for (int id = 0; id < count; id++)
@@ -342,7 +356,7 @@ public sealed partial class World
                 Funding = r.ReadInt32(), Condition = r.ReadInt32(), Abandoned = r.ReadBoolean(), ConstructionLeft = r.ReadInt32(),
                 UnmetMonths = r.ReadInt32(), GoodMonths = r.ReadInt32(), Powered = r.ReadBoolean(), Watered = r.ReadBoolean(),
                 Workers = r.ReadInt32(), Employed = r.ReadInt32(), CommuteMinutes = r.ReadInt32(),
-                Graffiti = r.ReadInt32(), BurningDays = r.ReadInt32(),
+                Graffiti = r.ReadInt32(), BurningDays = r.ReadInt32(), Riders = r.ReadInt32(),
             };
             int na = r.ReadInt32();
             for (int k = 0; k < na; k++)
@@ -350,6 +364,10 @@ public sealed partial class World
                 var a = new Assignment { SiteId = r.ReadInt32(), Count = r.ReadInt32(), Minutes = r.ReadInt32() };
                 a.PathCells = new int[r.ReadInt32()];
                 for (int c = 0; c < a.PathCells.Length; c++) a.PathCells[c] = r.ReadInt32();
+                a.RideCells = new int[r.ReadInt32()];
+                for (int c = 0; c < a.RideCells.Length; c++) a.RideCells[c] = r.ReadInt32();
+                a.Stops = new int[r.ReadInt32()];
+                for (int c = 0; c < a.Stops.Length; c++) a.Stops[c] = r.ReadInt32();
                 b.Assignments.Add(a);
             }
             w.InitTotals(b);

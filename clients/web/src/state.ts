@@ -24,6 +24,7 @@ export interface Building {
   burningDays: number;
   /** BuildingLook: 0 fine, 1 building, 2 struggling, 3 run down, 4 abandoned, 5 derelict, 6 burning. */
   look: number;
+  riders: number;
 }
 
 export interface Profile {
@@ -38,6 +39,9 @@ export interface Profile {
   costPerCell: number;
   color: string;
   widthM: number;
+  /** "shared", "dedicated" or "" */
+  tram: string;
+  rail: boolean;
 }
 
 export interface BuildingType {
@@ -56,6 +60,10 @@ export interface BuildingType {
   unique: boolean;
   income: number;
   attraction: number;
+  /** "bus", "tram", "rail" or "" */
+  transit: string;
+  capacity: number;
+  catchment: number;
 }
 
 /** The client's mirror of the city, kept current from FullState and TickDelta messages. */

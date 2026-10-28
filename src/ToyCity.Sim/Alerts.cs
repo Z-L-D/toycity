@@ -76,6 +76,15 @@ public sealed partial class World
                     Add("pump-pipe", "warning", $"{t.Name} isn't connected to a pipe.", at, 1, "water");
                 if (t.Category == Category.Garbage && !HasFrontage(b))
                     Add("landfill-road", "warning", $"{t.Name} has no road, so no trucks come.", at, 1, "garbage");
+                if (t.Transit != TransitKind.None)
+                {
+                    string line = t.Transit switch { TransitKind.Bus => "a road", TransitKind.Tram => "a tram line", _ => "a rail line" };
+                    if (!_stopById.ContainsKey(b.Id) && StopWorks(b))
+                        Add("stop-no-line", "warning", $"{t.Name} isn't next to {line}, so nothing stops there.", at, 1, "transit");
+                    else if (t.PowerKw > 0 && !b.Powered && PowerCapacity > 0) { }
+                    else if (b.Riders > t.Capacity)
+                        Add("stop-crowded", "warning", $"{t.Name} handles {b.Riders:N0} people a day, more than the {t.Capacity:N0} it was built for, so waits are longer. Add a stop nearby.", at, 1, "transit");
+                }
                 continue;
             }
             if (b.Graffiti >= 2) { tagged++; if (taggedAt < 0) taggedAt = at; }

@@ -3,6 +3,9 @@
     <RootNamespace>ToyCity.Sim</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="ToyCity.Sim.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="System.IO.Hashing" Version="9.0.0" />
   </ItemGroup>
 </Project>

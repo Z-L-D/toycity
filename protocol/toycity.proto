@@ -227,6 +227,7 @@ enum OverlayKind {
   OVERLAY_ELEVATION = 17;
   OVERLAY_LITTER = 18;
   OVERLAY_BLIGHT = 19;
+  OVERLAY_TRANSIT = 20;
 }
 
 message OverlayRequest {
@@ -315,6 +316,8 @@ message PathProfileInfo {
   string color = 10;
   int32 width_m = 11;
   bool frontage = 12;  // lots beside it get road access (false for highways)
+  string tram = 13;    // "shared", "dedicated" or empty
+  bool rail = 14;      // trains only
 }
 
 message BuildingTypeInfo {
@@ -333,6 +336,9 @@ message BuildingTypeInfo {
   bool unique = 13;         // one per city
   int64 income = 14;        // paid to the city monthly while it operates
   int32 attraction = 15;
+  string transit = 16;  // "bus", "tram", "rail" or empty
+  int32 capacity = 17;  // transit: people a day
+  int32 catchment = 18; // transit: walking reach in cells
 }
 
 message Catalog {
@@ -364,6 +370,7 @@ message BuildingState {
   int32 graffiti = 20;   // 0..3
   int32 burning_days = 21;
   BuildingLook look = 22;
+  int32 riders = 23;  // transit stops: people getting on or off a day
 }
 
 message CityStats {
@@ -392,6 +399,7 @@ message CityStats {
   repeated int32 demand_raw = 23;  // demand before capacity limits, same order as demand
   repeated Disaster disasters = 24;
   DisasterSetting disaster_setting = 25;
+  int32 transit_boardings = 26;  // a day, from last month's commutes
 }
 
 message BudgetLine {

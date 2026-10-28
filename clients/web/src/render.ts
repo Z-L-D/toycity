@@ -9,6 +9,8 @@ export interface Preview {
   ok: boolean;
   color: string;
   verticalFirst?: boolean;
+  /** Transit stops: the walking reach to outline around the footprint, in cells. */
+  catchment?: number;
 }
 
 export interface OverlayView {
@@ -21,6 +23,7 @@ const ZONE_COLORS = ['', '#4caf50', '#4a7fe0', '#e0b030'];
 const CIVIC_LABEL: Record<string, string> = {
   power: '⚡', water: '💧', garbage: '🗑', police: 'P', fire: 'F', health: '+', education: 'E', park: '',
 };
+const TRANSIT_LABEL: Record<string, string> = { bus: '🚌', tram: '🚋', rail: '🚆' };
 
 function terrainColor(h: number, water: number): [number, number, number] {
   if (h < water) {
@@ -260,15 +263,41 @@ export class Renderer {
         const half = w / 2;
         const cx = px(x) + s / 2;
         const cy = py(y) + s / 2;
+        // Rail lines only join rail; everything else joins everything but rail (no level crossings yet).
+        const joins = (j: number) => !!c.paths[j] && (c.profileAt(j)?.rail ?? false) === p.rail;
+        const east = x + 1 < c.width && joins(i + 1);
+        const south = y + 1 < c.height && joins(i + c.width);
+        const west = x > 0 && joins(i - 1);
+        const north = y > 0 && joins(i - c.width);
         ctx.fillStyle = p.color;
         ctx.fillRect(cx - half, cy - half, w, w);
-        if (x + 1 < c.width && c.paths[i + 1]) ctx.fillRect(cx, cy - half, s, w);
-        if (y + 1 < c.height && c.paths[i + c.width]) ctx.fillRect(cx - half, cy, w, s);
-        if (s >= 12 && p.cars) {
+        if (east) ctx.fillRect(cx, cy - half, s, w);
+        if (south) ctx.fillRect(cx - half, cy, w, s);
+        if (s >= 12 && p.cars && !p.tram) {
           ctx.fillStyle = p.id.startsWith('highway') ? '#e8d36a' : 'rgba(255,255,255,0.55)';
           const d = Math.max(1, s / 12);
-          if (x + 1 < c.width && c.paths[i + 1]) ctx.fillRect(cx + s * 0.2, cy - d / 2, s * 0.4, d);
-          if (y + 1 < c.height && c.paths[i + c.width]) ctx.fillRect(cx - d / 2, cy + s * 0.2, d, s * 0.4);
+          if (east) ctx.fillRect(cx + s * 0.2, cy - d / 2, s * 0.4, d);
+          if (south) ctx.fillRect(cx - d / 2, cy + s * 0.2, d, s * 0.4);
+        }
+        if (p.rail || p.tram) {
+          // Two rails (and sleepers on a rail line) along each joined direction.
+          const gauge = Math.max(1.5, w * (p.rail ? 0.32 : 0.22));
+          const lw = Math.max(1, s / 14);
+          const horiz = east || west || !(north || south);
+          const vert = north || south;
+          if (p.rail && s >= 8) {
+            ctx.fillStyle = '#3a2c20';
+            for (let k = 0; k < 3; k++) {
+              const o = (k / 3 - 0.33) * s;
+              if (horiz) ctx.fillRect(cx + o - lw / 2, cy - gauge * 0.9, lw * 1.5, gauge * 1.8);
+              if (vert) ctx.fillRect(cx - gauge * 0.9, cy + o - lw / 2, gauge * 1.8, lw * 1.5);
+            }
+          }
+          ctx.fillStyle = p.rail ? '#c9ccd2' : 'rgba(225,225,235,0.85)';
+          const lx0 = west ? px(x) : cx, lx1 = east ? px(x) + s : cx;
+          const ly0 = north ? py(y) : cy, ly1 = south ? py(y) + s : cy;
+          if (horiz) for (const o of [-gauge / 2, gauge / 2]) ctx.fillRect(Math.min(lx0, cx - half), cy + o - lw / 2, Math.max(lx1, cx + half) - Math.min(lx0, cx - half), lw);
+          if (vert) for (const o of [-gauge / 2, gauge / 2]) ctx.fillRect(cx + o - lw / 2, Math.min(ly0, cy - half), lw, Math.max(ly1, cy + half) - Math.min(ly0, cy - half));
         }
       }
   }
@@ -404,7 +433,7 @@ export class Renderer {
       if (b.burningDays > 0) this.drawFlames(bx, by, bw, bh, b.id);
 
       if (civic && t) {
-        const label = CIVIC_LABEL[t.category] ?? '';
+        const label = t.category === 'transit' ? TRANSIT_LABEL[t.transit] ?? '' : CIVIC_LABEL[t.category] ?? '';
         if (label && s * Math.min(b.width, b.height) >= 12) {
           ctx.fillStyle = t.category === 'health' || t.category === 'education' ? '#333' : '#fff';
           ctx.font = `${Math.round(Math.min(bw, bh) * 0.45)}px system-ui, sans-serif`;
@@ -530,6 +559,16 @@ export class Renderer {
       const h = Math.abs(p.y1 - p.y0) + 1;
       ctx.fillRect(px(xa), py(ya), w * s, h * s);
       ctx.strokeRect(px(xa) + 0.5, py(ya) + 0.5, w * s - 1, h * s - 1);
+      if (p.catchment) {
+        const r = p.catchment;
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(px(xa - r), py(ya - r), (w + 2 * r) * s, (h + 2 * r) * s);
+        ctx.strokeRect(px(xa - r) + 0.5, py(ya - r) + 0.5, (w + 2 * r) * s - 1, (h + 2 * r) * s - 1);
+        ctx.restore();
+      }
     }
   }
 }

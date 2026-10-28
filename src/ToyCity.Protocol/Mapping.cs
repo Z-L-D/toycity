@@ -59,6 +59,7 @@ public static class Mapping
             {
                 Id = p.Id, Name = p.Name, Kind = "path", SpeedKmh = p.SpeedKmh, Cars = p.Cars, Bikes = p.Bikes,
                 Pedestrians = p.Pedestrians, OneWay = p.OneWay, Frontage = p.Frontage, CostPerCell = p.CostPerCell, Color = p.Color, WidthM = (int)Math.Round(p.WidthM),
+                Tram = p.Tram, Rail = p.Rail,
             });
         foreach (var t in c.Types)
             cat.BuildingTypes.Add(new P.BuildingTypeInfo
@@ -67,6 +68,7 @@ public static class Mapping
                 Density = (P.Density)(int)t.Density, Wealth = (P.Wealth)(int)t.Wealth, Width = t.W, Height = t.H,
                 Cost = t.Cost, Placeable = t.Placeable, Color = t.Color, UnlockText = t.Unlock != null ? t.UnlockText : "",
                 Unique = t.Unique, Income = t.Income, Attraction = t.Attraction,
+                Transit = t.Transit == TransitKind.None ? "" : t.Transit.ToString().ToLowerInvariant(), Capacity = t.Capacity, Catchment = t.Catchment,
             });
         foreach (var sizes in c.LotSizes) cat.LotDepth.Add(sizes.Max(z => Math.Max(z.W, z.D)));
         return cat;
@@ -82,7 +84,7 @@ public static class Mapping
             Residents = b.Operating ? b.Residents : 0, Jobs = b.Operating ? b.Jobs : 0,
             Workers = b.Residents > 0 ? b.Employed : b.Workers, Powered = b.Powered, Watered = b.Watered,
             Abandoned = b.Abandoned, ConstructionDaysLeft = b.ConstructionLeft, FundingPercent = b.Funding, Condition = b.Condition,
-            Graffiti = b.Graffiti, BurningDays = b.BurningDays, Look = (P.BuildingLook)(int)w.LookOf(b),
+            Graffiti = b.Graffiti, BurningDays = b.BurningDays, Look = (P.BuildingLook)(int)w.LookOf(b), Riders = b.Riders,
         };
     }
 
@@ -100,6 +102,7 @@ public static class Mapping
         s.DemandRaw.AddRange(w.DemandRaw);
         s.TaxTenths.AddRange(w.TaxTenths);
         s.DisasterSetting = (P.DisasterSetting)(int)w.DisasterSetting;
+        s.TransitBoardings = w.TransitBoardings;
         foreach (var d in w.Disasters)
             s.Disasters.Add(new P.Disaster { Id = d.Id, Kind = (P.DisasterKind)(int)d.Kind, X = d.X, Y = d.Y, DaysLeft = d.DaysLeft, Destroyed = d.Destroyed, Damaged = d.Damaged });
         foreach (var (label, amount) in w.LastBudget) s.Budget.Add(new P.BudgetLine { Label = label, Amount = amount });

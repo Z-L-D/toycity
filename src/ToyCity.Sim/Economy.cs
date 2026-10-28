@@ -75,6 +75,7 @@ public sealed partial class World
         Category.Park => "Parks",
         Category.Landmark => "Landmarks",
         Category.Reward => "Reward lots",
+        Category.Transit => "Transit",
         _ => "Other",
     };
 
@@ -128,6 +129,7 @@ public sealed partial class World
         foreach (var b in Buildings)
             if (b != null && b.Operating && TypeOf(b).Income > 0) dealIncome += TypeOf(b).Income;
         Line("Deals and reward lots", dealIncome);
+        Line("Transit fares", TransitFares());
         foreach (var (cat, amount) in civic) Line(BudgetLabel((Category)cat), -amount);
         if (Debt > 0)
         {

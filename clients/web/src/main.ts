@@ -46,6 +46,7 @@ const OVERLAYS: { kind: number; name: string; scheme: OverlayView['scheme'] }[] 
   { kind: 17, name: 'Elevation', scheme: 'good' },
   { kind: 18, name: 'Litter', scheme: 'bad' },
   { kind: 19, name: 'Run-down', scheme: 'bad' },
+  { kind: 20, name: 'Transit riders', scheme: 'good' },
 ];
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -205,6 +206,7 @@ function buildToolbar() {
   };
   const groups: [string, string[]][] = [
     ['Services', ['power', 'water', 'garbage', 'police', 'fire', 'health', 'education', 'park']],
+    ['Transit', ['transit']],
     ['Landmarks', ['landmark']],
     ['Reward lots', ['reward']],
   ];
@@ -309,8 +311,22 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
         const i = y * city.width + x;
         if (!city.inBounds(x, y) || city.isWater(i) || city.buildingAt[i] || city.paths[i]) ok = false;
       }
-    renderer.preview = { kind: 'footprint', x0: f.x, y0: f.y, x1: f.x + f.w - 1, y1: f.y + f.h - 1, ok, color: (t?.color ?? '#fff') + 'aa' };
+    renderer.preview = { kind: 'footprint', x0: f.x, y0: f.y, x1: f.x + f.w - 1, y1: f.y + f.h - 1, ok, color: (t?.color ?? '#fff') + 'aa', catchment: t?.catchment || undefined };
     text = `${t?.name ?? ''}: ${money(t?.cost ?? 0)}`;
+    if (t?.transit) {
+      // A stop must touch a path its vehicles use.
+      const carries = (j: number) => {
+        const p = city.profileAt(j);
+        return !!p && (t.transit === 'bus' ? p.cars : t.transit === 'tram' ? !!p.tram : p.rail);
+      };
+      let touches = false;
+      for (let y = f.y - 1; y <= f.y + f.h; y++)
+        for (let x = f.x - 1; x <= f.x + f.w; x++) {
+          const edge = (x === f.x - 1 || x === f.x + f.w) !== (y === f.y - 1 || y === f.y + f.h);
+          if (edge && city.inBounds(x, y) && carries(y * city.width + x)) touches = true;
+        }
+      text += touches ? ` · serves ${t.catchment} cells around` : ` · must touch ${t.transit === 'bus' ? 'a road' : t.transit === 'tram' ? 'a tram line' : 'a rail line'}`;
+    }
   } else if (drag && (tool.kind === 'path' || tool.kind === 'utility')) {
     const cells = lineCells(drag.x, drag.y, cell.x, cell.y, shiftHeld);
     let cost = 0;
