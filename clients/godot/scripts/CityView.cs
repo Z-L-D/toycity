@@ -186,7 +186,7 @@ public partial class CityView : Node3D
             {
                 mmi = new MultiMeshInstance3D
                 {
-                    Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseCustomData = true, Mesh = MeshOf(model) },
+                    Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, UseCustomData = true, Mesh = MeshOf(model) },
                     MaterialOverride = _voxelMaterial,
                 };
                 AddChild(mmi);
@@ -205,6 +205,7 @@ public partial class CityView : Node3D
                 mm.SetInstanceTransform(k, new Transform3D(Basis.Identity, new Vector3(b.X, g, b.Y)));
                 var life = list[k].Left < 0 ? _life.Of(b) : _life.OfCrumbling(b, list[k].Left);
                 mm.SetInstanceCustomData(k, Custom(life, model.Height));
+                mm.SetInstanceColor(k, Colors.White);  // colours on as well: without them the compatibility renderer drops the vertex colours
                 if (list[k].Left >= 0) continue;
                 float top = g + model.Height * life.Standing;
                 for (int y = b.Y; y < b.Y + b.Height; y++)
