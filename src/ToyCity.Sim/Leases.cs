@@ -28,6 +28,8 @@ public sealed class Lease
     public bool BadStanding;
     public int CureMonthsLeft;
     public long Since;
+    /// <summary>Months until a hostile eviction ends the lease; 0 when none is under way.</summary>
+    public int EvictMonths;
 
     /// <summary>Bad standing and the cure period has run out: the mayor may end the lease.</summary>
     public bool Terminable => BadStanding && CureMonthsLeft == 0;
@@ -98,6 +100,12 @@ public sealed partial class World
             Reject(held.GameId == gameId ? $"{GameName(gameId)} already leases {LotName(b)}." : $"{Cap(LotName(b))} is leased to {GameName(held.GameId)}.", b.X, b.Y);
             return null;
         }
+        int district = DistrictOf(b.X, b.Y);
+        if (!byHand && RatingOf(gameId, district) < RefuseRating)
+        {
+            Reject($"{DistrictName(district)} won't have more of {GameName(gameId)}: its rating there is {RatingOf(gameId, district)}.", b.X, b.Y);
+            return null;
+        }
         var std = StandardTerms(kind);
         var t = terms ?? std;
         if (CheckTerms(t) is { } err) { Reject(err, b.X, b.Y); return null; }
@@ -139,11 +147,21 @@ public sealed partial class World
     {
         var lease = LeaseById(a.LeaseId);
         if (lease == null) { Reject("That lease has already ended."); return; }
+        if (!a.ByOperator && !lease.Terminable && Allowed(Mechanic.HostileEvictions) && !lease.BadStanding)
+        {
+            if (MayorSeat.Level != OperatorLevel.Manual) { Reject("Take the city back before evicting anyone."); return; }
+            if (lease.EvictMonths > 0) { Reject($"{GameName(lease.GameId)} is already leaving, in {lease.EvictMonths} month{(lease.EvictMonths == 1 ? "" : "s")}."); return; }
+            lease.EvictMonths = lease.Terms.NoticeMonths;
+            var lot = Buildings[lease.BuildingId]!;
+            Notices.Add(new SimNotice($"{GameName(lease.GameId)} has {lease.EvictMonths} months' notice to leave {LotName(lot)}. The city pays ${Compensation(lease):N0} compensation when it goes.", "info", lot.X, lot.Y));
+            RaiseIncident("eviction-notice", lot.X, lot.Y, "city", "hostile eviction", 2, "");
+            return;
+        }
         if (!a.ByOperator && !lease.Terminable)
         {
             Reject(lease.BadStanding
                 ? $"{GameName(lease.GameId)} has {lease.CureMonthsLeft} more month{(lease.CureMonthsLeft == 1 ? "" : "s")} to put things right before the lease can end."
-                : $"{GameName(lease.GameId)}'s lease is in good standing, so the city can't end it.");
+                : $"{GameName(lease.GameId)}'s lease is in good standing, so the city can't end it: hostile evictions are switched off ({string.Join(", ", Blockers(Mechanic.HostileEvictions))} won't allow them).");
             return;
         }
         EndLease(lease, a.ByOperator ? $"{GameName(lease.GameId)} gave up its lease on {{0}}." : $"The city ended {GameName(lease.GameId)}'s lease on {{0}}.");
@@ -198,6 +216,8 @@ public sealed partial class World
             else if (t.SubsidyPerMonth > 0) input.Bills.Add(new Bill(lease.Id, "Subsidy", -t.SubsidyPerMonth));
             if (lease.Arrears > 0) input.Bills.Add(new Bill(lease.Id, "Overdue", lease.Arrears));
         }
+        foreach (var (id, bill) in _oneOffBills) if (id == hg.Id) input.Bills.Add(bill);
+        _oneOffBills.RemoveAll(o => o.GameId == hg.Id);
     }
 
     /// <summary>
@@ -221,9 +241,16 @@ public sealed partial class World
         if (input.NewMonth) SettleMonth(hg, input, output);
     }
 
+    /// <summary>What the city pays a side game it evicts: six months of the lot's standard rent, or of its rent if higher.</summary>
+    static long Compensation(Lease l) => 6 * Math.Max(l.Terms.Mode == LeaseMode.Business ? l.Terms.RentPerMonth : 0, StandardTerms(l.Kind).RentPerMonth);
+
+    /// <summary>One-off money for side games, handed over with their next month's bills.</summary>
+    readonly List<(string GameId, Bill Bill)> _oneOffBills = new();
+
     void SettleMonth(HostedGame hg, CityToGame input, GameToCity output)
     {
         long collected = 0, subsidies = 0;
+        var evicted = new List<Lease>();
         foreach (var lease in Leases.Where(l => l.GameId == hg.Id))
         {
             var b = Buildings[lease.BuildingId]!;
@@ -243,6 +270,8 @@ public sealed partial class World
                 Notices.Add(new SimNotice($"New terms for {GameName(hg.Id)} at {LotName(b)} start today.", "info", b.X, b.Y));
             }
 
+            if (lease.EvictMonths > 0 && --lease.EvictMonths == 0) { evicted.Add(lease); continue; }
+
             lease.LowRatingMonths = RatingOf(hg.Id, DistrictOf(b.X, b.Y)) < BadRating ? lease.LowRatingMonths + 1 : 0;
             bool failing = lease.Arrears > 0 || lease.LowRatingMonths >= LowRatingMonthsToBadStanding;
             if (failing && !lease.BadStanding)
@@ -261,6 +290,13 @@ public sealed partial class World
             }
             else if (failing && lease.CureMonthsLeft > 0 && --lease.CureMonthsLeft == 0)
                 Notices.Add(new SimNotice($"{GameName(hg.Id)} didn't put things right at {LotName(b)}: the mayor may now end the lease.", "warning", b.X, b.Y));
+        }
+        foreach (var lease in evicted)
+        {
+            long comp = Compensation(lease);
+            _oneOffBills.Add((hg.Id, new Bill(0, "Compensation", -comp)));
+            subsidies += comp;
+            EndLease(lease, $"The city evicted {GameName(hg.Id)} from {{0}} and paid ${comp:N0} compensation.");
         }
         if (collected == 0 && subsidies == 0) return;
         Funds += collected - subsidies;
@@ -308,8 +344,10 @@ public sealed partial class World
             w.Write(l.PendingTerms != null);
             if (l.PendingTerms != null) WriteTerms(w, l.PendingTerms);
             w.Write(l.PendingMonths); w.Write(l.Arrears); w.Write(l.MonthRevenue); w.Write(l.LastRevenue); w.Write(l.Jobs);
-            w.Write(l.LowRatingMonths); w.Write(l.BadStanding); w.Write(l.CureMonthsLeft); w.Write(l.Since);
+            w.Write(l.LowRatingMonths); w.Write(l.BadStanding); w.Write(l.CureMonthsLeft); w.Write(l.Since); w.Write(l.EvictMonths);
         }
+        w.Write(_oneOffBills.Count);
+        foreach (var (id, b) in _oneOffBills) { w.Write(id); w.Write(b.LeaseId); w.Write(b.Label); w.Write(b.Amount); }
     }
 
     void ReadLeases(BinaryReader r)
@@ -321,9 +359,11 @@ public sealed partial class World
             var l = new Lease { Id = r.ReadInt32(), GameId = r.ReadString(), BuildingId = r.ReadInt32(), Kind = r.ReadString(), Terms = ReadTerms(r) };
             if (r.ReadBoolean()) l.PendingTerms = ReadTerms(r);
             l.PendingMonths = r.ReadInt32(); l.Arrears = r.ReadInt64(); l.MonthRevenue = r.ReadInt64(); l.LastRevenue = r.ReadInt64(); l.Jobs = r.ReadInt32();
-            l.LowRatingMonths = r.ReadInt32(); l.BadStanding = r.ReadBoolean(); l.CureMonthsLeft = r.ReadInt32(); l.Since = r.ReadInt64();
+            l.LowRatingMonths = r.ReadInt32(); l.BadStanding = r.ReadBoolean(); l.CureMonthsLeft = r.ReadInt32(); l.Since = r.ReadInt64(); l.EvictMonths = r.ReadInt32();
             Leases.Add(l);
         }
+        int nb = r.ReadInt32();
+        for (int i = 0; i < nb; i++) _oneOffBills.Add((r.ReadString(), new Bill(r.ReadInt32(), r.ReadString(), r.ReadInt64())));
         ApplyLeaseJobs();
     }
 }

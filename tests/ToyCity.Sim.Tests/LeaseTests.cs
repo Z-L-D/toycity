@@ -147,6 +147,20 @@ public class LeaseTests
     }
 
     [Fact]
+    public void ADistrictThatRatesASideGameBadlyTurnsDownItsRequests()
+    {
+        var w = WithProbe(77);
+        int a = PlaceStop(w);
+        var b = w.Buildings[a]!;
+        w.Standings.Add(new Standing { GameId = ProbeGame.Id, District = w.DistrictOf(b.X, b.Y), Rating = -900 });
+        Probe(w).Requests.Add(a);
+        w.Step();
+        w.Step();
+        Assert.Null(w.LeaseOn(a));
+        Assert.Contains(w.Notices, n => n.Text.Contains("won't have more of Probe Co."));
+    }
+
+    [Fact]
     public void ALeaseEndsWhenItsLotIsDestroyed()
     {
         var w = WithProbe(75);

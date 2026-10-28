@@ -26,11 +26,11 @@ public sealed class TransportGame : ISideGame
 
     sealed class Money
     {
-        public long Fares, Wages, Upkeep, Rent, Subsidy;
-        public long Profit => Fares + Subsidy - Wages - Upkeep - Rent;
-        public void Write(BinaryWriter w) { w.Write(Fares); w.Write(Wages); w.Write(Upkeep); w.Write(Rent); w.Write(Subsidy); }
-        public static Money Read(BinaryReader r) => new() { Fares = r.ReadInt64(), Wages = r.ReadInt64(), Upkeep = r.ReadInt64(), Rent = r.ReadInt64(), Subsidy = r.ReadInt64() };
-        public W.MonthMoney ToWire() => new() { Fares = Fares, Wages = Wages, Upkeep = Upkeep, Rent = Rent, Subsidy = Subsidy, Profit = Profit };
+        public long Fares, Wages, Upkeep, Rent, Subsidy, Standing;
+        public long Profit => Fares + Subsidy - Wages - Upkeep - Rent - Standing;
+        public void Write(BinaryWriter w) { w.Write(Fares); w.Write(Wages); w.Write(Upkeep); w.Write(Rent); w.Write(Subsidy); w.Write(Standing); }
+        public static Money Read(BinaryReader r) => new() { Fares = r.ReadInt64(), Wages = r.ReadInt64(), Upkeep = r.ReadInt64(), Rent = r.ReadInt64(), Subsidy = r.ReadInt64(), Standing = r.ReadInt64() };
+        public W.MonthMoney ToWire() => new() { Fares = Fares, Wages = Wages, Upkeep = Upkeep, Rent = Rent, Subsidy = Subsidy, Standing = Standing, Profit = Profit };
     }
 
     sealed class Line
@@ -70,6 +70,11 @@ public sealed class TransportGame : ISideGame
     readonly List<LeasedLot> _lots = new();
     readonly List<OpenLot> _open = new();
     readonly List<District> _districts = new();
+    readonly List<PaidActionOffer> _offers = new();
+    /// <summary>Paid actions bought and not yet answered by the city.</summary>
+    readonly List<AuthorityAction> _buying = new();
+    /// <summary>What the company has paid for, by district: a statue, and when its exclusive rights run out.</summary>
+    readonly SortedDictionary<int, (bool Statue, long ExclusiveUntil)> _bought = new();
 
     public void NewGame(ulong seed) => _seed = seed;
 
@@ -101,6 +106,8 @@ public sealed class TransportGame : ISideGame
         _lots.Clear(); _lots.AddRange(input.Lots);
         _open.Clear(); _open.AddRange(input.OpenLots);
         if (input.NewMonth) { _districts.Clear(); _districts.AddRange(input.Districts); }
+        _offers.Clear(); _offers.AddRange(input.Offers);
+        HearStanding(input);
 
         // Lines lose stops the company no longer leases.
         foreach (var line in _lines)
@@ -124,6 +131,25 @@ public sealed class TransportGame : ISideGame
         if (_operator != OperatorLevel.Manual) PlayItself(input, city);
         foreach (var line in _lines) if (line.RouteDirty) Route(line, city);
         Publish(output);
+    }
+
+    /// <summary>The city's answers to yesterday's paid actions: pay for those that went ahead.</summary>
+    void HearStanding(CityToGame input)
+    {
+        foreach (var r in input.AuthorityResults)
+        {
+            int i = _districts.FindIndex(d => d.Id == r.DistrictId);
+            if (i >= 0) _districts[i] = _districts[i] with { Rating = r.Rating };
+            if (!r.Ok) { Log($"Couldn't buy that: {r.Text}"); continue; }
+            _cash -= r.Cost;
+            _this.Standing += r.Cost;
+            var b = _bought.GetValueOrDefault(r.DistrictId);
+            if (r.Kind == "statue") b.Statue = true;
+            if (r.Kind == "exclusive-rights") b.ExclusiveUntil = _tick + 360;
+            _bought[r.DistrictId] = b;
+            string where = i >= 0 ? _districts[i].Name : "the district";
+            Log(r.Kind == "bribe" && r.Text.Length == 0 ? $"A quiet word and ${r.Cost:N0} with the {where} council." : r.Text);
+        }
     }
 
     void HearIncidents(CityToGame input)
@@ -206,6 +232,7 @@ public sealed class TransportGame : ISideGame
             {
                 _cash -= bill.Amount;
                 _this.Subsidy -= bill.Amount;
+                if (bill.Label != "Subsidy") Log($"The city paid ${-bill.Amount:N0} in {bill.Label.ToLowerInvariant()}.");
                 continue;
             }
             long pay = Math.Clamp(_cash, 0, bill.Amount);
@@ -291,6 +318,8 @@ public sealed class TransportGame : ISideGame
         }
         output.LeaseRequests.AddRange(_wanted);
         _wanted.Clear();
+        output.AuthorityActions.AddRange(_buying);
+        _buying.Clear();
         output.Status = running == 0 ? $"{_name}: no buses running" : $"{_name}: {running} line{(running == 1 ? "" : "s")}, {riders:N0} riders yesterday";
     }
 
@@ -324,6 +353,11 @@ public sealed class TransportGame : ISideGame
         if (_operator != OperatorLevel.Autopilot) return;
         bool monthly = input.NewMonth || _tick % 30 == 1;
         if (!monthly) return;
+
+        // A district that has gone off the company: an advertising campaign, when there's money for one.
+        if (_offers.FirstOrDefault(o => o.Kind == "advertise") is { Allowed: true } ad && _cash >= ad.Cost + 20_000
+            && _districts.Where(d => d.Rating < 0 && _lots.Any(l => l.DistrictId == d.Id)).OrderBy(d => d.Rating).ThenBy(d => d.Id).FirstOrDefault() is { } sour)
+            _buying.Add(new AuthorityAction("advertise", sour.Id));
 
         if (Depots == 0 && _open.FirstOrDefault(o => o.Kind == "bus-depot") is { } depot) _wanted.Add(depot.BuildingId);
         int stops = _lots.Count(l => l.Kind == "bus-stop");
@@ -469,6 +503,18 @@ public sealed class TransportGame : ISideGame
                 line.Buses = want;
                 return new CommandResult(true, "");
             }
+            case W.Command.KindOneofCase.Standing:
+            {
+                var c = cmd.Standing;
+                var offer = _offers.FirstOrDefault(o => o.Kind == c.Kind);
+                if (offer == null) return new CommandResult(false, "The city doesn't sell that.");
+                if (!offer.Allowed) return new CommandResult(false, offer.WhyNot);
+                if (!_lots.Any(l => l.DistrictId == c.District)) return new CommandResult(false, "The company has no lots in that district.");
+                long owed = _buying.Sum(b => _offers.FirstOrDefault(o => o.Kind == b.Kind)?.Cost ?? 0);
+                if (_cash < offer.Cost + owed) return new CommandResult(false, $"{offer.Name} costs ${offer.Cost:N0} and the company has ${_cash - owed:N0}.");
+                _buying.Add(new AuthorityAction(c.Kind, c.District));
+                return new CommandResult(true, "");
+            }
             case W.Command.KindOneofCase.Rename:
                 if (cmd.Rename.Name.Trim().Length == 0) return new CommandResult(false, "The company needs a name.");
                 _name = cmd.Rename.Name.Trim().Length > 30 ? cmd.Rename.Name.Trim()[..30] : cmd.Rename.Name.Trim();
@@ -507,6 +553,16 @@ public sealed class TransportGame : ISideGame
             });
         foreach (var o in _open)
             v.OpenLots.Add(new W.LotView { BuildingId = o.BuildingId, Kind = o.Kind, X = o.X, Y = o.Y, District = o.DistrictId, Terms = $"${o.Terms.RentPerMonth:N0}/month + {o.Terms.TaxTenths / 10.0:0.#}% of fares" });
+        foreach (var d in _districts.Where(d => _lots.Any(l => l.DistrictId == d.Id)))
+        {
+            var b = _bought.GetValueOrDefault(d.Id);
+            v.Districts.Add(new W.DistrictView
+            {
+                Id = d.Id, Name = d.Name, Rating = d.Rating, Lots = _lots.Count(l => l.DistrictId == d.Id), Statue = b.Statue,
+                ExclusiveDays = (int)Math.Max(0, b.ExclusiveUntil - _tick),
+            });
+        }
+        foreach (var o in _offers) v.Offers.Add(new W.OfferView { Kind = o.Kind, Name = o.Name, Cost = o.Cost, Allowed = o.Allowed, WhyNot = o.WhyNot });
         v.Log.AddRange(_log);
         return v.ToByteArray();
     }
@@ -545,7 +601,13 @@ public sealed class TransportGame : ISideGame
             WriteTerms(w, o.Terms);
         }
         w.Write(_districts.Count);
-        foreach (var d in _districts) { w.Write(d.Id); w.Write(d.Population); w.Write(d.Jobs); }
+        foreach (var d in _districts) { w.Write(d.Id); w.Write(d.Name); w.Write(d.Population); w.Write(d.Jobs); w.Write(d.Rating); }
+        w.Write(_offers.Count);
+        foreach (var o in _offers) { w.Write(o.Kind); w.Write(o.Name); w.Write(o.Cost); w.Write(o.Allowed); w.Write(o.WhyNot); }
+        w.Write(_buying.Count);
+        foreach (var b in _buying) { w.Write(b.Kind); w.Write(b.DistrictId); }
+        w.Write(_bought.Count);
+        foreach (var (d, b) in _bought) { w.Write(d); w.Write(b.Statue); w.Write(b.ExclusiveUntil); }
     }
 
     public void Load(BinaryReader r)
@@ -577,7 +639,19 @@ public sealed class TransportGame : ISideGame
         for (int i = 0; i < no; i++)
             _open.Add(new OpenLot(r.ReadInt32(), r.ReadString(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), ReadTerms(r)));
         int nd = r.ReadInt32();
-        for (int i = 0; i < nd; i++) _districts.Add(new District(r.ReadInt32(), "", 0, 0, 0, 0, r.ReadInt32(), r.ReadInt32(), 0, 0, 0, 0));
+        for (int i = 0; i < nd; i++)
+        {
+            int id = r.ReadInt32();
+            string name = r.ReadString();
+            int pop = r.ReadInt32(), jobs = r.ReadInt32();
+            _districts.Add(new District(id, name, 0, 0, 0, 0, pop, jobs, 0, 0, 0, r.ReadInt32()));
+        }
+        int nof = r.ReadInt32();
+        for (int i = 0; i < nof; i++) _offers.Add(new PaidActionOffer(r.ReadString(), r.ReadString(), r.ReadInt64(), r.ReadBoolean(), r.ReadString()));
+        int nbuy = r.ReadInt32();
+        for (int i = 0; i < nbuy; i++) _buying.Add(new AuthorityAction(r.ReadString(), r.ReadInt32()));
+        int nbo = r.ReadInt32();
+        for (int i = 0; i < nbo; i++) _bought[r.ReadInt32()] = (r.ReadBoolean(), r.ReadInt64());
     }
 
     static void WriteTerms(BinaryWriter w, LeaseTerms t)

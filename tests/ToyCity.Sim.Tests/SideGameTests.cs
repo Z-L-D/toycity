@@ -171,6 +171,8 @@ public class SideGameTests
         c.Incidents.Add(new Incident(5, "fire", 1, 2, "city", "Shack", 2, "Fire!"));
         c.Bills.Add(new Bill(1, "Subsidy", -500));
         c.OpenLots.Add(new OpenLot(9, "bus-depot", 3, 4, 3, 2, 77, 1, new LeaseTerms(LeaseMode.Business, 300, 100, 0, 0, 3)));
+        c.Offers.Add(new PaidActionOffer("bribe", "Bribe the district council", 5000, false, "Bribery is switched off."));
+        c.AuthorityResults.Add(new AuthorityResult("advertise", 2, true, 2000, "Advertising.", 180));
         var back = ContractWire.FromWire(ToyCity.Protocol.Contract.CityToGame.Parser.ParseFrom(ContractWire.ToWire(c).ToByteArray()));
         Assert.Equal(c.Lots, back.Lots, new LotComparer());
         Assert.Equal(c.Districts, back.Districts);
@@ -178,6 +180,8 @@ public class SideGameTests
         Assert.Equal(c.Incidents, back.Incidents);
         Assert.Equal(c.Bills, back.Bills);
         Assert.Equal(c.OpenLots, back.OpenLots);
+        Assert.Equal(c.Offers, back.Offers);
+        Assert.Equal(c.AuthorityResults, back.AuthorityResults);
         Assert.Equal(c.Ridership.Single().BoardingsByStop, back.Ridership.Single().BoardingsByStop);
         Assert.Equal((c.Tick, c.Operator, c.OwnerName), (back.Tick, back.Operator, back.OwnerName));
 
@@ -188,6 +192,7 @@ public class SideGameTests
         g.RevenueByLease[1] = 1234;
         g.LeaseRequests.Add(7);
         g.LeaseReleases.Add(2);
+        g.AuthorityActions.Add(new AuthorityAction("statue", 4));
         var gb = ContractWire.FromWire(ToyCity.Protocol.Contract.GameToCity.Parser.ParseFrom(ContractWire.ToWire(g).ToByteArray()));
         Assert.Equal(g.Lines.Single() with { StopLeaseIds = gb.Lines.Single().StopLeaseIds }, gb.Lines.Single());
         Assert.Equal(new[] { 1, 2, 3 }, gb.Lines.Single().StopLeaseIds);
@@ -196,6 +201,7 @@ public class SideGameTests
         Assert.Equal(g.RevenueByLease, gb.RevenueByLease);
         Assert.Equal(new[] { 7 }, gb.LeaseRequests);
         Assert.Equal(new[] { 2 }, gb.LeaseReleases);
+        Assert.Equal(g.AuthorityActions, gb.AuthorityActions);
         Assert.Equal((77, "ok"), (gb.ServiceQuality, gb.Status));
     }
 

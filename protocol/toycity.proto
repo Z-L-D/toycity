@@ -64,7 +64,24 @@ message Action {
     LeaseLot lease = 18;
     SetLeaseTerms lease_terms = 19;
     EndLease end_lease = 20;
+    SetConsent consent = 21;
   }
+}
+
+enum Mechanic {
+  MECH_BRIBERY = 0;
+  MECH_EXCLUSIVE_RIGHTS = 1;
+  MECH_SABOTAGE = 2;
+  MECH_HOSTILE_EVICTIONS = 3;
+  MECH_ABSURD_DISASTERS = 4;
+  MECH_TARGETED_CRIME = 5;
+}
+
+// A player switches a mechanic on or off for themselves. It is on in the city only while every seat owner allows it.
+message SetConsent {
+  string owner = 1;
+  Mechanic mechanic = 2;
+  bool allowed = 3;
 }
 
 enum LeaseMode {
@@ -94,7 +111,8 @@ message SetLeaseTerms {
   LeaseTerms terms = 2;
 }
 
-// The operator gives up a lease, or the mayor ends one past its cure period.
+// The operator gives up a lease, or the mayor ends one past its cure period (or, with hostile evictions on, any
+// lease after notice and with compensation).
 message EndLease {
   int32 lease_id = 1;
   bool by_operator = 2;
@@ -783,6 +801,33 @@ message CivicState {
   repeated SeatState seats = 5;     // the mayor's seat first
   repeated LeaseState leases = 6;
   repeated SideGameInfo side_games = 7;
+  ConsentTable consent = 8;
+}
+
+// Every seat owner against every mechanic: the effective result and who is blocking each one.
+message ConsentTable {
+  repeated string owners = 1;
+  repeated ConsentRow rows = 2;
+}
+
+message ConsentRow {
+  Mechanic mechanic = 1;
+  string name = 2;
+  string note = 3;
+  repeated bool by_owner = 4;  // in the order of owners
+  bool effective = 5;
+  repeated string blockers = 6;
+}
+
+// A side game's standing in a district.
+message StandingState {
+  int32 district = 1;
+  string district_name = 2;
+  int32 rating = 3;  // -1000..1000
+  int32 target = 4;  // where it is heading this month
+  bool statue = 5;
+  int32 exclusive_days = 6;
+  int32 bribe_ban_days = 7;
 }
 
 message SideGameInfo {
@@ -790,6 +835,7 @@ message SideGameInfo {
   string name = 2;
   string description = 3;
   repeated string lot_kinds = 4;  // building type ids it can lease
+  repeated StandingState standings = 5;
 }
 
 message LeaseState {
@@ -810,6 +856,8 @@ message LeaseState {
   int32 jobs = 15;
   int64 last_month_fares = 16;
   repeated string targets = 17;  // what it takes to get back into good standing
+  int32 evict_months = 18;       // months until a hostile eviction ends it; 0 when none
+  int32 rating = 19;             // the side game's rating in the lot's district
 }
 
 message SeatState {

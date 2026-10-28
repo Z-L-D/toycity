@@ -95,6 +95,7 @@ export class Transport {
       <tr><td>Drivers' wages</td><td class="num neg">-${money(mm.wages)}</td></tr>
       <tr><td>Bus upkeep</td><td class="num neg">-${money(mm.upkeep)}</td></tr>
       <tr><td>Rent and fare tax</td><td class="num neg">-${money(mm.rent)}</td></tr>
+      ${mm.standing ? `<tr><td>Standing (ads, statues, rights)</td><td class="num neg">-${money(mm.standing)}</td></tr>` : ''}
       <tr class="total"><td>Profit</td><td class="num ${mm.profit >= 0 ? 'pos' : 'neg'}">${money(mm.profit)}</td></tr>`;
     const stopName = (leaseId: number) => {
       const l = this.lot(leaseId);
@@ -125,6 +126,18 @@ export class Transport {
         <a href="#" data-jx="${l.x}" data-jy="${l.y}">${l.kind === 'bus-depot' ? 'Depot' : 'Stop'} at ${l.x},${l.y}</a>
         <span class="muted small">${esc(l.terms)}${l.closedDays ? ` · closed ${l.closedDays} days` : ''}${l.badStanding ? ' · bad standing' : ''}</span>
         ${open && mine ? `<button class="mini" data-lease="${l.buildingId}">Lease</button>` : ''}</div>`;
+    // The authority screen: the company's rating in each district it has lots in, and what it can buy there.
+    const offers = v.offers as Msg[];
+    // This client plays as "player": name it as "you" in the city's reasons.
+    const yours = (s: string) => s.replace(/\bplayer won't allow it/g, "you haven't allowed it").replace(/\bplayer\b/g, 'you');
+    const standing = (v.districts as Msg[]).map((dd) => `
+      <div class="standing">
+        <div class="row-flex" style="justify-content:space-between"><b>${esc(dd.name)}</b>
+          <span class="small">${dd.statue ? '🗿 statue · ' : ''}${dd.exclusiveDays ? `exclusive rights, ${Math.ceil(dd.exclusiveDays / 30)} months left · ` : ''}rating <b class="${dd.rating < 0 ? 'neg' : 'pos'}">${dd.rating}</b></span></div>
+        <div class="rating-bar"><span style="left:50%;width:${Math.abs(dd.rating) / 20}%;${dd.rating < 0 ? `transform:translateX(-100%);background:var(--bad)` : ''}"></span></div>
+        ${mine ? `<div class="row-flex" style="flex-wrap:wrap;margin-top:4px">${offers.map((o) => `<button class="mini" data-buy="${esc(o.kind)}" data-district="${dd.id}"
+          ${o.allowed ? `title="${money(o.cost)}"` : `disabled title="${esc(yours(o.whyNot))}"`}>${esc(o.name)} · ${money(o.cost)}</button>`).join('')}</div>` : ''}
+      </div>`).join('');
     el.innerHTML = `
       <h3>${esc(v.name)}</h3>
       ${this.host.city.stats.speed === 0 ? '<p class="muted small">Paused: the company hears about new lots and hand-offs when the day turns.</p>' : ''}
@@ -137,6 +150,9 @@ export class Transport {
       <h4>Lines</h4>
       ${lines || '<p class="muted">No lines yet. Lease a depot and two or more bus stops, then draw a line through them.</p>'}
       <h4>Last month</h4><table class="kv">${books(m)}</table>
+      <h4>Standing in the districts</h4>
+      ${standing || '<p class="muted small">No lots yet, so no standing anywhere.</p>'}
+      <p class="muted small">Good service, riders and jobs raise a rating; bad standing and breakdowns lower it. Below ${-400} the district turns down requests for more lots.${offers.some((o) => !o.allowed) ? ` ${esc(offers.filter((o) => !o.allowed).map((o) => yours(o.whyNot)).join(' '))} Players set these under Mayor → House rules.` : ''}</p>
       <h4>Lots</h4>
       ${(v.lots as Msg[]).map((l) => lotRow(l, false)).join('') || '<p class="muted small">None leased yet.</p>'}
       ${(v.openLots as Msg[]).length ? `<div class="muted small" style="margin-top:6px">Free to lease on the city's standard terms:</div>${(v.openLots as Msg[]).map((l) => lotRow(l, true)).join('')}`
@@ -147,6 +163,7 @@ export class Transport {
     on('#tc-claim', () => this.host.conn.action({ seat: { seat: GAME, owner: 'player', level: 0, style: 0, spendCap: 25000 } }));
     on('#tc-handoff', () => this.host.conn.action({ seat: { seat: GAME, owner: '', level: 3, style: 0, spendCap: 25000 } }));
     on('#tc-new', () => this.startDraft());
+    on('[data-buy]', (b) => this.command({ standing: { kind: b.dataset.buy, district: Number(b.dataset.district) } }));
     on('[data-edit]', (b) => this.startDraft((v.lines as Msg[]).find((l) => l.id === Number(b.dataset.edit))));
     on('[data-close]', (b) => this.command({ deleteLine: { lineId: Number(b.dataset.close) } }));
     on('[data-buses]', (b) => this.command({ buses: { lineId: Number(b.dataset.buses), buses: Number(b.dataset.n) } }));

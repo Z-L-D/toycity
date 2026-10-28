@@ -42,6 +42,7 @@ export class Seats {
   private seats: Msg[] = [];
   leases: Msg[] = [];
   sideGames: Msg[] = [];
+  consent: Msg = { owners: [], rows: [] };
   /** The building whose lease panel is showing, so it can redraw when the lease changes. */
   private leaseView: { b: Msg; slot: HTMLElement } | null = null;
   private shownReport = -1;
@@ -52,12 +53,17 @@ export class Seats {
     $('#away-back').addEventListener('click', () => this.takeBack());
   }
 
+  /** Whether a mechanic is on in this city: every seat owner allows it. */
+  allowed(mechanic: number) { return !!(this.consent.rows as Msg[]).find((r) => r.mechanic === mechanic)?.effective; }
+
   get mayor(): Msg | undefined { return this.seats.find((s) => s.id === 'mayor'); }
 
   onCivic(c: Msg) {
     this.seats = c.seats ?? [];
     this.leases = c.leases ?? [];
     this.sideGames = c.sideGames ?? [];
+    this.consent = c.consent ?? { owners: [], rows: [] };
+    if (this.consentOpen) this.openConsent();
     if (this.leaseView && this.leaseView.slot.isConnected) this.renderLease(this.leaseView.b, this.leaseView.slot);
     const m = this.mayor;
     if (!m) return;
@@ -111,17 +117,18 @@ export class Seats {
           ${s.owner === 'player' && s.level === 0
             ? `<button value="leave:${esc(s.id)}">Hand to the computer</button>`
             : `<button value="claim:${esc(s.id)}">Run it yourself</button>`}</div>`).join('')}` : ''}
-      <div class="actions"><button value="cancel">Cancel</button><button value="ok" class="active">Apply</button></div>`;
+      <div class="actions"><button value="consent" style="margin-right:auto">House rules…</button><button value="cancel">Cancel</button><button value="ok" class="active">Apply</button></div>`;
     const sync = () => {
       const level = Number(new FormData(form).get('level'));
       $('#style-opts').style.display = level === 3 ? '' : 'none';
       $('#cap-opts').style.display = level === 2 || level === 3 ? '' : 'none';
       $('#style-help').textContent = STYLE_HELP[Number(new FormData(form).get('style'))];
     };
-    form.addEventListener('change', sync);
+    form.onchange = sync;
     sync();
     dlg.onclose = () => {
       const v = dlg.returnValue;
+      if (v === 'consent') { this.openConsent(); return; }
       if (v.startsWith('claim:') || v.startsWith('leave:')) {
         const claim = v.startsWith('claim:');
         this.host.conn.action({ seat: { seat: v.slice(6), owner: claim ? 'player' : '', level: claim ? 0 : 2, style: 0, spendCap: 25000 } });
@@ -132,6 +139,43 @@ export class Seats {
       this.host.conn.action({ seat: { seat: 'mayor', owner: m.owner || 'player', level: Number(fd.get('level')), style: Number(fd.get('style')), spendCap: Number(fd.get('cap') || 0) } });
     };
     dlg.showModal();
+  }
+
+  private consentOpen = false;
+
+  /**
+   * House rules: every seat owner against every mechanic. A mechanic is on only while everyone who owns a seat
+   * allows it, so the table names who is blocking each one. You can only change your own column.
+   */
+  openConsent() {
+    const dlg = $<HTMLDialogElement>('#dlg');
+    const form = $<HTMLFormElement>('#dlg-form');
+    const owners = this.consent.owners as string[];
+    const me = 'player';
+    const cols = owners.includes(me) ? owners : [...owners, me];
+    form.innerHTML = `
+      <h3>House rules</h3>
+      <p class="muted small">Each player switches these on or off for themselves. One is on in this city only while every player who owns a seat allows it.</p>
+      <table class="consent">
+        <tr><th></th>${cols.map((o) => `<th>${esc(o === me ? 'You' : o)}</th>`).join('')}<th>In this city</th></tr>
+        ${(this.consent.rows as Msg[]).map((r) => `
+          <tr><td><b>${esc(r.name)}</b><div class="muted small">${esc(r.note)}</div></td>
+            ${cols.map((o) => {
+              const i = owners.indexOf(o);
+              const on = i >= 0 ? r.byOwner[i] : r.mechanic === 4;
+              return o === me
+                ? `<td><input type="checkbox" data-mech="${r.mechanic}" ${on ? 'checked' : ''}></td>`
+                : `<td>${on ? '✓' : '✗'}</td>`;
+            }).join('')}
+            <td class="${r.effective ? 'pos' : 'neg'}">${r.effective ? 'On' : `Off${r.blockers.length ? ` <span class="muted small">(${esc((r.blockers as string[]).map((b) => (b === me ? 'you' : b)).join(', '))})</span>` : ''}`}</td></tr>`).join('')}
+      </table>
+      <div class="actions"><button value="ok" class="active">Done</button></div>`;
+    form.querySelectorAll<HTMLInputElement>('input[data-mech]').forEach((box) =>
+      box.addEventListener('change', () => this.host.conn.action({ consent: { owner: me, mechanic: Number(box.dataset.mech), allowed: box.checked } })));
+    form.onchange = null;
+    this.consentOpen = true;
+    dlg.onclose = () => { this.consentOpen = false; };
+    if (!dlg.open) dlg.showModal();
   }
 
   private showReport(r: Msg) {
@@ -178,6 +222,7 @@ export class Seats {
       );
       return;
     }
+    const evict = !lease.terminable && !lease.badStanding && lease.evictMonths === 0 && this.allowed(3);
     const pending = lease.pendingTerms ? `<p class="small">From ${lease.pendingMonths} month${lease.pendingMonths === 1 ? '' : 's'} on: ${esc(termsText(lease.pendingTerms))}.</p>` : '';
     slot.innerHTML = `<h4>Lease</h4>
       <p>Leased to <b>${esc(lease.gameName)}</b>. ${esc(termsText(lease.terms))}, ${lease.terms.noticeMonths} months' notice.</p>
@@ -185,15 +230,22 @@ export class Seats {
       <p class="small">${lease.jobs} jobs here · ${money(lease.lastMonthFares)} in fares last month${lease.arrears > 0 ? ` · <span class="neg">${money(lease.arrears)} owed</span>` : ''}</p>
       <div class="req ${lease.badStanding ? 'unmet' : 'met'}"><span class="mark">${lease.badStanding ? '✗' : '✓'}</span><span class="label">Standing</span>
         <span class="detail">${lease.badStanding ? esc((lease.targets as string[]).join(' ')) : 'Good: paid up and well regarded.'}</span></div>
+      <p class="small">Rating in the district: <b class="${lease.rating < 0 ? 'neg' : 'pos'}">${lease.rating}</b> <span class="muted">(−1000 to 1000)</span></p>
+      ${lease.evictMonths > 0 ? `<p class="small neg">Evicted: it leaves in ${lease.evictMonths} month${lease.evictMonths === 1 ? '' : 's'}, with compensation.</p>` : ''}
       <div class="row-flex" style="margin-top:6px">
         <button id="lease-change">Change terms…</button>
-        <button id="lease-end" ${lease.terminable ? '' : 'disabled title="Only a lease in bad standing past its cure period can be ended by the city"'}>End lease</button>
+        ${evict
+          ? `<button id="lease-end" title="Hostile evictions are on: the lease ends after notice and the city pays six months' rent">Evict…</button>`
+          : `<button id="lease-end" ${lease.terminable ? '' : `disabled title="Only a lease in bad standing past its cure period can be ended by the city${this.allowed(3) ? '' : ', unless every player allows hostile evictions'}"`}>End lease</button>`}
       </div>`;
     slot.querySelector('#lease-change')!.addEventListener('click', () =>
       this.termsDialog(`New terms for ${lease.gameName}`, lease.pendingTerms ?? lease.terms, 'Give notice', (terms) =>
         this.host.conn.action({ leaseTerms: { leaseId: lease.id, terms } }),
         `The new terms start after ${lease.terms.noticeMonths} months' notice, so ${lease.gameName} isn't caught out.`));
-    slot.querySelector('#lease-end')!.addEventListener('click', () => this.host.conn.action({ endLease: { leaseId: lease.id, byOperator: false } }));
+    slot.querySelector('#lease-end')!.addEventListener('click', () => {
+      if (evict && !confirm(`Evict ${lease.gameName}? It gets ${lease.terms.noticeMonths} months' notice, and the city pays it compensation when it goes.`)) return;
+      this.host.conn.action({ endLease: { leaseId: lease.id, byOperator: false } });
+    });
   }
 
   private termsDialog(title: string, t: Msg, okLabel: string, done: (terms: Msg) => void, note = '') {
@@ -219,7 +271,7 @@ export class Seats {
       $('#biz-opts').style.display = pub ? 'none' : '';
       $('#pub-opts').style.display = pub ? '' : 'none';
     };
-    form.addEventListener('change', sync);
+    form.onchange = sync;
     sync();
     dlg.onclose = () => {
       if (dlg.returnValue !== 'ok') return;

@@ -59,6 +59,9 @@ public static class ContractWire
         }
         foreach (var i in c.Incidents) m.Incidents.Add(ToWire(i));
         foreach (var b in c.Bills) m.Bills.Add(new W.Bill { LeaseId = b.LeaseId, Label = b.Label, Amount = b.Amount });
+        foreach (var o in c.Offers) m.Offers.Add(new W.PaidActionOffer { Kind = o.Kind, Name = o.Name, Cost = o.Cost, Allowed = o.Allowed, WhyNot = o.WhyNot });
+        foreach (var r in c.AuthorityResults)
+            m.AuthorityResults.Add(new W.AuthorityResult { Kind = r.Kind, DistrictId = r.DistrictId, Ok = r.Ok, Cost = r.Cost, Text = r.Text, Rating = r.Rating });
         return m;
     }
 
@@ -79,6 +82,8 @@ public static class ContractWire
         foreach (var r in m.Ridership) c.Ridership.Add(new C.LineRidership(r.LineId, r.Riders, r.BoardingsByStop.ToArray()));
         foreach (var i in m.Incidents) c.Incidents.Add(FromWire(i));
         foreach (var b in m.Bills) c.Bills.Add(new C.Bill(b.LeaseId, b.Label, b.Amount));
+        foreach (var o in m.Offers) c.Offers.Add(new C.PaidActionOffer(o.Kind, o.Name, o.Cost, o.Allowed, o.WhyNot));
+        foreach (var r in m.AuthorityResults) c.AuthorityResults.Add(new C.AuthorityResult(r.Kind, r.DistrictId, r.Ok, r.Cost, r.Text, r.Rating));
         return c;
     }
 
@@ -97,6 +102,7 @@ public static class ContractWire
         foreach (var (k, v) in g.RevenueByLease) m.RevenueByLease[k] = v;
         m.LeaseRequests.AddRange(g.LeaseRequests);
         m.LeaseReleases.AddRange(g.LeaseReleases);
+        foreach (var a in g.AuthorityActions) m.AuthorityActions.Add(new W.AuthorityAction { Kind = a.Kind, DistrictId = a.DistrictId });
         return m;
     }
 
@@ -110,6 +116,7 @@ public static class ContractWire
         foreach (var (k, v) in m.RevenueByLease) g.RevenueByLease[k] = v;
         g.LeaseRequests.AddRange(m.LeaseRequests);
         g.LeaseReleases.AddRange(m.LeaseReleases);
+        foreach (var a in m.AuthorityActions) g.AuthorityActions.Add(new C.AuthorityAction(a.Kind, a.DistrictId));
         return g;
     }
 }

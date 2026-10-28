@@ -54,6 +54,18 @@ public sealed record Incident(long Id, string Kind, int X, int Y, string Source,
 /// <summary>Money between the city and the side game. Positive: the side game pays the city; negative: the city pays it.</summary>
 public sealed record Bill(int LeaseId, string Label, long Amount);
 
+/// <summary>
+/// A paid action the city offers a side game for raising its standing in a district: "advertise", "statue",
+/// "exclusive-rights" or "bribe". Allowed false, with the reason, when the players' consent settings switch it off.
+/// </summary>
+public sealed record PaidActionOffer(string Kind, string Name, long Cost, bool Allowed, string WhyNot);
+
+/// <summary>A side game buys a paid action in a district.</summary>
+public sealed record AuthorityAction(string Kind, int DistrictId);
+
+/// <summary>What became of a paid action, the day after. When Ok the side game pays Cost; otherwise nothing is owed. Rating: the side game's rating in the district now.</summary>
+public sealed record AuthorityResult(string Kind, int DistrictId, bool Ok, long Cost, string Text, int Rating);
+
 /// <summary>Everything the city tells a side game each day.</summary>
 public sealed class CityToGame
 {
@@ -73,6 +85,10 @@ public sealed class CityToGame
     public readonly List<Incident> Incidents = new();
     /// <summary>Bills due this month. The side game settles them in its output.</summary>
     public readonly List<Bill> Bills = new();
+    /// <summary>The paid actions on offer today, at the city's prices.</summary>
+    public readonly List<PaidActionOffer> Offers = new();
+    /// <summary>What became of yesterday's paid actions.</summary>
+    public readonly List<AuthorityResult> AuthorityResults = new();
 }
 
 /// <summary>A transit line a side game runs: its stops in order (it runs both ways), how often, and the fare.</summary>
@@ -94,6 +110,8 @@ public sealed class GameToCity
     public readonly List<int> LeaseRequests = new();
     /// <summary>Leases the side game gives up. They end today; anything owed is written off.</summary>
     public readonly List<int> LeaseReleases = new();
+    /// <summary>Paid actions bought today. The city answers in tomorrow's <see cref="CityToGame.AuthorityResults"/>.</summary>
+    public readonly List<AuthorityAction> AuthorityActions = new();
     /// <summary>0..100: how well the side game serves the city (on time, not crowded). Feeds its authority rating.</summary>
     public int ServiceQuality = 50;
     /// <summary>One line for the city's why-traces and the news ("Buses running on 3 lines").</summary>

@@ -41,6 +41,7 @@ public sealed partial class World
             case LeaseLotAction a: ApplyLeaseLot(a); break;
             case SetLeaseTermsAction a: ApplySetLeaseTerms(a); break;
             case EndLeaseAction a: ApplyEndLease(a); break;
+            case SetConsentAction a: ApplySetConsent(a); break;
             case SetDisasterSettingAction a:
                 DisasterSetting = a.Setting;
                 Notices.Add(new SimNotice(a.Setting switch { DisasterSetting.Off => "Disasters off: only the ones you start will happen.", DisasterSetting.Rare => "Disasters set to rare.", _ => "Disasters set to normal." }, "info"));

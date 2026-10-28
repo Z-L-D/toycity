@@ -93,11 +93,14 @@ public sealed partial class World
     /// <summary>Each side game's day, after the city's: what the city tells it, its tick, and what it tells the city.</summary>
     void RunSideGames()
     {
-        if (SideGames.Count == 0) { _incidents.Clear(); return; }
+        if (SideGames.Count == 0) { _incidents.Clear(); _authorityResults.Clear(); return; }
         CountLineRiders();
         var incidents = _incidents.ToList();
         _incidents.Clear();
+        var results = _authorityResults.ToList();
+        _authorityResults.Clear();
         bool newMonth = Day == 1;
+        if (newMonth && !InStasis) foreach (var hg in SideGames) UpdateRatings(hg);
         var districts = newMonth ? DistrictFigures() : null;
         var demand = newMonth ? DistrictDemand() : null;
         foreach (var hg in SideGames)
@@ -115,11 +118,13 @@ public sealed partial class World
             // Each game hears about everything except what it raised itself.
             input.Incidents.AddRange(incidents.Where(i => i.Source != hg.Id));
             if (newMonth) BillLeases(hg, input);
+            FillOffers(hg, input, results);
             var output = new GameToCity();
             hg.Game.Tick(input, Queries, output);
             hg.Last = output;
             foreach (var inc in output.Incidents) TakeIncident(hg, inc);
             SettleLeases(hg, input, output);
+            TakeAuthorityActions(hg, output);
         }
     }
 
@@ -127,6 +132,7 @@ public sealed partial class World
     void TakeIncident(HostedGame hg, Incident inc)
     {
         RaiseIncident(inc.Kind, inc.X, inc.Y, hg.Id, inc.Cause, inc.Severity, inc.Text);
+        NoteGameIncident(hg.Id, inc.X, inc.Y);
         if (inc.Text.Length == 0) return;
         string sev = inc.Severity >= 2 ? "warning" : "info";
         Notices.Add(new SimNotice(inc.Text, sev, inc.X, inc.Y));

@@ -34,6 +34,7 @@ public static class Mapping
         P.Action.KindOneofCase.Lease => new LeaseLotAction(a.Lease.Game, a.Lease.BuildingId, a.Lease.Terms == null ? null : Terms(a.Lease.Terms)),
         P.Action.KindOneofCase.LeaseTerms => new SetLeaseTermsAction(a.LeaseTerms.LeaseId, Terms(a.LeaseTerms.Terms)),
         P.Action.KindOneofCase.EndLease => new EndLeaseAction(a.EndLease.LeaseId, a.EndLease.ByOperator),
+        P.Action.KindOneofCase.Consent => new SetConsentAction(a.Consent.Owner, (Mechanic)(int)a.Consent.Mechanic, a.Consent.Allowed),
         P.Action.KindOneofCase.Seat => new SetSeatAction(a.Seat.Seat, a.Seat.Owner, (ToyCity.Contract.OperatorLevel)(int)a.Seat.Level, (AutopilotStyle)(int)a.Seat.Style, a.Seat.SpendCap),
         _ => null,
     };
@@ -59,6 +60,7 @@ public static class Mapping
         LeaseLotAction x => new P.Action { Lease = new P.LeaseLot { Game = x.GameId, BuildingId = x.BuildingId, Terms = x.Terms == null ? null : Terms(x.Terms) } },
         SetLeaseTermsAction x => new P.Action { LeaseTerms = new P.SetLeaseTerms { LeaseId = x.LeaseId, Terms = Terms(x.Terms) } },
         EndLeaseAction x => new P.Action { EndLease = new P.EndLease { LeaseId = x.LeaseId, ByOperator = x.ByOperator } },
+        SetConsentAction x => new P.Action { Consent = new P.SetConsent { Owner = x.Owner, Mechanic = (P.Mechanic)(int)x.Mechanic, Allowed = x.Allowed } },
         SetSeatAction x => new P.Action { Seat = new P.SetSeat { Seat = x.SeatId, Owner = x.Owner, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style, SpendCap = x.SpendCap } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
     };
@@ -296,8 +298,24 @@ public static class Mapping
         {
             var info = new P.SideGameInfo { Id = hg.Id, Name = hg.Game.Manifest.Name, Description = hg.Game.Manifest.Description };
             info.LotKinds.AddRange(hg.Game.Manifest.LotKinds);
+            foreach (var s in w.Standings.Where(s => s.GameId == hg.Id))
+                info.Standings.Add(new P.StandingState
+                {
+                    District = s.District, DistrictName = w.DistrictName(s.District), Rating = s.Rating, Target = s.Target, Statue = s.Statue,
+                    ExclusiveDays = (int)Math.Max(0, s.ExclusiveUntil - w.Tick), BribeBanDays = (int)Math.Max(0, s.BribeBanUntil - w.Tick),
+                });
             r.SideGames.Add(info);
         }
+        var table = new P.ConsentTable();
+        table.Owners.AddRange(w.Owners());
+        foreach (var row in w.ConsentTable())
+        {
+            var pr = new P.ConsentRow { Mechanic = (P.Mechanic)(int)row.Mechanic, Name = row.Name, Note = row.Note, Effective = row.Effective };
+            pr.ByOwner.AddRange(row.ByOwner);
+            pr.Blockers.AddRange(row.Blockers);
+            table.Rows.Add(pr);
+        }
+        r.Consent = table;
         foreach (var l in w.Leases)
         {
             var b = w.Buildings[l.BuildingId];
@@ -306,7 +324,8 @@ public static class Mapping
                 Id = l.Id, Game = l.GameId, GameName = w.SideGame(l.GameId)?.Game.Manifest.Name ?? l.GameId, BuildingId = l.BuildingId, Kind = l.Kind,
                 X = b?.X ?? -1, Y = b?.Y ?? -1, Terms = Terms(l.Terms), PendingTerms = l.PendingTerms == null ? null : Terms(l.PendingTerms),
                 PendingMonths = l.PendingMonths, Arrears = l.Arrears, BadStanding = l.BadStanding, CureMonthsLeft = l.CureMonthsLeft,
-                Terminable = l.Terminable, Jobs = l.Jobs, LastMonthFares = l.LastRevenue,
+                Terminable = l.Terminable, Jobs = l.Jobs, LastMonthFares = l.LastRevenue, EvictMonths = l.EvictMonths,
+                Rating = b == null ? 0 : w.RatingOf(l.GameId, w.DistrictOf(b.X, b.Y)),
             };
             if (b != null) ls.Targets.AddRange(w.LeaseTargets(l));
             r.Leases.Add(ls);

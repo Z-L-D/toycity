@@ -13,7 +13,14 @@ message Command {
     DeleteLine delete_line = 2;
     SetBuses buses = 3;
     Rename rename = 4;
+    BuyStanding standing = 5;
   }
+}
+
+// Buys one of the city's paid actions in a district: "advertise", "statue", "exclusive-rights" or "bribe".
+message BuyStanding {
+  string kind = 1;
+  int32 district = 2;
 }
 
 // Creates a line (line_id 0) or changes one: its stops in order (it runs both ways), fare and name.
@@ -54,6 +61,25 @@ message View {
   repeated string log = 13;  // newest last
   int32 service_quality = 14;
   int32 day = 15;
+  repeated DistrictView districts = 16;  // where the company has lots, with its standing there
+  repeated OfferView offers = 17;
+}
+
+message DistrictView {
+  int32 id = 1;
+  string name = 2;
+  int32 rating = 3;  // -1000..1000
+  int32 lots = 4;
+  bool statue = 5;
+  int32 exclusive_days = 6;  // days of exclusive rights left
+}
+
+message OfferView {
+  string kind = 1;
+  string name = 2;
+  int64 cost = 3;
+  bool allowed = 4;
+  string why_not = 5;
 }
 
 message LineView {
@@ -96,4 +122,5 @@ message MonthMoney {
   int64 rent = 4;     // rent, fare tax and anything overdue
   int64 subsidy = 5;  // from the city
   int64 profit = 6;
+  int64 standing = 7;  // advertising, statues, exclusive rights and the like
 }

@@ -13,6 +13,7 @@ autopilot as they choose. This page records the rules and numbers as built, next
 | The city seat can be held in stasis, caretaker or autopilot, with a "while you were away" report | `SeatTests` |
 | Business lease or public service on side-game lots, with notice and bad standing | `LeaseTests` |
 | A transport side game: bus lines on leased lots, stops, vehicles, fares, per-route profit and loss, ridership from city demand | `TransportTests` |
+| District authority rating and paid actions, gated by the players' consent settings | `AuthorityTests` |
 | The side-game contract is frozen at v1 | `ContractInfo.Version = 1`; `protocol/contract.proto`; `SideGameTests` round-trip every message |
 
 ## The side-game contract (v1)
@@ -28,7 +29,8 @@ one process on one tick: each day the city takes its own step, then each side ga
 | Register | | `Manifest`: id, name, contract version, the lot kinds it can lease |
 | Lease | `LeasedLot` per lot: where, its district, its terms, any change on notice, bad standing | jobs per leased lot; lots it asks for on standard terms; leases it gives up |
 | Signals | the day; districts with people, jobs, land value, crime, health and this game's rating there (monthly); commuter trips between districts (monthly); yesterday's riders per line | transit lines (stops, headway, fare, seats an hour); fares taken at each lot; a 0-100 service quality; a status line |
-| Money | bills: rent, tax, subsidy (monthly) | what it paid against them |
+| Money | bills: rent, tax, subsidy, compensation (monthly) | what it paid against them |
+| Standing | the paid actions on offer, with prices and whether consent allows them (daily); yesterday's paid actions answered, with the rating now | paid actions it buys in a district |
 | Incidents | everything the city and other side games raised, except its own | its own: breakdowns, injuries, anything |
 | Hand-off | who owns the seat and how it's played today (manual, stasis, caretaker, autopilot) | |
 
@@ -170,9 +172,51 @@ the computer.
   through its stops nearest-first, buys buses until one comes every 15 minutes or more when a
   line is over 90% full, and sells them when a line runs under 25% full.
 
+## Authority rating, paid actions and house rules
+
+Each side game has a rating in each district it has lots in, from -1000 to 1000, shown on its
+standing screen (the Buses panel) and in each leased lot's lease panel.
+
+- **Drift.** On the first of the month the rating moves a quarter of the way to a target: (service
+  quality - 50) x 4, plus riders at its stops yesterday (up to 400), plus two a job (up to 100),
+  minus 250 for each lease there in arrears or bad standing, minus 60 for each incident it caused
+  there that month (up to 400), plus 150 for a statue. Districts where it has no lots drift to 0.
+  Nothing moves in stasis.
+- **What it gates.** Below -200 for three months puts a lease in bad standing (part 3). Below
+  -400 the district turns down the side game's requests for more lots there; the mayor can still
+  lease by hand.
+- **Paid actions** (OpenTTD's town actions). The side game asks through the contract and the city
+  answers the next day; the side game pays only for what went ahead.
+
+| Action | Price | Effect | Consent |
+| --- | --- | --- | --- |
+| Advertising campaign | $2,000 | +200 at once, then drifts back | none |
+| Statue in the square | $8,000, to the city | +150 on the target for good; one a district | none |
+| Exclusive rights for a year | $12,000, to the city | the city's own buses stop serving unleased stops in the district for 360 days; one holder at a time | exclusive rights |
+| Bribe the district council | $5,000 | +400, or one time in three caught: rating -800, a scandal in the news, no bribes there for six months | bribery |
+
+**House rules (consent).** Each player switches mechanics on or off for themselves: bribery,
+exclusive rights, sabotage, hostile evictions, absurd disasters and crime aimed at players' lots.
+A mechanic is on only while every player who owns a seat allows it; computer-run seats count for
+their owner and unowned seats don't count. A new player allows only absurd disasters (what the
+game did before). The table (Mayor → House rules) lists every owner against every mechanic with
+the result and who is blocking it. Tightening applies to new actions at once; exclusive rights
+already bought and evictions under way run out. What each switch does today:
+
+- Bribery and exclusive rights: the paid actions above.
+- Hostile evictions: the mayor may end a lease in good standing. It gets its notice period, then
+  the city pays six months' rent (at least the standard rent) as compensation.
+- Absurd disasters: off, the Clockwork Colossus no longer walks in by itself (the sandbox menu
+  still starts one).
+- Sabotage and crime aimed at players' lots are in the table but nothing uses them yet.
+
+Not built: host-wide minimum allowances, and agreements between just two players.
+
 ## Save format
 
 Format version 3 adds the side games (each one's own saved state, its last output and its riders),
 the incidents not yet handed on, the last 50 incidents, and the seats (owner, level, style, cap, the
-state at hand-off with the computer's notes so far, and the last report), and the leases. The content files changed too (district
+state at hand-off with the computer's notes so far, and the last report), the leases, the
+standings (rating, target, statue, exclusive rights, bribe ban), paid actions waiting for an answer,
+compensation waiting to be paid, and each player's consent settings. The content files changed too (district
 names, the bus depot), so Alpha 2 saves don't load.

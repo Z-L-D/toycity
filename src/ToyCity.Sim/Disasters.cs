@@ -259,7 +259,7 @@ public sealed partial class World
         int roll = Rng.Next(100);
         var kind = roll < 60 ? DisasterKind.Fire : roll < 80 ? DisasterKind.Tornado : roll < 92 ? DisasterKind.Earthquake : DisasterKind.Robot;
         // The Colossus only bothers with cities worth stomping.
-        if (kind == DisasterKind.Robot && Population < 5000) kind = DisasterKind.Fire;
+        if (kind == DisasterKind.Robot && (Population < 5000 || !Allowed(Mechanic.AbsurdDisasters))) kind = DisasterKind.Fire;
         StartDisaster(kind, at.X, at.Y);
     }
 
