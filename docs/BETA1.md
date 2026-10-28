@@ -89,6 +89,16 @@ Everything the web client's panels show, as text with links, written by `ClientM
   commuters (yellow drive, blue ride transit), street names stand over the roads at the two closest zoom
   levels, and an alert or petition's area pulses when you go to it. The news runs along the bottom.
 
+## The bus company
+
+The city panel's Buses tab switches to the bus company's own view, as in the web client
+(`ClientModel/Panels/CompanyModel`, tested against the real server in `CompanyTests`): its own top bar
+(cash, buses, service, who runs it), tools down the left (Look, Lease lots, Draw a line, walking reach), and
+tabs for Lines, Lots, Money, Standing and the Log. The map dims, with the company's lots in yellow, free ones
+in white, and each line along its streets with its buses running. Esc goes back to the Look tool; "Back to the
+city" returns. "Own window" opens a second client in the company's view (`--company`), so one window can show
+the city and the other the company. The city's map shows the routes too, under Layers → Bus routes.
+
 ## Voxels
 
 One voxel is 0.5 m, so a 16 m cell is 32 voxels across. Buildings are MagicaVoxel models (axes x east,

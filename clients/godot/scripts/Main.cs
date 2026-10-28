@@ -23,6 +23,8 @@ public partial class Main : Node
     StreetLabels? _streets;
     int _overlayVersion = -1;
     bool _under;
+    bool _company;  // open in the bus company's view (--company)
+    int _companyMap = -1;
     long? _followed;
     double _bannerClock;
     long _savedReport = -1;
@@ -45,6 +47,7 @@ public partial class Main : Node
             if (args[i] == "--smoke") _smoke = true;
             if (args[i] == "--shots" && i + 1 < args.Length) { _shots = args[++i]; _smoke = true; }
             if (args[i] == "--bench" && i + 1 < args.Length) _bench = args[++i];
+            if (args[i] == "--company") _company = true;
         }
         _client = new CityClient(new Uri(server));
         if (_bench != null)
@@ -100,7 +103,7 @@ public partial class Main : Node
         AddChild(_tools);
 
         // The panels, and what they ask of the map.
-        _panels = new PanelView(_client) { Tools = _tools };
+        _panels = new PanelView(_client) { Tools = _tools, Camera = _camera, City = _view, Map = _map };
         AddChild(_panels);
         var pm = _panels.Model;
         if (global::Godot.FileAccess.FileExists(ReportFile) && long.TryParse(global::Godot.FileAccess.GetFileAsString(ReportFile).Trim(), out var seen)) pm.ShownReport = _savedReport = seen;
@@ -117,6 +120,10 @@ public partial class Main : Node
         AddChild(_agents);
         _streets = new StreetLabels(_client.City, _view);
         AddChild(_streets);
+        AddChild(new BusLinesView(_client.City, pm, _view));
+        // The company's view in a window of its own: a second client, as the web client opens a second tab.
+        pm.Company.OwnWindow += () => OS.CreateProcess(OS.GetExecutablePath(),
+            OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", server, "--company" }).ToArray());
     }
 
     void SetStatus(string text) { if (_status != null) _status.Text = text; }
@@ -165,12 +172,16 @@ public partial class Main : Node
         var pm = _panels!.Model;
         _view!.Select(pm.Selected);
         // The pipes show while the layer is on, or while the bulldozer clears pipes.
+        if (_company && pm.Company.View != null) { _company = false; pm.Company.SetActive(true); }
         bool under = pm.ShowUnderground || _tools!.State is { Kind: ToolKind.Bulldoze, Underground: true };
-        if (under != _under || pm.OverlayVersion != _overlayVersion || (under && cellsChanged))
+        int companyMap = pm.Company.Active ? pm.Company.MapVersion : -1;
+        if (under != _under || pm.OverlayVersion != _overlayVersion || companyMap != _companyMap || ((under || companyMap >= 0) && cellsChanged))
         {
-            (_under, _overlayVersion) = (under, pm.OverlayVersion);
+            (_under, _overlayVersion, _companyMap) = (under, pm.OverlayVersion, companyMap);
             Image? image = null;
-            if (under) image = Image.CreateFromData(c.Width, c.Height, false, Image.Format.Rgba8, MapLayer.Pipes(c));
+            // The company's view dims the city and marks its lots; otherwise the pipes, or the panel's layer.
+            if (companyMap >= 0) image = Image.CreateFromData(c.Width, c.Height, false, Image.Format.Rgba8, pm.Company.MapPixels());
+            else if (under) image = Image.CreateFromData(c.Width, c.Height, false, Image.Format.Rgba8, MapLayer.Pipes(c));
             else if (pm.Overlay is { } o && pm.ActiveOverlay != 0 && o.Values.Length == c.Width * c.Height)
             {
                 string scheme = PanelModel.OverlayKinds.First(k => k.Kind == pm.ActiveOverlay).Scheme;
@@ -215,7 +226,8 @@ public partial class Main : Node
         { (0, 1, ViewMode.Classic), (1, 1, ViewMode.Classic), (2, 1, ViewMode.Classic), (3, 1, ViewMode.Classic),
           (0, 0, ViewMode.Classic), (0, 3, ViewMode.Classic), (0, 1, ViewMode.TopDown), (0, 1, ViewMode.Side),
           (0, 2, ViewMode.Classic), (0, 2, ViewMode.Classic),  // the zone and road tools' previews
-          (0, 3, ViewMode.Classic) };  // a building's Why panel over the land value layer, with street names
+          (0, 3, ViewMode.Classic),  // a building's Why panel over the land value layer, with street names
+          (0, 1, ViewMode.Classic) };  // the bus company's view
 
     /// <summary>The smoke test: once the city is drawn, picking at the screen centre must find it at every rotation.</summary>
     void Smoke(CityMirror c, double delta)
@@ -256,9 +268,17 @@ public partial class Main : Node
         if (_shot == ShotViews.Length) { GetTree().Quit(0); return; }
         (v.Rotation, v.Zoom, v.Mode) = ShotViews[_shot++];
         int tx = (int)v.Target.X, ty = (int)v.Target.Y;
-        if (_shot == ShotViews.Length - 2) { _tools!.SetTool(ToolKind.Zone); _tools.Hold((tx + 4, ty + 3), (tx - 4, ty - 3)); }
-        else if (_shot == ShotViews.Length - 1) { _tools!.SetTool(ToolKind.Path); _tools.Hold((tx + 6, ty), (tx - 6, ty)); }
+        _wait = 5;
+        if (_shot == ShotViews.Length - 3) { _tools!.SetTool(ToolKind.Zone); _tools.Hold((tx + 4, ty + 3), (tx - 4, ty - 3)); }
+        else if (_shot == ShotViews.Length - 2) { _tools!.SetTool(ToolKind.Path); _tools.Hold((tx + 6, ty), (tx - 6, ty)); }
         else if (_shot == ShotViews.Length)
+        {
+            _panels!.Model.Click("overlay:0");
+            _panels.Model.Click("co-open");
+            _panels.Model.Click("co-tab:lots");
+            _wait = 10;
+        }
+        else if (_shot == ShotViews.Length - 1)
         {
             _tools!.SetTool(ToolKind.Query);
             _tools.Hold(null);
@@ -271,7 +291,6 @@ public partial class Main : Node
             pm.Click("overlay:1");
             _wait = 30;  // for the server's replies
         }
-        _wait = 5;
     }
 
     int _benchZoom = -1, _benchFrame;

@@ -37,6 +37,18 @@ public partial class PanelView : CanvasLayer
 
     /// <summary>The map tools, whose own keys come first: U with the bulldozer means pipes only.</summary>
     public ToolController? Tools;
+    // For clicks on the map in the bus company's view, which has no tools of the city's.
+    public ClassicCamera? Camera;
+    public CityView? City;
+    public MapView? Map;
+    HBoxContainer? _cityBar, _coBar;
+    HFlowContainer? _cityTabs, _coTabs;
+    readonly Dictionary<string, Button> _coTabButtons = new();
+    Label? _coText, _coDate;
+    Button? _coSeat;
+    PanelContainer? _coTools;
+    RichTextLabel? _coToolsText;
+    bool _wasCompany;
     /// <summary>Whether the camera keeps the followed commuter centred; panning hands the camera back.</summary>
     public bool FollowCam;
 
@@ -67,9 +79,11 @@ public partial class PanelView : CanvasLayer
         var bar = new PanelContainer();
         bar.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopWide);
         AddChild(bar);
-        var row = new HBoxContainer();
+        var bars = new VBoxContainer();
+        bar.AddChild(bars);
+        var row = _cityBar = new HBoxContainer();
         row.AddThemeConstantOverride("separation", 14);
-        bar.AddChild(row);
+        bars.AddChild(row);
         _name = new Label();
         _name.AddThemeFontSizeOverride("font_size", 18);
         row.AddChild(_name);
@@ -95,6 +109,18 @@ public partial class PanelView : CanvasLayer
         Btn("Load", () => Model.OpenDialog("load"), row);
         Btn("Panel (P)", () => _side!.Visible = !_side.Visible, row);
 
+        // The bus company's top bar, in its place while the company's view is up.
+        var co = _coBar = new HBoxContainer { Visible = false };
+        co.AddThemeConstantOverride("separation", 14);
+        bars.AddChild(co);
+        co.AddChild(new Label { Text = "🚌" });
+        co.AddChild(_coText = new Label());
+        co.AddChild(_coDate = new Label());
+        co.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
+        _coSeat = Btn("", () => Model.Click(Model.Company.Mine ? "co-handoff" : "co-claim"), co);
+        Btn("⧉ Own window", () => Model.Click("co-window"), co);
+        Btn("🏙 Back to the city", () => Model.Click("co-city"), co);
+
         // The side panel.
         _side = new PanelContainer();
         _side.SetAnchorsPreset(Control.LayoutPreset.RightWide);
@@ -105,8 +131,18 @@ public partial class PanelView : CanvasLayer
         AddChild(_side);
         var col = new VBoxContainer();
         _side.AddChild(col);
-        var tabs = new HFlowContainer();
+        var tabs = _cityTabs = new HFlowContainer();
         col.AddChild(tabs);
+        _coTabs = new HFlowContainer { Visible = false };
+        col.AddChild(_coTabs);
+        var coGroup = new ButtonGroup();
+        foreach (var (id, name) in CompanyModel.Tabs)
+        {
+            var b = Btn(name, () => Model.Click($"co-tab:{id}"), _coTabs);
+            b.ToggleMode = true;
+            b.ButtonGroup = coGroup;
+            _coTabButtons[id] = b;
+        }
         var group = new ButtonGroup();
         foreach (var (id, name) in PanelModel.Tabs)
         {
@@ -121,6 +157,17 @@ public partial class PanelView : CanvasLayer
         _text = Text();
         _text.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
         col.AddChild(_text);
+
+        // The company's tools, down the left.
+        _coTools = new PanelContainer { Visible = false };
+        _coTools.SetAnchorsPreset(Control.LayoutPreset.LeftWide);
+        _coTools.OffsetLeft = 8;
+        _coTools.OffsetRight = 248;
+        _coTools.OffsetTop = 52;
+        _coTools.OffsetBottom = -60;
+        AddChild(_coTools);
+        _coToolsText = Text();
+        _coTools.AddChild(_coToolsText);
 
         // Dialogs, in the middle of the screen.
         var centre = new CenterContainer { Visible = false, MouseFilter = Control.MouseFilterEnum.Stop };
@@ -182,6 +229,13 @@ public partial class PanelView : CanvasLayer
 
     public override void _UnhandledInput(InputEvent e)
     {
+        if (e is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } mb && Model.Company.Active)
+        {
+            if (Map?.CellAt(mb.Position) is { } m) Camera!.CentreOn(m.X + 0.5f, m.Y + 0.5f);
+            else if (Camera?.Pick(mb.Position, City!) is { } cell) Model.Company.MapClick(cell.X, cell.Y);
+            GetViewport().SetInputAsHandled();
+            return;
+        }
         if (e is not InputEventKey { Pressed: true, Echo: false } k) return;
         switch (k.Keycode)
         {
@@ -189,6 +243,7 @@ public partial class PanelView : CanvasLayer
             case Key.M: Model.ShowAgents = !Model.ShowAgents; break;
             case Key.U when Tools?.State.Kind != ToyCity.ClientModel.Tools.ToolKind.Bulldoze: Model.ShowUnderground = !Model.ShowUnderground; break;
             case Key.Escape when Model.Dialog != null: Model.CloseDialog(); break;
+            case Key.Escape when Model.Company.Active: Model.Click("co-tool:Look"); break;
             default: return;
         }
         GetViewport().SetInputAsHandled();
@@ -198,7 +253,17 @@ public partial class PanelView : CanvasLayer
     {
         var c = _client.City;
         Model.Tick(delta);
+        bool company = Model.Company.Active;
+        if (company != _wasCompany)
+        {
+            _wasCompany = company;
+            _cityBar!.Visible = _cityTabs!.Visible = !company;
+            _coBar!.Visible = _coTabs!.Visible = _coTools!.Visible = company;
+            if (Tools != null) Tools.Enabled = !company;
+            _shown = -1;
+        }
         if (c.Loaded) TopBar(c);
+        if (company) CompanyBar(c);
         Redraw();
         // Banners.
         _away!.Visible = Model.AwayText != null;
@@ -230,16 +295,30 @@ public partial class PanelView : CanvasLayer
         _rci!.QueueRedraw();
     }
 
+    void CompanyBar(CityMirror c)
+    {
+        var s = c.Stats;
+        _coText!.Text = Model.Company.TopText;
+        _coDate!.Text = $"{MonthNames[Math.Clamp(s.Month - 1, 0, 11)]} {s.Day}, {s.Year}";
+        var v = Model.Company.View;
+        _coSeat!.Text = v == null ? "" : Model.Company.Mine ? "You run it · hand to the computer" : $"The computer runs it ({v.Operator}) · run it yourself";
+    }
+
     /// <summary>Rewrites the panel and dialog when the model changed, keeping the scroll place within a tab.</summary>
     void Redraw()
     {
         if (Model.Version == _shown) return;
         _shown = Model.Version;
         _tabs[Model.Tab].SetPressedNoSignal(true);
+        if (Model.Company.Active)
+        {
+            _coTabButtons[Model.Company.Tab].SetPressedNoSignal(true);
+            _coToolsText!.Text = Model.Company.RenderTools();
+        }
         bool dialog = Model.Dialog != null;
         _dialog!.Visible = dialog;
         var target = dialog ? _dialogText! : _text!;
-        string key = dialog ? Model.Dialog! : Model.Tab;
+        string key = dialog ? Model.Dialog! : Model.Company.Active ? "co-" + Model.Company.Tab : Model.Tab;
         bool same = dialog ? key == _shownDialog : key == _shownTab;
         double scroll = same ? target.GetVScrollBar().Value : 0;
         target.Text = Model.Render();

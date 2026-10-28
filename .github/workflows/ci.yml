@@ -81,7 +81,7 @@ jobs:
       - name: Contact sheet of the views (base64 JPEG, for reviewers who can't download artifacts)
         run: |
           sudo apt-get install -y -qq imagemagick > /dev/null
-          montage shots/*.png -tile 4x4 -geometry 320x180+1+1 -quality 45 sheet.jpg
+          montage shots/*.png -tile 4x -geometry 320x180+1+1 -quality 45 sheet.jpg
           echo "::group::sheet.jpg base64"; echo "SHEET-BEGIN"; base64 -w 0 sheet.jpg; echo; echo "SHEET-END"; echo "::endgroup::"
       - uses: actions/upload-artifact@v4
         if: always()

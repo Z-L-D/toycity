@@ -12,7 +12,10 @@ uniform float flash_strength = 0.0;
 
 varying vec2 cell;
 
-vec3 to_linear(vec3 c) {
+// Vertex colours are sRGB. The Compatibility renderer works in sRGB throughout (OUTPUT_IS_SRGB), so they're
+// converted only for Forward+ and Mobile, as StandardMaterial3D's vertex_color_is_srgb does.
+vec3 to_linear(vec3 c, bool srgb_out) {
+	if (srgb_out) return c;
 	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
 }
 
@@ -22,10 +25,10 @@ void vertex() {
 }
 
 void fragment() {
-	vec3 base = to_linear(COLOR.rgb);
+	vec3 base = to_linear(COLOR.rgb, OUTPUT_IS_SRGB);
 	if (use_overlay) {
 		vec4 o = texture(overlay, (floor(cell) + 0.5) / map_size);
-		base = mix(base, to_linear(o.rgb), o.a);
+		base = mix(base, to_linear(o.rgb, OUTPUT_IS_SRGB), o.a);
 	}
 	vec2 c = floor(cell);
 	if (c == selected) {

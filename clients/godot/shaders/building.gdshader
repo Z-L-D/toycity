@@ -17,7 +17,10 @@ float hash(vec3 p) {
 	return fract((p.x + p.y) * p.z);
 }
 
-vec3 to_linear(vec3 c) {
+// Vertex colours are sRGB. The Compatibility renderer works in sRGB throughout (OUTPUT_IS_SRGB), so they're
+// converted only for Forward+ and Mobile, as StandardMaterial3D's vertex_color_is_srgb does.
+vec3 to_linear(vec3 c, bool srgb_out) {
+	if (srgb_out) return c;
 	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
 }
 
@@ -39,7 +42,7 @@ void fragment() {
 	// Crumbling: voxels near the top break away first.
 	if (crumbling && r < 0.35 && local.y > cut - 6.0 * VOXEL) discard;
 
-	vec3 c = to_linear(COLOR.rgb);
+	vec3 c = to_linear(COLOR.rgb, OUTPUT_IS_SRGB);
 	bool building = life.r < 50.0 && !crumbling;
 	// The working edge of a building going up: scaffold planks.
 	if (building && local.y > cut - VOXEL * 1.5) c = mix(vec3(0.55, 0.38, 0.18), vec3(0.75, 0.6, 0.35), r);
@@ -49,7 +52,7 @@ void fragment() {
 	// Graffiti on the lower walls.
 	bool wall = abs(n.y) < 0.5;
 	if (wall && local.y < 0.2 && hash(cell + 7.0) < life.b * 0.35)
-		c = to_linear(vec3(hash(cell + 1.0), hash(cell + 2.0), hash(cell + 3.0)) * 0.8 + 0.2);
+		c = to_linear(vec3(hash(cell + 1.0), hash(cell + 2.0), hash(cell + 3.0)) * 0.8 + 0.2, OUTPUT_IS_SRGB);
 	if (abandoned) c = mix(vec3(dot(c, vec3(0.3, 0.59, 0.11))), c, 0.35) * 0.7;
 	if (crumbling) c = mix(c, vec3(0.6, 0.57, 0.5), 0.5);
 	ALBEDO = c;

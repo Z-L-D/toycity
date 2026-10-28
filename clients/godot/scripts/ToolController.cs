@@ -19,6 +19,27 @@ public partial class ToolController : Node
     readonly ClassicCamera _camera;
     readonly MapView _map;
     public readonly ToolState State = new();
+    VBoxContainer? _top;
+    bool _enabled = true;
+
+    /// <summary>Off while the bus company's view is up: no toolbar, previews or clicks.</summary>
+    public bool Enabled
+    {
+        get => _enabled;
+        set
+        {
+            _enabled = value;
+            _top!.Visible = _hints!.Visible = value;
+            if (value) return;
+            _drag = null;
+            State.CurveEnds = null;
+            _preview = null;
+            Cursor = null;
+            ((ImmediateMesh)_overlay!.Mesh).ClearSurfaces();
+            _cost!.Visible = false;
+        }
+    }
+
     /// <summary>The query tool picked a cell.</summary>
     public event Action<int, int>? Queried;
     /// <summary>Sends an action, or keeps it for a what-if plan; null sends it straight to the city.</summary>
@@ -65,7 +86,7 @@ public partial class ToolController : Node
 
         var hud = new CanvasLayer { Layer = 2 };
         AddChild(hud);
-        var top = new VBoxContainer();
+        var top = _top = new VBoxContainer();
         top.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.Minsize, 46);  // under the top bar
         top.GrowHorizontal = Control.GrowDirection.Both;
         hud.AddChild(top);
@@ -247,6 +268,7 @@ public partial class ToolController : Node
 
     public override void _UnhandledInput(InputEvent e)
     {
+        if (!_enabled) return;
         var c = _client.City;
         if (e is InputEventKey { Pressed: true, Echo: false } k)
         {
@@ -352,6 +374,7 @@ public partial class ToolController : Node
 
     public override void _Process(double delta)
     {
+        if (!_enabled) return;
         var c = _client.City;
         Cursor = _held is { } held ? (held.X, held.Y, 0.5f, 0.5f)
             : c.Loaded && GetViewport().GuiGetHoveredControl() == null ? _camera.PickPoint(GetViewport().GetMousePosition(), _view) : null;

@@ -168,6 +168,15 @@ public sealed class CityMirror
 
     public PathProfileInfo? ProfileAt(int i) => Paths[i] is var p and > 0 && p <= Profiles.Count ? Profiles[p - 1] : null;
 
+    /// <summary>Stops on the kerbs of the roads beside a cell that face it.</summary>
+    public IEnumerable<BuildingState> StopsFacing(int x, int y)
+    {
+        int[] dx = { 0, 1, 0, -1 }, dy = { -1, 0, 1, 0 };
+        for (int k = 0; k < 4; k++)
+            foreach (var s in StopsAt(x - dx[k], y - dy[k]))
+                if (s.Side == k) yield return s;
+    }
+
     /// <summary>The roadside stops on a road cell.</summary>
     public IEnumerable<BuildingState> StopsAt(int x, int y) =>
         Buildings.Values.Where(b => b.X == x && b.Y == y && IsRoadside(b));

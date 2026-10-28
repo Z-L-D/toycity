@@ -37,7 +37,7 @@ public sealed partial class PanelModel
     };
 
     /// <summary>The panel as BBCode: the open dialog, or else the open tab.</summary>
-    public string Render() => Dialog switch
+    public string Render() => Company.Active && Dialog == null ? Company.Render() : Dialog switch
     {
         "seat" => RenderSeat(),
         "consent" => RenderConsent(),
@@ -59,6 +59,7 @@ public sealed partial class PanelModel
             "budget" => RenderBudget(),
             "layers" => RenderLayers(),
             "guide" => RenderGuide(),
+            "buses" => Company.RenderCityTab(),
             _ => "",
         },
     };
@@ -536,6 +537,8 @@ public sealed partial class PanelModel
         sb.Append(Link("agents", ShowAgents ? "Showing commuters (M)" : "Show commuters (M)")).Append('\n');
         if (Roster is { } r)
             sb.Append(Small(Dim($"{Num(r.Full)} people followed daily ({Num(r.Trips.Count)} drawn), {Num(r.Light)} checked monthly, of {Num(r.Citizens)}. This machine's limits: {Num(r.FullTier)} and {Num(r.LightTier)} ({Esc(r.Machine)}). Yellow drive, blue ride transit; the map runs the morning and evening rush on a loop."))).Append('\n');
+        sb.Append(H4("Bus company"));
+        sb.Append(Link("routes", ShowRoutes ? "Showing bus routes" : "Show bus routes")).Append('\n');
         sb.Append(H4("Underground"));
         sb.Append(Link("under", ShowUnderground ? "Showing pipes (U)" : "Show water pipes (U)")).Append('\n');
         return sb.ToString();

@@ -17,7 +17,7 @@ public sealed partial class PanelModel
     public static readonly (string Id, string Name)[] Tabs =
     {
         ("why", "Why"), ("inspect", "Inspect"), ("demand", "Demand"), ("alerts", "Alerts"), ("forecast", "Forecast"),
-        ("people", "People"), ("laws", "Laws"), ("budget", "Budget"), ("layers", "Layers"), ("guide", "Guide"),
+        ("people", "People"), ("laws", "Laws"), ("budget", "Budget"), ("layers", "Layers"), ("guide", "Guide"), ("buses", "Buses"),
     };
 
     readonly CityMirror _city;
@@ -27,7 +27,13 @@ public sealed partial class PanelModel
     {
         _city = city;
         _send = send;
+        Company = new CompanyModel(city, send, Changed);
+        Company.Toast += (t, sev) => Toast?.Invoke(t, sev);
+        Company.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
     }
+
+    /// <summary>The bus company's own view, which can take the panel's place.</summary>
+    public readonly CompanyModel Company;
 
     /// <summary>Goes up whenever the panel would read differently, so the view knows to redraw it.</summary>
     public int Version { get; private set; }
@@ -68,7 +74,8 @@ public sealed partial class PanelModel
     public (int X, int Y)? Selected { get; private set; }
     public int ActiveOverlay { get; private set; }
     public int OverlayVersion { get; private set; }
-    bool _showAgents = true, _showUnderground;
+    bool _showAgents = true, _showUnderground, _showRoutes;
+    public bool ShowRoutes { get => _showRoutes; set { _showRoutes = value; Changed(); } }
     public bool ShowAgents { get => _showAgents; set { _showAgents = value; Changed(); } }
     public bool ShowUnderground { get => _showUnderground; set { _showUnderground = value; Changed(); } }
     public long? Followed { get; private set; }
@@ -119,6 +126,7 @@ public sealed partial class PanelModel
                 if (m.Overlay.Kind == (OverlayKind)ActiveOverlay) { Overlay = m.Overlay; OverlayVersion++; }
                 break;
             case ServerMessage.BodyOneofCase.Saves: Saves = m.Saves.Names; break;
+            case ServerMessage.BodyOneofCase.SideGame: Company.Handle(m.SideGame); return;
             default: return;
         }
         Changed();
@@ -225,7 +233,7 @@ public sealed partial class PanelModel
 
     string _article = "";
     /// <summary>What the text box above the panel is for, or null to hide it.</summary>
-    public string? InputPrompt => Dialog switch
+    public string? InputPrompt => Company.Active ? Company.InputPrompt : Dialog switch
     {
         "new" => "City name",
         "save" => "Save name",
@@ -233,10 +241,16 @@ public sealed partial class PanelModel
         _ => null,
     };
     /// <summary>What's in the text box; the view sets it as the player types.</summary>
-    public string Input { get; private set; } = "";
+    public string Input
+    {
+        get => Company.Active ? Company.Input : _input;
+        private set => _input = value;
+    }
+    string _input = "";
 
     public void SetInput(string text)
     {
+        if (Company.Active) { Company.SetInput(text); return; }
         if (text == Input) return;
         Input = text;
         Changed();
@@ -324,6 +338,7 @@ public sealed partial class PanelModel
     /// <summary>Runs a link from the panel: a meta string written by <see cref="Render"/>.</summary>
     public void Click(string meta)
     {
+        if (meta.StartsWith("co-")) { Company.Click(meta); return; }
         var a = meta.Split(':');
         int I(int k) => k < a.Length && int.TryParse(a[k], out var v) ? v : -1;
         long L(int k) => k < a.Length && long.TryParse(a[k], out var v) ? v : 0;
@@ -363,6 +378,7 @@ public sealed partial class PanelModel
                 Changed();
                 return;
             case "agents": ShowAgents = !ShowAgents; return;
+            case "routes": ShowRoutes = !ShowRoutes; return;
             case "under": ShowUnderground = !ShowUnderground; return;
             case "follow":
                 if (Followed == L(1)) StopFollowing();

@@ -5,6 +5,7 @@
     <Project Path="src/ToyCity.Server/ToyCity.Server.csproj" />
     <Project Path="src/ToyCity.Sim/ToyCity.Sim.csproj" />
     <Project Path="src/ToyCity.Transport/ToyCity.Transport.csproj" />
+    <Project Path="src/ToyCity.Transport.Wire/ToyCity.Transport.Wire.csproj" />
     <Project Path="src/ToyCity.Wire/ToyCity.Wire.csproj" />
     <Project Path="src/ToyCity.ClientModel/ToyCity.ClientModel.csproj" />
   </Folder>
