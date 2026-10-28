@@ -19,6 +19,22 @@ public partial class ClassicCamera : Camera3D
     public float Shake;
     /// <summary>The player moved the view, so anything that steers it (following a commuter) lets go.</summary>
     public event Action? Panned;
+    /// <summary>The free camera, which Tab switches to; picking goes through whichever camera is on.</summary>
+    public FreeCamera? Free;
+    public bool IsFree => Free is { Current: true };
+
+    /// <summary>Switches between this camera and the free one, keeping the view on the same spot.</summary>
+    public void ToggleFree()
+    {
+        if (Free == null) return;
+        if (IsFree)
+        {
+            View.Target = new System.Numerics.Vector2(Free.Target.X, Free.Target.Z);
+            MakeCurrent();
+            Apply();
+        }
+        else Free.TakeOver(new Vector3(View.Target.X, View.TargetHeight, View.Target.Y), View.Yaw, View.Size);
+    }
     const float KeyPanPixels = 900, EdgePanPixels = 700, Edge = 6;
     bool _dragging;
 
@@ -40,6 +56,13 @@ public partial class ClassicCamera : Camera3D
 
     public override void _UnhandledInput(InputEvent e)
     {
+        if (e is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Tab })
+        {
+            ToggleFree();
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+        if (IsFree) return;
         switch (e)
         {
             case InputEventKey { Pressed: true, Echo: false } k:
@@ -70,6 +93,7 @@ public partial class ClassicCamera : Camera3D
 
     public override void _Process(double delta)
     {
+        if (IsFree) return;
         var size = GetViewport().GetVisibleRect().Size;
         float dt = (float)delta, dx = 0, dy = 0;
         // Not while typing in a text box: the letters are for the box.
@@ -110,19 +134,25 @@ public partial class ClassicCamera : Camera3D
         Transform = new Transform3D(new Basis(new Vector3(r.X, r.Y, r.Z), new Vector3(u.X, u.Y, u.Z), new Vector3(-f.X, -f.Y, -f.Z)), new Vector3(p.X, p.Y, p.Z));
     }
 
+    /// <summary>The ray through a screen point, from whichever camera is on.</summary>
+    (System.Numerics.Vector3 O, System.Numerics.Vector3 D) Ray(Vector2 screen)
+    {
+        if (IsFree) return Free!.Ray(screen);
+        var size = GetViewport().GetVisibleRect().Size;
+        return View.Ray(screen.X, screen.Y, size.X, size.Y);
+    }
+
     /// <summary>The cell under a screen point, using the view's own rays.</summary>
     public (int X, int Y)? Pick(Vector2 screen, CityView city)
     {
-        var size = GetViewport().GetVisibleRect().Size;
-        var (o, d) = View.Ray(screen.X, screen.Y, size.X, size.Y);
+        var (o, d) = Ray(screen);
         return ClassicView.Pick(o, d, MapWidth, MapHeight, city.Top, city.MaxTop);
     }
 
     /// <summary>The cell under a screen point and where in it the ray meets its top (0..1 east and south), for tools.</summary>
     public (int X, int Y, float Fx, float Fy)? PickPoint(Vector2 screen, CityView city)
     {
-        var size = GetViewport().GetVisibleRect().Size;
-        var (o, d) = View.Ray(screen.X, screen.Y, size.X, size.Y);
+        var (o, d) = Ray(screen);
         if (ClassicView.Pick(o, d, MapWidth, MapHeight, city.Top, city.MaxTop) is not { } c) return null;
         float t = d.Y < -1e-6f ? (o.Y - city.Top(c.X, c.Y)) / -d.Y : 0;
         var hit = o + d * t;

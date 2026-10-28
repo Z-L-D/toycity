@@ -20,6 +20,9 @@ public partial class BusLinesView : Node3D
     int _builtFor = -1;
     double _clock;
 
+    /// <summary>Where each running bus is and which way it's going, for riding along.</summary>
+    public readonly List<(string Line, Vector3 Pos, Vector3 Dir)> Buses = new();
+
     public BusLinesView(CityMirror city, PanelModel panel, CityView view) => (_city, _panel, _view) = (city, panel, view);
 
     public override void _Ready()
@@ -49,7 +52,8 @@ public partial class BusLinesView : Node3D
     {
         var v = _panel.Company.View;
         Visible = v != null && (_panel.Company.Active || _panel.ShowRoutes);
-        if (!Visible || v == null) return;
+        Buses.Clear();
+        if (v == null) return;
         if (_panel.Company.MapVersion != _builtFor)
         {
             _builtFor = _panel.Company.MapVersion;
@@ -93,6 +97,7 @@ public partial class BusLinesView : Node3D
                 var dir = p1 - p0;
                 var basis = dir.LengthSquared() > 0 ? Basis.LookingAt(dir.Normalized(), Vector3.Up) : Basis.Identity;
                 mm.SetInstanceTransform(n, new Transform3D(basis, p0.Lerp(p1, f)));
+                Buses.Add((line.Name, p0.Lerp(p1, f), dir));
                 mm.SetInstanceColor(n, colour);
                 n++;
             }

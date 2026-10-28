@@ -27,7 +27,9 @@ public partial class CityView : Node3D
     readonly BuildingLife _life = new();
     bool _wasAnimating;
     ShaderMaterial? _voxelMaterial;
-    bool _far;
+    public enum Detail { Far, Near, Smooth }
+    Detail _detail = Detail.Near;
+    (int X, int Y) _focus = (-99, -99);  // the region the smooth detail is centred on
     MeshInstance3D? _cursor;
     float[] _top = System.Array.Empty<float>();
     ShaderMaterial? _ground;
@@ -175,16 +177,25 @@ public partial class CityView : Node3D
         AddChild(_water);
     }
 
-    /// <summary>Far zoom levels draw every building with its quarter-resolution mesh.</summary>
-    public void SetFar(bool far)
+    /// <summary>
+    /// How much detail the buildings get: far zoom levels draw every building with its quarter-resolution mesh;
+    /// the free camera up close draws the regions around where it looks smoothed, and the rest in full detail.
+    /// </summary>
+    public void SetDetail(Detail detail, float focusX, float focusY)
     {
-        if (far == _far) return;
-        _far = far;
+        var focus = ((int)focusX / Region, (int)focusY / Region);
+        if (detail == _detail && (detail != Detail.Smooth || focus == _focus)) return;
+        (_detail, _focus) = (detail, focus);
         foreach (var (key, mmi) in _batches)
-            if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3));
+            if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3), key.Item4);
     }
 
-    Mesh MeshOf(BuildingModels.Model m) => _far ? m.Far : m.Near;
+    Mesh MeshOf(BuildingModels.Model m, int region) => _detail switch
+    {
+        Detail.Far => m.Far,
+        Detail.Smooth when Math.Abs(region % 1024 - _focus.X) <= 1 && Math.Abs(region / 1024 - _focus.Y) <= 1 => m.Smooth.Value,
+        _ => m.Near,
+    };
 
     public int Batches => _batches.Count;
     public int Models => _models.Count;
@@ -217,7 +228,7 @@ public partial class CityView : Node3D
             {
                 mmi = new MultiMeshInstance3D
                 {
-                    Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, UseCustomData = true, Mesh = MeshOf(model) },
+                    Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, UseCustomData = true, Mesh = MeshOf(model, key.Item4) },
                     MaterialOverride = _voxelMaterial,
                 };
                 AddChild(mmi);

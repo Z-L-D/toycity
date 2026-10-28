@@ -99,6 +99,17 @@ in white, and each line along its streets with its buses running. Esc goes back 
 city" returns. "Own window" opens a second client in the company's view (`--company`), so one window can show
 the city and the other the company. The city's map shows the routes too, under Layers → Bus routes.
 
+## Free camera
+
+Tab switches between the classic camera and a free perspective one, orbiting a point on the ground:
+right-drag turns and tilts, middle-drag or WASD moves, the wheel goes nearer or farther, `,` `.` turn by 45°.
+Its bar (top left) has **Snap to grid** (the heading settles on the eight compass points and the point on a
+cell's middle when you let go), **Lock angle** (the classic tilt, so only the heading turns) and **Ride along**,
+which sits behind the followed commuter or one of the company's buses, looking the way it goes; click again
+for the next. Up close the buildings around where it looks are drawn smoothed (`Voxels/SurfaceNets`, naive
+surface nets at half resolution, made per model the first time they're needed); far off, the quarter-resolution
+meshes. Every tool works through it: picking uses whichever camera is on.
+
 ## Voxels
 
 One voxel is 0.5 m, so a 16 m cell is 32 voxels across. Buildings are MagicaVoxel models (axes x east,

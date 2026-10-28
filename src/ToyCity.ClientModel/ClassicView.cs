@@ -92,8 +92,9 @@ public sealed class ClassicView
     public static (int X, int Y)? Pick(Vector3 o, Vector3 d, int width, int height, Func<int, int, float> top, float maxTop)
     {
         if (d.Y >= 0) return null;
-        // Start where the ray comes down through the highest top, end where it reaches the lowest ground.
-        float t0 = (o.Y - (maxTop + 0.01f)) / -d.Y, t1 = (o.Y + 1f) / -d.Y;
+        // Start where the ray comes down through the highest top (or at the eye, for a camera down among the
+        // towers), end where it reaches the lowest ground.
+        float t0 = MathF.Max(0, (o.Y - (maxTop + 0.01f)) / -d.Y), t1 = (o.Y + 1f) / -d.Y;
         var a = o + d * t0;
         float hx = d.X, hz = d.Z;
         if (MathF.Abs(hx) < 1e-6f && MathF.Abs(hz) < 1e-6f)

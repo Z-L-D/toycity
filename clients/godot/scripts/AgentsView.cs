@@ -21,6 +21,8 @@ public partial class AgentsView : Node3D
 
     /// <summary>Where the followed commuter is now, in cells, or null.</summary>
     public Vector2? FollowedAt { get; private set; }
+    /// <summary>Which way the followed commuter is heading, along the ground.</summary>
+    public Vector2 FollowedDir { get; private set; }
     public string FollowedStatus { get; private set; } = "";
     public double Minute { get; private set; }
 
@@ -51,7 +53,7 @@ public partial class AgentsView : Node3D
         AddChild(_route);
     }
 
-    float Height(float x, float y)
+    public float Height(float x, float y)
     {
         int cx = Math.Clamp((int)x, 0, _city.Width - 1), cy = Math.Clamp((int)y, 0, _city.Height - 1);
         return _view.Ground(_city.Idx(cx, cy)) + 0.15f;
@@ -93,7 +95,9 @@ public partial class AgentsView : Node3D
             FollowedAt = null;
             return;
         }
-        FollowedAt = new Vector2(p.X + 0.5f, p.Y + 0.5f);
+        var at = new Vector2(p.X + 0.5f, p.Y + 0.5f);
+        if (FollowedAt is { } before && (at - before).LengthSquared() > 1e-6f) FollowedDir = (at - before).Normalized();
+        FollowedAt = at;
         FollowedStatus = Commuters.Status(t, p.State, clock.Evening);
         _marker!.Visible = true;
         float pulse = 1 + 0.2f * MathF.Sin(Time.GetTicksMsec() / 200f);

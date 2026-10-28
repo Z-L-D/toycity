@@ -187,4 +187,40 @@ public class VoxelTests
         _out.WriteLine($"dense city: {mirror.Buildings.Count:N0} buildings, {meshes.Count} distinct models, {tris:N0} building triangles near, {farTris:N0} far");
         Assert.True(farTris * 3 < tris, "the far level of detail should cost a third or less");
     }
+
+    [Fact]
+    public void SmoothedGeometryIsClosedFacesOutAndKeepsTheShape()
+    {
+        var m = new VoxModel(32, 32, 20);
+        m.Fill(4, 4, 0, 27, 27, 15, 1);
+        m.Fill(10, 10, 16, 21, 21, 19, 2);  // a smaller block on top
+        m.Palette[1] = 0xff3366aa;
+        m.Palette[2] = 0xff22cc44;
+        var mesh = SurfaceNets.Mesh(m.Hollow(), 1);
+        Assert.True(mesh.Indices.Count > 0);
+        // Closed: every edge is shared by exactly two triangles, once each way.
+        var edges = new Dictionary<(int, int), int>();
+        for (int i = 0; i < mesh.Indices.Count; i += 3)
+            for (int k = 0; k < 3; k++)
+            {
+                var e = (mesh.Indices[i + k], mesh.Indices[i + (k + 1) % 3]);
+                edges[e] = edges.GetValueOrDefault(e) + 1;
+            }
+        Assert.All(edges, e => Assert.Equal(1, e.Value));
+        Assert.All(edges.Keys, e => Assert.True(edges.ContainsKey((e.Item2, e.Item1)), "an edge with no twin: a hole"));
+        // Faces out: winding agrees with the vertex normals, which point away from the middle of the base block.
+        var centre = new System.Numerics.Vector3(16, 8, 16);
+        int outward = 0, tris = mesh.Indices.Count / 3;
+        for (int i = 0; i < mesh.Indices.Count; i += 3)
+        {
+            var p = mesh.Positions[mesh.Indices[i]]; var q = mesh.Positions[mesh.Indices[i + 1]]; var r = mesh.Positions[mesh.Indices[i + 2]];
+            var n = System.Numerics.Vector3.Cross(q - p, r - p);
+            if (System.Numerics.Vector3.Dot(n, mesh.Normals[mesh.Indices[i]]) > 0 && System.Numerics.Vector3.Dot((p + q + r) / 3 - centre, n) > 0) outward++;
+        }
+        Assert.True(outward > tris * 0.95, $"{outward} of {tris} triangles face out");
+        // The same footprint and height, give or take the rounding, and the roof keeps its colour.
+        Assert.InRange(mesh.Positions.Max(p => p.Y), 19, 20.5);
+        Assert.InRange(mesh.Positions.Min(p => p.X), 3.5, 5);
+        Assert.Contains(m.Palette[2], mesh.Colors);
+    }
 }

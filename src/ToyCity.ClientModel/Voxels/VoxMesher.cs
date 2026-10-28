@@ -69,7 +69,7 @@ public static class VoxMesher
     }
 
     /// <summary>The empty voxels reachable from outside the model.</summary>
-    static bool[] OpenAir(VoxModel m)
+    public static bool[] OpenAir(VoxModel m)
     {
         int sx = m.SizeX, sy = m.SizeY, sz = m.SizeZ;
         var air = new bool[sx * sy * sz];

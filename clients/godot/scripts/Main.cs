@@ -19,6 +19,7 @@ public partial class Main : Node
     MapView? _map;
     ToolController? _tools;
     PanelView? _panels;
+    FreeCamera? _free;
     AgentsView? _agents;
     StreetLabels? _streets;
     int _overlayVersion = -1;
@@ -120,7 +121,22 @@ public partial class Main : Node
         AddChild(_agents);
         _streets = new StreetLabels(_client.City, _view);
         AddChild(_streets);
-        AddChild(new BusLinesView(_client.City, pm, _view));
+        var buses = new BusLinesView(_client.City, pm, _view);
+        AddChild(buses);
+        _free = new FreeCamera
+        {
+            // What there is to ride along with: the followed commuter, then each running bus.
+            Rides = () =>
+            {
+                var list = new List<(string, Vector3, Vector3)>();
+                if (_agents.FollowedAt is { } f)
+                    list.Add(($"{pm.FollowedName}", new Vector3(f.X, _agents.Height(f.X, f.Y), f.Y), new Vector3(_agents.FollowedDir.X, 0, _agents.FollowedDir.Y)));
+                for (int k = 0; k < buses.Buses.Count; k++) list.Add(($"{buses.Buses[k].Line} bus", buses.Buses[k].Pos, buses.Buses[k].Dir));
+                return list;
+            },
+        };
+        AddChild(_free);
+        _camera.Free = _free;
         // The company's view in a window of its own: a second client, as the web client opens a second tab.
         pm.Company.OwnWindow += () => OS.CreateProcess(OS.GetExecutablePath(),
             OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", server, "--company" }).ToArray());
@@ -148,6 +164,7 @@ public partial class Main : Node
                 _camera!.MapWidth = c.Width;
                 _camera.MapHeight = c.Height;
                 _camera.GroundAt = (x, y) => c.InBounds((int)x, (int)y) ? _view!.Ground(c.Idx((int)x, (int)y)) : 0;
+                (_free!.MapWidth, _free.MapHeight, _free.GroundAt) = (c.Width, c.Height, _camera.GroundAt);
                 // Start over the town, not the middle of the map.
                 var built = c.Buildings.Values.Where(b => !c.IsRoadside(b)).ToList();
                 if (built.Count > 0) _camera.CentreOn(built.Average(b => b.X + b.Width / 2f), built.Average(b => b.Y + b.Height / 2f));
@@ -157,10 +174,20 @@ public partial class Main : Node
             var cell = _camera!.Pick(GetViewport().GetMousePosition(), _view!);
             _view!.Hover(cell);
             _hover!.Text = cell is { } h ? Describe(c, h.X, h.Y) : "";
-            _map!.Marker = _camera.View.Target;
-            _view.SetFar(_camera.View.Zoom <= 2);
-            // Shadows only as far as the view reaches, so close zoom levels don't cast the whole city.
-            _sun!.DirectionalShadowMaxDistance = _camera.View.Distance + _camera.View.Size * 1.5f;
+            _map!.Marker = _camera.IsFree ? new System.Numerics.Vector2(_free!.Target.X, _free.Target.Z) : _camera.View.Target;
+            if (_camera.IsFree)
+            {
+                // Smoothed buildings around where the free camera looks once it's close; shadows as far as it sees.
+                float d = _free!.Riding >= 0 ? 4 : _free.Distance;
+                _view.SetDetail(d < 24 ? CityView.Detail.Smooth : d > 120 ? CityView.Detail.Far : CityView.Detail.Near, _free.Target.X, _free.Target.Z);
+                _sun!.DirectionalShadowMaxDistance = Math.Min(300, d * 3 + 40);
+            }
+            else
+            {
+                _view.SetDetail(_camera.View.Zoom <= 2 ? CityView.Detail.Far : CityView.Detail.Near, _camera.View.Target.X, _camera.View.Target.Y);
+                // Shadows only as far as the view reaches, so close zoom levels don't cast the whole city.
+                _sun!.DirectionalShadowMaxDistance = _camera.View.Distance + _camera.View.Size * 1.5f;
+            }
         }
         if (_bench != null) Bench(c, delta);
         else if (_smoke) Smoke(c, delta);
@@ -190,12 +217,13 @@ public partial class Main : Node
             _view.SetOverlay(image);
         }
         _streets!.Refresh(GetProcessDeltaTime());
-        _streets.Visible = _camera!.View.Zoom >= 3;
+        _streets.Visible = _camera!.IsFree ? _free!.Distance < 40 || _free.Riding >= 0 : _camera.View.Zoom >= 3;
         // A newly followed commuter takes the camera, until the player pans away.
         if (pm.Followed != _followed) { _followed = pm.Followed; _panels.FollowCam = _followed != null; if (_followed != null) _camera.View.Zoom = Math.Max(_camera.View.Zoom, 3); }
         if (_agents!.FollowedAt is { } f)
         {
-            if (_panels.FollowCam) _camera.CentreOn(f.X, f.Y);
+            if (_panels.FollowCam && _camera.IsFree) { if (_free!.Riding < 0) _free.Target = new Vector3(f.X, 0, f.Y); }
+            else if (_panels.FollowCam) _camera.CentreOn(f.X, f.Y);
             if ((_bannerClock += GetProcessDeltaTime()) > 0.2) { _bannerClock = 0; _panels.FollowStatus(_agents.FollowedStatus, _agents.Minute); }
         }
         if (pm.ShownReport != _savedReport)
@@ -227,7 +255,8 @@ public partial class Main : Node
           (0, 0, ViewMode.Classic), (0, 3, ViewMode.Classic), (0, 1, ViewMode.TopDown), (0, 1, ViewMode.Side),
           (0, 2, ViewMode.Classic), (0, 2, ViewMode.Classic),  // the zone and road tools' previews
           (0, 3, ViewMode.Classic),  // a building's Why panel over the land value layer, with street names
-          (0, 1, ViewMode.Classic) };  // the bus company's view
+          (0, 1, ViewMode.Classic),  // the bus company's view
+          (0, 4, ViewMode.Classic), (0, 3, ViewMode.Classic) };  // the free camera: smoothed buildings up close, then from farther off
 
     /// <summary>The smoke test: once the city is drawn, picking at the screen centre must find it at every rotation.</summary>
     void Smoke(CityMirror c, double delta)
@@ -269,16 +298,29 @@ public partial class Main : Node
         (v.Rotation, v.Zoom, v.Mode) = ShotViews[_shot++];
         int tx = (int)v.Target.X, ty = (int)v.Target.Y;
         _wait = 5;
-        if (_shot == ShotViews.Length - 3) { _tools!.SetTool(ToolKind.Zone); _tools.Hold((tx + 4, ty + 3), (tx - 4, ty - 3)); }
-        else if (_shot == ShotViews.Length - 2) { _tools!.SetTool(ToolKind.Path); _tools.Hold((tx + 6, ty), (tx - 6, ty)); }
-        else if (_shot == ShotViews.Length)
+        if (_shot == ShotViews.Length - 1 || _shot == ShotViews.Length)
+        {
+            if (_shot == ShotViews.Length - 1)
+            {
+                _panels!.Model.Click("co-city");
+                var town = c.Buildings.Values.Where(b => !c.IsRoadside(b)).ToList();
+                if (town.Count > 0) _camera.CentreOn(town.Average(b => b.X + b.Width / 2f), town.Average(b => b.Y + b.Height / 2f));
+                _camera.ToggleFree();
+                (_free!.Pitch, _free.Distance, _free.Yaw) = (22, 10, 30);
+            }
+            else (_free!.Pitch, _free.Distance, _free.Yaw) = (40, 45, 60);
+            _wait = 20;
+        }
+        else if (_shot == ShotViews.Length - 5) { _tools!.SetTool(ToolKind.Zone); _tools.Hold((tx + 4, ty + 3), (tx - 4, ty - 3)); }
+        else if (_shot == ShotViews.Length - 4) { _tools!.SetTool(ToolKind.Path); _tools.Hold((tx + 6, ty), (tx - 6, ty)); }
+        else if (_shot == ShotViews.Length - 2)
         {
             _panels!.Model.Click("overlay:0");
             _panels.Model.Click("co-open");
             _panels.Model.Click("co-tab:lots");
             _wait = 10;
         }
-        else if (_shot == ShotViews.Length - 1)
+        else if (_shot == ShotViews.Length - 3)
         {
             _tools!.SetTool(ToolKind.Query);
             _tools.Hold(null);
