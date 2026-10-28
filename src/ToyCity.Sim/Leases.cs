@@ -232,13 +232,14 @@ public sealed partial class World
             int jobs = Math.Clamp(output.JobsByLease.GetValueOrDefault(lease.Id), 0, 500);
             b.Jobs += jobs - lease.Jobs;
             lease.Jobs = jobs;
-            lease.MonthRevenue += Math.Max(0, output.RevenueByLease.GetValueOrDefault(lease.Id));
+            // In stasis the city's money holds still: no fare tax accrues, no bills, no standing changes.
+            if (!InStasis) lease.MonthRevenue += Math.Max(0, output.RevenueByLease.GetValueOrDefault(lease.Id));
         }
         foreach (int id in output.LeaseReleases.Distinct().ToList())
             if (LeaseById(id) is { } l && l.GameId == hg.Id) EndLease(l, $"{GameName(hg.Id)} gave up its lease on {{0}}.");
         foreach (int bid in output.LeaseRequests.Distinct().ToList())
             GrantLease(hg.Id, bid, null, byHand: false);
-        if (input.NewMonth) SettleMonth(hg, input, output);
+        if (input.NewMonth && !InStasis) SettleMonth(hg, input, output);
     }
 
     /// <summary>What the city pays a side game it evicts: six months of the lot's standard rent, or of its rent if higher.</summary>

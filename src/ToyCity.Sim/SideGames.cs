@@ -117,7 +117,7 @@ public sealed partial class World
             foreach (var (line, (riders, boardings)) in hg.Ridership.OrderBy(r => r.Key)) input.Ridership.Add(new LineRidership(line, riders, boardings));
             // Each game hears about everything except what it raised itself.
             input.Incidents.AddRange(incidents.Where(i => i.Source != hg.Id));
-            if (newMonth) BillLeases(hg, input);
+            if (newMonth && !InStasis) BillLeases(hg, input);
             FillOffers(hg, input, results);
             var output = new GameToCity();
             hg.Game.Tick(input, Queries, output);

@@ -7,7 +7,7 @@ namespace ToyCity.Contract;
 
 public static class ContractInfo
 {
-    /// <summary>Bumped only by a breaking change. Additive fields keep the version.</summary>
+    /// <summary>Bumped only by a breaking change. Additive fields keep the version. v1 was frozen at the Alpha 3 gate.</summary>
     public const int Version = 1;
 }
 

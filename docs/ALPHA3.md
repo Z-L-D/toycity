@@ -9,7 +9,7 @@ autopilot as they choose. This page records the rules and numbers as built, next
 
 | Gate | How it is checked |
 | --- | --- |
-| A player runs a bus company inside a city with visible effects in both directions, while the city sits in stasis, caretaker or autopilot as chosen | Part 6 |
+| A player runs a bus company inside a city with visible effects in both directions, while the city sits in stasis, caretaker or autopilot as chosen | `GateTests`: the player's bus company with the city on each of the three levels; riders and fares one way, depot jobs, stop riders and fewer car trips the other; stasis holds funds and population, caretaker and autopilot bill the leases, autopilot grows the city |
 | The city seat can be held in stasis, caretaker or autopilot, with a "while you were away" report | `SeatTests` |
 | Business lease or public service on side-game lots, with notice and bad standing | `LeaseTests` |
 | A transport side game: bus lines on leased lots, stops, vehicles, fares, per-route profit and loss, ridership from city demand | `TransportTests` |
@@ -73,7 +73,7 @@ computer took with its reason (click one to go there), and the news in the meant
 
 | Level | What happens |
 | --- | --- |
-| Stasis | Nothing that persists changes: no construction, growth, decline, wear, budget, approval, prompts, life events or disasters. Derived layers (coverage, traffic, desirability) still refresh, commuters keep moving, side games keep running, and open petitions' deadlines move back a day for every held day. |
+| Stasis | Nothing that persists changes: no construction, growth, decline, wear, budget, approval, prompts, life events or disasters. Derived layers (coverage, traffic, desirability) still refresh, commuters keep moving, side games keep running (their leases aren't billed and their ratings and standing hold), and open petitions' deadlines move back a day for every held day. |
 | Caretaker | The city runs as normal. Each month after the budget the computer takes a loan if the treasury is in the red, nudges taxes half a point toward balance (never more than a point from where the owner left them), rebuilds lost civic buildings like for like, and turns down deals. It never zones, builds roads, expands or demolishes. |
 | Autopilot | As caretaker, plus: keeps taxes in its style's band, builds power, water and garbage when use nears capacity (polluters at least six cells from homes), builds the building a petition asks for near the petitioners, takes or declines deals by style, zones empty road-enclosed blocks when demand is 20 or more, and lays a new 11x11 block of streets (levelled, with a water pipe joined to the network) when there's demand and no empty block. |
 
