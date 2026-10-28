@@ -75,6 +75,7 @@ public sealed partial class World
         var g = SideGameCatalog.Create(a.GameId);
         g.NewGame(Seed ^ (ulong)XxHashOf(a.GameId));
         SideGames.Add(new HostedGame { Game = g });
+        AddSideGameSeat(a.GameId);
         Notices.Add(new SimNotice($"{g.Manifest.Name} has set up in town.", "info"));
     }
 

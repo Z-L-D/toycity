@@ -111,7 +111,7 @@ public sealed partial class SimHost : IDisposable
             }
         }
         // Petitions, deals, unlocks and headlines change at most monthly or on an action, so a cheap signature will do.
-        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}";
+        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}/{string.Join(",", _world.Seats.Select(s => $"{s.Owner}:{(int)s.Level}:{(int)s.Style}:{s.SpendCap}:{s.Report?.ToTick}"))}";
         if (forceAlerts || civicSig != _civicSig)
         {
             _civicSig = civicSig;
@@ -208,12 +208,11 @@ public sealed partial class SimHost : IDisposable
                 case P.ClientMessage.BodyOneofCase.Action:
                     if (Mapping.ToSim(msg.Action) is { } a)
                     {
+                        // Applied now, not at the next tick: at a slow speed a day is many seconds. It is logged at the
+                        // current tick, before that tick's step, which is where a replay applies it too.
                         _world.Enqueue(a);
-                        if (_speed == 0)
-                        {
-                            _world.ApplyPending();
-                            broadcast = BuildDeltas(forceAlerts: true);
-                        }
+                        _world.ApplyPending();
+                        broadcast = BuildDeltas(forceAlerts: true);
                     }
                     else reply = Error(msg.Seq, "Unknown action.");
                     break;

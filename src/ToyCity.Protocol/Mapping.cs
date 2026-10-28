@@ -31,6 +31,7 @@ public static class Mapping
         P.Action.KindOneofCase.Disasters => new SetDisasterSettingAction((DisasterSetting)(int)a.Disasters.Setting),
         P.Action.KindOneofCase.SideGame => new SideGameAction(a.SideGame.Game, a.SideGame.Seat, a.SideGame.Payload.ToByteArray()),
         P.Action.KindOneofCase.Attach => new AttachSideGameAction(a.Attach.Game),
+        P.Action.KindOneofCase.Seat => new SetSeatAction(a.Seat.Seat, a.Seat.Owner, (ToyCity.Contract.OperatorLevel)(int)a.Seat.Level, (AutopilotStyle)(int)a.Seat.Style, a.Seat.SpendCap),
         _ => null,
     };
 
@@ -52,6 +53,7 @@ public static class Mapping
         SetDisasterSettingAction x => new P.Action { Disasters = new P.SetDisasters { Setting = (P.DisasterSetting)(int)x.Setting } },
         SideGameAction x => new P.Action { SideGame = new P.SideGameCommand { Game = x.GameId, Seat = x.Seat, Payload = ByteString.CopyFrom(x.Payload) } },
         AttachSideGameAction x => new P.Action { Attach = new P.AttachSideGame { Game = x.GameId } },
+        SetSeatAction x => new P.Action { Seat = new P.SetSeat { Seat = x.SeatId, Owner = x.Owner, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style, SpendCap = x.SpendCap } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
     };
 
@@ -257,6 +259,24 @@ public static class Mapping
             if (w.TypeUnlocked[t] && w.Content.Types[t].Placeable) r.UnlockedTypes.Add(w.Content.Types[t].Id);
         foreach (var h in w.Headlines)
             r.Headlines.Add(new P.Headline { Seq = h.Seq, Tick = h.Tick, Text = h.Text, Severity = h.Severity, X = h.X, Y = h.Y });
+        foreach (var s in w.Seats)
+        {
+            var seat = new P.SeatState
+            {
+                Id = s.Id, Name = s.Id == Seat.Mayor ? "City" : w.SideGame(s.Id)?.Game.Manifest.Name ?? s.Id, Owner = s.Owner,
+                Level = (P.SeatLevel)(int)s.Level, Style = (P.AutopilotStyle)(int)s.Style, SpendCap = s.SpendCap,
+                AwaySinceTick = s.Away?.Tick ?? -1,
+            };
+            if (s.Report is { } rep)
+            {
+                var pr = new P.AwayReport { FromTick = rep.FromTick, ToTick = rep.ToTick, Level = (P.SeatLevel)(int)rep.Level };
+                pr.Changes.AddRange(rep.Changes);
+                pr.News.AddRange(rep.News);
+                foreach (var n in rep.Notes) pr.Notes.Add(new P.AwayNote { Tick = n.Tick, Text = n.Text, X = n.X, Y = n.Y });
+                seat.Report = pr;
+            }
+            r.Seats.Add(seat);
+        }
         return r;
     }
 

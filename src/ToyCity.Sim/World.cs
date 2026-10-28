@@ -169,6 +169,7 @@ public sealed partial class World
         Riders = new int[N];
         Blight = new byte[N];
         Array.Fill(TaxTenths, 90);
+        InitSeats();
         InitOrdinances();
         InitDirector();
     }
@@ -231,12 +232,17 @@ public sealed partial class World
         OneOffs = 0;
         BudgetRan = false;
         ApplyPending();
-        RunDisasters();
+        bool stasis = InStasis;
+        if (stasis) HoldPrompts();
+        else RunDisasters();
 
         if (Day == 1 && Tick > 0) RunMonthly();
         RunUtilities();
-        RunConstruction();
-        RunGrowth();
+        if (!stasis)
+        {
+            RunConstruction();
+            RunGrowth();
+        }
         RunCommutes();
         UpdateStats();
         RunSideGames();
@@ -248,9 +254,14 @@ public sealed partial class World
         for (int i = 0; i < days; i++) Step();
     }
 
+    /// <summary>
+    /// Monthly. In stasis only the derived layers are recomputed (coverage, traffic, desirability and so on); nothing
+    /// that persists changes: no prompts, disasters, life events, wear, budget, decline or approval.
+    /// </summary>
     void RunMonthly()
     {
-        if (Tick > 0)
+        bool live = Tick > 0 && !InStasis;
+        if (live)
         {
             CheckUnlocks();
             RunDirector();
@@ -263,13 +274,14 @@ public sealed partial class World
         RunPollutionAndNoise();
         RunCoverage();
         RunTraffic();
-        RunWear();
+        if (!InStasis) RunWear();
         RunLandValue();
         RunDesirability();
         UpdateStats();
-        if (Tick > 0)
+        if (live)
         {
             RunBudget();
+            RunAutomation();
             RunDecline();
             UpdateApproval();
         }
@@ -336,6 +348,7 @@ public sealed partial class World
             WriteDirector(w);
             WriteDisasters(w);
             WriteSideGames(w);
+            WriteSeats(w);
         }
         return ms.ToArray();
     }
@@ -406,6 +419,7 @@ public sealed partial class World
         w.ReadDirector(r);
         w.ReadDisasters(r);
         w.ReadSideGames(r);
+        w.ReadSeats(r);
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

@@ -335,3 +335,19 @@ button.mini { padding: 0 6px; font-size: 11px; margin-left: 4px; }
 #follow { position: absolute; top: 44px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
   background: rgba(10, 13, 20, 0.9); border: 1px solid #ffd15a; border-radius: 16px; padding: 4px 6px 4px 12px; font-size: 13px; }
 #follow.hidden { display: none; }
+
+/* Seats and the computer playing the city */
+#btn-seat.away { border-color: #ffd15a; color: #ffd15a; }
+#away { position: absolute; top: 80px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
+  background: rgba(10, 13, 20, 0.9); border: 1px solid #8ab4ff; border-radius: 16px; padding: 4px 6px 4px 12px; font-size: 13px; }
+#away.hidden { display: none; }
+.levels { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.level-opt { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: start; padding: 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); cursor: pointer; }
+.level-opt input { grid-row: span 2; margin-top: 3px; }
+.seat-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+ul.report { padding-left: 18px; margin: 6px 0; }
+ul.report li { margin: 2px 0; }
+.report-notes { max-height: 240px; overflow-y: auto; }
+.report-notes .note, .report-notes .news { padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); font-size: 12px; }
+.report-notes .note[data-jump] { cursor: pointer; }
+#dlg { max-width: 520px; }

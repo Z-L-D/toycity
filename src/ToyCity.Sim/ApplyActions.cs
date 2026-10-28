@@ -37,6 +37,7 @@ public sealed partial class World
             case TriggerDisasterAction a: StartDisaster(a.Kind, a.X, a.Y); break;
             case AttachSideGameAction a: ApplyAttach(a); break;
             case SideGameAction a: ApplySideGameAction(a); break;
+            case SetSeatAction a: ApplySetSeat(a); break;
             case SetDisasterSettingAction a:
                 DisasterSetting = a.Setting;
                 Notices.Add(new SimNotice(a.Setting switch { DisasterSetting.Off => "Disasters off: only the ones you start will happen.", DisasterSetting.Rare => "Disasters set to rare.", _ => "Disasters set to normal." }, "info"));

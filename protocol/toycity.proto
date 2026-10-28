@@ -60,7 +60,32 @@ message Action {
     ZoneBlock block = 14;
     SideGameCommand side_game = 15;
     AttachSideGame attach = 16;
+    SetSeat seat = 17;
   }
+}
+
+// How a seat is played: by its owner, or by the computer at a level the owner picks. Stasis is for the city seat.
+enum SeatLevel {
+  SEAT_MANUAL = 0;
+  SEAT_STASIS = 1;     // the city holds still: no growth, decay, money or new builds; people keep moving
+  SEAT_CARETAKER = 2;  // pays bills, rebuilds like for like, nudges taxes, turns down deals; never expands
+  SEAT_AUTOPILOT = 3;  // plays the seat in a style, within the spending cap
+}
+
+enum AutopilotStyle {
+  STYLE_GROWTH = 0;
+  STYLE_GREEN = 1;
+  STYLE_PROFIT = 2;
+  STYLE_CHAOS = 3;
+}
+
+// Claims or hands over a seat ("mayor", or a side game's id). An empty owner leaves it to nobody.
+message SetSeat {
+  string seat = 1;
+  string owner = 2;
+  SeatLevel level = 3;
+  AutopilotStyle style = 4;
+  int64 spend_cap = 5;  // the most the computer may spend in a month
 }
 
 // A command for a side game from one of its seats, as the side game's own message bytes (for the bus company,
@@ -719,6 +744,34 @@ message CivicState {
   repeated string unlocked_types = 2;
   int32 approval = 3;
   repeated Headline headlines = 4;  // newest last
+  repeated SeatState seats = 5;     // the mayor's seat first
+}
+
+message SeatState {
+  string id = 1;
+  string name = 2;  // "City" or the side game's name
+  string owner = 3;
+  SeatLevel level = 4;
+  AutopilotStyle style = 5;
+  int64 spend_cap = 6;
+  int64 away_since_tick = 7;  // -1 when the owner is playing it
+  AwayReport report = 8;      // the last "while you were away" report, if any
+}
+
+message AwayNote {
+  int64 tick = 1;
+  string text = 2;
+  int32 x = 3;  // -1 when not located
+  int32 y = 4;
+}
+
+message AwayReport {
+  int64 from_tick = 1;
+  int64 to_tick = 2;
+  SeatLevel level = 3;
+  repeated string changes = 4;
+  repeated AwayNote notes = 5;
+  repeated string news = 6;
 }
 
 message Advisor {

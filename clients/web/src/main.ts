@@ -3,6 +3,7 @@ import { Connection, type Msg } from './net';
 import { City, curveCells, lCells } from './state';
 import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
+import { Seats } from './seats';
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -80,6 +81,7 @@ let dirty = true;
 let activeTab = 'why';
 // Created after the connection; messages that arrive first are handled once it exists.
 let talk: TalkBack | null = null;
+let seats: Seats | null = null;
 /** The followed commuters and this machine's tiers, as the server last sent them. */
 let roster: Msg | null = null;
 
@@ -89,6 +91,7 @@ const conn = new Connection({
     if (!ok) toast('Lost connection to the server. Reconnecting…', 'error');
   },
   onMessage(kind, body, replyTo) {
+    if (kind === 'civic') seats?.onCivic(body);
     if (talk?.onMessage(kind, body, replyTo)) return;
     switch (kind) {
       case 'full': {
@@ -934,7 +937,8 @@ renderer.resize();
 updateHints();
 renderLayers();
 talk = new TalkBack({ conn, city, jumpTo, showTab, onUnlocks: () => buildToolbar(), flash, pickBuilding });
+seats = new Seats({ conn, jumpTo });
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.
-(window as any).toycity = { city, renderer, conn, setTool, query, talk };
+(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats };
