@@ -6,8 +6,8 @@ namespace ToyCity.Godot;
 
 /// <summary>
 /// The city in 3D, one world unit to a cell: terrain as stepped blocks in chunks rebuilt where cells change, a
-/// water plane, and each building as a coloured block until part 3's voxel models replace them. It also answers
-/// how tall each cell stands, which picking needs.
+/// water plane, and buildings as voxel models, one instanced batch per type and lot size, with a coarser mesh at
+/// far zoom levels. It also answers how tall each cell stands, which picking needs.
 /// </summary>
 public partial class CityView : Node3D
 {
@@ -16,7 +16,11 @@ public partial class CityView : Node3D
     readonly CityMirror _city;
     MeshInstance3D[] _chunks = System.Array.Empty<MeshInstance3D>();
     MeshInstance3D? _water;
-    MultiMeshInstance3D? _blocks;
+    MultiMeshInstance3D? _blocks;  // roadside stops, and buildings of a type the catalog doesn't know
+    readonly BuildingModels _models = new();
+    readonly Dictionary<(string, int, int), MultiMeshInstance3D> _batches = new();
+    StandardMaterial3D? _voxelMaterial;
+    bool _far;
     MeshInstance3D? _cursor;
     float[] _top = System.Array.Empty<float>();
     StandardMaterial3D? _ground;
@@ -37,6 +41,7 @@ public partial class CityView : Node3D
             MaterialOverride = new StandardMaterial3D { VertexColorUseAsAlbedo = true, VertexColorIsSrgb = true, Roughness = 0.9f },
         };
         AddChild(_blocks);
+        _voxelMaterial = new StandardMaterial3D { VertexColorUseAsAlbedo = true, VertexColorIsSrgb = true, Roughness = 0.95f };
         _cursor = new MeshInstance3D
         {
             Mesh = new BoxMesh { Size = new Vector3(1.04f, 0.04f, 1.04f) },
@@ -131,21 +136,21 @@ public partial class CityView : Node3D
         AddChild(_water);
     }
 
-    /// <summary>How tall a building's placeholder block stands, in cells: by density for zoned growth, low for civic.</summary>
-    static float BlockHeight(BuildingState b, BuildingTypeInfo t)
+    /// <summary>Far zoom levels draw every building with its quarter-resolution mesh.</summary>
+    public void SetFar(bool far)
     {
-        uint hash = (uint)b.Id * 2654435761u;
-        float vary = 0.8f + (hash >> 24) / 255f * 0.4f;
-        float h = t.Category switch
-        {
-            "zoned" => b.Density switch { Density.High => 2.2f, Density.Medium => 0.9f, _ => 0.35f },
-            "park" => 0.06f,
-            _ => 0.5f,
-        };
-        return h * vary;
+        if (far == _far) return;
+        _far = far;
+        foreach (var (key, mmi) in _batches)
+            if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3));
     }
 
-    /// <summary>All the buildings as one batch of blocks; also refreshes each cell's top for picking.</summary>
+    Mesh MeshOf(BuildingModels.Model m) => _far ? m.Far : m.Near;
+
+    public int Batches => _batches.Count;
+    public int Models => _models.Count;
+
+    /// <summary>All the buildings, batched by model; also refreshes each cell's top for picking.</summary>
     void BuildBlocks()
     {
         int n = _city.N;
@@ -154,42 +159,63 @@ public partial class CityView : Node3D
         MaxTop = 0;
         for (int i = 0; i < n; i++) { _top[i] = Mathf.Max(Ground(i), water); MaxTop = Mathf.Max(MaxTop, _top[i]); }
 
-        var mm = _blocks!.Multimesh;
-        mm.InstanceCount = _city.Buildings.Count;
-        int k = 0;
+        var groups = new Dictionary<(string, int, int), List<BuildingState>>();
+        var stops = new List<BuildingState>();
         foreach (var b in _city.Buildings.Values)
         {
-            if (!_city.TypeById.TryGetValue(b.TypeId, out var t)) { mm.SetInstanceTransform(k++, new Transform3D(Basis.Identity.Scaled(Vector3.Zero), Vector3.Zero)); continue; }
-            var color = Palette.Of(t);
-            if (b.Abandoned) color = color.Darkened(0.5f);
-            if (b.ConstructionDaysLeft > 0) color = color.Lerp(Colors.White, 0.5f);
-            Vector3 size, at;
-            if (t.Roadside)
+            if (!_city.TypeById.TryGetValue(b.TypeId, out var t) || t.Roadside) { stops.Add(b); continue; }
+            var key = (b.TypeId, b.Width, b.Height);
+            if (!groups.TryGetValue(key, out var list)) groups[key] = list = new();
+            list.Add(b);
+        }
+        foreach (var key in _batches.Keys.Where(k => !groups.ContainsKey(k)).ToList()) { _batches[key].QueueFree(); _batches.Remove(key); }
+        foreach (var (key, list) in groups)
+        {
+            var model = _models.Get(_city.TypeById[key.Item1], key.Item2, key.Item3);
+            if (!_batches.TryGetValue(key, out var mmi))
             {
-                // A stop: a small post on the kerb side of its road cell.
-                if (!_city.InBounds(b.X, b.Y)) { mm.SetInstanceTransform(k++, new Transform3D(Basis.Identity.Scaled(Vector3.Zero), Vector3.Zero)); continue; }
-                float g = Ground(_city.Idx(b.X, b.Y));
-                var off = b.Side switch { 0 => new Vector3(0, 0, -0.38f), 1 => new Vector3(0.38f, 0, 0), 2 => new Vector3(0, 0, 0.38f), _ => new Vector3(-0.38f, 0, 0) };
-                size = new Vector3(0.18f, 0.18f, 0.18f);
-                at = new Vector3(b.X + 0.5f, g + size.Y / 2, b.Y + 0.5f) + off;
-                color = Colors.Gold;
+                mmi = new MultiMeshInstance3D
+                {
+                    Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, Mesh = MeshOf(model) },
+                    MaterialOverride = _voxelMaterial,
+                };
+                AddChild(mmi);
+                _batches[key] = mmi;
             }
-            else
+            var mm = mmi.Multimesh;
+            mm.InstanceCount = list.Count;
+            for (int k = 0; k < list.Count; k++)
             {
+                var b = list[k];
                 float g = 0;
                 for (int y = b.Y; y < b.Y + b.Height; y++)
                     for (int x = b.X; x < b.X + b.Width; x++)
                         if (_city.InBounds(x, y)) g = Mathf.Max(g, Ground(_city.Idx(x, y)));
-                float h = BlockHeight(b, t) * (b.ConstructionDaysLeft > 0 ? 0.4f : 1f);
-                size = new Vector3(b.Width - 0.12f, h, b.Height - 0.12f);
-                at = new Vector3(b.X + b.Width / 2f, g + h / 2, b.Y + b.Height / 2f);
+                // Until part 4's layer-by-layer construction: a building going up stands low and pale.
+                float rise = b.ConstructionDaysLeft > 0 ? 0.4f : 1f;
+                var color = Colors.White;
+                if (b.ConstructionDaysLeft > 0) color = new Color(1.25f, 1.25f, 1.25f);
+                if (b.Abandoned) color = new Color(0.5f, 0.48f, 0.45f);
+                mm.SetInstanceTransform(k, new Transform3D(Basis.Identity.Scaled(new Vector3(1, rise, 1)), new Vector3(b.X, g, b.Y)));
+                mm.SetInstanceColor(k, color);
+                float top = g + model.Height * rise;
                 for (int y = b.Y; y < b.Y + b.Height; y++)
                     for (int x = b.X; x < b.X + b.Width; x++)
-                        if (_city.InBounds(x, y)) { int i = _city.Idx(x, y); _top[i] = g + h; MaxTop = Mathf.Max(MaxTop, g + h); }
+                        if (_city.InBounds(x, y)) { _top[_city.Idx(x, y)] = top; MaxTop = Mathf.Max(MaxTop, top); }
             }
-            mm.SetInstanceTransform(k, new Transform3D(Basis.Identity.Scaled(size), at));
-            mm.SetInstanceColor(k, color);
-            k++;
+        }
+
+        // Stops: a small post on the kerb side of their road cell.
+        var blocks = _blocks!.Multimesh;
+        blocks.InstanceCount = stops.Count;
+        for (int k = 0; k < stops.Count; k++)
+        {
+            var b = stops[k];
+            if (!_city.InBounds(b.X, b.Y)) { blocks.SetInstanceTransform(k, new Transform3D(Basis.Identity.Scaled(Vector3.Zero), Vector3.Zero)); continue; }
+            float g = Ground(_city.Idx(b.X, b.Y));
+            var off = b.Side switch { 0 => new Vector3(0, 0, -0.38f), 1 => new Vector3(0.38f, 0, 0), 2 => new Vector3(0, 0, 0.38f), _ => new Vector3(-0.38f, 0, 0) };
+            blocks.SetInstanceTransform(k, new Transform3D(Basis.Identity.Scaled(new Vector3(0.18f, 0.18f, 0.18f)), new Vector3(b.X + 0.5f, g + 0.09f, b.Y + 0.5f) + off));
+            blocks.SetInstanceColor(k, Colors.Gold);
         }
     }
 

@@ -6,7 +6,8 @@ namespace ToyCity.Godot;
 /// <summary>
 /// The client's root: connects to the server, keeps the city mirror current and hands each frame's changes to the
 /// 3D view and the minimap. Command line (after "--"): --server ws://host:port/ws; --smoke to connect, check the
-/// city loads and picking works at every rotation, and quit; --shots DIR to also save a screenshot of each view.
+/// city loads and picking works at every rotation, and quit; --shots DIR to also save a screenshot of each view;
+/// --bench FILE to swap in the dense benchmark city and write frame times and memory per zoom level to FILE.
 /// </summary>
 public partial class Main : Node
 {
@@ -16,7 +17,8 @@ public partial class Main : Node
     MapView? _map;
     Label? _status, _hover;
     bool _smoke, _centred;
-    string? _shots;
+    string? _shots, _bench;
+    bool _frozen;  // the bench city is drawn from a fixed state; the server's deltas would undo it
     double _smokeTime;
 
     const string Hints = ", .  rotate     + −  wheel  zoom     T  top-down     Y  side view\n"
@@ -31,8 +33,21 @@ public partial class Main : Node
             if (args[i] == "--server" && i + 1 < args.Length) server = args[++i];
             if (args[i] == "--smoke") _smoke = true;
             if (args[i] == "--shots" && i + 1 < args.Length) { _shots = args[++i]; _smoke = true; }
+            if (args[i] == "--bench" && i + 1 < args.Length) _bench = args[++i];
         }
         _client = new CityClient(new Uri(server));
+        if (_bench != null)
+        {
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+            DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
+            Engine.MaxFps = 0;
+            _client.Message += m =>
+            {
+                if (_frozen || m.BodyCase != Protocol.V0.ServerMessage.BodyOneofCase.Full) return;
+                _client.City.ApplyFull(DenseCity.Make(m.Full));
+                _frozen = true;
+            };
+        }
         _client.Connection.StatusChanged += open => SetStatus(open ? "Connected" : $"Connecting to {server}…");
 
         AddChild(new WorldEnvironment
@@ -51,7 +66,7 @@ public partial class Main : Node
 
         _view = new CityView(_client.City);
         AddChild(_view);
-        _camera = new ClassicCamera { EdgePan = !_smoke };
+        _camera = new ClassicCamera { EdgePan = !_smoke && _bench == null };
         AddChild(_camera);
 
         var hud = new CanvasLayer();
@@ -84,8 +99,8 @@ public partial class Main : Node
 
     public override void _Process(double delta)
     {
-        _client!.Poll();
-        var c = _client.City;
+        if (!_frozen) _client!.Poll();
+        var c = _client!.City;
         if (c.Loaded)
         {
             var (all, cells, buildings) = c.TakeDirty();
@@ -110,8 +125,10 @@ public partial class Main : Node
             _view!.Hover(cell);
             _hover!.Text = cell is { } h ? Describe(c, h.X, h.Y) : "";
             _map!.Marker = _camera.View.Target;
+            _view.SetFar(_camera.View.Zoom <= 1);
         }
-        if (_smoke) Smoke(c, delta);
+        if (_bench != null) Bench(c, delta);
+        else if (_smoke) Smoke(c, delta);
     }
 
     /// <summary>What's under the cursor: a building, a street, or the ground.</summary>
@@ -173,6 +190,58 @@ public partial class Main : Node
         if (_shot == ShotViews.Length) { GetTree().Quit(0); return; }
         (v.Rotation, v.Zoom, v.Mode) = ShotViews[_shot++];
         _wait = 5;
+    }
+
+    int _benchZoom = -1, _benchFrame;
+    readonly List<double> _times = new();
+    readonly List<string> _benchRows = new();
+
+    /// <summary>
+    /// The frame-budget run: the dense city at each zoom level, 30 frames to settle and 240 measured, with the
+    /// draw calls, triangles and memory each costs. The map is centred and the classic angle used throughout.
+    /// </summary>
+    void Bench(CityMirror c, double delta)
+    {
+        _smokeTime += delta;
+        if (_smokeTime > 180) { GD.PrintErr("BENCH FAILED: timed out"); GetTree().Quit(1); return; }
+        if (!_frozen || !_map!.Drawn) return;
+        var v = _camera!.View;
+        if (_benchZoom < 0)
+        {
+            _camera.CentreOn(c.Width / 2f, c.Height / 2f);
+            _benchZoom = 0;
+            _benchFrame = 0;
+            v.Zoom = 0;
+            return;
+        }
+        _benchFrame++;
+        if (_benchFrame > 30) _times.Add(delta * 1000);
+        if (_benchFrame < 30 + 240) return;
+        _times.Sort();
+        double avg = _times.Average(), p95 = _times[(int)(_times.Count * 0.95)], worst = _times[^1];
+        long tris = (long)Performance.GetMonitor(Performance.Monitor.RenderTotalPrimitivesInFrame);
+        long calls = (long)Performance.GetMonitor(Performance.Monitor.RenderTotalDrawCallsInFrame);
+        long objects = (long)Performance.GetMonitor(Performance.Monitor.RenderTotalObjectsInFrame);
+        double video = Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed) / 1048576.0;
+        double engine = OS.GetStaticMemoryUsage() / 1048576.0, managed = GC.GetTotalMemory(false) / 1048576.0;
+        double process = System.Environment.WorkingSet / 1048576.0;
+        string row = $"{{\"zoom\":{v.Zoom},\"lod\":\"{(v.Zoom <= 1 ? "far" : "near")}\",\"avgMs\":{avg:F2},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"fps\":{1000 / avg:F1},"
+            + $"\"triangles\":{tris},\"drawCalls\":{calls},\"objects\":{objects},\"videoMB\":{video:F0},\"engineMB\":{engine:F0},\"managedMB\":{managed:F0},\"processMB\":{process:F0}}}";
+        _benchRows.Add(row);
+        GD.Print($"BENCH zoom {v.Zoom}: {avg:F2} ms avg ({1000 / avg:F0} fps), p95 {p95:F2} ms, {tris:N0} triangles, {calls} draw calls, process {process:F0} MB, video {video:F0} MB");
+        if (_shots != null && DisplayServer.GetName() != "headless")
+        {
+            DirAccess.MakeDirRecursiveAbsolute(_shots);
+            GetViewport().GetTexture().GetImage().SavePng($"{_shots}/bench-z{v.Zoom}.png");
+        }
+        _times.Clear();
+        _benchFrame = 0;
+        if (v.Zoom < ClassicView.ZoomSizes.Length - 1) { v.Zoom++; return; }
+        string json = $"{{\"city\":\"{c.Width}x{c.Height}\",\"buildings\":{c.Buildings.Count},\"models\":{_view!.Models},\"batches\":{_view.Batches},"
+            + $"\"renderer\":\"{RenderingServer.GetVideoAdapterName()} / {RenderingServer.GetCurrentRenderingDriverName()}\",\"levels\":[{string.Join(",", _benchRows)}]}}";
+        using (var f = global::Godot.FileAccess.Open(_bench, global::Godot.FileAccess.ModeFlags.Write)) f.StoreString(json);
+        GD.Print($"BENCH wrote {_bench}");
+        GetTree().Quit(0);
     }
 
     public override void _ExitTree() => _client?.Dispose();
