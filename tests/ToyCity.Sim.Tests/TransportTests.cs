@@ -109,6 +109,25 @@ public class TransportTests
     }
 
     [Fact]
+    public void ALineThroughJustTwoStopsFindsRiders()
+    {
+        // A depot and two stops: the smallest company a player can start. Their walking reach has to cover enough
+        // homes and jobs for anyone to ride.
+        var w = Town(82);
+        w.Enqueue(new SetSeatAction(TransportGame.Id, "player", OperatorLevel.Manual));
+        var stops = w.Buildings.Where(b => b != null && w.LotKindOf(b) == "bus-stop").Take(2).ToList();
+        foreach (var b in stops.Append(w.Buildings.First(b => b != null && w.LotKindOf(b) == "bus-depot"))) w.Enqueue(new LeaseLotAction(TransportGame.Id, b!.Id));
+        w.Run(2);
+        var save = new TW.SaveLine { Name = "Shuttle", FareCents = 150 };
+        save.StopLeaseIds.AddRange(w.Leases.Where(l => l.Kind == "bus-stop").Select(l => l.Id));
+        w.Enqueue(Cmd(new TW.Command { SaveLine = save }));
+        w.Step();
+        w.Enqueue(Cmd(new TW.Command { Buses = new TW.SetBuses { LineId = View(w).Lines.Single().Id, Buses = 2 } }));
+        w.Run(65);
+        Assert.True(View(w).Lines.Single().Riders > 0, "nobody rode a two-stop line");
+    }
+
+    [Fact]
     public void BadCommandsAreTurnedDown()
     {
         var w = Town(83);

@@ -28,13 +28,33 @@
         </div>
         <button id="btn-alerts" title="Alerts: problems in the city, click one to go there">⚠ <span id="alert-count" class="badge none">0</span></button>
         <button id="btn-seat" title="Who runs the city: hand it to the computer while you're away">🧑 Mayor</button>
+        <button id="btn-company" class="hidden" title="Switch to the bus company's own view">🚌 Bus company</button>
         <div class="spacer"></div>
         <button id="btn-new">New city</button>
         <button id="btn-save">Save</button>
         <button id="btn-load">Load</button>
         <div id="conn" class="conn off" title="Server connection"></div>
       </header>
+      <header id="co-top">
+        <div class="brand co-brand">🚌 <span id="co-name">Bus company</span></div>
+        <div class="stat" id="co-date">…</div>
+        <div class="stat" id="co-cash" title="The company's cash">$0</div>
+        <div class="stat" id="co-buses" title="Buses, and how many the leased depots hold">0 buses</div>
+        <div class="stat" id="co-quality" title="Service quality: buses on time and not too full">service –</div>
+        <div class="speed" id="co-speed">
+          <button data-speed="0" title="Pause (Space)">⏸</button>
+          <button data-speed="1" title="Slow (1)">▶</button>
+          <button data-speed="2" title="Normal (2)">▶▶</button>
+          <button data-speed="3" title="Fast (3)">▶▶▶</button>
+        </div>
+        <div id="co-seat"></div>
+        <div class="spacer"></div>
+        <button id="co-window" title="Open the bus company in a window of its own, next to the city">⧉ Own window</button>
+        <button id="co-city" title="Back to the city">🏙 City</button>
+        <div id="co-conn" class="conn off" title="Server connection"></div>
+      </header>
       <aside id="tools"></aside>
+      <aside id="co-tools"></aside>
       <main id="view">
         <canvas id="map"></canvas>
         <div id="cost" class="cost hidden"></div>
@@ -69,6 +89,16 @@
         <section id="tab-budget" class="tab"></section>
         <section id="tab-guide" class="tab"></section>
         <section id="tab-layers" class="tab"></section>
+      </aside>
+      <aside id="co-panel">
+        <nav id="co-tabs">
+          <button data-cotab="lines" class="active">Lines</button>
+          <button data-cotab="lots">Lots</button>
+          <button data-cotab="money">Money</button>
+          <button data-cotab="standing">Standing</button>
+          <button data-cotab="log">Log</button>
+        </nav>
+        <div id="co-body"></div>
       </aside>
     </div>
     <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>

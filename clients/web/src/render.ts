@@ -107,6 +107,9 @@ export function agentAt(t: AgentTrip, clock: { minute: number; evening: boolean 
   return { x: (a % width) * (1 - u) + (b % width) * u, y: Math.floor(a / width) * (1 - u) + Math.floor(b / width) * u, state };
 }
 
+/** A lot as the bus company's view draws it. */
+export interface CompanyLot { buildingId: number; kind: string; x: number; y: number; w: number; h: number; leased: boolean; closed: boolean }
+
 export class Renderer {
   readonly ctx: CanvasRenderingContext2D;
   scale = 8;
@@ -125,7 +128,14 @@ export class Renderer {
   /** The followed citizen, if any: drawn larger with a ring. */
   followed: number | null = null;
   /** The bus company's running lines: drawn along their streets, with their buses going back and forth. */
-  busLines: { color: string; cells: number[]; buses: number }[] = [];
+  busLines: { color: string; cells: number[]; buses: number; running: boolean }[] = [];
+  /** In the city view the routes show only when the Layers tab asks for them. */
+  showRoutes = false;
+  /**
+   * Set while the bus company's own view is up: the city is dimmed and the company's lots stand out, with the
+   * walking reach of its stops when asked for.
+   */
+  company: { lots: CompanyLot[]; catchment: number; showCatchment: boolean; selected: number | null } | null = null;
   private terrain: HTMLCanvasElement = document.createElement('canvas');
   private terrainVersion = -1;
   private blink = false;
@@ -136,7 +146,7 @@ export class Renderer {
     if (d && d.length > 0) return true;
     if (this.flash && this.flash.until > performance.now()) return true;
     if (this.followed !== null) return true;
-    if (this.busLines.some((l) => l.buses > 0) && this.city.stats.speed > 0) return true;
+    if ((this.company || this.showRoutes) && this.busLines.some((l) => l.buses > 0) && this.city.stats.speed > 0) return true;
     return this.showAgents && this.agents.length > 0 && this.city.stats.speed > 0;
   }
 
@@ -231,8 +241,9 @@ export class Renderer {
       this.drawBuildings(x0, y0, x1, y1, px, py);
       this.drawPowerLines(x0, y0, x1, y1, px, py);
       this.drawDisasters(px, py);
-      this.drawBusLines(px, py);
-      this.drawAgents(px, py, x0, y0, x1, y1);
+      if (this.company) this.drawCompany(px, py, r.width, r.height);
+      if (this.company || this.showRoutes) this.drawBusLines(px, py);
+      if (!this.company) this.drawAgents(px, py, x0, y0, x1, y1);
     }
 
     if (this.overlay) {
@@ -308,6 +319,54 @@ export class Renderer {
     this.drawFollowed(px, py, clock, r);
   }
 
+  /** The company's view: the city dimmed, its stops' walking reach, and its lots and the free ones marked. */
+  private drawCompany(px: (x: number) => number, py: (y: number) => number, w: number, h: number) {
+    const ctx = this.ctx;
+    const s = this.scale;
+    const co = this.company!;
+    ctx.fillStyle = 'rgba(12,16,26,0.55)';
+    ctx.fillRect(0, 0, w, h);
+    if (co.showCatchment) {
+      ctx.fillStyle = 'rgba(255,204,77,0.10)';
+      ctx.strokeStyle = 'rgba(255,204,77,0.45)';
+      ctx.lineWidth = 1;
+      for (const l of co.lots) {
+        if (!l.leased || l.kind !== 'bus-stop') continue;
+        const r = co.catchment;
+        ctx.fillRect(px(l.x - r), py(l.y - r), (l.w + 2 * r) * s, (l.h + 2 * r) * s);
+        ctx.strokeRect(px(l.x - r) + 0.5, py(l.y - r) + 0.5, (l.w + 2 * r) * s - 1, (l.h + 2 * r) * s - 1);
+      }
+    }
+    for (const l of co.lots) {
+      const x = px(l.x), y = py(l.y), bw = l.w * s, bh = l.h * s;
+      ctx.lineWidth = Math.max(2, s / 6);
+      if (l.leased) {
+        ctx.fillStyle = l.closed ? '#8a4a44' : '#ffcc4d';
+        ctx.fillRect(x, y, bw, bh);
+        ctx.strokeStyle = '#fff';
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(x, y, bw, bh);
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.setLineDash([3, 3]);
+      }
+      ctx.strokeRect(x + 1, y + 1, bw - 2, bh - 2);
+      ctx.setLineDash([]);
+      if (co.selected === l.buildingId) {
+        ctx.strokeStyle = '#5ad1ff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - 3, y - 3, bw + 6, bh + 6);
+      }
+      if (s >= 10 && l.kind === 'bus-depot') {
+        ctx.fillStyle = l.leased ? '#1b2230' : '#fff';
+        ctx.font = `${Math.round(s * 0.8)}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('D', x + bw / 2, y + bh / 2);
+      }
+    }
+  }
+
   /**
    * Bus lines along their streets, and their buses: each runs the line end to end and back on a cosmetic clock
    * (half a minute a round trip), spaced evenly. They stand still while the game is paused.
@@ -324,9 +383,13 @@ export class Renderer {
       ctx.strokeStyle = line.color + 'aa';
       ctx.lineWidth = Math.max(2, s / 3);
       ctx.lineJoin = 'round';
+      // A line that isn't running (no buses, every bus in the workshop) is drawn dashed, without buses.
+      if (!line.running) ctx.setLineDash([s, s]);
       ctx.beginPath();
       cells.forEach((c, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, px((c % w) + 0.5), py(Math.floor(c / w) + 0.5)));
       ctx.stroke();
+      ctx.setLineDash([]);
+      if (!line.running) continue;
       const last = cells.length - 1;
       const size = Math.max(3, s * 0.7);
       for (let b = 0; b < line.buses; b++) {

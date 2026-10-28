@@ -84,14 +84,13 @@ let activeTab = 'why';
 let talk: TalkBack | null = null;
 let seats: Seats | null = null;
 let transport: Transport | null = null;
-/** True while the bus company's line editor takes map clicks. */
-let pickingStops = false;
 /** The followed commuters and this machine's tiers, as the server last sent them. */
 let roster: Msg | null = null;
 
 const conn = new Connection({
   onStatus(ok) {
     $('#conn').classList.toggle('off', !ok);
+    transport?.onCityTick();
     if (!ok) toast('Lost connection to the server. Reconnecting…', 'error');
   },
   onMessage(kind, body, replyTo) {
@@ -116,6 +115,7 @@ const conn = new Connection({
         city.applyDelta(body);
         for (const n of body.notices as Msg[]) toast(n.text, n.severity, n.x, n.y);
         updateTopBar();
+        transport?.onCityTick();
         if (city.stats.day === 1) {
           renderBudget();
           if (queried) query(queried.x, queried.y, false);
@@ -498,7 +498,7 @@ canvas.addEventListener('mousedown', (e) => {
   }
   if (e.button !== 0 || !city.loaded) return;
   const cell = renderer.cellAt(sx, sy);
-  if (pickingStops && city.inBounds(cell.x, cell.y) && transport?.pick(cell.x, cell.y)) return;
+  if (transport?.company) { if (city.inBounds(cell.x, cell.y)) transport.mapClick(cell.x, cell.y); return; }
   if (tool.kind === 'query') { if (city.inBounds(cell.x, cell.y)) query(cell.x, cell.y); return; }
   if (tool.kind === 'path' && curveEnds) {
     const e = curveEnds;
@@ -534,6 +534,7 @@ window.addEventListener('mousemove', (e) => {
     dirty = true;
     return;
   }
+  if (transport?.company) return;
   if (e.target === canvas || drag) updatePreview(renderer.cellAt(sx, sy), sx, sy);
 });
 window.addEventListener('mouseup', (e) => {
@@ -569,6 +570,12 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Shift') { shiftHeld = true; return; }
   held.add(e.key);
   const k = e.key.toLowerCase();
+  // The company's view has its own tools; only the shared keys (pause, speed, panning) work there.
+  if (transport?.company) {
+    if (k === ' ') { e.preventDefault(); conn.send({ speed: { speed: city.stats.speed === 0 ? 1 : 0 } }); }
+    else if (k >= '1' && k <= '3') conn.send({ speed: { speed: Number(k) } });
+    return;
+  }
   const keyTools: Record<string, Tool> = {
     q: { kind: 'query' }, b: { kind: 'bulldoze' }, r: { kind: 'path' }, z: { kind: 'zone', zone: 1 }, x: { kind: 'zone', zone: 2 },
     c: { kind: 'zone', zone: 3 }, d: { kind: 'dezone' }, p: { kind: 'utility', utility: 0 }, w: { kind: 'utility', utility: 1 },
@@ -613,7 +620,6 @@ function showTab(name: string) {
   document.querySelectorAll<HTMLElement>('.tab').forEach((t) => t.classList.toggle('active', t.id === `tab-${name}`));
   if (name === 'budget') renderBudget();
   if (name === 'layers') renderLayers();
-  if (name === 'buses') transport?.render();
 }
 document.querySelectorAll<HTMLButtonElement>('#tabs button').forEach((b) =>
   b.addEventListener('click', () => (talk ? talk.open(b.dataset.tab!) : showTab(b.dataset.tab!))),
@@ -784,6 +790,8 @@ function renderLayers(low?: string, high?: string) {
     <h4>Commuters</h4>
     <button id="btn-agents" class="${renderer.showAgents ? 'active' : ''}">${renderer.showAgents ? 'Showing commuters' : 'Show commuters'} (M)</button>
     ${roster ? `<p class="muted">${roster.full.toLocaleString('en-US')} people followed daily (${(roster.trips as Msg[]).length.toLocaleString('en-US')} drawn), ${roster.light.toLocaleString('en-US')} checked monthly, of ${roster.citizens.toLocaleString('en-US')}. This machine's limits: ${roster.fullTier.toLocaleString('en-US')} and ${roster.lightTier.toLocaleString('en-US')} (${esc(roster.machine)}). Yellow drive, blue ride transit; the map runs the morning and evening rush on a loop.</p>` : ''}
+    <h4>Bus company</h4>
+    <button id="btn-routes" class="${renderer.showRoutes ? 'active' : ''}">${renderer.showRoutes ? 'Showing bus routes' : 'Show bus routes'}</button>
     <h4>Underground</h4>
     <button id="btn-under" class="${renderer.underground ? 'active' : ''}">${renderer.underground ? 'Showing pipes' : 'Show water pipes'} (U)</button>`;
   document.querySelectorAll<HTMLButtonElement>('#tab-layers button[data-overlay]').forEach((b) =>
@@ -797,6 +805,7 @@ function renderLayers(low?: string, high?: string) {
   );
   $('#btn-under').addEventListener('click', () => { renderer.underground = !renderer.underground; renderLayers(); updateHints(); dirty = true; });
   $('#btn-agents').addEventListener('click', () => { renderer.showAgents = !renderer.showAgents; renderLayers(); dirty = true; });
+  $('#btn-routes').addEventListener('click', () => { renderer.showRoutes = !renderer.showRoutes; renderLayers(); dirty = true; });
 }
 
 // ---------------------------------------------------------------------------
@@ -951,9 +960,17 @@ renderLayers();
 talk = new TalkBack({ conn, city, jumpTo, showTab, onUnlocks: () => buildToolbar(), flash, pickBuilding });
 seats = new Seats({ conn, jumpTo });
 transport = new Transport({
-  conn, city, jumpTo, showTab, toast,
+  conn, city, jumpTo, toast,
   setLines: (lines) => { renderer.busLines = lines; dirty = true; },
-  setPicking: (on) => { pickingStops = on; canvas.style.cursor = on ? 'crosshair' : ''; },
+  setCompanyMap: (m) => { renderer.company = m; dirty = true; },
+  onModeChange: (company) => {
+    drag = null;
+    renderer.preview = null;
+    renderer.selected = null;
+    canvas.style.cursor = company ? 'pointer' : '';
+    renderer.resize();
+    dirty = true;
+  },
 });
 requestAnimationFrame(frame);
 

@@ -863,7 +863,7 @@
       "cost": 150,
       "maintenance": 15,
       "capacity": 400,
-      "catchment": 4,
+      "catchment": 8,
       "wait": 2,
       "color": "#d9822b"
     },

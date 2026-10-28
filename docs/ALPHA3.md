@@ -172,6 +172,20 @@ the computer.
   through its stops nearest-first, buys buses until one comes every 15 minutes or more when a
   line is over 90% full, and sells them when a line runs under 25% full.
 
+### Playing the company
+
+The bus company has its own view in the web client. The 🚌 button in the city's top bar (or Buses →
+Switch to the company) swaps the city's top bar, tools and panel for the company's: cash, buses and
+service in the top bar; Look, Lease lots and Draw a line tools; and Lines, Lots, Money, Standing and
+Log tabs. The map dims the city, marks the company's lots (solid) and free ones (dashed), shades
+each stop's walking reach, and draws the routes with their buses (dashed when a line isn't running).
+⧉ Own window opens the company at `?view=company`, so one window can show the city and another the
+company. In the city view, routes show only under Layers → Bus routes.
+
+A bus stop's walking reach is 8 cells (it was 4 in Alpha 2). At 4, a line through two stops in the
+starter town reached too few homes and jobs for anyone to ride. Each line shows how many homes and
+jobs its stops reach and, with no riders yet, why.
+
 ## Authority rating, paid actions and house rules
 
 Each side game has a rating in each district it has lots in, from -1000 to 1000, shown on its
