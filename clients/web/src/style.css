@@ -330,3 +330,8 @@ details summary { cursor: pointer; margin: 4px 0; }
 ul.residents { list-style: none; padding: 0; margin: 4px 0; max-height: 320px; overflow-y: auto; }
 ul.residents li { padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); font-size: 12px; }
 button.mini { padding: 0 6px; font-size: 11px; margin-left: 4px; }
+
+/* Following a commuter */
+#follow { position: absolute; top: 44px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
+  background: rgba(10, 13, 20, 0.9); border: 1px solid #ffd15a; border-radius: 16px; padding: 4px 6px 4px 12px; font-size: 13px; }
+#follow.hidden { display: none; }

@@ -10,6 +10,10 @@ export interface TalkBackHost {
   showTab(name: string): void;
   /** Called when the set of buildable landmarks and reward lots changes. */
   onUnlocks(): void;
+  /** Pulses an area of the map. */
+  flash(area: { x0: number; y0: number; x1: number; y1: number }): void;
+  /** Chooses a building for the place tool and centres the map on a cell (x = -1 to stay put). */
+  pickBuilding(typeId: string, x: number, y: number): void;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -159,11 +163,42 @@ export class TalkBack {
     );
     root.querySelectorAll<HTMLElement>('[data-jump]').forEach((el) =>
       el.addEventListener('click', (e) => {
-        if ((e.target as HTMLElement).closest('a.topic')) return;
+        if ((e.target as HTMLElement).closest('a.topic, button, .fix')) return;
         const [x, y] = el.dataset.jump!.split(',').map(Number);
         this.host.jumpTo(x, y);
+        if (el.dataset.area) {
+          const [x0, y0, x1, y1] = el.dataset.area.split(',').map(Number);
+          this.host.flash({ x0, y0, x1, y1 });
+        }
       }),
     );
+    root.querySelectorAll<HTMLElement>('.fix[data-fix]').forEach((el) =>
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const [x, y] = (el.dataset.at ?? '-1,-1').split(',').map(Number);
+        this.host.pickBuilding(el.dataset.fix!, x, y);
+        if (el.dataset.area) {
+          const [x0, y0, x1, y1] = el.dataset.area.split(',').map(Number);
+          this.host.flash({ x0, y0, x1, y1 });
+        }
+      }),
+    );
+  }
+
+  /** Attributes that make a card jump to and flash what it's about. */
+  private where(m: Msg): string {
+    if (m.x < 0) return '';
+    const a = m.area;
+    return `data-jump="${m.x},${m.y}"${a && a.x0 >= 0 ? ` data-area="${a.x0},${a.y0},${a.x1},${a.y1}"` : ''}`;
+  }
+
+  /** A "Place a clinic" link when a building would help. */
+  private fixLink(m: Msg): string {
+    const t = m.fixType ? this.host.city.typeById.get(m.fixType) : undefined;
+    if (!t) return '';
+    const a = m.area;
+    return `<a href="#" class="fix" data-fix="${esc(t.id)}" data-at="${m.x},${m.y}"${a && a.x0 >= 0 ? ` data-area="${a.x0},${a.y0},${a.x1},${a.y1}"` : ''}>Place ${esc(t.name)} →</a>`;
   }
 
   // -------------------------------------------------------------------------
@@ -230,9 +265,9 @@ export class TalkBack {
     }
     el.innerHTML = `<h3>Alerts</h3><p class="muted">Click an alert to go to its source.</p>` +
       this.alerts
-        .map((a) => `<div class="alert ${a.severity}" ${a.x >= 0 ? `data-jump="${a.x},${a.y}"` : ''}>
+        .map((a) => `<div class="alert ${a.severity}" ${this.where(a)}>
           <div>${esc(a.text)}</div>
-          <div class="alert-foot">${a.x >= 0 ? '<span class="go">Go there →</span>' : '<span></span>'}${this.topicLink(a.topic, 'Why?')}</div>
+          <div class="alert-foot">${a.x >= 0 ? '<span class="go">Go there →</span>' : '<span></span>'}${this.fixLink(a)}${this.topicLink(a.topic, 'Why?')}</div>
         </div>`)
         .join('');
     this.wireLinks(el);
@@ -312,7 +347,7 @@ export class TalkBack {
     const open = prompts.filter((p) => p.status === 0);
     const done = prompts.filter((p) => p.status !== 0).slice(-6).reverse();
     const promptCard = (p: Msg) => `
-      <div class="alert ${p.kind === 'deal' ? 'deal' : 'petition'}" ${p.x >= 0 ? `data-jump="${p.x},${p.y}"` : ''}>
+      <div class="alert ${p.kind === 'deal' ? 'deal' : 'petition'}" ${this.where(p)}>
         <div class="muted small">${p.kind === 'deal' ? 'Deal' : `Petition from ${esc(p.petitioner)}`} · ${p.monthsLeft} month${p.monthsLeft === 1 ? '' : 's'} left</div>
         <div>${esc(p.text)}</div>
         ${p.goal ? `<div class="small goal">Wants: ${esc(p.goal)}</div>` : ''}
@@ -321,6 +356,7 @@ export class TalkBack {
             ? `<button class="active" data-respond="${p.id}" data-accept="1">Accept</button><button data-respond="${p.id}" data-accept="0">Decline</button>`
             : `<button data-respond="${p.id}" data-accept="0" title="Turn them down now">Dismiss</button>`}
           ${p.x >= 0 ? '<span class="go">Go there →</span>' : ''}
+          ${p.status === 0 ? this.fixLink(p) : ''}
         </div>
       </div>`;
     const MOOD: Record<string, string> = { happy: '🙂', worried: '😟', alarmed: '😱' };
@@ -328,7 +364,7 @@ export class TalkBack {
       ? (this.advisors.advisors as Msg[]).map((a) => `
         <div class="advisor ${a.mood}">
           <div class="adv-head"><span class="face">${MOOD[a.mood] ?? '🙂'}</span><b>${esc(a.name)}</b><span class="muted small">${esc(a.title)}</span></div>
-          ${(a.messages as Msg[]).map((m) => `<div class="adv-msg ${m.severity}" ${m.x >= 0 ? `data-jump="${m.x},${m.y}"` : ''}>${esc(m.text)} ${this.topicLink(m.topic, 'Why?')}</div>`).join('')}
+          ${(a.messages as Msg[]).map((m) => `<div class="adv-msg ${m.severity}" ${this.where(m)}>${esc(m.text)} ${this.fixLink(m)} ${this.topicLink(m.topic, 'Why?')}</div>`).join('')}
         </div>`).join('')
       : '<p class="muted">Asking the advisors…</p>';
     const factors = this.advisors

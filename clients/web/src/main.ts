@@ -516,6 +516,7 @@ canvas.addEventListener('mousedown', (e) => {
 window.addEventListener('mousemove', (e) => {
   const { sx, sy } = localXY(e);
   if (panning) {
+    followCam = false;
     renderer.offX = panning.ox + (sx - panning.sx);
     renderer.offY = panning.oy + (sy - panning.sy);
     dirty = true;
@@ -565,6 +566,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'v') { density = (density + 1) % 3; buildToolbar(); updateHints(); }
   else if (k === 'm') { renderer.showAgents = !renderer.showAgents; if (activeTab === 'layers') renderLayers(); dirty = true; }
   else if (k === 'u') { renderer.underground = !renderer.underground; updateHints(); dirty = true; }
+  else if (k === 'escape' && renderer.followed !== null) stopFollowing();
   else if (k === 'escape' && curveEnds) { curveEnds = null; renderer.preview = null; updateHints(); dirty = true; }
   else if (k === 'escape') { drag = null; renderer.preview = null; setTool({ kind: 'query' }); }
   else if (k === 'a') { pathMode = pathMode === 'curve' ? 'straight' : 'curve'; curveEnds = null; setTool({ kind: 'path' }); }
@@ -586,7 +588,7 @@ setInterval(() => {
   if (held.has('ArrowRight')) dx -= step;
   if (held.has('ArrowUp')) dy += step;
   if (held.has('ArrowDown')) dy -= step;
-  if (dx || dy) { renderer.offX += dx; renderer.offY += dy; dirty = true; }
+  if (dx || dy) { followCam = false; renderer.offX += dx; renderer.offY += dy; dirty = true; }
 }, 16);
 
 // ---------------------------------------------------------------------------
@@ -624,10 +626,8 @@ function renderWhy(w: Msg) {
     <p class="summary">${esc(w.summary)}</p>
     ${reqs ? `<h4>Needs</h4>${reqs}` : ''}
     ${fac ? `<h4>${(w.requirements as Msg[]).some((r) => r.key === 'desirability') ? 'Desirability factors' : 'Land value factors'}</h4>${fac}` : ''}
-    <div id="funding-slot"></div>
-    <div class="residents-slot"></div>`;
+    <div id="funding-slot"></div>`;
   if (isCivic) renderFunding(b!);
-  fillResidents();
   document.querySelectorAll<HTMLAnchorElement>('#tab-why a.topic').forEach((a) =>
     a.addEventListener('click', (e) => { e.preventDefault(); talk?.article(a.dataset.topic!); }),
   );
@@ -654,7 +654,7 @@ function renderInspect(r: Msg) {
   fillResidents();
 }
 
-/** The last inspect reply: its residents are listed under both Why and Inspect, whichever arrives first. */
+/** The last inspect reply, so a Follow click can redraw its residents. */
 let lastInspect: Msg | null = null;
 
 function fillResidents() {
@@ -665,9 +665,9 @@ function fillResidents() {
     slot.querySelectorAll<HTMLButtonElement>('button[data-follow]').forEach((b) =>
       b.addEventListener('click', () => {
         const id = Number(b.dataset.follow);
-        renderer.followed = renderer.followed === id ? null : id;
+        if (renderer.followed === id) stopFollowing();
+        else follow(id, b.dataset.name ?? 'Someone', b.dataset.job ?? '');
         fillResidents();
-        dirty = true;
       }),
     );
     slot.querySelectorAll<HTMLAnchorElement>('a[data-jx]').forEach((a) =>
@@ -695,7 +695,7 @@ function renderResidents(r: Msg): string {
       ? ` · late ${c.daysLate} of ${c.daysTracked} days, about ${c.avgMinutes} min door to door`
       : '';
     const follow = c.tier === 'full'
-      ? ` <button class="mini" data-follow="${c.id}">${renderer.followed === c.id ? 'Unfollow' : 'Follow'}</button>` : '';
+      ? ` <button class="mini" data-follow="${c.id}" data-name="${esc(c.name)}" data-job="${esc(c.job ?? '')}">${renderer.followed === c.id ? 'Unfollow' : 'Follow'}</button>` : '';
     return `<li><b>${esc(c.name)}</b>, ${c.age} · ${work}${late}${follow}<br><span class="muted" title="${esc(TIER_NAMES[c.tier] ?? '')}">${esc(TIER_NAMES[c.tier] ?? c.tier)}</span></li>`;
   }).join('');
   const more = total > people.length ? `<p class="muted">…and ${total - people.length} more.</p>` : '';
@@ -807,6 +807,67 @@ function jumpTo(x: number, y: number) {
   query(x, y);
 }
 
+// Following one commuter: the camera keeps them centred (until you pan away) and a banner says what they're doing.
+let followCam = false;
+let followName = '';
+let followJob = '';
+let bannerAt = 0;
+
+function follow(id: number, name: string, job: string) {
+  if (!renderer.agents.some((a) => a.id === id)) {
+    toast(`${name} isn't drawn on the map right now. Only the first ${renderer.agents.length.toLocaleString('en-US')} followed commuters are.`, 'warning');
+    return;
+  }
+  renderer.followed = id;
+  followCam = true;
+  followName = name;
+  followJob = job;
+  renderer.showAgents = true;
+  renderer.scale = Math.max(renderer.scale, 12);
+  $('#follow').classList.remove('hidden');
+  dirty = true;
+}
+
+function stopFollowing() {
+  renderer.followed = null;
+  followCam = false;
+  $('#follow').classList.add('hidden');
+  fillResidents();
+  dirty = true;
+}
+
+function updateFollow(now: number) {
+  if (renderer.followed === null) return;
+  const p = renderer.followedNow();
+  if (!p) { stopFollowing(); return; }
+  if (followCam) renderer.centerOn(p.x, p.y);
+  if (now - bannerAt < 200) return;
+  bannerAt = now;
+  const hh = Math.floor(p.minute / 60), mm = Math.floor(p.minute % 60);
+  const time = `${((hh + 11) % 12) + 1}:${String(mm).padStart(2, '0')} ${hh < 12 ? 'am' : 'pm'}`;
+  $('#follow-text').innerHTML = `<b>${esc(followName)}</b> · ${esc(p.status)}${followJob ? ` (${esc(followJob)})` : ''} · ${time}`;
+  $('#follow-centre').classList.toggle('hidden', followCam);
+}
+
+$('#follow-stop').addEventListener('click', stopFollowing);
+$('#follow-centre').addEventListener('click', () => { followCam = true; dirty = true; });
+
+/** Pulses an area of the map for a few seconds: what an alert or petition is about. */
+function flash(area: { x0: number; y0: number; x1: number; y1: number }) {
+  if (area.x0 < 0) return;
+  renderer.flash = { ...area, until: performance.now() + 6000 };
+  dirty = true;
+}
+
+/** Picks a building for the place tool, as if chosen from the list, and centres on where it's needed. */
+function pickBuilding(typeId: string, x: number, y: number) {
+  if (!city.typeById.has(typeId)) return;
+  buildingTypeId = typeId;
+  setTool({ kind: 'building' });
+  if (x >= 0) renderer.centerOn(x, y);
+  toast(`Placing ${city.typeById.get(typeId)!.name}: click the map to build it.`, 'info');
+}
+
 const dlg = $<HTMLDialogElement>('#dlg');
 const form = $<HTMLFormElement>('#dlg-form');
 
@@ -857,7 +918,8 @@ $('#btn-load').addEventListener('click', () => {
 // Frame loop
 // ---------------------------------------------------------------------------
 
-function frame() {
+function frame(now: number) {
+  updateFollow(now);
   // Disasters animate: flames flicker, the tornado spins, the Colossus clanks.
   if (dirty || renderer.preview || renderer.animating) {
     renderer.draw();
@@ -871,7 +933,7 @@ setInterval(() => (dirty = true), 600); // blink power and water warnings
 renderer.resize();
 updateHints();
 renderLayers();
-talk = new TalkBack({ conn, city, jumpTo, showTab, onUnlocks: () => buildToolbar() });
+talk = new TalkBack({ conn, city, jumpTo, showTab, onUnlocks: () => buildToolbar(), flash, pickBuilding });
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.

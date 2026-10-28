@@ -18,7 +18,8 @@ and numbers as built, so they can be tuned with the code open beside it.
 ## Time
 
 One tick is one day; a month is 30 days and a year 12 months. Speed 1 runs a day every 500 ms,
-speed 2 every 150 ms and speed 3 every 50 ms. Building works while paused. The server autosaves
+speed 2 every 150 ms and speed 3 every 50 ms (Alpha 2 slows these to a game year an hour, 20
+minutes and 5 minutes; see ALPHA2.md). Building works while paused. The server autosaves
 every in-game January 1st to `saves/autosave.toycity`.
 
 ## Map

@@ -64,6 +64,15 @@ most twice a second.
 | Demand with no room | Demand of 25 or more and no growable cell | That zone |
 | Traffic jam | A path above 125% of capacity | The worst cell |
 
+Going to an alert, or to a petition under People, also makes what it's about pulse on the map
+for six seconds: the building, or else the 8x8 neighbourhood its street name stands for (street
+names are given per 8x8 square, so "Elm Lane" is that square). When a building would help, the
+card has a "Place …" link that picks it for the place tool and centres the map there: a power
+plant for no power or a brownout, a pump for a water shortage, a landfill for garbage, a police
+station for graffiti, a fire station for a fire, another stop of the same kind for a crowded
+stop, and for a petition the building whose coverage its goal measures (park, police, school,
+clinic). It offers the first building of that kind that's unlocked.
+
 ## Forecast
 
 The forecast copies the city (snapshot and load) and runs the copy ahead 1 to 120 months on a
@@ -330,15 +339,17 @@ right up to its arc.
 - **The benchmark.** `dotnet run --project tools/ToyCity.Bench -c Release -- tiers [--quick]`
   builds a reference city (the starter town, or `--quick` off: a starter town on every dry
   40x40 block of a 256 map, about 48,000 people), times the city's step and a day of full agents,
-  and gives full agents what's left of half a tick at top speed (25 ms) after four times the
+  and gives full agents what's left of a 25 ms day (short enough that clicks never wait on it) after four times the
   step, so a growing city keeps its frame rate. Light agents get ten times as many, capped by
   what their monthly refresh costs. The server reads `saves/agent-tiers.json`; when it's missing
   it runs the quick benchmark in the background on first start and saves it.
 - **On screen.** Yellow dots drive and blue dots ride transit; the map runs the morning and
   evening rush on a 30-second loop whatever the game speed (M hides them). Inspecting a home lists
   its residents (up to 100): age, workplace (click to jump there), commute, and for full agents
-  how many days they were late and their door-to-door minutes, with a Follow button that rings
-  their dot. The Layers tab shows how many people are followed and this machine's limits.
+  how many days they were late and their door-to-door minutes, with a Follow button. Following someone keeps the camera on
+  them (pan away to look around, Centre to come back, Esc or Stop to end), draws their route and
+  shows a banner with what they're doing on the rush clock: at home getting ready, driving or
+  riding to work, at work, heading home.
 
 | Machine | Reference city | Step | Full agent a day | Full / light tiers |
 | --- | --- | --- | --- | --- |
@@ -360,6 +371,10 @@ grants moving money outside the budget; one-offs are now recorded. Bulldozing a 
 frees its workers at once instead of at the next re-match.
 
 ## Balance changes
+
+- **Game speed.** Days were far too fast to react to (a day every half second at normal speed).
+  Normal now runs a game year in an hour (10 s a day), medium in 20 minutes (3.3 s a day) and
+  fastest in 5 minutes (0.83 s a day).
 
 - A path now carries twice its hourly capacity in commuter trips a day (Alpha 1 used a quarter).
   The forecast showed the default starter town gridlocking its apartment blocks into abandonment

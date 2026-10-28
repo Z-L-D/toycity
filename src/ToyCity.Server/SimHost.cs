@@ -30,8 +30,8 @@ public sealed partial class SimHost : IDisposable
     string _civicSig = "";
     readonly Stopwatch _clock = Stopwatch.StartNew();
 
-    /// <summary>Milliseconds per tick (one day) at speeds 1, 2 and 3.</summary>
-    static readonly int[] TickMs = { 0, 500, 150, 50 };
+    /// <summary>Milliseconds per tick (one day) at speeds 1, 2 and 3: a game year takes an hour, twenty minutes or five.</summary>
+    static readonly int[] TickMs = { 0, 10_000, 3_333, 833 };
 
     public SimHost(ContentDb content, string saveDir, ILogger<SimHost> log)
     {
@@ -100,7 +100,7 @@ public sealed partial class SimHost : IDisposable
         if (forceAlerts || _clock.ElapsedMilliseconds - _alertsAt >= 500)
         {
             _alertsAt = _clock.ElapsedMilliseconds;
-            var alerts = Mapping.Alerts(_world.Alerts());
+            var alerts = Mapping.Alerts(_world, _world.Alerts());
             string sig = alerts.ToString();
             if (forceAlerts || sig != _alertSig)
             {
@@ -155,7 +155,7 @@ public sealed partial class SimHost : IDisposable
         await SendAsync(client, full);
         await SendAsync(client, new P.ServerMessage { Saves = ListSaves() });
         P.AlertList alerts;
-        lock (_gate) alerts = Mapping.Alerts(_world.Alerts());
+        lock (_gate) alerts = Mapping.Alerts(_world, _world.Alerts());
         await SendAsync(client, new P.ServerMessage { Alerts = alerts });
         P.CivicState civicNow;
         lock (_gate) civicNow = Mapping.Civic(_world);

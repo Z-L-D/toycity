@@ -93,6 +93,20 @@ export function rushClock(now = performance.now()): { minute: number; evening: b
   return { minute: RUSH_START + (evening ? EVENING_SHIFT : 0) + m, evening };
 }
 
+/** Where a commuter is on their trip at a moment of the rush clock: before leaving, on the way, or arrived. */
+export function agentAt(t: AgentTrip, clock: { minute: number; evening: boolean }, width: number): { x: number; y: number; state: 'before' | 'moving' | 'after' } | null {
+  const n = t.cells.length;
+  if (n === 0) return null;
+  const leave = clock.evening ? t.departMinute + EVENING_SHIFT : t.departMinute;
+  const f = Math.max(0, Math.min(1, (clock.minute - leave) / Math.max(1, t.minutes)));
+  const state = clock.minute < leave ? 'before' : f >= 1 ? 'after' : 'moving';
+  const along = (clock.evening ? 1 - f : f) * (n - 1);
+  const k = Math.floor(along);
+  const a = t.cells[k], b = t.cells[Math.min(n - 1, k + 1)];
+  const u = along - k;
+  return { x: (a % width) * (1 - u) + (b % width) * u, y: Math.floor(a / width) * (1 - u) + Math.floor(b / width) * u, state };
+}
+
 export class Renderer {
   readonly ctx: CanvasRenderingContext2D;
   scale = 8;
@@ -106,6 +120,8 @@ export class Renderer {
   /** Followed commuters from the server, drawn as dots moving along their routes. */
   agents: AgentTrip[] = [];
   showAgents = true;
+  /** An area pulsing for a few seconds: what an alert or petition is about. */
+  flash: { x0: number; y0: number; x1: number; y1: number; until: number } | null = null;
   /** The followed citizen, if any: drawn larger with a ring. */
   followed: number | null = null;
   private terrain: HTMLCanvasElement = document.createElement('canvas');
@@ -116,6 +132,8 @@ export class Renderer {
   get animating(): boolean {
     const d = this.city.stats.disasters as unknown[] | undefined;
     if (d && d.length > 0) return true;
+    if (this.flash && this.flash.until > performance.now()) return true;
+    if (this.followed !== null) return true;
     return this.showAgents && this.agents.length > 0 && this.city.stats.speed > 0;
   }
 
@@ -210,7 +228,7 @@ export class Renderer {
       this.drawBuildings(x0, y0, x1, y1, px, py);
       this.drawPowerLines(x0, y0, x1, y1, px, py);
       this.drawDisasters(px, py);
-      if (this.showAgents) this.drawAgents(px, py, x0, y0, x1, y1);
+      this.drawAgents(px, py, x0, y0, x1, y1);
     }
 
     if (this.overlay) {
@@ -233,6 +251,7 @@ export class Renderer {
       ctx.stroke();
     }
 
+    this.drawFlash(px, py);
     this.drawPreview(px, py);
     if (this.selected) {
       ctx.strokeStyle = '#fff';
@@ -240,6 +259,26 @@ export class Renderer {
       ctx.strokeRect(px(this.selected.x) + 1, py(this.selected.y) + 1, s - 2, s - 2);
     }
     ctx.restore();
+  }
+
+  private drawFlash(px: (x: number) => number, py: (y: number) => number) {
+    const f = this.flash;
+    if (!f) return;
+    const now = performance.now();
+    if (now > f.until) { this.flash = null; return; }
+    const ctx = this.ctx;
+    const s = this.scale;
+    // A slow pulse, fading out over the last second.
+    const pulse = 0.5 + 0.5 * Math.sin(now / 180);
+    const fade = Math.min(1, (f.until - now) / 1000);
+    const x = px(f.x0), y = py(f.y0), w = (f.x1 - f.x0 + 1) * s, h = (f.y1 - f.y0 + 1) * s;
+    ctx.fillStyle = `rgba(255, 220, 90, ${(0.1 + 0.2 * pulse) * fade})`;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = `rgba(255, 230, 120, ${(0.5 + 0.5 * pulse) * fade})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.setLineDash([]);
   }
 
   /**
@@ -250,32 +289,63 @@ export class Renderer {
   private drawAgents(px: (x: number) => number, py: (y: number) => number, x0: number, y0: number, x1: number, y1: number) {
     const ctx = this.ctx;
     const s = this.scale;
-    const w = this.city.width;
-    const { minute, evening } = rushClock();
+    const clock = rushClock();
     const r = Math.max(1.2, Math.min(3, s / 5));
-    for (const t of this.agents) {
-      const n = t.cells.length;
-      if (n === 0) continue;
-      const leave = evening ? t.departMinute + EVENING_SHIFT : t.departMinute;
-      const f = (minute - leave) / Math.max(1, t.minutes);
-      if (f < 0 || f > 1) continue;
-      const along = (evening ? 1 - f : f) * (n - 1);
-      const k = Math.floor(along);
-      const a = t.cells[k], b = t.cells[Math.min(n - 1, k + 1)];
-      const u = along - k;
-      const cx = (a % w) * (1 - u) + (b % w) * u, cy = Math.floor(a / w) * (1 - u) + Math.floor(b / w) * u;
-      if (cx < x0 - 1 || cx > x1 + 1 || cy < y0 - 1 || cy > y1 + 1) continue;
-      const big = t.id === this.followed;
+    for (const t of this.showAgents ? this.agents : []) {
+      if (t.id === this.followed) continue;
+      const p = agentAt(t, clock, this.city.width);
+      if (!p || p.state !== 'moving') continue;
+      if (p.x < x0 - 1 || p.x > x1 + 1 || p.y < y0 - 1 || p.y > y1 + 1) continue;
       ctx.fillStyle = t.byTransit ? '#5ad1ff' : '#ffd15a';
       ctx.beginPath();
-      ctx.arc(px(cx + 0.5), py(cy + 0.5), big ? r * 2 : r, 0, Math.PI * 2);
+      ctx.arc(px(p.x + 0.5), py(p.y + 0.5), r, 0, Math.PI * 2);
       ctx.fill();
-      if (big) {
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
     }
+    this.drawFollowed(px, py, clock, r);
+  }
+
+  /** Where the followed citizen is now, and what they're doing; null when nobody is followed or they aren't drawn. */
+  followedNow(): { x: number; y: number; status: string; minute: number } | null {
+    const t = this.agents.find((a) => a.id === this.followed);
+    if (!t) return null;
+    const clock = rushClock();
+    const p = agentAt(t, clock, this.city.width);
+    if (!p) return null;
+    const how = t.byTransit ? 'riding transit' : 'driving';
+    const status = clock.evening
+      ? p.state === 'before' ? 'still at work' : p.state === 'moving' ? `${how} home` : 'home for the evening'
+      : p.state === 'before' ? 'at home, getting ready' : p.state === 'moving' ? `${how} to work` : 'at work';
+    return { x: p.x, y: p.y, status, minute: clock.minute };
+  }
+
+  /** The followed citizen: their whole route, and a ringed dot wherever they are, even at home or at work. */
+  private drawFollowed(px: (x: number) => number, py: (y: number) => number, clock: { minute: number; evening: boolean }, r: number) {
+    const t = this.agents.find((a) => a.id === this.followed);
+    if (!t || t.cells.length === 0) return;
+    const ctx = this.ctx;
+    const w = this.city.width;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.lineWidth = Math.max(1.5, this.scale / 6);
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    t.cells.forEach((c, k) => {
+      const x = px((c % w) + 0.5), y = py(Math.floor(c / w) + 0.5);
+      if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const p = agentAt(t, clock, w)!;
+    const cx = px(p.x + 0.5), cy = py(p.y + 0.5);
+    const pulse = 1 + 0.25 * Math.sin(performance.now() / 200);
+    ctx.fillStyle = t.byTransit ? '#5ad1ff' : '#ffd15a';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 2.2 + 4 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   private drawZones(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {

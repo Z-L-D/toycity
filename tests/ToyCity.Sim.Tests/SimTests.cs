@@ -403,6 +403,27 @@ public class ProtocolTests
 
 public class TalkBackTests
 {
+    [Fact]
+    public void AlertsAndPetitionsPointAtTheAreaAndTheBuildingThatHelps()
+    {
+        var w = Fixture.Starter(41);
+        w.Run(120);
+        Assert.Equal("coal-plant", w.AlertHelp(new Alert("no-power", "danger", "", 5, 5, 1, "power")).Fix);
+        Assert.Equal("", w.AlertHelp(new Alert("traffic", "warning", "", 5, 5, 1, "traffic")).Fix);
+        // A located alert highlights the building there, or the 8x8 neighbourhood its street name stands for.
+        var home = w.Buildings.First(b => b is { Residents: > 0 })!;
+        var onHome = w.AlertHelp(new Alert("at-risk", "warning", "", home.X, home.Y, 1, "decline")).Area;
+        Assert.Equal(new CellRect(home.X, home.Y, home.X + home.W - 1, home.Y + home.H - 1), onHome);
+        Assert.Equal(new CellRect(0, 8, 7, 15), w.NeighbourhoodOf(3, 9));
+        Assert.Equal(World.NoArea, w.AlertHelp(new Alert("treasury", "danger", "", -1, -1, 1, "budget")).Area);
+        // A petition asks for the building whose coverage its goal measures, none for the rest.
+        Prompt PetitionFor(string id) => new() { Event = w.Content.Events.FindIndex(e => e.Id == id), Kind = EventKind.Petition, X = 20, Y = 20 };
+        Assert.Equal("clinic", w.PromptHelp(PetitionFor("petition-clinic")).Fix);
+        Assert.Equal("police-station", w.PromptHelp(PetitionFor("petition-police")).Fix);
+        Assert.Equal("", w.PromptHelp(PetitionFor("petition-taxes")).Fix);
+        Assert.Equal(new CellRect(16, 16, 23, 23), w.PromptHelp(PetitionFor("petition-park")).Area);
+    }
+
     /// <summary>Runs a road from the starter town straight out to the nearest map edge it can reach.</summary>
     static bool ConnectToEdge(World w, (int X, int Y) site)
     {

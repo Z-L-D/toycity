@@ -223,7 +223,10 @@ public sealed class AgentView
 /// </summary>
 public static class AgentBenchmark
 {
-    /// <summary>Half of a tick at the fastest speed (50 ms a day).</summary>
+    /// <summary>
+    /// What a day of agents may cost. The fastest speed allows 833 ms a day, but the world is locked while it steps, so
+    /// this stays short enough that queries and clicks never wait on it.
+    /// </summary>
     public const double BudgetMs = 25;
 
     public static AgentProfile Run(ContentDb content, bool quick, Action<string>? log = null)

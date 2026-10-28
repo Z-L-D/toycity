@@ -172,11 +172,15 @@ public static class Mapping
         return r;
     }
 
-    public static P.AlertList Alerts(List<Alert> alerts)
+
+    public static P.AlertList Alerts(World w, List<Alert> alerts)
     {
         var r = new P.AlertList();
         foreach (var a in alerts)
-            r.Alerts.Add(new P.Alert { Key = a.Key, Severity = a.Severity, Text = a.Text, X = a.X, Y = a.Y, Count = a.Count, Topic = a.Topic });
+        {
+            var (fix, area) = w.AlertHelp(a);
+            r.Alerts.Add(new P.Alert { Key = a.Key, Severity = a.Severity, Text = a.Text, X = a.X, Y = a.Y, Count = a.Count, Topic = a.Topic, FixType = fix, Area = Rect(area) });
+        }
         return r;
     }
 
@@ -236,12 +240,13 @@ public static class Mapping
         foreach (var p in w.Prompts)
         {
             var ev = w.Content.Events[p.Event];
+            var (fix, area) = w.PromptHelp(p);
             r.Prompts.Add(new P.Prompt
             {
                 Id = p.Id, EventId = ev.Id, Kind = p.Kind == EventKind.Deal ? "deal" : "petition", X = p.X, Y = p.Y,
                 Petitioner = p.Petitioner, Text = p.Text, Goal = ev.GoalText, Status = (P.PromptStatus)(int)p.Status,
                 MonthsLeft = p.Status == PromptStatus.Open ? (int)Math.Max(0, (p.Deadline - w.Tick + World.DaysPerMonth - 1) / World.DaysPerMonth) : 0,
-                ResultText = p.ResultText,
+                ResultText = p.ResultText, FixType = fix, Area = Rect(area),
             });
         }
         for (int t = 0; t < w.TypeUnlocked.Length; t++)
@@ -257,7 +262,7 @@ public static class Mapping
         foreach (var a in w.Advisors())
         {
             var p = new P.Advisor { Role = a.Role, Name = a.Name, Title = a.Title, Mood = a.Mood };
-            p.Messages.AddRange(Alerts(a.Messages).Alerts);
+            p.Messages.AddRange(Alerts(w, a.Messages).Alerts);
             r.Advisors.Add(p);
         }
         var factors = new List<Factor>();
