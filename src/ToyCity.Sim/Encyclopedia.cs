@@ -127,7 +127,7 @@ public sealed partial class World
         {
             $"Transit stops serve people within their catchment: 4 cells for a bus stop, 5 for a tram stop, 7 for a rail station. Getting to or from a stop takes half a minute plus half a minute a cell; then people wait (2 minutes, longer at a crowded or underfunded stop), ride, may change at another stop within {TransferReach} cells, and walk to work.",
             "Buses run on any road with cars and crawl with the traffic. Trams need a tram line: in shared lanes they are as slow as the traffic, on an avenue with a tram median they keep 40 km/h. Trains run on rail lines at 100 km/h, and a rail station needs power.",
-            $"Everyone picks the fastest way to work. Households without a car ({CarlessPercent[0]}% of low-wealth workers, {CarlessPercent[1]}% medium, {CarlessPercent[2]}% high) still get there, but {CarlessPenalty / 600} minutes slower, so transit helps them most. Riders take cars off the road; a bus adds one vehicle per twenty riders.",
+            $"Everyone picks the fastest way to work. Households without a car ({CarlessPercent[0]}% of low-wealth workers, {CarlessPercent[1]}% medium, {CarlessPercent[2]}% high) still get there by bike, on foot or with a lift, but no faster than a bike, so short trips are fine and long ones are where transit helps them most. Riders take cars off the road; a bus adds one vehicle per twenty riders.",
             $"The city keeps {FareCents} cents a boarding in fares. Stops cost upkeep, scaled by funding; underfunded lines run less often.",
         }, new()
         {

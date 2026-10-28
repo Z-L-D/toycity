@@ -42,6 +42,8 @@ public static class ContractWire
             if (l.PendingTerms != null) w.PendingTerms = ToWire(l.PendingTerms);
             m.Lots.Add(w);
         }
+        foreach (var o in c.OpenLots)
+            m.OpenLots.Add(new W.OpenLot { BuildingId = o.BuildingId, Kind = o.Kind, X = o.X, Y = o.Y, W = o.W, H = o.H, AccessCell = o.AccessCell, DistrictId = o.DistrictId, Terms = ToWire(o.Terms) });
         foreach (var d in c.Districts)
             m.Districts.Add(new W.District
             {
@@ -70,6 +72,7 @@ public static class ContractWire
         foreach (var l in m.Lots)
             c.Lots.Add(new C.LeasedLot(l.LeaseId, l.BuildingId, l.Kind, l.X, l.Y, l.W, l.H, l.AccessCell, l.DistrictId, FromWire(l.Terms),
                 l.PendingTerms == null ? null : FromWire(l.PendingTerms), l.PendingMonths, l.BadStanding));
+        foreach (var o in m.OpenLots) c.OpenLots.Add(new C.OpenLot(o.BuildingId, o.Kind, o.X, o.Y, o.W, o.H, o.AccessCell, o.DistrictId, FromWire(o.Terms)));
         foreach (var d in m.Districts)
             c.Districts.Add(new C.District(d.Id, d.Name, d.X0, d.Y0, d.X1, d.Y1, d.Population, d.Jobs, d.LandValue, d.Crime, d.Health, d.Rating));
         foreach (var t in m.Demand) c.Demand.Add(new C.TripDemand(t.FromDistrict, t.ToDistrict, t.Trips));

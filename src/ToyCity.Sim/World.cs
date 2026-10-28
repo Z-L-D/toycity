@@ -17,6 +17,8 @@ public sealed class Assignment
     public int[] RideCells = Array.Empty<int>();
     /// <summary>Stops used, in order: where each leg got on, then off.</summary>
     public int[] Stops = Array.Empty<int>();
+    /// <summary>Rides on side games' lines, four numbers each: game slot, line id, boarding stop index, alighting stop index.</summary>
+    public int[] LineLegs = Array.Empty<int>();
 
     public bool ByTransit => RideCells.Length > 0;
 }
@@ -330,6 +332,8 @@ public sealed partial class World
                     foreach (var c in a.RideCells) w.Write(c);
                     w.Write(a.Stops.Length);
                     foreach (var c in a.Stops) w.Write(c);
+                    w.Write(a.LineLegs.Length);
+                    foreach (var c in a.LineLegs) w.Write(c);
                 }
             }
 
@@ -400,6 +404,8 @@ public sealed partial class World
                 for (int c = 0; c < a.RideCells.Length; c++) a.RideCells[c] = r.ReadInt32();
                 a.Stops = new int[r.ReadInt32()];
                 for (int c = 0; c < a.Stops.Length; c++) a.Stops[c] = r.ReadInt32();
+                a.LineLegs = new int[r.ReadInt32()];
+                for (int c = 0; c < a.LineLegs.Length; c++) a.LineLegs[c] = r.ReadInt32();
                 b.Assignments.Add(a);
             }
             w.InitTotals(b);

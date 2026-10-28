@@ -1,0 +1,99 @@
+// ToyCity transport side game: the bus company's own messages. They travel inside the city protocol as bytes: a
+// Command inside toycity.v0.SideGameCommand.payload, a View inside toycity.v0.SideGameView.payload. The city never
+// reads them; only the bus company and its front end do.
+syntax = "proto3";
+
+package toycity.transport.v1;
+
+option csharp_namespace = "ToyCity.Transport.Wire";
+
+message Command {
+  oneof kind {
+    SaveLine save_line = 1;
+    DeleteLine delete_line = 2;
+    SetBuses buses = 3;
+    Rename rename = 4;
+  }
+}
+
+// Creates a line (line_id 0) or changes one: its stops in order (it runs both ways), fare and name.
+message SaveLine {
+  int32 line_id = 1;
+  string name = 2;
+  repeated int32 stop_lease_ids = 3;
+  int32 fare_cents = 4;
+}
+
+message DeleteLine {
+  int32 line_id = 1;
+}
+
+// Buys or sells buses until the line has this many. Buses live at a leased depot.
+message SetBuses {
+  int32 line_id = 1;
+  int32 buses = 2;
+}
+
+message Rename {
+  string name = 1;
+}
+
+message View {
+  string name = 1;
+  int64 cash = 2;
+  string operator = 3;  // "manual", "caretaker", "autopilot"
+  string owner = 4;
+  int32 buses = 5;
+  int32 bus_capacity = 6;  // how many buses the leased depots hold
+  int32 bus_price = 7;
+  repeated LineView lines = 8;
+  repeated LotView lots = 9;       // leased
+  repeated LotView open_lots = 10; // nobody leases these yet
+  MonthMoney this_month = 11;
+  MonthMoney last_month = 12;
+  repeated string log = 13;  // newest last
+  int32 service_quality = 14;
+  int32 day = 15;
+}
+
+message LineView {
+  int32 id = 1;
+  string name = 2;
+  string color = 3;
+  repeated int32 stop_lease_ids = 4;
+  int32 buses = 5;
+  int32 broken = 6;  // buses off the road today
+  int32 fare_cents = 7;
+  int32 fare_cap_cents = 8;  // -1 when uncapped
+  int32 headway_minutes = 9;  // 0 when not running
+  int32 round_trip_minutes = 10;
+  int32 riders = 11;  // yesterday, both ways
+  int32 seats_per_hour = 12;
+  int32 load_percent = 13;  // peak riders against seats
+  repeated int32 boardings = 14;
+  repeated int32 route_cells = 15;  // street cells from the first stop to the last, for drawing
+  MonthMoney this_month = 16;
+  MonthMoney last_month = 17;
+  string problem = 18;  // why it isn't running, if it isn't
+}
+
+message LotView {
+  int32 lease_id = 1;  // 0 for an open lot
+  int32 building_id = 2;
+  string kind = 3;
+  int32 x = 4;
+  int32 y = 5;
+  int32 district = 6;
+  string terms = 7;
+  bool bad_standing = 8;
+  int32 closed_days = 9;  // shut by a fire or disaster nearby
+}
+
+message MonthMoney {
+  int64 fares = 1;
+  int64 wages = 2;
+  int64 upkeep = 3;
+  int64 rent = 4;     // rent, fare tax and anything overdue
+  int64 subsidy = 5;  // from the city
+  int64 profit = 6;
+}

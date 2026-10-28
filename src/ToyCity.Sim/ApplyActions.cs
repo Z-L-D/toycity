@@ -104,6 +104,7 @@ public sealed partial class World
         if (err != null) { Reject(err, bx, by); return; }
         if (!Spend(cost, a.X0, a.Y0)) return;
         ushort code = (ushort)(Content.ProfileIndex(a.ProfileId) + 1);
+        ForgetBusRoutes();
         foreach (var (x, y) in PathCellsOf(a))
         {
             int i = Idx(x, y);
@@ -246,6 +247,7 @@ public sealed partial class World
         }
         foreach (var id in doomed) cost += Content.BulldozeCostPerCell * Buildings[id]!.W * Buildings[id]!.H;
         if (!Spend(cost, r.X0, r.Y0)) return;
+        ForgetBusRoutes();
         foreach (var id in doomed) RemoveBuilding(Buildings[id]!);
         for (int y = y0; y <= y1; y++)
         for (int x = x0; x <= x1; x++)

@@ -12,6 +12,7 @@ autopilot as they choose. This page records the rules and numbers as built, next
 | A player runs a bus company inside a city with visible effects in both directions, while the city sits in stasis, caretaker or autopilot as chosen | Part 6 |
 | The city seat can be held in stasis, caretaker or autopilot, with a "while you were away" report | `SeatTests` |
 | Business lease or public service on side-game lots, with notice and bad standing | `LeaseTests` |
+| A transport side game: bus lines on leased lots, stops, vehicles, fares, per-route profit and loss, ridership from city demand | `TransportTests` |
 | The side-game contract is frozen at v1 | `ContractInfo.Version = 1`; `protocol/contract.proto`; `SideGameTests` round-trip every message |
 
 ## The side-game contract (v1)
@@ -124,6 +125,50 @@ an empty lot or change the terms.
   city. The operator can give one up whenever it likes; anything owed is written off.
 - **Jobs.** The side game says how many people it employs at each lot. They are real jobs: the
   city's commuters fill them like any other.
+
+## The bus company (transport side game, alpha)
+
+`src/ToyCity.Transport` is the first side game. It references `ToyCity.Contract` and nothing else
+of the city's; its own commands and view are in `protocol/transport.proto` and travel through the
+city protocol as bytes. The server hosts it in every city as **Toy Transit Co.**, which starts
+unowned on caretaker with $25,000. Claim it from the Buses tab ("Run it yourself") or hand it to
+the computer.
+
+- **Lots.** It leases bus stops and bus depots the mayor builds. Buses live at a depot (12 per
+  depot), so a line needs one. The Buses tab lists the company's lots and the free ones it could
+  lease on standard terms.
+- **Lines.** A line is two or more leased stops in order; it runs both ways along the fastest bus
+  route between them. Draw one with "New line…" by clicking the stops on the map. Round trip =
+  twice the route time (buses run 10% slower than cars) plus 4 minutes to turn around; headway =
+  round trip / working buses, at least 3 minutes; seats an hour = 40 a bus x 60 / headway.
+- **Money.** A bus costs $3,000 (sells back for $1,500). Each month a bus costs $500 in drivers'
+  wages and $120 upkeep. Fares are the line's fare per boarding, capped by any public-service stop
+  on the line. Rent, fare tax and anything overdue is paid on the first; when cash runs short the
+  company pays what it can and the lease falls behind. Every line shows its riders, boardings per
+  stop, how full it is at the peak, and last month's fares, costs and profit (rent and subsidy are
+  shared out by buses).
+- **Riders, from the city's commuters.** Leased stops are served only by the company's lines; stops
+  nobody leases keep the city's own bus service. In the commute search people walk to a stop
+  within its catchment, wait (half the headway on a frequent line; on a sparse one three minutes
+  plus a tenth of the headway, since people check the timetable), longer when riders outnumber
+  seats at the peak, pay the fare (weighed as time: $1.50 feels like 1.5 minutes), ride stop to
+  stop, change lines at a stop or a nearby one, and walk to work. A higher fare or a sparse
+  timetable sends people back to their cars or bikes. The company counts riders and boardings
+  from those commutes every day and takes the fares; the city's own fares only count its own
+  service.
+- **Workers without a car.** To give transit something to win, workers without a car now travel
+  no faster than a bike (15 km/h) on any street, plus two minutes to set off, instead of a flat
+  eight minutes extra. Short trips are as quick as before; long ones are where a bus line helps.
+- **Effects both ways.** City to company: commuter demand, fires and disasters within three cells
+  of a stop close it for five days, rent and fare tax, public-service caps and subsidies, the
+  seat's level. Company to city: its riders' trips (fewer cars on the road: a bus adds one vehicle
+  per twenty riders), drivers' jobs at the depot (two a bus, plus two staff), rent on the budget,
+  breakdowns in the notices (one bus in 500 a day, off the road for two days), and its buses on
+  the map.
+- **The computer running it.** Caretaker keeps it solvent (sells a bus when cash goes negative).
+  Autopilot also asks for a depot and up to eight stops (busiest districts first), draws a line
+  through its stops nearest-first, buys buses until one comes every 15 minutes or more when a
+  line is over 90% full, and sells them when a line runs under 25% full.
 
 ## Save format
 

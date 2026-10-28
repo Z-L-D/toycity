@@ -173,6 +173,14 @@ public sealed partial class World
             input.Lots.Add(new LeasedLot(lease.Id, b.Id, lease.Kind, b.X, b.Y, b.W, b.H, b.Access, DistrictOf(b.X, b.Y),
                 lease.Terms, lease.PendingTerms, lease.PendingMonths, lease.BadStanding));
         }
+        var kinds = hg.Game.Manifest.LotKinds;
+        foreach (var b in Buildings)
+        {
+            if (b == null || !b.Operating || LeaseOn(b.Id) != null) continue;
+            string kind = LotKindOf(b);
+            if (kind.Length == 0 || !kinds.Contains(kind)) continue;
+            input.OpenLots.Add(new OpenLot(b.Id, kind, b.X, b.Y, b.W, b.H, b.Access, DistrictOf(b.X, b.Y), StandardTerms(kind)));
+        }
     }
 
     /// <summary>First of the month: rent, fare tax and anything overdue, or the subsidy the city pays.</summary>

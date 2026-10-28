@@ -1,5 +1,6 @@
 using Google.Protobuf;
 using ToyCity.Sim;
+using ToyCity.Transport;
 using P = ToyCity.Protocol.V0;
 
 namespace ToyCity.Server;
@@ -8,7 +9,9 @@ namespace ToyCity.Server;
 public sealed partial class SimHost
 {
     /// <summary>The side games every city on this server runs, by catalogue id.</summary>
-    readonly List<string> _sideGameIds = new();
+    readonly List<string> _sideGameIds = new() { TransportGame.Id };
+
+    static SimHost() => SideGameCatalog.Register(TransportGame.Id, () => new TransportGame());
     readonly Dictionary<string, byte[]> _sentViews = new();
 
     /// <summary>Adds the side games this server hosts to a city that doesn't have them yet. Caller holds the gate.</summary>

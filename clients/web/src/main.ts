@@ -4,6 +4,7 @@ import { City, curveCells, lCells } from './state';
 import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
 import { Seats } from './seats';
+import { Transport } from './transport';
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -82,6 +83,9 @@ let activeTab = 'why';
 // Created after the connection; messages that arrive first are handled once it exists.
 let talk: TalkBack | null = null;
 let seats: Seats | null = null;
+let transport: Transport | null = null;
+/** True while the bus company's line editor takes map clicks. */
+let pickingStops = false;
 /** The followed commuters and this machine's tiers, as the server last sent them. */
 let roster: Msg | null = null;
 
@@ -145,6 +149,10 @@ const conn = new Connection({
         break;
       case 'error':
         toast(body.message, 'error');
+        break;
+      case 'sideGame':
+        transport?.onView(body);
+        dirty = true;
         break;
     }
   },
@@ -490,6 +498,7 @@ canvas.addEventListener('mousedown', (e) => {
   }
   if (e.button !== 0 || !city.loaded) return;
   const cell = renderer.cellAt(sx, sy);
+  if (pickingStops && city.inBounds(cell.x, cell.y) && transport?.pick(cell.x, cell.y)) return;
   if (tool.kind === 'query') { if (city.inBounds(cell.x, cell.y)) query(cell.x, cell.y); return; }
   if (tool.kind === 'path' && curveEnds) {
     const e = curveEnds;
@@ -604,6 +613,7 @@ function showTab(name: string) {
   document.querySelectorAll<HTMLElement>('.tab').forEach((t) => t.classList.toggle('active', t.id === `tab-${name}`));
   if (name === 'budget') renderBudget();
   if (name === 'layers') renderLayers();
+  if (name === 'buses') transport?.render();
 }
 document.querySelectorAll<HTMLButtonElement>('#tabs button').forEach((b) =>
   b.addEventListener('click', () => (talk ? talk.open(b.dataset.tab!) : showTab(b.dataset.tab!))),
@@ -940,7 +950,12 @@ updateHints();
 renderLayers();
 talk = new TalkBack({ conn, city, jumpTo, showTab, onUnlocks: () => buildToolbar(), flash, pickBuilding });
 seats = new Seats({ conn, jumpTo });
+transport = new Transport({
+  conn, city, jumpTo, showTab, toast,
+  setLines: (lines) => { renderer.busLines = lines; dirty = true; },
+  setPicking: (on) => { pickingStops = on; canvas.style.cursor = on ? 'crosshair' : ''; },
+});
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.
-(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats };
+(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport };

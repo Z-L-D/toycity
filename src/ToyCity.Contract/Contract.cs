@@ -31,6 +31,9 @@ public sealed record LeasedLot(
     int LeaseId, int BuildingId, string Kind, int X, int Y, int W, int H, int AccessCell, int DistrictId,
     LeaseTerms Terms, LeaseTerms? PendingTerms, int PendingMonths, bool BadStanding);
 
+/// <summary>A lot nobody leases yet that this side game could ask for (in <see cref="GameToCity.LeaseRequests"/>), and the city's standard terms for it.</summary>
+public sealed record OpenLot(int BuildingId, string Kind, int X, int Y, int W, int H, int AccessCell, int DistrictId, LeaseTerms Terms);
+
 /// <summary>A district of the city: how many live and work there and how it feels, plus this game's rating there.</summary>
 public sealed record District(
     int Id, string Name, int X0, int Y0, int X1, int Y1, int Population, int Jobs, int LandValue, int Crime, int Health,
@@ -62,6 +65,8 @@ public sealed class CityToGame
     public OperatorLevel Operator;
     public string? OwnerName;
     public readonly List<LeasedLot> Lots = new();
+    /// <summary>Lots of the kinds this game leases that nobody leases yet.</summary>
+    public readonly List<OpenLot> OpenLots = new();
     public readonly List<District> Districts = new();
     public readonly List<TripDemand> Demand = new();
     public readonly List<LineRidership> Ridership = new();

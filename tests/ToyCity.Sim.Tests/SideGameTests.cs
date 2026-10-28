@@ -170,12 +170,14 @@ public class SideGameTests
         c.Ridership.Add(new LineRidership(1, 80, new[] { 50, 30 }));
         c.Incidents.Add(new Incident(5, "fire", 1, 2, "city", "Shack", 2, "Fire!"));
         c.Bills.Add(new Bill(1, "Subsidy", -500));
+        c.OpenLots.Add(new OpenLot(9, "bus-depot", 3, 4, 3, 2, 77, 1, new LeaseTerms(LeaseMode.Business, 300, 100, 0, 0, 3)));
         var back = ContractWire.FromWire(ToyCity.Protocol.Contract.CityToGame.Parser.ParseFrom(ContractWire.ToWire(c).ToByteArray()));
         Assert.Equal(c.Lots, back.Lots, new LotComparer());
         Assert.Equal(c.Districts, back.Districts);
         Assert.Equal(c.Demand, back.Demand);
         Assert.Equal(c.Incidents, back.Incidents);
         Assert.Equal(c.Bills, back.Bills);
+        Assert.Equal(c.OpenLots, back.OpenLots);
         Assert.Equal(c.Ridership.Single().BoardingsByStop, back.Ridership.Single().BoardingsByStop);
         Assert.Equal((c.Tick, c.Operator, c.OwnerName), (back.Tick, back.Operator, back.OwnerName));
 

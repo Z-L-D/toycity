@@ -94,6 +94,7 @@ public sealed partial class World
     void RunSideGames()
     {
         if (SideGames.Count == 0) { _incidents.Clear(); return; }
+        CountLineRiders();
         var incidents = _incidents.ToList();
         _incidents.Clear();
         bool newMonth = Day == 1;

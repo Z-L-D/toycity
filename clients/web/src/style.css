@@ -351,3 +351,11 @@ ul.report li { margin: 2px 0; }
 .report-notes .note, .report-notes .news { padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); font-size: 12px; }
 .report-notes .note[data-jump] { cursor: pointer; }
 #dlg { max-width: 520px; }
+
+/* The bus company */
+.bus-line { border-left: 4px solid #888; padding: 4px 8px; margin: 6px 0; background: rgba(255, 255, 255, 0.03); border-radius: 0 6px 6px 0; }
+.bus-line.draft { border-left-color: #ffd15a; }
+.bus-line .row-flex { gap: 6px; align-items: center; }
+.lot-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; padding: 2px 0; }
+.lot-row.bad a { color: #ff8a7a; }
+tr.total td { border-top: 1px solid rgba(255, 255, 255, 0.2); font-weight: 600; }

@@ -124,6 +124,8 @@ export class Renderer {
   flash: { x0: number; y0: number; x1: number; y1: number; until: number } | null = null;
   /** The followed citizen, if any: drawn larger with a ring. */
   followed: number | null = null;
+  /** The bus company's running lines: drawn along their streets, with their buses going back and forth. */
+  busLines: { color: string; cells: number[]; buses: number }[] = [];
   private terrain: HTMLCanvasElement = document.createElement('canvas');
   private terrainVersion = -1;
   private blink = false;
@@ -134,6 +136,7 @@ export class Renderer {
     if (d && d.length > 0) return true;
     if (this.flash && this.flash.until > performance.now()) return true;
     if (this.followed !== null) return true;
+    if (this.busLines.some((l) => l.buses > 0) && this.city.stats.speed > 0) return true;
     return this.showAgents && this.agents.length > 0 && this.city.stats.speed > 0;
   }
 
@@ -228,6 +231,7 @@ export class Renderer {
       this.drawBuildings(x0, y0, x1, y1, px, py);
       this.drawPowerLines(x0, y0, x1, y1, px, py);
       this.drawDisasters(px, py);
+      this.drawBusLines(px, py);
       this.drawAgents(px, py, x0, y0, x1, y1);
     }
 
@@ -303,6 +307,45 @@ export class Renderer {
     }
     this.drawFollowed(px, py, clock, r);
   }
+
+  /**
+   * Bus lines along their streets, and their buses: each runs the line end to end and back on a cosmetic clock
+   * (half a minute a round trip), spaced evenly. They stand still while the game is paused.
+   */
+  private drawBusLines(px: (x: number) => number, py: (y: number) => number) {
+    const ctx = this.ctx;
+    const s = this.scale;
+    const w = this.city.width;
+    const now = this.city.stats.speed > 0 ? performance.now() : (this.pausedAt ??= performance.now());
+    if (this.city.stats.speed > 0) this.pausedAt = null;
+    for (const line of this.busLines) {
+      const cells = line.cells;
+      if (cells.length < 2) continue;
+      ctx.strokeStyle = line.color + 'aa';
+      ctx.lineWidth = Math.max(2, s / 3);
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      cells.forEach((c, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, px((c % w) + 0.5), py(Math.floor(c / w) + 0.5)));
+      ctx.stroke();
+      const last = cells.length - 1;
+      const size = Math.max(3, s * 0.7);
+      for (let b = 0; b < line.buses; b++) {
+        const phase = (now / 30000 + b / line.buses) % 1;
+        let u = phase * 2 * last;
+        if (u > last) u = 2 * last - u;
+        const i = Math.min(last - 1, Math.floor(u));
+        const f = u - i;
+        const ax = cells[i] % w, ay = Math.floor(cells[i] / w), bx = cells[i + 1] % w, by = Math.floor(cells[i + 1] / w);
+        const x = px(ax + (bx - ax) * f + 0.5), y = py(ay + (by - ay) * f + 0.5);
+        ctx.fillStyle = line.color;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.fillRect(x - size / 2, y - size / 2, size, size);
+        ctx.strokeRect(x - size / 2, y - size / 2, size, size);
+      }
+    }
+  }
+  private pausedAt: number | null = null;
 
   /** Where the followed citizen is now, and what they're doing; null when nobody is followed or they aren't drawn. */
   followedNow(): { x: number; y: number; status: string; minute: number } | null {
