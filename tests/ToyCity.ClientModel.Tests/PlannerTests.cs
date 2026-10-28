@@ -1,0 +1,155 @@
+using Google.Protobuf;
+using ToyCity.ClientModel.Tools;
+using ToyCity.Protocol;
+using ToyCity.Protocol.V0;
+using ToyCity.Sim;
+
+namespace ToyCity.ClientModel.Tests;
+
+/// <summary>The map tools' previews: they agree with what the server will accept, and placement snaps unless held free.</summary>
+public class PlannerTests
+{
+    static (World W, CityMirror C) Town(ulong seed = 501)
+    {
+        var w = World.Create(ContentDb.LoadDefault(), seed, 128, "Toolton");
+        Assert.True(StarterTown.Apply(w));
+        w.Run(60);  // transit unlocks
+        var c = new CityMirror();
+        c.ApplyFull(Mapping.FullState(w, 0));
+        return (w, c);
+    }
+
+    [Fact]
+    public void LinesAndCurvesAreLaidCellForCellAsTheServerLaysThem()
+    {
+        var r = new Random(3);
+        for (int k = 0; k < 300; k++)
+        {
+            int x0 = r.Next(40), y0 = r.Next(40), cx = r.Next(40), cy = r.Next(40), x1 = r.Next(40), y1 = r.Next(40);
+            Assert.Equal(World.CurveCells(x0, y0, cx, cy, x1, y1), Planner.CurveCells(x0, y0, cx, cy, x1, y1));
+            Assert.Equal(World.LCells(x0, y0, x1, y1), Planner.LCells(x0, y0, x1, y1));
+        }
+    }
+
+    [Fact]
+    public void ARunSnapsStraightUnlessHeldFree()
+    {
+        Assert.Equal((9, 2), Planner.SnapEnd((2, 2), 9, 4, free: false));
+        Assert.Equal((2, 10), Planner.SnapEnd((2, 2), 4, 10, free: false));
+        Assert.Equal((9, 4), Planner.SnapEnd((2, 2), 9, 4, free: true));
+
+        var (_, c) = Town();
+        var t = new ToolState { Kind = ToolKind.Path, ProfileId = "road" };
+        var snapped = Planner.Plan(c, t, new Pointer(9, 4, DragStart: (2, 2)))!;
+        Assert.All(snapped.Cells, cell => Assert.Equal(2, cell.Y));
+        var free = Planner.Plan(c, t, new Pointer(9, 4, DragStart: (2, 2), Free: true, VerticalFirst: true))!;
+        Assert.Equal(2, free.Actions.Count);  // vertical leg, then horizontal
+        Assert.Equal((2, 2, 2, 4), (free.Actions[0].Path.X0, free.Actions[0].Path.Y0, free.Actions[0].Path.X1, free.Actions[0].Path.Y1));
+        Assert.Contains(free.Cells, cell => (cell.X, cell.Y) == (9, 4));
+    }
+
+    [Fact]
+    public void ABuildingSnapsToFaceARoadUnlessHeldFree()
+    {
+        var (_, c) = Town();
+        var type = c.TypeById["police-station"];
+        int snappedToRoad = 0, tried = 0;
+        for (int y = 2; y < c.Height - 6; y++)
+            for (int x = 2; x < c.Width - 6; x++)
+            {
+                var p = new Pointer(x, y);
+                var at = Planner.Footprint(c, type, p);
+                Assert.True(Math.Abs(at.X - (x - (type.Width - 1) / 2)) <= 2 && Math.Abs(at.Y - (y - (type.Height - 1) / 2)) <= 2);
+                Assert.Equal((x - (type.Width - 1) / 2, y - (type.Height - 1) / 2), Planner.Footprint(c, type, p with { Free = true }));
+                // Near a road, the snapped spot is clear and faces it.
+                var plan = Planner.Plan(c, new ToolState { Kind = ToolKind.Building, BuildingTypeId = type.Id }, p)!;
+                if (plan.Ok && !plan.Text.Contains("no road")) snappedToRoad++;
+                tried++;
+            }
+        Assert.True(snappedToRoad > 0 && snappedToRoad < tried);
+    }
+
+    [Fact]
+    public void WhereTheServerWouldPlaceABuildingThePreviewSaysSo()
+    {
+        var (w, c) = Town();
+        foreach (var id in new[] { "police-station", "clinic", "small-park" })
+        {
+            var t = new ToolState { Kind = ToolKind.Building, BuildingTypeId = id };
+            int agree = 0;
+            for (int y = 0; y < c.Height; y += 2)
+                for (int x = 0; x < c.Width; x += 2)
+                {
+                    var plan = Planner.Plan(c, t, new Pointer(x, y, Free: true))!;
+                    var a = (PlaceBuildingAction)Mapping.ToSim(plan.Actions[0])!;
+                    bool server = w.ValidatePlacement(a, out _) == null;
+                    // The server also checks money, slope and unlocks; it never accepts what the preview refuses.
+                    Assert.False(server && !plan.Ok, $"{id} at {x},{y}: the server would place it but the preview says no");
+                    if (server == plan.Ok) agree++;
+                }
+            Assert.True(agree > 0);
+        }
+    }
+
+    [Fact]
+    public void RoadsideStopsGoOnTheKerbTheServerWouldUse()
+    {
+        var (w, c) = Town();
+        var type = c.TypeById["bus-stop"];
+        var t = new ToolState { Kind = ToolKind.Building, BuildingTypeId = type.Id };
+        int placed = 0;
+        for (int y = 1; y < c.Height - 1; y++)
+            for (int x = 1; x < c.Width - 1; x++)
+            {
+                if (c.Paths[c.Idx(x, y)] == 0 && c.Paths[c.Idx(x, y - 1)] == 0 && c.Paths[c.Idx(x - 1, y)] == 0) continue;
+                foreach (var (fx, fy) in new[] { (0.1f, 0.5f), (0.9f, 0.5f), (0.5f, 0.1f), (0.5f, 0.9f) })
+                {
+                    var plan = Planner.Plan(c, t, new Pointer(x, y, fx, fy))!;
+                    if (!plan.Ok) continue;
+                    var a = (PlaceBuildingAction)Mapping.ToSim(plan.Actions[0])!;
+                    Assert.Null(w.ValidatePlacement(a, out _));
+                    Assert.Equal(plan.Side, a.Side);
+                    placed++;
+                }
+            }
+        Assert.True(placed > 20, $"{placed}");
+    }
+
+    [Fact]
+    public void ARoadPreviewCostsWhatTheServerCharges()
+    {
+        var (w, c) = Town();
+        var r = new Random(9);
+        int compared = 0;
+        for (int k = 0; k < 400 && compared < 25; k++)
+        {
+            int x0 = r.Next(10, 118), y0 = r.Next(10, 118);
+            var plan = Planner.Plan(c, new ToolState { Kind = ToolKind.Path, ProfileId = "road" }, new Pointer(x0 + r.Next(-8, 9), y0 + r.Next(-8, 9), DragStart: (x0, y0)))!;
+            var a = (PlacePathAction)Mapping.ToSim(plan.Actions[0])!;
+            bool server = w.ValidatePath(a, out long cost, out _, out _) == null;
+            Assert.False(server && !plan.Ok, "the server would build a road the preview refuses");
+            if (!server || !plan.Ok) continue;
+            Assert.EndsWith(Planner.Money(cost), plan.Text);
+            compared++;
+        }
+        Assert.True(compared >= 10);
+    }
+
+    [Fact]
+    public void ZoningAWholeBlockPreviewsItsLots()
+    {
+        var (w, c) = Town();
+        var t = new ToolState { Kind = ToolKind.Zone, BlockZoning = true, Zone = ZoneKind.ZoneCommercial, Density = Density.Medium };
+        for (int i = 0; i < c.N; i++)
+        {
+            int x = i % c.Width, y = i / c.Width;
+            var plan = Planner.Plan(c, t, new Pointer(x, y));
+            if (plan == null || !plan.Ok) continue;
+            Assert.Equal(w.BlockAt(x, y)!.Count, plan.Cells.Count);
+            if (!plan.Cells.Any(cell => cell.Tint == Tint.Zone)) continue;  // no road with frontage reaches this one
+            Assert.Equal(ZoneKind.ZoneCommercial, plan.Actions[0].Block.Zone);
+            return;
+        }
+        Assert.Fail("no block in the starter town");
+    }
+}

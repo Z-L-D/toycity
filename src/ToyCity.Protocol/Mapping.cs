@@ -96,7 +96,7 @@ public static class Mapping
                 Cost = t.Cost, Placeable = t.Placeable, Color = t.Color, UnlockText = t.Unlock != null ? t.UnlockText : "",
                 Unique = t.Unique, Income = t.Income, Attraction = t.Attraction,
                 Transit = t.Transit == TransitKind.None ? "" : t.Transit.ToString().ToLowerInvariant(), Capacity = t.Capacity, Catchment = t.Catchment,
-                Roadside = t.Roadside, LotKind = t.LotKind, Maintenance = t.Maintenance, LeaseRent = t.LeaseRent,
+                Roadside = t.Roadside, LotKind = t.LotKind, Maintenance = t.Maintenance, LeaseRent = t.LeaseRent, BuildDays = t.BuildDays,
                 Upgrades =
                 {
                     t.Upgrades.Select(u => new P.UpgradeInfo

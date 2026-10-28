@@ -45,10 +45,11 @@ public sealed partial class SimHost : IDisposable
         _thread.Start();
     }
 
-    World NewWorld(string name, ulong seed, int size, bool starter)
+    World NewWorld(string name, ulong seed, int size, bool starter, bool benchmark = false)
     {
         var w = World.Create(_content, seed, size, name);
-        if (starter) StarterTown.Apply(w);
+        if (benchmark) BenchmarkCity.Apply(w);
+        else if (starter) StarterTown.Apply(w);
         w.ApplyPending();
         AttachSideGames(w);
         return w;
@@ -255,9 +256,9 @@ public sealed partial class SimHost : IDisposable
                 case P.ClientMessage.BodyOneofCase.NewCity:
                 {
                     var n = msg.NewCity;
-                    int size = n.Size is 64 or 128 or 256 ? n.Size : 128;
+                    int size = n.Benchmark ? BenchmarkCity.Size : n.Size is 64 or 128 or 256 ? n.Size : 128;
                     ulong seed = n.Seed != 0 ? n.Seed : (ulong)Random.Shared.NextInt64(1, long.MaxValue);
-                    _world = NewWorld(string.IsNullOrWhiteSpace(n.Name) ? "New City" : n.Name.Trim(), seed, size, n.StarterTown);
+                    _world = NewWorld(string.IsNullOrWhiteSpace(n.Name) ? "New City" : n.Name.Trim(), seed, size, n.StarterTown, n.Benchmark);
                     broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).Concat(BuildDeltas(forceAlerts: true)).ToList();
                     break;
                 }

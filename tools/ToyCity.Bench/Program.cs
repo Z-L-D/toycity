@@ -23,7 +23,12 @@ ulong seed = args.Length > 2 ? ulong.Parse(args[2]) : 42;
 
 var content = ContentDb.LoadDefault();
 var w = World.Create(content, seed, size, "Benchville");
-if (Environment.GetEnvironmentVariable("TOYCITY_BIG") == "1")
+if (Environment.GetEnvironmentVariable("TOYCITY_BIG") == "dense")
+{
+    // The benchmark city: every lot built up from the first day.
+    Console.WriteLine($"benchmark city: {BenchmarkCity.Apply(w)} blocks, {w.Buildings.Count(b => b != null)} buildings, {w.Buildings.Sum(b => b?.Residents ?? 0)} homes for people, {w.Buildings.Sum(b => b?.Jobs ?? 0)} jobs");
+}
+else if (Environment.GetEnvironmentVariable("TOYCITY_BIG") == "1")
 {
     // Stress mode: a starter town on every dry 40x40 block, paid for directly.
     w.Funds = 50_000_000;

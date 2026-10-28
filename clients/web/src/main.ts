@@ -994,11 +994,12 @@ $('#btn-new').addEventListener('click', () => {
     <label>Seed (blank for random)</label><input type="number" name="seed" min="1">
     <label>Map size</label><select name="size"><option value="64">Small (64 × 64, 1 km)</option><option value="128" selected>Medium (128 × 128, 2 km)</option><option value="256">Large (256 × 256, 4 km)</option></select>
     <label><input type="checkbox" name="starter"> Start with a small working town</label>
+    <label><input type="checkbox" name="benchmark"> Benchmark city: 256 × 256, every block built</label>
     <div class="actions"><button value="cancel">Cancel</button><button value="ok" class="active">Found city</button></div>`;
   dlg.onclose = () => {
     if (dlg.returnValue !== 'ok') return;
     const fd = new FormData(form);
-    conn.send({ newCity: { name: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), size: Number(fd.get('size')), starterTown: fd.get('starter') === 'on' } });
+    conn.send({ newCity: { name: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), size: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', benchmark: fd.get('benchmark') === 'on' } });
   };
   dlg.showModal();
 });
