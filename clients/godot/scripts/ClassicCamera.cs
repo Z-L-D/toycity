@@ -17,6 +17,8 @@ public partial class ClassicCamera : Camera3D
     public bool EdgePan = true;
     /// <summary>How hard an earthquake shakes the view, in cells; the view itself (and picking) stays put.</summary>
     public float Shake;
+    /// <summary>The player moved the view, so anything that steers it (following a commuter) lets go.</summary>
+    public event Action? Panned;
     const float KeyPanPixels = 900, EdgePanPixels = 700, Edge = 6;
     bool _dragging;
 
@@ -60,7 +62,9 @@ public partial class ClassicCamera : Camera3D
             case InputEventMouseButton { ButtonIndex: MouseButton.Right or MouseButton.Middle } b:
                 _dragging = b.Pressed; break;
             case InputEventMouseMotion m when _dragging:
-                View.Pan(-m.Relative.X, -m.Relative.Y, GetViewport().GetVisibleRect().Size.Y); break;
+                View.Pan(-m.Relative.X, -m.Relative.Y, GetViewport().GetVisibleRect().Size.Y);
+                Panned?.Invoke();
+                break;
         }
     }
 
@@ -68,10 +72,14 @@ public partial class ClassicCamera : Camera3D
     {
         var size = GetViewport().GetVisibleRect().Size;
         float dt = (float)delta, dx = 0, dy = 0;
-        if (Input.IsKeyPressed(Key.Left) || Input.IsKeyPressed(Key.A)) dx -= 1;
-        if (Input.IsKeyPressed(Key.Right) || Input.IsKeyPressed(Key.D)) dx += 1;
-        if (Input.IsKeyPressed(Key.Up) || Input.IsKeyPressed(Key.W)) dy -= 1;
-        if (Input.IsKeyPressed(Key.Down) || Input.IsKeyPressed(Key.S)) dy += 1;
+        // Not while typing in a text box: the letters are for the box.
+        if (GetViewport().GuiGetFocusOwner() is not LineEdit)
+        {
+            if (Input.IsKeyPressed(Key.Left) || Input.IsKeyPressed(Key.A)) dx -= 1;
+            if (Input.IsKeyPressed(Key.Right) || Input.IsKeyPressed(Key.D)) dx += 1;
+            if (Input.IsKeyPressed(Key.Up) || Input.IsKeyPressed(Key.W)) dy -= 1;
+            if (Input.IsKeyPressed(Key.Down) || Input.IsKeyPressed(Key.S)) dy += 1;
+        }
         dx *= KeyPanPixels * dt;
         dy *= KeyPanPixels * dt;
         if (EdgePan && !_dragging && DisplayServer.WindowIsFocused())
@@ -83,7 +91,11 @@ public partial class ClassicCamera : Camera3D
             if (inside && m.Y < Edge) dy -= EdgePanPixels * dt;
             if (inside && m.Y > size.Y - Edge) dy += EdgePanPixels * dt;
         }
-        if (dx != 0 || dy != 0) View.Pan(dx, dy, size.Y);
+        if (dx != 0 || dy != 0)
+        {
+            View.Pan(dx, dy, size.Y);
+            Panned?.Invoke();
+        }
         Apply();
     }
 

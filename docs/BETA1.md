@@ -71,6 +71,24 @@ gives the cost. What the preview accepts is what the server accepts: the planner
 
 Errors and warnings from the city show as notices above the bottom of the screen.
 
+## Panels
+
+Everything the web client's panels show, as text with links, written by `ClientModel/Panels/PanelModel`
+(tested against the sim in `PanelTests`: every tab renders well-formed and every link runs):
+
+- **Top bar**: city, date, money, population, the R, C and I demand bars (click for Demand), approval (click
+  for People), alerts, game speed, who runs the city, and New, Save and Load.
+- **Side panel** (`P` shows or hides it): Why and Inspect for the cell picked with the query tool, with
+  gauges, upgrades, funding, leases and residents (Follow puts the camera on one); Demand; Alerts; Forecast,
+  with what-if planning (while planning is on, the tools' actions go into the plan); People, with petitions,
+  deals, advisors and the news; Laws, with a forecast with and without each; Budget, with taxes and loans;
+  Layers; and the Guide, with search.
+- **Dialogs**: who runs the city (manual, stasis, caretaker, autopilot), house rules, lease terms, the
+  "while you were away" report, and new, save and load.
+- **Map**: data layers tint the ground (`shaders/terrain.gdshader`), `U` shows the water pipes, `M` the
+  commuters (yellow drive, blue ride transit), street names stand over the roads at the two closest zoom
+  levels, and an alert or petition's area pulses when you go to it. The news runs along the bottom.
+
 ## Voxels
 
 One voxel is 0.5 m, so a 16 m cell is 32 voxels across. Buildings are MagicaVoxel models (axes x east,

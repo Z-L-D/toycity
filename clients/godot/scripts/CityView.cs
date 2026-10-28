@@ -30,7 +30,8 @@ public partial class CityView : Node3D
     bool _far;
     MeshInstance3D? _cursor;
     float[] _top = System.Array.Empty<float>();
-    StandardMaterial3D? _ground;
+    ShaderMaterial? _ground;
+    double _flashUntil = -1;
     public float MaxTop { get; private set; }
 
     public CityView(CityMirror city) => _city = city;
@@ -41,7 +42,7 @@ public partial class CityView : Node3D
 
     public override void _Ready()
     {
-        _ground = new StandardMaterial3D { VertexColorUseAsAlbedo = true, VertexColorIsSrgb = true, Roughness = 1, CullMode = BaseMaterial3D.CullModeEnum.Disabled };
+        _ground = new ShaderMaterial { Shader = GD.Load<Shader>("res://shaders/terrain.gdshader") };
         _blocks = new MultiMeshInstance3D
         {
             Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, Mesh = new BoxMesh { Size = Vector3.One } },
@@ -86,6 +87,36 @@ public partial class CityView : Node3D
         }
         foreach (int k in touched) BuildChunk(k % cw, k / cw);
         if (cells.Length > 0 || buildings.Length > 0) BuildBlocks();
+    }
+
+    /// <summary>A map layer over the ground, one pixel per cell, or null for none.</summary>
+    public void SetOverlay(Image? image)
+    {
+        _ground!.SetShaderParameter("use_overlay", image != null);
+        if (image == null) return;
+        _ground.SetShaderParameter("overlay", ImageTexture.CreateFromImage(image));
+        _ground.SetShaderParameter("map_size", new Vector2(image.GetWidth(), image.GetHeight()));
+    }
+
+    /// <summary>Outlines the cell the panel is showing.</summary>
+    public void Select((int X, int Y)? cell) =>
+        _ground!.SetShaderParameter("selected", cell is { } c ? new Vector2(c.X, c.Y) : new Vector2(-1, -1));
+
+    /// <summary>Pulses an area for a few seconds: what an alert or petition is about.</summary>
+    public void Flash(int x0, int y0, int x1, int y1)
+    {
+        _ground!.SetShaderParameter("flash_rect", new Vector4(Math.Min(x0, x1), Math.Min(y0, y1), Math.Max(x0, x1), Math.Max(y0, y1)));
+        _flashUntil = Time.GetTicksMsec() / 1000.0 + 6;
+    }
+
+    public override void _Process(double delta)
+    {
+        if (_flashUntil < 0) return;
+        double now = Time.GetTicksMsec() / 1000.0, left = _flashUntil - now;
+        // A slow pulse, fading out over the last second.
+        float pulse = 0.5f + 0.5f * MathF.Sin((float)now * 5.5f);
+        _ground!.SetShaderParameter("flash_strength", left <= 0 ? 0f : (0.15f + 0.35f * pulse) * (float)Math.Min(1, left));
+        if (left <= 0) _flashUntil = -1;
     }
 
     /// <summary>One chunk of stepped terrain: a flat top per cell, and a wall wherever a neighbour is lower.</summary>

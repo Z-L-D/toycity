@@ -1,5 +1,6 @@
 using Godot;
 using ToyCity.ClientModel;
+using ToyCity.ClientModel.Panels;
 using ToyCity.ClientModel.Tools;
 
 namespace ToyCity.Godot;
@@ -17,6 +18,15 @@ public partial class Main : Node
     ClassicCamera? _camera;
     MapView? _map;
     ToolController? _tools;
+    PanelView? _panels;
+    AgentsView? _agents;
+    StreetLabels? _streets;
+    int _overlayVersion = -1;
+    bool _under;
+    long? _followed;
+    double _bannerClock;
+    long _savedReport = -1;
+    const string ReportFile = "user://seen-report.txt";
     DirectionalLight3D? _sun;
     DisasterView? _disasters;
     Label? _status, _hover;
@@ -49,7 +59,7 @@ public partial class Main : Node
                 _frozen = true;
             };
         }
-        _client.Connection.StatusChanged += open => SetStatus(open ? "Connected" : $"Connecting to {server}…");
+        _client.Connection.StatusChanged += open => SetStatus(open ? "" : $"Connecting to {server}…");
 
         AddChild(new WorldEnvironment
         {
@@ -88,6 +98,25 @@ public partial class Main : Node
         hud.AddChild(_map);
         _tools = new ToolController(_client, _view, _camera, _map);
         AddChild(_tools);
+
+        // The panels, and what they ask of the map.
+        _panels = new PanelView(_client) { Tools = _tools };
+        AddChild(_panels);
+        var pm = _panels.Model;
+        if (global::Godot.FileAccess.FileExists(ReportFile) && long.TryParse(global::Godot.FileAccess.GetFileAsString(ReportFile).Trim(), out var seen)) pm.ShownReport = _savedReport = seen;
+        _client.Message += pm.Handle;
+        pm.JumpTo += (x, y) => _camera.CentreOn(x + 0.5f, y + 0.5f);
+        pm.Flash += r => _view.Flash(r.X0, r.Y0, r.X1, r.Y1);
+        pm.PickBuilding += (id, x, y) => { _tools.Pick(id); if (x >= 0) _camera.CentreOn(x + 0.5f, y + 0.5f); };
+        pm.Toast += _tools.Toast;
+        pm.UnlocksChanged += _tools.RebuildOptions;
+        _tools.Queried += (x, y) => pm.Query(x, y);
+        _tools.Act = pm.Act;
+        _camera.Panned += () => _panels.FollowCam = false;
+        _agents = new AgentsView(_client.City, pm, _view);
+        AddChild(_agents);
+        _streets = new StreetLabels(_client.City, _view);
+        AddChild(_streets);
     }
 
     void SetStatus(string text) { if (_status != null) _status.Text = text; }
@@ -104,6 +133,7 @@ public partial class Main : Node
                 _view!.Refresh(all, cells, buildings);
                 _map!.Refresh(all, cells);
             }
+            Layers(c, all || cells.Length > 0);
             _view!.Tick(delta, c.TakeRemoved());
             _camera!.Shake = _disasters!.Shake;
             if (!_centred)
@@ -117,7 +147,6 @@ public partial class Main : Node
                 else _camera.CentreOn(c.Width / 2f, c.Height / 2f);
                 _centred = true;
             }
-            SetStatus($"{c.Stats.CityName}  ·  {c.Stats.Year}-{c.Stats.Month:00}-{c.Stats.Day:00}  ·  pop {c.Stats.Population:N0}  ·  ${c.Stats.Funds:N0}");
             var cell = _camera!.Pick(GetViewport().GetMousePosition(), _view!);
             _view!.Hover(cell);
             _hover!.Text = cell is { } h ? Describe(c, h.X, h.Y) : "";
@@ -128,6 +157,42 @@ public partial class Main : Node
         }
         if (_bench != null) Bench(c, delta);
         else if (_smoke) Smoke(c, delta);
+    }
+
+    /// <summary>The map layers the panel asks for, street names, the selected cell, and following a commuter.</summary>
+    void Layers(CityMirror c, bool cellsChanged)
+    {
+        var pm = _panels!.Model;
+        _view!.Select(pm.Selected);
+        // The pipes show while the layer is on, or while the bulldozer clears pipes.
+        bool under = pm.ShowUnderground || _tools!.State is { Kind: ToolKind.Bulldoze, Underground: true };
+        if (under != _under || pm.OverlayVersion != _overlayVersion || (under && cellsChanged))
+        {
+            (_under, _overlayVersion) = (under, pm.OverlayVersion);
+            Image? image = null;
+            if (under) image = Image.CreateFromData(c.Width, c.Height, false, Image.Format.Rgba8, MapLayer.Pipes(c));
+            else if (pm.Overlay is { } o && pm.ActiveOverlay != 0 && o.Values.Length == c.Width * c.Height)
+            {
+                string scheme = PanelModel.OverlayKinds.First(k => k.Kind == pm.ActiveOverlay).Scheme;
+                image = Image.CreateFromData(c.Width, c.Height, false, Image.Format.Rgba8, MapLayer.Pixels(o.Values.Span, scheme));
+            }
+            _view.SetOverlay(image);
+        }
+        _streets!.Refresh(GetProcessDeltaTime());
+        _streets.Visible = _camera!.View.Zoom >= 3;
+        // A newly followed commuter takes the camera, until the player pans away.
+        if (pm.Followed != _followed) { _followed = pm.Followed; _panels.FollowCam = _followed != null; if (_followed != null) _camera.View.Zoom = Math.Max(_camera.View.Zoom, 3); }
+        if (_agents!.FollowedAt is { } f)
+        {
+            if (_panels.FollowCam) _camera.CentreOn(f.X, f.Y);
+            if ((_bannerClock += GetProcessDeltaTime()) > 0.2) { _bannerClock = 0; _panels.FollowStatus(_agents.FollowedStatus, _agents.Minute); }
+        }
+        if (pm.ShownReport != _savedReport)
+        {
+            _savedReport = pm.ShownReport;
+            using var file = global::Godot.FileAccess.Open(ReportFile, global::Godot.FileAccess.ModeFlags.Write);
+            file?.StoreString(_savedReport.ToString());
+        }
     }
 
     /// <summary>What's under the cursor: a building, a street, or the ground.</summary>
@@ -149,7 +214,8 @@ public partial class Main : Node
     static readonly (int Rotation, int Zoom, ViewMode Mode)[] ShotViews =
         { (0, 1, ViewMode.Classic), (1, 1, ViewMode.Classic), (2, 1, ViewMode.Classic), (3, 1, ViewMode.Classic),
           (0, 0, ViewMode.Classic), (0, 3, ViewMode.Classic), (0, 1, ViewMode.TopDown), (0, 1, ViewMode.Side),
-          (0, 2, ViewMode.Classic), (0, 2, ViewMode.Classic) };  // the last two show the zone and road tools' previews
+          (0, 2, ViewMode.Classic), (0, 2, ViewMode.Classic),  // the zone and road tools' previews
+          (0, 3, ViewMode.Classic) };  // a building's Why panel over the land value layer, with street names
 
     /// <summary>The smoke test: once the city is drawn, picking at the screen centre must find it at every rotation.</summary>
     void Smoke(CityMirror c, double delta)
@@ -190,8 +256,21 @@ public partial class Main : Node
         if (_shot == ShotViews.Length) { GetTree().Quit(0); return; }
         (v.Rotation, v.Zoom, v.Mode) = ShotViews[_shot++];
         int tx = (int)v.Target.X, ty = (int)v.Target.Y;
-        if (_shot == ShotViews.Length - 1) { _tools!.SetTool(ToolKind.Zone); _tools.Hold((tx + 4, ty + 3), (tx - 4, ty - 3)); }
-        else if (_shot == ShotViews.Length) { _tools!.SetTool(ToolKind.Path); _tools.Hold((tx + 6, ty), (tx - 6, ty)); }
+        if (_shot == ShotViews.Length - 2) { _tools!.SetTool(ToolKind.Zone); _tools.Hold((tx + 4, ty + 3), (tx - 4, ty - 3)); }
+        else if (_shot == ShotViews.Length - 1) { _tools!.SetTool(ToolKind.Path); _tools.Hold((tx + 6, ty), (tx - 6, ty)); }
+        else if (_shot == ShotViews.Length)
+        {
+            _tools!.SetTool(ToolKind.Query);
+            _tools.Hold(null);
+            var pm = _panels!.Model;
+            if (c.Buildings.Values.FirstOrDefault(b => c.TypeById.TryGetValue(b.TypeId, out var t) && t.Placeable && !t.Roadside) is { } b)
+            {
+                pm.Query(b.X, b.Y);
+                _camera.CentreOn(b.X + 0.5f, b.Y + 0.5f);
+            }
+            pm.Click("overlay:1");
+            _wait = 30;  // for the server's replies
+        }
         _wait = 5;
     }
 

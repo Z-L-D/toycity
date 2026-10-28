@@ -26,6 +26,8 @@ public sealed class CityMirror
     public readonly Dictionary<string, BuildingTypeInfo> TypeById = new();
     /// <summary>The deepest lot a zoned building grows on, by density.</summary>
     public int[] LotDepth { get; private set; } = { 2, 3, 4 };
+    /// <summary>The landmarks and reward lots this city has unlocked, from the server's civic state.</summary>
+    public HashSet<string> Unlocked = new();
     public StreetNamer Streets { get; private set; } = new(new[] { "Main" }, new[] { "Street" });
     public bool Loaded { get; private set; }
 
@@ -33,6 +35,8 @@ public sealed class CityMirror
     public int TerrainVersion { get; private set; }
     /// <summary>Bumped on any change at all.</summary>
     public int Version { get; private set; }
+    /// <summary>Goes up when a road or the ground under one may have changed.</summary>
+    public int RoadVersion { get; private set; }
     /// <summary>Cells changed since the last <see cref="TakeDirtyCells"/>, for renderers that update in chunks.</summary>
     readonly HashSet<int> _dirtyCells = new();
     readonly List<BuildingState> _removed = new();
@@ -76,6 +80,7 @@ public sealed class CityMirror
         foreach (var b in f.Buildings) PutBuilding(b);
         Stats = f.Stats ?? new CityStats();
         TerrainVersion++;
+        RoadVersion++;
         Version++;
         _dirtyCells.Clear();
         _dirtyBuildings.Clear();
@@ -86,11 +91,12 @@ public sealed class CityMirror
 
     public void ApplyDelta(TickDelta d)
     {
-        bool terrain = false;
+        bool terrain = false, roads = false;
         foreach (var c in d.Cells)
         {
             int i = c.Index;
             if (Heights[i] != c.Height) terrain = true;
+            if (Paths[i] != c.Path) roads = true;
             Heights[i] = (byte)c.Height;
             Zones[i] = (byte)c.Zone;
             Paths[i] = (ushort)c.Path;
@@ -117,6 +123,7 @@ public sealed class CityMirror
         }
         if (d.Stats != null) Stats = d.Stats;
         if (terrain) TerrainVersion++;
+        if (terrain || roads) RoadVersion++;
         Version++;
     }
 

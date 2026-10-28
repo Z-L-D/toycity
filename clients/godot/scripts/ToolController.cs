@@ -19,6 +19,10 @@ public partial class ToolController : Node
     readonly ClassicCamera _camera;
     readonly MapView _map;
     public readonly ToolState State = new();
+    /// <summary>The query tool picked a cell.</summary>
+    public event Action<int, int>? Queried;
+    /// <summary>Sends an action, or keeps it for a what-if plan; null sends it straight to the city.</summary>
+    public Func<PAction, string, bool>? Act;
     (int X, int Y)? _drag;
     (int X, int Y)? _held;  // a pointer held by Hold, for screenshots: the mouse is ignored while it is set
 
@@ -62,7 +66,7 @@ public partial class ToolController : Node
         var hud = new CanvasLayer { Layer = 2 };
         AddChild(hud);
         var top = new VBoxContainer();
-        top.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.Minsize, 8);
+        top.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.Minsize, 46);  // under the top bar
         top.GrowHorizontal = Control.GrowDirection.Both;
         hud.AddChild(top);
         var bar = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
@@ -114,6 +118,18 @@ public partial class ToolController : Node
     // ---------------------------------------------------------------------------------------------------------
     // Options under the toolbar
 
+    /// <summary>Chooses a building for the place tool, as if picked from its list.</summary>
+    public void Pick(string typeId)
+    {
+        if (!_client.City.TypeById.TryGetValue(typeId, out var t)) return;
+        State.BuildingTypeId = typeId;
+        SetTool(ToolKind.Building);
+        Toast($"Placing {t.Name}: click the map to build it.", "info");
+    }
+
+    /// <summary>Redraws the options, for when what they list changed, such as the buildings unlocked.</summary>
+    public void RebuildOptions() => BuildOptions();
+
     void BuildOptions()
     {
         if (_options == null) return;
@@ -135,14 +151,27 @@ public partial class ToolController : Node
                 Choice(new[] { "Power line", "Water pipe" }, (int)State.Utility, k => State.Utility = (UtilityKind)k);
                 break;
             case ToolKind.Building:
-                Dropdown(c.Types.Where(t => t.Placeable).OrderBy(t => t.Category).ThenBy(t => t.Cost)
-                    .Select(t => (t.Id, $"{Cap(t.Category)}: {t.Name} ({Planner.Money(t.Cost)})")).ToList(), State.BuildingTypeId, id => State.BuildingTypeId = id);
+            {
+                // Landmarks and reward lots stay locked until earned, and a one-per-city building once it's built.
+                var items = new List<(string, string, bool)>();
+                foreach (var t in c.Types.Where(t => t.Placeable).OrderBy(t => t.Category).ThenBy(t => t.Cost))
+                {
+                    bool locked = !c.Unlocked.Contains(t.Id) && t.UnlockText != "";
+                    bool built = t.Unique && c.Buildings.Values.Any(b => b.TypeId == t.Id);
+                    string note = locked ? $" 🔒 {t.UnlockText}" : built ? " (built)" : $" ({(t.Cost > 0 ? Planner.Money(t.Cost) : "free")})";
+                    items.Add((t.Id, $"{Cap(t.Category)}: {t.Name}{note}", locked || built));
+                }
+                Dropdown(items, State.BuildingTypeId, id => State.BuildingTypeId = id);
                 break;
+            }
             case ToolKind.Terraform:
                 Choice(Planner.TerraformNames, (int)State.Terraform, k => State.Terraform = (TerraformMode)k);
                 break;
             case ToolKind.Disaster:
                 Choice(Planner.DisasterNames, (int)State.Disaster, k => State.Disaster = (DisasterKind)k);
+                _options!.AddChild(new Label { Text = "   By themselves:" });
+                Choice(new[] { "Off", "Rare", "Normal" }, (int)c.Stats.DisasterSetting,
+                    k => _client.Connection.Act(new PAction { Disasters = new SetDisasters { Setting = (DisasterSetting)k } }));
                 break;
             case ToolKind.Bulldoze:
                 Choice(new[] { "Above ground", "Water pipes only (U)" }, State.Underground ? 1 : 0, k => State.Underground = k == 1);
@@ -165,15 +194,23 @@ public partial class ToolController : Node
         }
     }
 
-    void Dropdown(List<(string Id, string Label)> items, string selected, Action<string> pick)
+    void Dropdown(List<(string Id, string Label)> items, string selected, Action<string> pick) =>
+        Dropdown(items.Select(i => (i.Id, i.Label, false)).ToList(), selected, pick);
+
+    void Dropdown(List<(string Id, string Label, bool Disabled)> items, string selected, Action<string> pick)
     {
         var o = new OptionButton { FocusMode = Control.FocusModeEnum.None };
         for (int k = 0; k < items.Count; k++)
         {
             o.AddItem(items[k].Label, k);
+            o.SetItemDisabled(k, items[k].Disabled);
             if (items[k].Id == selected) o.Selected = k;
         }
-        if (items.Count > 0 && items.All(i => i.Id != selected)) { pick(items[0].Id); o.Selected = 0; }
+        if (items.FirstOrDefault(i => !i.Disabled) is { Id: not null } first && items.All(i => i.Id != selected || i.Disabled))
+        {
+            pick(first.Id);
+            o.Selected = items.IndexOf(first);
+        }
         o.ItemSelected += k => { pick(items[(int)k].Id); UpdateHints(); };
         _options!.AddChild(o);
     }
@@ -201,7 +238,7 @@ public partial class ToolController : Node
             ToolKind.Terraform => new[] { ("Drag", $"{Planner.TerraformNames[(int)State.Terraform].ToLowerInvariant()} area"), ("Esc", "cancel") },
             _ => new[] { ("Click", $"start a {Planner.DisasterNames[(int)State.Disaster].ToLowerInvariant()} here"), ("Esc", "cancel") },
         };
-        var common = new[] { (", .", "rotate"), ("Wheel", "zoom"), ("T / Y", "top-down / side"), ("Right-drag", "pan"), ("Space", "pause") };
+        var common = new[] { (", .", "rotate"), ("Wheel", "zoom"), ("T / Y", "top-down / side"), ("Right-drag", "pan"), ("Space", "pause"), ("P / M / U", "panel / commuters / pipes") };
         _hints.Text = string.Join("\n", per.Concat(common).Select(h => $"{h.Item1,-11} {h.Item2}"));
     }
 
@@ -249,7 +286,7 @@ public partial class ToolController : Node
             bool click = State.Kind is ToolKind.Building or ToolKind.Disaster
                 || State.Kind == ToolKind.Zone && State.BlockZoning
                 || State.Kind == ToolKind.Path && State.CurveEnds != null;
-            if (State.Kind == ToolKind.Query) { Selected = (at.X, at.Y); return; }
+            if (State.Kind == ToolKind.Query) { Selected = (at.X, at.Y); Queried?.Invoke(at.X, at.Y); return; }
             if (click)
             {
                 Commit(Plan(at));
@@ -291,7 +328,9 @@ public partial class ToolController : Node
             Toast(string.IsNullOrEmpty(p.Text) ? "Can't do that here." : p.Text, "warning");
             return;
         }
-        foreach (var a in p.Actions) _client.Connection.Act(a);
+        foreach (var a in p.Actions)
+            if (Act != null) Act(a, p.Label);
+            else _client.Connection.Act(a);
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -363,7 +402,7 @@ public partial class ToolController : Node
             foreach (var n in m.Delta.Notices.Where(n => n.Severity == "warning")) Toast(n.Text, n.Severity);
     }
 
-    void Toast(string text, string severity)
+    public void Toast(string text, string severity)
     {
         if (_toasts == null || string.IsNullOrEmpty(text)) return;
         var l = new Label { Text = text, HorizontalAlignment = HorizontalAlignment.Center };
