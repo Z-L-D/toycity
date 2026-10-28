@@ -36,15 +36,26 @@ treated as two-way for now.
 
 ## Zones and growth
 
-Zoning costs $5 a cell. Lots are 1 × 1 in Alpha 1, so density changes the template (8 people in
-a low-density home, up to 220 in a tower), not the footprint. There are 27 templates: zone ×
-density × wealth.
+Zoning costs $5 a cell. Buildings grow on lots of several sizes, as in SimCity 4. The sizes are
+listed in `content/buildings.json` as frontage × depth, and either side may face the road:
+
+| Density | Lot sizes |
+| --- | --- |
+| Low | 1×1, 1×2, 2×2 |
+| Medium | 1×2, 2×2, 2×3, 3×3 |
+| High | 2×2, 2×3, 3×3, 3×4, 4×4 |
+
+When a lot grows, the size is picked at random from those that fit. The 27 templates (zone ×
+density × wealth) give residents, jobs and utility use per cell, so a bigger lot holds more and
+takes a little longer to build. A lot fits when every cell is empty land in the same zone and
+density and one side touches a path with frontage. So a block can be as deep as its deepest lot
+on each side; cells no lot can reach are greyed out and crossed on the map.
 
 A lot grows when all of these hold. They are the same checks the why-panel lists.
 
 | Need | Rule |
 | --- | --- |
-| Road access | A path with frontage within 3 cells (Manhattan distance) |
+| Road access | Some lot of an allowed size, containing this cell, has a side on a path with frontage |
 | Power | On a grid with a plant, and the grid is not in brownout |
 | Water | Medium and high density only: within 6 cells of a pipe whose network has a working pump with spare capacity |
 | Desirability | At least 5 (low), 25 (medium) or 45 (high) |
@@ -53,7 +64,7 @@ A lot grows when all of these hold. They are the same checks the why-panel lists
 Land value sets the highest wealth that can grow: residential and commercial need 60 for $$ and
 110 for $$$. Industry picks its wealth from demand only. Growth checks run once a month per lot,
 spread over the days, and succeed with a chance of 5% plus a quarter of the demand (at most 30%).
-Building takes 10, 20 or 40 days by density.
+Building takes 10, 20 or 40 days by density, plus two days per extra cell of lot.
 
 Existing buildings redevelop when upzoned, or when land value and demand support a richer
 building.
@@ -134,7 +145,7 @@ first optimisation to make.
 
 ## Known limits
 
-- Lots are 1 × 1; no parcel subdivision or curved roads yet.
+- Lots are rectangles on the grid; no parcel subdivision of road-enclosed blocks or curved roads yet.
 - No bridges, tunnels, rail or transit; one-way roads are two-way.
 - No fire, crime or disasters as events, only coverage.
 - Building condition and aging are stored but not simulated yet.

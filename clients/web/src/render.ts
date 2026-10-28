@@ -202,6 +202,21 @@ export class Renderer {
         ctx.fillStyle = ZONE_COLORS[kind];
         ctx.globalAlpha = 0.28 + density * 0.1;
         ctx.fillRect(px(x), py(y), s, s);
+        if (!c.hasRoadAccess(x, y)) {
+          // No road touches this lot, so it can never grow: grey it out with a red cross-hatch.
+          ctx.globalAlpha = 0.55;
+          ctx.fillStyle = '#5a5a5a';
+          ctx.fillRect(px(x), py(y), s, s);
+          ctx.globalAlpha = 0.9;
+          ctx.strokeStyle = '#e05a4a';
+          ctx.lineWidth = Math.max(1, s / 12);
+          ctx.beginPath();
+          ctx.moveTo(px(x) + s * 0.25, py(y) + s * 0.25); ctx.lineTo(px(x) + s * 0.75, py(y) + s * 0.75);
+          ctx.moveTo(px(x) + s * 0.75, py(y) + s * 0.25); ctx.lineTo(px(x) + s * 0.25, py(y) + s * 0.75);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+          continue;
+        }
         ctx.globalAlpha = 0.8;
         const inset = Math.max(1, s * 0.3);
         ctx.strokeStyle = ZONE_COLORS[kind];

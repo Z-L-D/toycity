@@ -73,6 +73,9 @@ public sealed class ContentDb
     public int BulldozeCostPerCell { get; private set; } = 5;
     public int TerraformCostPerCell { get; private set; } = 25;
 
+    /// <summary>Lot sizes (frontage, depth) a zoned building may grow on, by density; largest area first.</summary>
+    public List<(int W, int D)>[] LotSizes { get; } = { new(), new(), new() };
+
     readonly Dictionary<string, int> _profileIndex = new();
     readonly Dictionary<string, int> _typeIndex = new();
 
@@ -145,6 +148,7 @@ public sealed class ContentDb
         public int ZoneCostPerCell { get; set; } = 5;
         public int BulldozeCostPerCell { get; set; } = 5;
         public int TerraformCostPerCell { get; set; } = 25;
+        public Dictionary<string, List<int[]>> LotSizes { get; set; } = new();
         public List<ZonedEntry> Zoned { get; set; } = new();
         public List<CivicEntry> Civic { get; set; } = new();
     }
@@ -206,6 +210,17 @@ public sealed class ContentDb
         db.ZoneCostPerCell = bf.ZoneCostPerCell;
         db.BulldozeCostPerCell = bf.BulldozeCostPerCell;
         db.TerraformCostPerCell = bf.TerraformCostPerCell;
+        foreach (var (key, sizes) in bf.LotSizes)
+        {
+            var list = db.LotSizes[(int)ParseLevel(key)];
+            foreach (var s in sizes)
+                if (s.Length == 2 && s[0] >= 1 && s[1] >= 1 && s[0] <= 8 && s[1] <= 8) list.Add((s[0], s[1]));
+        }
+        foreach (var list in db.LotSizes)
+        {
+            if (list.Count == 0) list.Add((1, 1));
+            list.Sort((a, b) => (b.W * b.D).CompareTo(a.W * a.D) != 0 ? (b.W * b.D).CompareTo(a.W * a.D) : a.W.CompareTo(b.W));
+        }
         Array.Fill(db._zoned, -1);
         foreach (var z in bf.Zoned)
         {

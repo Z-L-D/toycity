@@ -119,6 +119,35 @@ public class GrowthTests
     }
 
     [Fact]
+    public void StarterTownLotsAllFaceARoad()
+    {
+        var w = Fixture.Starter();
+        w.Step();
+        int zoned = 0;
+        for (int i = 0; i < w.N; i++)
+        {
+            if (w.ZoneCode[i] == 0) continue;
+            zoned++;
+            Assert.DoesNotContain(w.Why(i % w.Width, i / w.Width).Requirements, r => r.Key == "road" && !r.Met);
+        }
+        Assert.True(zoned > 300, $"only {zoned} zoned cells");
+    }
+
+    [Fact]
+    public void LotsAwayFromTheRoadDoNotGrow()
+    {
+        var (w, x, y) = Fixture.FlatSite();
+        w.Enqueue(new PlacePathAction(x, y + 2, x + 10, y + 2, "road"));
+        // Low density lots are at most two cells deep, so the third and fourth rows back can't reach the road.
+        w.Enqueue(new PaintZoneAction(new CellRect(x, y + 3, x + 10, y + 6), Zone.Residential, Level.Low));
+        w.Run(2);
+        Assert.DoesNotContain(w.Why(x + 3, y + 3).Requirements, r => r.Key == "road" && !r.Met);
+        Assert.DoesNotContain(w.Why(x + 3, y + 4).Requirements, r => r.Key == "road" && !r.Met);
+        Assert.Contains(w.Why(x + 3, y + 5).Requirements, r => r.Key == "road" && !r.Met);
+        Assert.Contains(w.Why(x + 3, y + 6).Requirements, r => r.Key == "road" && !r.Met);
+    }
+
+    [Fact]
     public void ZonesWithoutPowerDoNotGrowAndSayWhy()
     {
         var (w, x, y) = Fixture.FlatSite();
@@ -177,9 +206,13 @@ public class GrowthTests
         var why = w.Why(home.X, home.Y);
         Assert.Contains(why.Requirements, r => r.Key == "power" && !r.Met);
 
+        int peak = w.Buildings.Count(b => b is { Abandoned: true });
         w.Enqueue(new PlaceBuildingAction(plant.X, plant.Y, "coal-plant"));
         w.Run(30 * 6);
-        Assert.True(w.Buildings.Count(b => b is { Abandoned: true }) < 5);
+        var still = w.Buildings.Where(b => b is { Abandoned: true }).ToList();
+        Assert.True(still.Count * 4 < peak, $"{still.Count} of {peak} still abandoned");
+        // Whatever stays abandoned must say why.
+        Assert.All(still, b => Assert.Contains(w.Why(b!.X, b.Y).Requirements, r => !r.Met));
     }
 }
 

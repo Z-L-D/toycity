@@ -73,11 +73,11 @@ public sealed partial class World
             if (b == null) continue;
             var t = TypeOf(b);
             int g = _comp[Idx(b.X, b.Y)];
-            if (t.PowerOutKw > 0 || t.PowerKw == 0) { b.Powered = true; continue; }
+            if (t.PowerOutKw > 0 || b.PowerKw == 0) { b.Powered = true; continue; }
             if (!b.Operating) { b.Powered = capacity[g] > 0; continue; }
-            demand[g] += t.PowerKw;
-            PowerDemand += t.PowerKw;
-            if (capacity[g] - used[g] >= t.PowerKw) { used[g] += t.PowerKw; b.Powered = true; }
+            demand[g] += b.PowerKw;
+            PowerDemand += b.PowerKw;
+            if (capacity[g] - used[g] >= b.PowerKw) { used[g] += b.PowerKw; b.Powered = true; }
             else b.Powered = false;
         }
 
@@ -156,16 +156,16 @@ public sealed partial class World
         {
             if (b == null) continue;
             var t = TypeOf(b);
-            if (t.WaterUse == 0) { b.Watered = true; continue; }
+            if (b.WaterUse == 0) { b.Watered = true; continue; }
             int g = -1;
             for (int y = b.Y; y < b.Y + b.H && g < 0; y++)
             for (int x = b.X; x < b.X + b.W && g < 0; x++)
                 g = _waterComp[Idx(x, y)];
             if (!b.Operating) { b.Watered = g >= 0; continue; }
             if (g < 0) { b.Watered = false; continue; }
-            demand[g] += t.WaterUse;
-            WaterDemand += t.WaterUse;
-            if (capacity[g] - used[g] >= t.WaterUse) { used[g] += t.WaterUse; b.Watered = true; }
+            demand[g] += b.WaterUse;
+            WaterDemand += b.WaterUse;
+            if (capacity[g] - used[g] >= b.WaterUse) { used[g] += b.WaterUse; b.Watered = true; }
             else b.Watered = false;
         }
 
@@ -183,8 +183,8 @@ public sealed partial class World
         _waterShortNotified = anyShort;
     }
 
-    /// <summary>How far a lot may sit from its road, in steps (Manhattan distance from the footprint).</summary>
-    public const int RoadReach = 3;
+    /// <summary>How far a lot may sit from its road, in steps (Manhattan distance from the footprint). 1 = it must touch the road.</summary>
+    public const int RoadReach = 1;
 
     /// <summary>
     /// The nearest path cell with frontage within <see cref="RoadReach"/> of a footprint: the lot's driveway.
@@ -219,7 +219,7 @@ public sealed partial class World
         {
             if (b == null) continue;
             b.Access = FindAccess(b.X, b.Y, b.W, b.H);
-            if (b.Access >= 0 && TypeOf(b).Jobs > 0)
+            if (b.Access >= 0 && b.Jobs > 0)
             {
                 if (!_sitesByAccess.TryGetValue(b.Access, out var list)) _sitesByAccess[b.Access] = list = new List<int>();
                 list.Add(b.Id);
@@ -236,7 +236,7 @@ public sealed partial class World
             if (b == null || !b.Operating) continue;
             var t = TypeOf(b);
             if (t.GarbageCap > 0 && HasFrontage(b)) GarbageCapacity += t.GarbageCap * FundingFactor(b.Funding) / 100;
-            GarbageProduced += t.Garbage;
+            GarbageProduced += b.Garbage;
         }
     }
 

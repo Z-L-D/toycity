@@ -17,25 +17,25 @@ public sealed partial class World
             if (b == null || b.Abandoned) continue;
             var t = TypeOf(b);
             bool built = b.ConstructionLeft == 0;
-            if (t.Residents > 0)
+            if (b.Residents > 0)
             {
                 if (built)
                 {
-                    pop += t.Residents;
-                    labor += LaborOf(t);
+                    pop += b.Residents;
+                    labor += LaborOf(b);
                     employed += b.Employed;
-                    eduWeighted += (long)Coverage[(int)Service.Education][Idx(b.X, b.Y)] * t.Residents;
+                    eduWeighted += (long)Coverage[(int)Service.Education][Idx(b.X, b.Y)] * b.Residents;
                 }
-                else pendingPop += t.Residents;
+                else pendingPop += b.Residents;
             }
-            if (t.Jobs > 0)
+            if (b.Jobs > 0)
             {
-                if (built && b.Powered) liveJobs += t.Jobs;
+                if (built && b.Powered) liveJobs += b.Jobs;
                 switch (t.Zone)
                 {
-                    case Zone.Commercial: jobsC += t.Jobs; break;
-                    case Zone.Industrial: jobsI += t.Jobs; break;
-                    default: jobsCivic += t.Jobs; break;
+                    case Zone.Commercial: jobsC += b.Jobs; break;
+                    case Zone.Industrial: jobsI += b.Jobs; break;
+                    default: jobsCivic += b.Jobs; break;
                 }
             }
         }
@@ -97,7 +97,7 @@ public sealed partial class World
             var t = TypeOf(b);
             if (t.Placeable) continue;
             int k = ((int)t.Zone - 1) * 3 + (int)t.Wealth;
-            int units = t.Residents > 0 ? t.Residents : (b.Workers > 0 ? Math.Min(t.Jobs, b.Workers) : 0);
+            int units = b.Residents > 0 ? b.Residents : Math.Min(b.Jobs, b.Workers);
             taxNumerators[(int)t.Zone - 1] += (long)units * TaxBase[k] * TaxTenths[k];
         }
 

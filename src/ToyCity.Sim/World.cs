@@ -19,6 +19,8 @@ public sealed class Building
     public int Id;
     public int Type;
     public int X, Y, W, H;
+    // Totals for this building: zoned templates are per cell, so a bigger lot holds more. Derived, not saved.
+    public int Residents, Jobs, PowerKw, WaterUse, Garbage;
     public int Funding = 100;
     public int Condition = 100;
     public bool Abandoned;
@@ -315,6 +317,7 @@ public sealed partial class World
                 for (int c = 0; c < a.PathCells.Length; c++) a.PathCells[c] = r.ReadInt32();
                 b.Assignments.Add(a);
             }
+            w.InitTotals(b);
             w.Buildings.Add(b);
         }
 

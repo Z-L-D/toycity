@@ -161,12 +161,27 @@ public sealed partial class World
         Notices.Add(new SimNotice($"Built {type.Name}.", "info", a.X, a.Y));
     }
 
-    internal Building AddBuilding(BuildingType type, int x, int y, int constructionDays)
+    /// <summary>Sets a building's totals: zoned templates give values per cell, civic types per building.</summary>
+    internal void InitTotals(Building b)
     {
-        var b = new Building { Id = Buildings.Count, Type = type.Index, X = x, Y = y, W = type.W, H = type.H, ConstructionLeft = constructionDays };
+        var t = TypeOf(b);
+        int k = t.Placeable ? 1 : b.W * b.H;
+        b.Residents = t.Residents * k;
+        b.Jobs = t.Jobs * k;
+        b.PowerKw = t.PowerKw * k;
+        b.WaterUse = t.WaterUse * k;
+        b.Garbage = t.Garbage * k;
+    }
+
+    internal Building AddBuilding(BuildingType type, int x, int y, int constructionDays, int w = 0, int h = 0)
+    {
+        if (w == 0) { w = type.W; h = type.H; }
+        var b = new Building { Id = Buildings.Count, Type = type.Index, X = x, Y = y, W = w, H = h, ConstructionLeft = constructionDays };
+        InitTotals(b);
+        b.Access = FindAccess(x, y, w, h);
         Buildings.Add(b);
-        for (int yy = y; yy < y + type.H; yy++)
-        for (int xx = x; xx < x + type.W; xx++)
+        for (int yy = y; yy < y + h; yy++)
+        for (int xx = x; xx < x + w; xx++)
             BuildingAt[Idx(xx, yy)] = b.Id + 1;
         return b;
     }

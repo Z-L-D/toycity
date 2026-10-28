@@ -70,8 +70,8 @@ public sealed partial class World
         var factors = new List<Factor>();
         if (t.PowerKw > 0)
             reqs.Add(new Requirement("power", "Power", b.Powered, b.Powered ? "Powered." : "No power: this building does nothing until it is connected to a working plant."));
-        if (t.Jobs > 0)
-            reqs.Add(new Requirement("workers", "Workers", b.Workers > 0, $"{b.Workers} of {t.Jobs} jobs filled."));
+        if (b.Jobs > 0)
+            reqs.Add(new Requirement("workers", "Workers", b.Workers > 0, $"{b.Workers} of {b.Jobs} jobs filled."));
         string summary = t.Category switch
         {
             Category.Power => $"Makes {t.PowerOutKw * FundingFactor(b.Funding) / 100:N0} kW. City grid: {PowerDemand:N0} of {PowerCapacity:N0} kW used.",
@@ -116,8 +116,9 @@ public sealed partial class World
         {
             var t = TypeOf(b);
             f.Add(("Building", $"#{b.Id} {t.Name}"));
-            if (t.Residents > 0) f.Add(("Residents", $"{t.Residents}, {b.Employed} employed, {b.CommuteMinutes} min commute"));
-            if (t.Jobs > 0) f.Add(("Jobs", $"{b.Workers} of {t.Jobs} filled"));
+            if (b.Residents > 0) f.Add(("Residents", $"{b.Residents}, {b.Employed} employed, {b.CommuteMinutes} min commute"));
+            f.Add(("Lot", $"{b.W} × {b.H}"));
+            if (b.Jobs > 0) f.Add(("Jobs", $"{b.Workers} of {b.Jobs} filled"));
             if (t.Placeable) f.Add(("Funding", $"{b.Funding}%"));
         }
         return f;
@@ -148,7 +149,7 @@ public sealed partial class World
             case OverlayKind.Commute:
                 foreach (var b in Buildings)
                 {
-                    if (b == null || TypeOf(b).Residents == 0 || !b.Operating) continue;
+                    if (b == null || b.Residents == 0 || !b.Operating) continue;
                     v[Idx(b.X, b.Y)] = (byte)Math.Min(255, b.Employed == 0 ? 255 : b.CommuteMinutes * 4);
                 }
                 low = "short"; high = "long or none"; break;

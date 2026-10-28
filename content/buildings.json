@@ -5,6 +5,63 @@
   "zoneCostPerCell": 5,
   "bulldozeCostPerCell": 5,
   "terraformCostPerCell": 25,
+  "lotSizesNote": "Lot sizes zoned buildings can grow on, by density, as [frontage, depth] in cells. Either side may face the road. Residents, jobs and utility use in the templates below are per cell, so bigger lots hold more.",
+  "lotSizes": {
+    "L": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        2
+      ]
+    ],
+    "M": [
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        2
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        3,
+        3
+      ]
+    ],
+    "H": [
+      [
+        2,
+        2
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        3,
+        3
+      ],
+      [
+        3,
+        4
+      ],
+      [
+        4,
+        4
+      ]
+    ]
+  },
   "zoned": [
     {
       "id": "r-l-l",

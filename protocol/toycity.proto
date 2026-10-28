@@ -225,6 +225,7 @@ message PathProfileInfo {
   int64 cost_per_cell = 9;
   string color = 10;
   int32 width_m = 11;
+  bool frontage = 12;  // lots beside it get road access (false for highways)
 }
 
 message BuildingTypeInfo {
@@ -244,6 +245,7 @@ message BuildingTypeInfo {
 message Catalog {
   repeated PathProfileInfo profiles = 1;
   repeated BuildingTypeInfo building_types = 2;
+  repeated int32 lot_depth = 3;  // deepest lot a zoned building can grow on, by density (low, medium, high)
 }
 
 message BuildingState {

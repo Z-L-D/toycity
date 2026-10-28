@@ -10,7 +10,7 @@ public sealed partial class World
     int _gen;
     readonly PriorityQueue<int, long> _pq = new();
 
-    bool IsJobSite(Building s) => s.Operating && s.Powered && TypeOf(s).Jobs > 0;
+    bool IsJobSite(Building s) => s.Operating && s.Powered && s.Jobs > 0;
 
     /// <summary>Unhooks a home from its job sites.</summary>
     internal void ReleaseAssignments(Building b)
@@ -32,8 +32,7 @@ public sealed partial class World
     internal void MatchCommutes(Building home)
     {
         ReleaseAssignments(home);
-        var t = TypeOf(home);
-        int need = LaborOf(t);
+        int need = LaborOf(home);
         if (need == 0 || !home.Operating) return;
 
         _dist ??= new int[N];
@@ -67,7 +66,7 @@ public sealed partial class World
                 {
                     if (need == 0) break;
                     if (sid == home.Id || Buildings[sid] is not { } site || !IsJobSite(site) || !seen.Add(sid)) continue;
-                    int free = TypeOf(site).Jobs - site.Workers;
+                    int free = site.Jobs - site.Workers;
                     if (free <= 0) continue;
                     int take = Math.Min(need, free);
                     var cells = new List<int>();
@@ -99,7 +98,7 @@ public sealed partial class World
         int slot = Day - 1;
         for (int id = slot; id < Buildings.Count; id += DaysPerMonth)
         {
-            if (Buildings[id] is { } b && b.Operating && TypeOf(b).Residents > 0) MatchCommutes(b);
+            if (Buildings[id] is { } b && b.Operating && b.Residents > 0) MatchCommutes(b);
         }
     }
 

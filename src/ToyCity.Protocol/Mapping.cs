@@ -50,7 +50,7 @@ public static class Mapping
             cat.Profiles.Add(new P.PathProfileInfo
             {
                 Id = p.Id, Name = p.Name, Kind = "path", SpeedKmh = p.SpeedKmh, Cars = p.Cars, Bikes = p.Bikes,
-                Pedestrians = p.Pedestrians, OneWay = p.OneWay, CostPerCell = p.CostPerCell, Color = p.Color, WidthM = (int)Math.Round(p.WidthM),
+                Pedestrians = p.Pedestrians, OneWay = p.OneWay, Frontage = p.Frontage, CostPerCell = p.CostPerCell, Color = p.Color, WidthM = (int)Math.Round(p.WidthM),
             });
         foreach (var t in c.Types)
             cat.BuildingTypes.Add(new P.BuildingTypeInfo
@@ -59,6 +59,7 @@ public static class Mapping
                 Density = (P.Density)(int)t.Density, Wealth = (P.Wealth)(int)t.Wealth, Width = t.W, Height = t.H,
                 Cost = t.Cost, Placeable = t.Placeable, Color = t.Color,
             });
+        foreach (var sizes in c.LotSizes) cat.LotDepth.Add(sizes.Max(z => Math.Max(z.W, z.D)));
         return cat;
     }
 
@@ -69,8 +70,8 @@ public static class Mapping
         {
             Id = b.Id, TypeId = t.Id, X = b.X, Y = b.Y, Width = b.W, Height = b.H, Zone = (P.ZoneKind)(int)t.Zone,
             Density = (P.Density)(int)t.Density, Wealth = (P.Wealth)(int)t.Wealth, Name = t.Name,
-            Residents = b.Operating ? t.Residents : 0, Jobs = b.Operating ? t.Jobs : 0,
-            Workers = t.Residents > 0 ? b.Employed : b.Workers, Powered = b.Powered, Watered = b.Watered,
+            Residents = b.Operating ? b.Residents : 0, Jobs = b.Operating ? b.Jobs : 0,
+            Workers = b.Residents > 0 ? b.Employed : b.Workers, Powered = b.Powered, Watered = b.Watered,
             Abandoned = b.Abandoned, ConstructionDaysLeft = b.ConstructionLeft, FundingPercent = b.Funding, Condition = b.Condition,
         };
     }

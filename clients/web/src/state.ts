@@ -30,6 +30,7 @@ export interface Profile {
   bikes: boolean;
   pedestrians: boolean;
   oneWay: boolean;
+  frontage: boolean;
   costPerCell: number;
   color: string;
   widthM: number;
@@ -66,6 +67,7 @@ export class City {
   profiles: Profile[] = [];
   types: BuildingType[] = [];
   typeById = new Map<string, BuildingType>();
+  lotDepth: number[] = [2, 3, 4];
   /** Bumped when terrain changes, so the renderer can rebuild its cached ground layer. */
   terrainVersion = 0;
   loaded = false;
@@ -86,6 +88,7 @@ export class City {
     this.profiles = f.catalog.profiles;
     this.types = f.catalog.buildingTypes;
     this.typeById = new Map(this.types.map((t) => [t.id, t]));
+    if (f.catalog.lotDepth?.length === 3) this.lotDepth = f.catalog.lotDepth;
     this.buildings.clear();
     this.buildingAt = new Int32Array(n);
     for (const b of f.buildings as Building[]) this.putBuilding(b);
@@ -143,6 +146,27 @@ export class City {
     if (!this.inBounds(x, y)) return undefined;
     const id = this.buildingAt[y * this.width + x];
     return id ? this.buildings.get(id - 1) : undefined;
+  }
+
+  /**
+   * Rough client-side check that some lot containing this cell could face a road: a path with frontage lies within
+   * the zone's deepest lot size, in a straight line through the same zone. The server's why-panel is the real answer.
+   */
+  hasRoadAccess(x: number, y: number): boolean {
+    const i0 = y * this.width + x;
+    const code = this.zones[i0];
+    const depth = this.lotDepth[code % 3] ?? 2;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (let k = 1; k <= depth; k++) {
+        const nx = x + dx * k;
+        const ny = y + dy * k;
+        if (!this.inBounds(nx, ny)) break;
+        const j = ny * this.width + nx;
+        if (this.profileAt(j)?.frontage) return true;
+        if (this.zones[j] !== code) break;
+      }
+    }
+    return false;
   }
 
   profileAt(i: number): Profile | undefined {

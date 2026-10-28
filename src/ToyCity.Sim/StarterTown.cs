@@ -38,24 +38,23 @@ public static class StarterTown
         int s = Size;
         // Level the whole site first so the roads never hit a slope.
         a.Add(new TerraformAction(new CellRect(ox, oy, ox + s + 5, oy + s - 1), TerraformMode.Level));
-        for (int r = 0; r < s; r += 6) a.Add(new PlacePathAction(ox, oy + r, ox + s - 1, oy + r, "road"));
-        foreach (int c in new[] { 0, 10, 20, s - 1 }) a.Add(new PlacePathAction(ox + c, oy, ox + c, oy + s - 1 - (s - 1) % 6, "road"));
-        int bottom = oy + s - 1 - (s - 1) % 6;
+        // Streets every fifth row: blocks four cells deep take lots facing either street.
+        int bottom = oy + s - 1 - (s - 1) % 5;
+        for (int y = oy; y <= bottom; y += 5) a.Add(new PlacePathAction(ox, y, ox + s, y, "road"));
+        foreach (int c in new[] { 0, 10, 20, s }) a.Add(new PlacePathAction(ox + c, oy, ox + c, bottom, "road"));
         // Residential on the left, commercial in the middle, industry on the right, next to the plant.
         a.Add(new PaintZoneAction(new CellRect(ox + 1, oy + 1, ox + 9, bottom - 1), Zone.Residential, Level.Low));
-        a.Add(new PaintZoneAction(new CellRect(ox + 11, oy + 1, ox + 19, oy + 11), Zone.Residential, Level.Medium));
-        a.Add(new PaintZoneAction(new CellRect(ox + 11, oy + 13, ox + 19, bottom - 1), Zone.Commercial, Level.Low));
-        a.Add(new PaintZoneAction(new CellRect(ox + 21, oy + 1, ox + s - 2, bottom - 1), Zone.Industrial, Level.Low));
+        a.Add(new PaintZoneAction(new CellRect(ox + 11, oy + 1, ox + 19, oy + 9), Zone.Residential, Level.Medium));
+        a.Add(new PaintZoneAction(new CellRect(ox + 11, oy + 11, ox + 19, bottom - 1), Zone.Commercial, Level.Low));
+        a.Add(new PaintZoneAction(new CellRect(ox + 21, oy + 1, ox + s - 1, bottom - 1), Zone.Industrial, Level.Low));
+        // Services along the east road. Roads carry power, so no power lines are needed.
         a.Add(new PlaceBuildingAction(ox + s + 1, oy + 1, "coal-plant"));
-        a.Add(new PlaceUtilityAction(ox + s, oy + 2, ox + s, oy + 2, UtilityKind.PowerLine));
-        a.Add(new PlaceUtilityAction(ox + s - 1, oy + 2, ox + s - 1, oy + 2, UtilityKind.PowerLine));
         a.Add(new PlaceBuildingAction(ox + s + 1, oy + 8, "water-pump"));
-        a.Add(new PlaceUtilityAction(ox + s + 1, oy + 5, ox + s + 1, oy + 7, UtilityKind.PowerLine));
-        // Pipes along every other road, joined at the east end where the pump sits.
-        for (int r = 0; r < s; r += 12) a.Add(new PlaceUtilityAction(ox, oy + r + 3, ox + s + 1, oy + r + 3, UtilityKind.WaterPipe));
-        a.Add(new PlaceUtilityAction(ox + s, oy + 3, ox + s, bottom, UtilityKind.WaterPipe));
-        a.Add(new PlaceBuildingAction(ox + 4, bottom + 2, "small-park"));
         a.Add(new PlaceBuildingAction(ox + s + 1, oy + 13, "landfill"));
+        // Pipes under every other street, joined under the east road where the pump sits.
+        for (int y = oy; y <= bottom; y += 10) a.Add(new PlaceUtilityAction(ox, y, ox + s, y, UtilityKind.WaterPipe));
+        a.Add(new PlaceUtilityAction(ox + s, oy, ox + s, bottom, UtilityKind.WaterPipe));
+        a.Add(new PlaceBuildingAction(ox + 4, bottom + 1, "small-park"));
         return a;
     }
 
