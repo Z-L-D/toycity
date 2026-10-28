@@ -353,6 +353,8 @@ public class ProtocolTests
         var actions = new SimAction[]
         {
             new PlacePathAction(1, 2, 3, 4, "road"),
+            new PlacePathAction(1, 2, 9, 9, "road", true, 9, 2),
+            new ZoneBlockAction(5, 6, Zone.Residential, Level.Medium, Leftover.Parks),
             new PaintZoneAction(new CellRect(1, 2, 3, 4), Zone.Commercial, Level.High),
             new PlaceBuildingAction(5, 6, "clinic"),
             new BulldozeAction(new CellRect(1, 1, 2, 2), true),
@@ -1087,5 +1089,118 @@ public class TransitTests
         var stop = w.Buildings.First(b => b != null && w.TypeOf(b).Id == "tram-stop")!;
         Assert.Contains(w.Alerts(), a => a.Key == "stop-no-line" && a.Topic == "transit");
         Assert.Contains("must touch a tram line", w.Why(stop.X, stop.Y).Summary);
+    }
+}
+
+public class BlockTests
+{
+    [Theory]
+    [InlineData(0, 0, 10, 0, 10, 10)]
+    [InlineData(3, 20, 3, 3, 20, 3)]
+    [InlineData(5, 5, 9, 6, 14, 5)]
+    [InlineData(0, 0, 0, 0, 0, 0)]
+    [InlineData(10, 0, 0, 30, 20, 2)]
+    public void CurvesAreEdgeConnectedAndEndWhereAsked(int x0, int y0, int cx, int cy, int x1, int y1)
+    {
+        var cells = World.CurveCells(x0, y0, cx, cy, x1, y1);
+        Assert.Equal((x0, y0), cells[0]);
+        Assert.Equal((x1, y1), cells[^1]);
+        Assert.Equal(cells.Count, cells.Distinct().Count());
+        // Each cell joins one before it edge to edge (a curve that doubles back reuses its cells), so the run is connected.
+        for (int k = 1; k < cells.Count; k++)
+            Assert.Contains(cells.Take(k), c => Math.Abs(c.X - cells[k].X) + Math.Abs(c.Y - cells[k].Y) == 1);
+        // A curve stays inside the triangle's bounding box.
+        Assert.All(cells, c => Assert.InRange(c.X, Math.Min(x0, Math.Min(cx, x1)), Math.Max(x0, Math.Max(cx, x1))));
+    }
+
+    [Fact]
+    public void ACurvedRoadIsBuiltAndPaidForCellByCell()
+    {
+        var (w, x, y) = Fixture.FlatSite();
+        long before = w.Funds;
+        var a = new PlacePathAction(x, y + 12, x + 12, y, "road", true, x, y);
+        var cells = World.PathCellsOf(a);
+        w.Enqueue(a);
+        w.Step();
+        Assert.All(cells, c => Assert.Equal(Fixture.Content.ProfileIndex("road") + 1, w.Path[w.Idx(c.X, c.Y)]));
+        Assert.Equal(before - cells.Count * Fixture.Content.Profiles[Fixture.Content.ProfileIndex("road")].CostPerCell, w.Funds);
+    }
+
+    static (World W, int X, int Y) Ring()
+    {
+        var (w, x, y) = Fixture.FlatSite();
+        // A 16 x 16 ring of road around a 14 x 14 block.
+        w.Enqueue(new PlacePathAction(x, y, x + 15, y, "road"));
+        w.Enqueue(new PlacePathAction(x, y + 15, x + 15, y + 15, "road"));
+        w.Enqueue(new PlacePathAction(x, y, x, y + 15, "road"));
+        w.Enqueue(new PlacePathAction(x + 15, y, x + 15, y + 15, "road"));
+        w.Step();
+        return (w, x, y);
+    }
+
+    [Fact]
+    public void BlockZoningFillsLotDeepAndLeavesTheMiddle()
+    {
+        var (w, x, y) = Ring();
+        w.Enqueue(new ZoneBlockAction(x + 7, y + 7, Zone.Residential, Level.Medium, Leftover.Leave));
+        w.Step();
+        int reach = w.LotDepth(Level.Medium);
+        for (int yy = y + 1; yy <= y + 14; yy++)
+        for (int xx = x + 1; xx <= x + 14; xx++)
+        {
+            int depth = Math.Min(Math.Min(xx - x, x + 15 - xx), Math.Min(yy - y, y + 15 - yy));
+            byte code = w.ZoneCode[w.Idx(xx, yy)];
+            if (depth <= reach) Assert.Equal(World.MakeZoneCode(Zone.Residential, Level.Medium), code);
+            else Assert.Equal(0, code);
+        }
+        // Nothing zoned is stranded.
+        Assert.DoesNotContain(w.Alerts(), a => a.Key == "stranded");
+    }
+
+    [Fact]
+    public void LeftoverPoliciesParkOrZoneTheMiddle()
+    {
+        var (parks, x, y) = Ring();
+        var zoned = World.FromSnapshot(Fixture.Content, parks.Snapshot());
+        parks.Enqueue(new ZoneBlockAction(x + 7, y + 7, Zone.Commercial, Level.Low, Leftover.Parks));
+        zoned.Enqueue(new ZoneBlockAction(x + 7, y + 7, Zone.Commercial, Level.Low, Leftover.Zone));
+        parks.Step();
+        zoned.Step();
+        int middle = 14 - 2 * parks.LotDepth(Level.Low);
+        Assert.Equal(middle * middle, parks.Buildings.Count(b => b != null && parks.TypeOf(b).Id == "pocket-park"));
+        Assert.Equal(14 * 14, Enumerable.Range(0, zoned.N).Count(i => zoned.ZoneCode[i] != 0));
+    }
+
+    [Fact]
+    public void OpenLandIsNotABlock()
+    {
+        var (w, x, y) = Fixture.FlatSite();
+        long funds = w.Funds;
+        w.Enqueue(new ZoneBlockAction(x + 5, y + 5, Zone.Industrial, Level.Low, Leftover.Zone));
+        w.Step();
+        Assert.Equal(funds, w.Funds);
+        Assert.Equal(0, Enumerable.Range(0, w.N).Count(i => w.ZoneCode[i] != 0));
+        Assert.Null(w.BlockAt(x + 5, y + 5));
+    }
+
+    [Fact]
+    public void ACurvedBlockIsZonedRightUpToItsRoad()
+    {
+        var (w, x, y) = Fixture.FlatSite();
+        // A quarter-round block: straight roads on two sides and an arc closing it.
+        w.Enqueue(new PlacePathAction(x, y, x, y + 14, "road"));
+        w.Enqueue(new PlacePathAction(x, y + 14, x + 14, y + 14, "road"));
+        w.Enqueue(new PlacePathAction(x, y, x + 14, y + 14, "street", true, x + 14, y));
+        w.Step();
+        var block = w.BlockAt(x + 3, y + 11);
+        Assert.NotNull(block);
+        w.Enqueue(new ZoneBlockAction(x + 3, y + 11, Zone.Residential, Level.Low, Leftover.Leave));
+        w.Step();
+        foreach (int c in block!)
+        {
+            int cx = c % w.Width, cy = c / w.Width;
+            bool touchesRoad = new[] { (1, 0), (-1, 0), (0, 1), (0, -1) }.Any(d => w.Path[w.Idx(cx + d.Item1, cy + d.Item2)] != 0);
+            if (touchesRoad) Assert.NotEqual(0, w.ZoneCode[c]);
+        }
     }
 }

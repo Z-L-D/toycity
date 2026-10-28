@@ -285,6 +285,28 @@ street and transit; the Transit riders overlay (20) shows the busy legs. `Transi
 train beating a slow road and emptying it, buses carrying carless workers and earning fares, a
 stop off its line, and save/load with transit commutes.
 
+## Curved roads and block zoning
+
+- **Curves.** The path tool has Straight and Curve modes (A toggles). In Curve mode, drag to set
+  the two ends, move the mouse to bend the arc, and click to build. The arc is a quadratic curve
+  through the cell centres, sampled with integer maths, rounded to cells and joined edge to edge
+  (a diagonal step goes horizontally first), each cell once. Server and client run the same steps
+  (`World.CurveCells`, `curveCells` in `state.ts`), so the preview is what gets built. It costs the
+  same per cell as a straight run; a single run is at most 512 cells.
+- **Blocks.** The zone tool has Area and Block modes (G toggles). In Block mode, clicking zones
+  the whole block around the cell: every cell reachable edge to edge without crossing a path,
+  water or a civic building (at most 1,600 cells; land that reaches the map edge isn't a block).
+  Cells are zoned when they are within a lot's depth of a frontage road (2 cells for low density,
+  3 medium, 4 high), counted in steps through the block, so odd and curved blocks fill right up
+  to their roads and nothing zoned is stranded. The hover preview colours the lots and the
+  leftover and prices it.
+- **Leftover policy.** Cells deeper than any lot can reach: leave them empty (default), make each
+  a Pocket Park (a 1x1 park, $40, radius 3), or zone them anyway (they wait for a road).
+
+`BlockTests` cover curve connectivity and ends, curved roads' cost, lot-deep block zoning on a
+square ring, both leftover policies, open land being refused, and a quarter-round block zoned
+right up to its arc.
+
 ## Balance changes
 
 - A path now carries twice its hourly capacity in commuter trips a day (Alpha 1 used a quarter).

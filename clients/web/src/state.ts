@@ -191,9 +191,89 @@ export class City {
     const p = this.paths[i];
     return p ? this.profiles[p - 1] : undefined;
   }
+
+  /** The block of open land around a cell, enclosed by paths, or null when it isn't enclosed. Mirrors World.BlockAt. */
+  blockAt(x: number, y: number, max = 1600): number[] | null {
+    if (!this.inBounds(x, y)) return null;
+    const open = (i: number) => {
+      if (this.paths[i] || this.isWater(i)) return false;
+      const id = this.buildingAt[i];
+      const b = id ? this.buildings.get(id - 1) : undefined;
+      return !(b && this.typeById.get(b.typeId)?.placeable);
+    };
+    const start = y * this.width + x;
+    if (!open(start)) return null;
+    const cells = [start];
+    const seen = new Set<number>([start]);
+    for (let q = 0; q < cells.length; q++) {
+      const c = cells[q], cx = c % this.width, cy = (c / this.width) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + dx, ny = cy + dy;
+        if (!this.inBounds(nx, ny)) return null;
+        const n = ny * this.width + nx;
+        if (!open(n) || seen.has(n)) continue;
+        seen.add(n);
+        cells.push(n);
+        if (cells.length > max) return null;
+      }
+    }
+    return cells;
+  }
+
+  /** Steps from the nearest frontage path for each block cell (1 touches the road), 0 when no road reaches it. */
+  frontageDepth(block: number[]): Map<number, number> {
+    const inBlock = new Set(block);
+    const depth = new Map<number, number>();
+    const queue: number[] = [];
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const c of block) {
+      const cx = c % this.width, cy = (c / this.width) | 0;
+      if (dirs.some(([dx, dy]) => this.inBounds(cx + dx, cy + dy) && this.profileAt((cy + dy) * this.width + cx + dx)?.frontage)) { depth.set(c, 1); queue.push(c); }
+    }
+    for (let q = 0; q < queue.length; q++) {
+      const c = queue[q], cx = c % this.width, cy = (c / this.width) | 0;
+      for (const [dx, dy] of dirs) {
+        if (!this.inBounds(cx + dx, cy + dy)) continue;
+        const n = (cy + dy) * this.width + cx + dx;
+        if (!inBlock.has(n) || depth.has(n)) continue;
+        depth.set(n, depth.get(c)! + 1);
+        queue.push(n);
+      }
+    }
+    for (const c of block) if (!depth.has(c)) depth.set(c, 0);
+    return depth;
+  }
 }
 
 /** Cells of an L-shaped run, horizontal leg first (matches the server). */
+/**
+ * Cells of a curve from (x0,y0) bent toward (cx,cy) and ending at (x1,y1), snapped to the grid. The same integer
+ * steps as World.CurveCells on the server, so the preview matches what gets built.
+ */
+export function curveCells(x0: number, y0: number, cx: number, cy: number, x1: number, y1: number): [number, number][] {
+  const cells: [number, number][] = [];
+  const seen = new Set<string>();
+  const add = (x: number, y: number) => { const k = `${x},${y}`; if (!seen.has(k)) { seen.add(k); cells.push([x, y]); } };
+  const n = 4 * (Math.abs(cx - x0) + Math.abs(cy - y0) + Math.abs(x1 - cx) + Math.abs(y1 - cy)) + 1;
+  const nn = n * n;
+  const off = 1 << 20;
+  const round = (num: number) => Math.floor((2 * num + nn) / (2 * nn)) - off;
+  let lx = x0;
+  let ly = y0;
+  add(x0, y0);
+  for (let k = 1; k <= n; k++) {
+    const a = (n - k) * (n - k), b = 2 * (n - k) * k, c = k * k;
+    const x = round(a * (x0 + off) + b * (cx + off) + c * (x1 + off));
+    const y = round(a * (y0 + off) + b * (cy + off) + c * (y1 + off));
+    while (lx !== x || ly !== y) {
+      if (lx !== x) lx += Math.sign(x - lx);
+      else ly += Math.sign(y - ly);
+      add(lx, ly);
+    }
+  }
+  return cells;
+}
+
 export function lCells(x0: number, y0: number, x1: number, y1: number): [number, number][] {
   const cells: [number, number][] = [[x0, y0]];
   const sx = Math.sign(x1 - x0);

@@ -1,6 +1,6 @@
 import './style.css';
 import { Connection, type Msg } from './net';
-import { City, lCells } from './state';
+import { City, curveCells, lCells } from './state';
 import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
 
@@ -63,6 +63,12 @@ let profileId = 'road';
 let buildingTypeId = 'police-station';
 let terraformMode = 0;
 let disasterKind = 0;
+let pathMode: 'straight' | 'curve' = 'straight';
+/** Curve tool: the ends are set, the mouse now bends it. */
+let curveEnds: { x0: number; y0: number; x1: number; y1: number } | null = null;
+let zoneMode: 'area' | 'block' = 'area';
+let leftover = 0;
+const LEFTOVER_NAMES = ['Leave empty', 'Pocket parks', 'Zone anyway'];
 let drag: { x: number; y: number } | null = null;
 let shiftHeld = false;
 let saveNames: string[] = [];
@@ -185,6 +191,7 @@ function toolEquals(a: Tool, b: Tool) {
 function setTool(t: Tool) {
   tool = t;
   drag = null;
+  if (t.kind !== 'path') curveEnds = null;
   renderer.preview = null;
   buildToolbar();
   updateHints();
@@ -220,11 +227,14 @@ function buildToolbar() {
     <h4>Paths</h4>
     ${btn('Build path', 'R', { kind: 'path' })}
     <select id="sel-profile" title="Path type">${profiles}</select>
+    <div class="row"><button data-pathmode="straight" class="${pathMode === 'straight' ? 'active' : ''}" title="Straight or L-shaped runs">Straight</button><button data-pathmode="curve" class="${pathMode === 'curve' ? 'active' : ''}" title="Arcs snapped to the grid (A toggles)">Curve</button></div>
     <h4>Zones</h4>
     ${btn('Residential', 'Z', { kind: 'zone', zone: 1 }, 'var(--r)')}
     ${btn('Commercial', 'X', { kind: 'zone', zone: 2 }, 'var(--c)')}
     ${btn('Industrial', 'C', { kind: 'zone', zone: 3 }, 'var(--i)')}
     <div class="row">${DENSITY_NAMES.map((d, k) => `<button data-density="${k}" class="${k === density ? 'active' : ''}" title="${d} density (V cycles)">${d[0]}</button>`).join('')}</div>
+    <div class="row"><button data-zonemode="area" class="${zoneMode === 'area' ? 'active' : ''}" title="Drag a rectangle">Area</button><button data-zonemode="block" class="${zoneMode === 'block' ? 'active' : ''}" title="Click inside a block enclosed by roads to zone it lot-deep (G toggles)">Block</button></div>
+    ${zoneMode === 'block' ? `<label class="field" title="Cells deeper in the block than any lot can reach">Leftover<select id="sel-leftover">${LEFTOVER_NAMES.map((n, k) => `<option value="${k}" ${k === leftover ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : ''}
     ${btn('De-zone', 'D', { kind: 'dezone' })}
     <h4>Utilities</h4>
     ${btn('Power line', 'P', { kind: 'utility', utility: 0 }, '#ffd84a')}
@@ -249,6 +259,13 @@ function buildToolbar() {
     b.addEventListener('click', () => { terraformMode = Number(b.dataset.terraform); setTool({ kind: 'terraform' }); }),
   );
   $<HTMLSelectElement>('#sel-profile').addEventListener('change', (e) => { profileId = (e.target as HTMLSelectElement).value; setTool({ kind: 'path' }); });
+  el.querySelectorAll<HTMLButtonElement>('button[data-pathmode]').forEach((b) =>
+    b.addEventListener('click', () => { pathMode = b.dataset.pathmode as typeof pathMode; curveEnds = null; setTool({ kind: 'path' }); }),
+  );
+  el.querySelectorAll<HTMLButtonElement>('button[data-zonemode]').forEach((b) =>
+    b.addEventListener('click', () => { zoneMode = b.dataset.zonemode as typeof zoneMode; setTool(tool.kind === 'zone' ? tool : { kind: 'zone', zone: 1 }); }),
+  );
+  document.querySelector<HTMLSelectElement>('#sel-leftover')?.addEventListener('change', (e) => { leftover = Number((e.target as HTMLSelectElement).value); dirty = true; });
   $<HTMLSelectElement>('#sel-disaster').addEventListener('change', (e) => { disasterKind = Number((e.target as HTMLSelectElement).value); setTool({ kind: 'disaster' }); });
   $<HTMLSelectElement>('#sel-disaster-setting').addEventListener('change', (e) => {
     const setting = Number((e.target as HTMLSelectElement).value);
@@ -263,8 +280,12 @@ function updateHints() {
   const per: Record<Tool['kind'], [string, string][]> = {
     query: [['Click', 'ask why']],
     bulldoze: [['Drag', renderer.underground ? 'remove pipes in area' : 'clear area'], ['Esc', 'cancel']],
-    path: [['Drag', 'draw path'], ['Shift', 'vertical leg first'], ['Esc', 'cancel']],
-    zone: [['Drag', `paint ${DENSITY_NAMES[density].toLowerCase()} density zone`], ['V', 'cycle density'], ['Esc', 'cancel']],
+    path: pathMode === 'curve'
+      ? (curveEnds ? [['Move', 'bend the curve'], ['Click', 'build it'], ['Esc', 'start again']] : [['Drag', 'set the two ends'], ['A', 'straight paths'], ['Esc', 'cancel']])
+      : [['Drag', 'draw path'], ['Shift', 'vertical leg first'], ['A', 'curved paths'], ['Esc', 'cancel']],
+    zone: zoneMode === 'block'
+      ? [['Click', `zone a whole block, ${DENSITY_NAMES[density].toLowerCase()} density`], ['G', 'paint areas'], ['V', 'cycle density'], ['Esc', 'cancel']]
+      : [['Drag', `paint ${DENSITY_NAMES[density].toLowerCase()} density zone`], ['G', 'zone whole blocks'], ['V', 'cycle density'], ['Esc', 'cancel']],
     dezone: [['Drag', 'remove zoning'], ['Esc', 'cancel']],
     utility: [['Drag', 'draw line'], ['Shift', 'vertical leg first'], ['Esc', 'cancel']],
     building: [['Click', 'place'], ['Esc', 'cancel']],
@@ -326,6 +347,42 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
           if (edge && city.inBounds(x, y) && carries(y * city.width + x)) touches = true;
         }
       text += touches ? ` · serves ${t.catchment} cells around` : ` · must touch ${t.transit === 'bus' ? 'a road' : t.transit === 'tram' ? 'a tram line' : 'a rail line'}`;
+    }
+  } else if (tool.kind === 'path' && curveEnds) {
+    const cells = curveCells(curveEnds.x0, curveEnds.y0, cell.x, cell.y, curveEnds.x1, curveEnds.y1);
+    const prof = city.profiles.find((p) => p.id === profileId);
+    const pi = city.profiles.indexOf(prof!) + 1;
+    let cost = 0;
+    for (const [x, y] of cells) {
+      const i = y * city.width + x;
+      if (!city.inBounds(x, y) || city.isWater(i) || city.buildingAt[i]) ok = false;
+      else if (city.paths[i] !== pi) cost += prof?.costPerCell ?? 0;
+    }
+    renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok, color: (prof?.color ?? '#888') + 'cc', cells };
+    text = `Curve, ${cells.length} cells: ${money(cost)}`;
+  } else if (tool.kind === 'zone' && zoneMode === 'block' && !drag) {
+    const block = city.blockAt(cell.x, cell.y);
+    if (block) {
+      const depth = city.frontageDepth(block);
+      const reach = city.lotDepth[density] ?? 2;
+      const zoneColor = ['', 'rgba(76,175,80,0.5)', 'rgba(74,127,224,0.5)', 'rgba(224,176,48,0.5)'][tool.zone];
+      const restColor = ['rgba(255,255,255,0.12)', 'rgba(40,140,60,0.6)', zoneColor.replace('0.5)', '0.25)')][leftover];
+      const cells: [number, number][] = [];
+      const colors: string[] = [];
+      let lots = 0;
+      for (const c of block) {
+        const d = depth.get(c) ?? 0;
+        const isLot = d > 0 && d <= reach;
+        if (isLot) lots++;
+        cells.push([c % city.width, (c / city.width) | 0]);
+        colors.push(isLot ? zoneColor : restColor);
+      }
+      const rest = block.length - lots;
+      const cost = (leftover === 2 ? block.length : lots) * ZONE_COST + (leftover === 1 ? rest * (city.typeById.get('pocket-park')?.cost ?? 0) : 0);
+      renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok: true, color: zoneColor, cells, colors };
+      text = `Block: ${lots} cells in reach of a road${rest ? `, ${rest} leftover (${LEFTOVER_NAMES[leftover].toLowerCase()})` : ''}: about ${money(cost)}`;
+    } else if (city.inBounds(cell.x, cell.y)) {
+      text = 'Not a block: no roads close off this land';
     }
   } else if (drag && (tool.kind === 'path' || tool.kind === 'utility')) {
     const cells = lineCells(drag.x, drag.y, cell.x, cell.y, shiftHeld);
@@ -423,6 +480,19 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || !city.loaded) return;
   const cell = renderer.cellAt(sx, sy);
   if (tool.kind === 'query') { if (city.inBounds(cell.x, cell.y)) query(cell.x, cell.y); return; }
+  if (tool.kind === 'path' && curveEnds) {
+    const e = curveEnds;
+    act({ path: { x0: e.x0, y0: e.y0, x1: e.x1, y1: e.y1, profileId, curved: true, cx: cell.x, cy: cell.y } }, `Curved ${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${e.x0},${e.y0} to ${e.x1},${e.y1}`);
+    curveEnds = null;
+    updateHints();
+    updatePreview(cell, sx, sy);
+    return;
+  }
+  if (tool.kind === 'zone' && zoneMode === 'block') {
+    if (city.inBounds(cell.x, cell.y))
+      act({ block: { x: cell.x, y: cell.y, zone: tool.zone, density, leftover } }, `Zone the block at ${cell.x},${cell.y} ${['', 'residential', 'commercial', 'industrial'][tool.zone]} (${DENSITY_NAMES[density].toLowerCase()})`);
+    return;
+  }
   if (tool.kind === 'disaster') {
     if (city.inBounds(cell.x, cell.y)) act({ disaster: { kind: disasterKind, x: cell.x, y: cell.y } }, `${DISASTER_NAMES[disasterKind]} at ${cell.x},${cell.y}`);
     return;
@@ -449,6 +519,15 @@ window.addEventListener('mouseup', (e) => {
   if (panning && (e.button === 2 || e.button === 1)) { panning = null; return; }
   if (e.button !== 0 || !drag) return;
   const { sx, sy } = localXY(e);
+  if (tool.kind === 'path' && pathMode === 'curve') {
+    // The ends are set; the curve bends with the mouse until the next click.
+    const end = renderer.cellAt(sx, sy);
+    if (end.x !== drag.x || end.y !== drag.y) curveEnds = { x0: drag.x, y0: drag.y, x1: end.x, y1: end.y };
+    drag = null;
+    updateHints();
+    updatePreview(end, sx, sy);
+    return;
+  }
   commit(drag, renderer.cellAt(sx, sy));
   drag = null;
   updatePreview(renderer.cellAt(sx, sy), sx, sy);
@@ -477,7 +556,10 @@ window.addEventListener('keydown', (e) => {
   if (keyTools[k]) setTool(keyTools[k]);
   else if (k === 'v') { density = (density + 1) % 3; buildToolbar(); updateHints(); }
   else if (k === 'u') { renderer.underground = !renderer.underground; updateHints(); dirty = true; }
+  else if (k === 'escape' && curveEnds) { curveEnds = null; renderer.preview = null; updateHints(); dirty = true; }
   else if (k === 'escape') { drag = null; renderer.preview = null; setTool({ kind: 'query' }); }
+  else if (k === 'a') { pathMode = pathMode === 'curve' ? 'straight' : 'curve'; curveEnds = null; setTool({ kind: 'path' }); }
+  else if (k === 'g') { zoneMode = zoneMode === 'block' ? 'area' : 'block'; setTool(tool.kind === 'zone' ? tool : { kind: 'zone', zone: 1 }); }
   else if (k === ' ') { e.preventDefault(); conn.send({ speed: { speed: city.stats.speed === 0 ? 1 : 0 } }); }
   else if (k >= '1' && k <= '3') conn.send({ speed: { speed: Number(k) } });
 });

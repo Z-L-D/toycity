@@ -1,7 +1,7 @@
 import { City, lCells } from './state';
 
 export interface Preview {
-  kind: 'line' | 'rect' | 'footprint' | 'cell';
+  kind: 'line' | 'rect' | 'footprint' | 'cell' | 'cells';
   x0: number;
   y0: number;
   x1: number;
@@ -11,6 +11,9 @@ export interface Preview {
   verticalFirst?: boolean;
   /** Transit stops: the walking reach to outline around the footprint, in cells. */
   catchment?: number;
+  /** kind 'cells': the cells to fill, with an optional colour each. */
+  cells?: [number, number][];
+  colors?: string[];
 }
 
 export interface OverlayView {
@@ -547,7 +550,12 @@ export class Renderer {
     ctx.fillStyle = p.ok ? p.color : 'rgba(230,60,60,0.55)';
     ctx.strokeStyle = p.ok ? 'rgba(255,255,255,0.9)' : '#ff5050';
     ctx.lineWidth = 1.5;
-    if (p.kind === 'line') {
+    if (p.kind === 'cells') {
+      (p.cells ?? []).forEach(([x, y], k) => {
+        ctx.fillStyle = p.ok ? p.colors?.[k] ?? p.color : 'rgba(230,60,60,0.55)';
+        ctx.fillRect(px(x), py(y), s, s);
+      });
+    } else if (p.kind === 'line') {
       const cells = p.verticalFirst
         ? [...lCells(p.x0, p.y0, p.x0, p.y1), ...lCells(p.x0, p.y1, p.x1, p.y1).slice(1)]
         : lCells(p.x0, p.y0, p.x1, p.y1);

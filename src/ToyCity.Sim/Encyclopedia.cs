@@ -60,7 +60,14 @@ public sealed partial class World
         {
             $"Zoning costs ${Content.ZoneCostPerCell} a cell. Residential holds homes, commercial holds shops and offices, industrial holds factories. Density sets how big buildings may get: low needs only power, medium and high also need water and more desirability.",
             "Land value decides wealth: residential and commercial need land value 60 for $$ and 110 for $$$. Industry chooses its wealth from demand alone.",
-        }, ZoneCellCounts(), "residential", "commercial", "industrial", "lots", "growth");
+        }, ZoneCellCounts(), "residential", "commercial", "industrial", "lots", "growth", "blocks");
+
+        Add("blocks", "Blocks and curved roads", "Rules", new()
+        {
+            $"Paths can be drawn as arcs: pick the two ends, then bend the curve toward a third point. The arc is snapped to the grid, edge to edge, and costs the same per cell as a straight run.",
+            $"The block tool zones a whole block at once: every cell enclosed by paths around the spot you click (up to {MaxBlockCells:N0} cells; open land that reaches the map edge isn't a block). It zones as deep from the road as a lot of the chosen density can reach ({LotDepth(Level.Low)} cells for low density, {LotDepth(Level.Medium)} medium, {LotDepth(Level.High)} high), so curved and odd-shaped blocks fill right up to their roads with nothing stranded.",
+            "Cells deeper in the block than any lot can reach are the leftover. You choose what happens to them: leave them empty, turn them into pocket parks (a small park on each cell, at the park's price), or zone them anyway (they wait for a road).",
+        }, new() { ("Pocket parks", Buildings.Count(b => b != null && TypeOf(b).Id == "pocket-park").ToString("N0")) }, "zones", "lots");
 
         Add("growth", "Growth", "Rules", new()
         {

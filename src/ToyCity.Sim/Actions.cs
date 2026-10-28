@@ -16,9 +16,18 @@ public enum UtilityKind : byte { PowerLine = 0, WaterPipe = 1 }
 /// <summary>Everything a player can do to the city. Actions are queued and applied at the start of the next tick.</summary>
 public abstract record SimAction;
 
-/// <summary>A straight or L-shaped run, horizontal first.</summary>
-public sealed record PlacePathAction(int X0, int Y0, int X1, int Y1, string ProfileId) : SimAction;
+/// <summary>
+/// A straight or L-shaped run, horizontal first; or, when <c>Curved</c>, an arc from (X0,Y0) to (X1,Y1) bent toward
+/// the control cell (CX,CY), snapped to the grid.
+/// </summary>
+public sealed record PlacePathAction(int X0, int Y0, int X1, int Y1, string ProfileId, bool Curved = false, int CX = 0, int CY = 0) : SimAction;
 public sealed record PaintZoneAction(CellRect Area, Zone Zone, Level Density) : SimAction;
+
+/// <summary>What block zoning does with cells too deep in the block for any lot to reach a road.</summary>
+public enum Leftover : byte { Leave = 0, Parks = 1, Zone = 2 }
+
+/// <summary>Zones the whole block enclosed by paths around (X,Y), lot-deep from the road; <c>Leftover</c> decides the rest.</summary>
+public sealed record ZoneBlockAction(int X, int Y, Zone Zone, Level Density, Leftover Leftover) : SimAction;
 public sealed record PlaceBuildingAction(int X, int Y, string TypeId) : SimAction;
 /// <summary>Clears buildings, paths and power lines in the area, or only water pipes when <c>Underground</c> is set.</summary>
 public sealed record BulldozeAction(CellRect Area, bool Underground = false) : SimAction;

@@ -843,6 +843,17 @@
       "attraction": 4
     },
     {
+      "id": "pocket-park",
+      "name": "Pocket Park",
+      "category": "park",
+      "w": 1,
+      "h": 1,
+      "cost": 40,
+      "maintenance": 3,
+      "radius": 3,
+      "color": "#3f9b4f"
+    },
+    {
       "id": "bus-stop",
       "name": "Bus Stop",
       "category": "transit",

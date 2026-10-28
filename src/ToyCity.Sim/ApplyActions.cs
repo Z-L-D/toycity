@@ -12,6 +12,7 @@ public sealed partial class World
         {
             case PlacePathAction a: ApplyPath(a); break;
             case PaintZoneAction a: ApplyZone(a); break;
+            case ZoneBlockAction a: ApplyZoneBlock(a); break;
             case PlaceBuildingAction a: ApplyPlaceBuilding(a); break;
             case BulldozeAction a: ApplyBulldoze(a); break;
             case TerraformAction a: ApplyTerraform(a); break;
@@ -71,7 +72,8 @@ public sealed partial class World
         cost = 0; badX = -1; badY = -1;
         int profile = Content.ProfileIndex(a.ProfileId);
         if (profile < 0) return $"Unknown path type '{a.ProfileId}'.";
-        var cells = LCells(a.X0, a.Y0, a.X1, a.Y1);
+        var cells = PathCellsOf(a);
+        if (cells.Count > MaxPathRun) return $"That run is too long: at most {MaxPathRun} cells at a time.";
         int prevH = -1;
         foreach (var (x, y) in cells)
         {
@@ -94,7 +96,7 @@ public sealed partial class World
         if (err != null) { Reject(err, bx, by); return; }
         if (!Spend(cost, a.X0, a.Y0)) return;
         ushort code = (ushort)(Content.ProfileIndex(a.ProfileId) + 1);
-        foreach (var (x, y) in LCells(a.X0, a.Y0, a.X1, a.Y1))
+        foreach (var (x, y) in PathCellsOf(a))
         {
             int i = Idx(x, y);
             Path[i] = code;

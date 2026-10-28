@@ -57,6 +57,7 @@ message Action {
     RespondPrompt respond = 11;
     TriggerDisaster disaster = 12;
     SetDisasters disasters = 13;
+    ZoneBlock block = 14;
   }
 }
 
@@ -124,6 +125,24 @@ message PlacePath {
   int32 x1 = 3;
   int32 y1 = 4;
   string profile_id = 5;
+  bool curved = 6;  // an arc bent toward (cx, cy), snapped to the grid
+  int32 cx = 7;
+  int32 cy = 8;
+}
+
+enum Leftover {
+  LEFTOVER_LEAVE = 0;  // cells too deep for a lot stay empty
+  LEFTOVER_PARKS = 1;  // they become pocket parks
+  LEFTOVER_ZONE = 2;   // they are zoned anyway
+}
+
+// Zone the block enclosed by paths around (x, y), as deep as a lot of that density reaches from the road.
+message ZoneBlock {
+  int32 x = 1;
+  int32 y = 2;
+  ZoneKind zone = 3;
+  Density density = 4;
+  Leftover leftover = 5;
 }
 
 enum ZoneKind {
