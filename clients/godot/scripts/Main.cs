@@ -129,7 +129,7 @@ public partial class Main : Node
             _map!.Marker = _camera.View.Target;
             _view.SetFar(_camera.View.Zoom <= 1);
             // Shadows only as far as the view reaches, so close zoom levels don't cast the whole city.
-            _sun!.DirectionalShadowMaxDistance = ClassicView.Distance + _camera.View.Size * 1.5f;
+            _sun!.DirectionalShadowMaxDistance = _camera.View.Distance + _camera.View.Size * 1.5f;
         }
         if (_bench != null) Bench(c, delta);
         else if (_smoke) Smoke(c, delta);

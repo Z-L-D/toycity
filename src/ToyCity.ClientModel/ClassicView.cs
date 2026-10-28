@@ -17,8 +17,11 @@ public sealed class ClassicView
     public static readonly float[] ZoomSizes = { 128, 64, 32, 16, 8 };
     /// <summary>One terrain height step, in cells (2 m on a 16 m cell).</summary>
     public const float HeightStep = 0.125f;
-    /// <summary>How far back the camera sits from its target: well above the tallest tower at every angle.</summary>
-    public const float Distance = 150;
+    /// <summary>
+    /// How far back the camera sits from its target: just past the nearest ground the screen shows, plus room for
+    /// the tallest tower. Keeping it short keeps the shadow pass to what's on screen.
+    /// </summary>
+    public float Distance => Size / 2 / MathF.Max(MathF.Sin(Rad(Pitch)), 0.05f) + 24;
 
     public Vector2 Target;       // the map point at the centre of the screen, in cells
     public int Rotation;         // 0..3: looking north-west, north-east, south-east, south-west
