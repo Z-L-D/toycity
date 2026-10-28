@@ -45,14 +45,14 @@ public sealed partial class World
         LaborForce = labor;
         Workers = employed;
         Jobs = liveJobs;
-        EducationIndex = pop > 0 ? (int)(eduWeighted * 100 / 255 / pop) : 0;
+        EducationIndex = pop > 0 ? (int)Math.Clamp(eduWeighted * 100 / 255 / pop + Mod(ModKey.Education), 0, 100) : 0;
 
         // Demand counts buildings under construction so the city doesn't overshoot while they build.
         PendingPopulation = pendingPop;
         JobsCommercial = jobsC;
         JobsIndustrial = jobsI;
         JobsCivic = jobsCivic;
-        Attraction = attraction;
+        Attraction = (int)Math.Max(0, attraction + Mod(ModKey.Attraction));
         ComputeDemand();
 
         while (MilestoneIndex < Milestones.Length && pop >= Milestones[MilestoneIndex])
@@ -120,6 +120,7 @@ public sealed partial class World
         Line("Industrial taxes", taxNumerators[2] / 1000);
         Line("Path upkeep", -(long)Math.Round(pathCost));
         Line("Power lines and pipes", -(lines + pipes) / 10);
+        foreach (var (label, amount) in OrdinanceMoney) Line(label, amount);
         foreach (var (cat, amount) in civic) Line(BudgetLabel((Category)cat), -amount);
         if (Debt > 0)
         {

@@ -70,6 +70,7 @@ public sealed class ContentDb
 {
     public List<PathProfile> Profiles { get; } = new();
     public List<BuildingType> Types { get; } = new();
+    public List<OrdinanceDef> Ordinances { get; private set; } = new();
     public int StartingFunds { get; private set; } = 100_000;
     public int ZoneCostPerCell { get; private set; } = 5;
     public int BulldozeCostPerCell { get; private set; } = 5;
@@ -177,7 +178,9 @@ public sealed class ContentDb
     {
         var profilesText = File.ReadAllText(Path.Combine(dir, "profiles.json"));
         var buildingsText = File.ReadAllText(Path.Combine(dir, "buildings.json"));
-        return Parse(profilesText, buildingsText);
+        var ordinancesPath = Path.Combine(dir, "ordinances.json");
+        var ordinancesText = File.Exists(ordinancesPath) ? File.ReadAllText(ordinancesPath) : null;
+        return Parse(profilesText, buildingsText, ordinancesText);
     }
 
     /// <summary>Finds the content directory by walking up from a start directory.</summary>
@@ -195,7 +198,7 @@ public sealed class ContentDb
 
     public static ContentDb LoadDefault() => Load(FindContentDir());
 
-    public static ContentDb Parse(string profilesJson, string buildingsJson)
+    public static ContentDb Parse(string profilesJson, string buildingsJson, string? ordinancesJson = null)
     {
         var db = new ContentDb();
         var pf = JsonSerializer.Deserialize<ProfilesFile>(profilesJson, Json) ?? throw new InvalidDataException("profiles.json");
@@ -249,7 +252,12 @@ public sealed class ContentDb
                 Pollution = c.Pollution, WaterPollution = c.WaterPollution, Noise = c.Noise, Attraction = c.Attraction, BuildDays = 1, Color = c.Color,
             });
         }
-        var bytes = System.Text.Encoding.UTF8.GetBytes(profilesJson + "\n" + buildingsJson);
+        if (ordinancesJson != null) db.Ordinances = OrdinanceDef.Parse(ordinancesJson);
+        foreach (var o in db.Ordinances)
+            foreach (var n in o.Graph.Nodes.Concat(o.Unlock?.Nodes ?? new()))
+                if (n.Params.TryGetValue("type", out var tid) && db.TypeIndex(tid) < 0)
+                    throw new InvalidDataException($"{o.Id}: unknown building type '{tid}'");
+        var bytes = System.Text.Encoding.UTF8.GetBytes(profilesJson + "\n" + buildingsJson + "\n" + ordinancesJson);
         db.Fingerprint = System.IO.Hashing.XxHash64.HashToUInt64(bytes);
         return db;
     }

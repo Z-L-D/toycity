@@ -31,6 +31,10 @@ export class TalkBack {
   private forecastMonths = 12;
   private forecastBusy = false;
   private lastForecast: Msg | null = null;
+  private ordinances: Msg[] = [];
+  private openLaw = '';
+  /** A side-by-side forecast for one ordinance: the city with and without it. */
+  private compare: { id: string; baseSeq: number; planSeq: number; base?: Msg; plan?: Msg } | null = null;
   /** "What if" mode: actions are collected here instead of being sent. */
   planning = false;
   plan: { action: Msg; label: string }[] = [];
@@ -51,16 +55,24 @@ export class TalkBack {
 
   refresh(tab: string) {
     if (tab === 'demand') this.host.conn.send({ demand: {} });
+    if (tab === 'laws') this.host.conn.send({ ordinances: {} });
     if (tab === 'guide') this.host.conn.send({ encyclopedia: {} });
   }
 
   /** Called on the first day of each month so open panels stay live. */
   onMonth(activeTab: string) {
-    if (activeTab === 'demand' || activeTab === 'guide') this.refresh(activeTab);
+    if (activeTab === 'demand' || activeTab === 'guide' || activeTab === 'laws') this.refresh(activeTab);
   }
 
-  onMessage(kind: string, body: Msg): boolean {
+  onMessage(kind: string, body: Msg, replyTo = 0): boolean {
+    if (kind === 'forecast' && this.compare && (replyTo === this.compare.baseSeq || replyTo === this.compare.planSeq)) {
+      if (replyTo === this.compare.baseSeq) this.compare.base = body;
+      else this.compare.plan = body;
+      this.renderLaws();
+      return true;
+    }
     switch (kind) {
+      case 'ordinances': this.ordinances = body.ordinances; this.renderLaws(); return true;
       case 'demand': this.renderDemand(body); return true;
       case 'alerts': this.alerts = body.alerts; this.renderAlerts(); return true;
       case 'forecast': this.forecastBusy = false; this.lastForecast = body; this.renderForecast(); return true;
@@ -230,6 +242,87 @@ export class TalkBack {
       this.renderForecast();
     });
     document.getElementById('fc-plan-clear')?.addEventListener('click', () => { this.plan = []; this.renderForecast(); });
+    this.wireLinks(el);
+  }
+
+  // -------------------------------------------------------------------------
+  // Laws (ordinances)
+  // -------------------------------------------------------------------------
+
+  private renderLaws() {
+    const el = $('#tab-laws');
+    const STATUS = ['Locked', 'Available', 'Offered', 'Enacted'];
+    const groups = new Map<string, Msg[]>();
+    for (const o of this.ordinances) groups.set(o.category, [...(groups.get(o.category) ?? []), o]);
+    const card = (o: Msg) => {
+      const open = this.openLaw === o.id;
+      const status = STATUS[o.status];
+      const left = o.monthsLeft > 0 ? ` · ${o.monthsLeft} month${o.monthsLeft > 1 ? 's' : ''} ${o.status === 2 ? 'to decide' : 'left'}` : '';
+      const net = o.monthlyNet === 0 ? 'free' : `${o.monthlyNet > 0 ? '+' : '-'}$${Math.abs(o.monthlyNet).toLocaleString('en-US')}/mo`;
+      const button = o.status === 3 ? `<button data-law="${esc(o.id)}" data-enact="0">Repeal</button>`
+        : o.status === 0 ? '' : `<button class="active" data-law="${esc(o.id)}" data-enact="1">Enact</button>`;
+      let detail = '';
+      if (open) {
+        const c = this.compare?.id === o.id ? this.compare : null;
+        let cmp = '';
+        if (c) {
+          if (!c.base || !c.plan) cmp = '<p class="muted">Forecasting a year both ways…</p>';
+          else {
+            const b = c.base.points[c.base.points.length - 1];
+            const p = c.plan.points[c.plan.points.length - 1];
+            const row = (label: string, x: number, y: number, fmt: (n: number) => string) =>
+              `<tr><td>${label}</td><td class="num">${fmt(x)}</td><td class="num">${fmt(y)}</td><td class="num ${y - x >= 0 ? 'pos' : 'neg'}">${y - x >= 0 ? '+' : ''}${fmt(y - x)}</td></tr>`;
+            const n = (v: number) => v.toLocaleString('en-US');
+            cmp = `<table class="kv cmp"><tr><td>In a year</td><td class="num muted">Without</td><td class="num muted">With</td><td class="num muted">Change</td></tr>
+              ${row('Population', b.population, p.population, n)}${row('Jobs', b.jobs, p.jobs, n)}${row('Treasury', b.funds, p.funds, money)}
+              ${row('Power use %', b.powerPercent, p.powerPercent, n)}${row('Abandoned', b.abandoned, p.abandoned, n)}</table>`;
+          }
+        }
+        detail = `
+          <p>${esc(o.description)}</p>
+          <p class="muted small">${esc(o.availability)}</p>
+          ${(o.effects as string[]).length ? `<h4>Effects now</h4><ul class="effects">${(o.effects as string[]).map((e) => `<li>${esc(e)}</li>`).join('')}</ul>` : ''}
+          <h4>How it works out in your city</h4>
+          <table class="kv">${(o.steps as Msg[]).map((s) => `<tr><td>${esc(s.key)}</td><td>${esc(s.value)}</td></tr>`).join('')}</table>
+          <div class="row-flex" style="margin-top:8px">${button}${o.status !== 0 ? `<button data-compare="${esc(o.id)}">Forecast with and without</button>` : ''}${this.topicLink(o.id, 'Guide')}</div>
+          ${cmp}`;
+      }
+      return `<div class="law ${open ? 'open' : ''} s${o.status}">
+        <div class="law-head" data-open="${esc(o.id)}"><span class="law-name">${esc(o.name)}</span><span class="chip s${o.status}">${status}${left}</span><span class="law-net ${o.monthlyNet >= 0 ? 'pos' : 'neg'}">${net}</span></div>
+        ${open ? detail : `<div class="muted small">${esc((o.effects as string[]).join(', ') || o.description)}</div>`}
+      </div>`;
+    };
+    const enacted = this.ordinances.filter((o) => o.status === 3);
+    const net = enacted.reduce((a, o) => a + o.monthlyNet, 0);
+    el.innerHTML = `<h3>Laws</h3>
+      <p class="muted">Ordinances change how the city runs. Each preview is the ordinance's own rule graph run against your city right now. ${this.topicLink('ordinances')}</p>
+      <p>${enacted.length} enacted, ${net >= 0 ? '+' : '-'}$${Math.abs(net).toLocaleString('en-US')} a month.</p>
+      ${this.ordinances.length ? '' : '<p class="muted">Loading…</p>'}
+      ${[...groups].map(([cat, list]) => `<h4>${esc(cat)}</h4>${list.map(card).join('')}`).join('')}`;
+    el.querySelectorAll<HTMLElement>('[data-open]').forEach((h) =>
+      h.addEventListener('click', () => { this.openLaw = this.openLaw === h.dataset.open ? '' : h.dataset.open!; this.renderLaws(); }),
+    );
+    el.querySelectorAll<HTMLButtonElement>('button[data-law]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const action = { ordinance: { id: b.dataset.law, enact: b.dataset.enact === '1' } };
+        const name = this.ordinances.find((o) => o.id === b.dataset.law)?.name ?? b.dataset.law!;
+        if (this.capture(action, `${b.dataset.enact === '1' ? 'Enact' : 'Repeal'} ${name}`)) return;
+        this.host.conn.action(action);
+        setTimeout(() => this.refresh('laws'), 300);
+      }),
+    );
+    el.querySelectorAll<HTMLButtonElement>('button[data-compare]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const id = b.dataset.compare!;
+        const o = this.ordinances.find((x) => x.id === id);
+        const action = { ordinance: { id, enact: o?.status !== 3 } };
+        // With an enacted ordinance, "with" is the city as it is and "without" repeals it.
+        const baseSeq = this.host.conn.send({ forecast: { months: 12, plan: o?.status === 3 ? [action] : [] } });
+        const planSeq = this.host.conn.send({ forecast: { months: 12, plan: o?.status === 3 ? [] : [action] } });
+        this.compare = { id, baseSeq, planSeq };
+        this.renderLaws();
+      }),
+    );
     this.wireLinks(el);
   }
 

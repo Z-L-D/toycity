@@ -144,6 +144,7 @@ public sealed partial class World
         Coverage = new byte[5][];
         for (int i = 0; i < 5; i++) Coverage[i] = new byte[N];
         Array.Fill(TaxTenths, 90);
+        InitOrdinances();
     }
 
     /// <summary>Creates a new city with generated terrain.</summary>
@@ -219,6 +220,7 @@ public sealed partial class World
 
     void RunMonthly()
     {
+        UpdateOrdinances();
         RunNeighborConnections();
         RecountWorkers();
         RunPollutionAndNoise();
@@ -284,6 +286,7 @@ public sealed partial class World
             // Utility totals from the last tick: queries and demand limits read them before the next tick measures again.
             w.Write(PowerCapacity); w.Write(PowerDemand); w.Write(WaterCapacity); w.Write(WaterDemand);
             w.Write(GarbageCapacity); w.Write(GarbageProduced);
+            WriteOrdinances(w);
         }
         return ms.ToArray();
     }
@@ -342,6 +345,7 @@ public sealed partial class World
         w.EdgeCapacity = r.ReadInt32(); w.EdgeCell = r.ReadInt32();
         w.PowerCapacity = r.ReadInt64(); w.PowerDemand = r.ReadInt64(); w.WaterCapacity = r.ReadInt64(); w.WaterDemand = r.ReadInt64();
         w.GarbageCapacity = r.ReadInt64(); w.GarbageProduced = r.ReadInt64();
+        w.ReadOrdinances(r);
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

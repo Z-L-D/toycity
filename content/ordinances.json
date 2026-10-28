@@ -1,0 +1,234 @@
+{
+  "version": 1,
+  "notes": "Built-in ordinances, written as rule graphs: nodes select buildings, measure them or the city, test the numbers and act. Nodes run in order and may use any earlier node by id; inputs can also be plain numbers. act.* nodes take an amount and an optional condition. Modifier keys: power.use, water.use, garbage, pollution.industry, traffic, attraction, education, landvalue (percent or points as named in the guide), desirability.R/C/I, demand.R/C/I, demand.I.dirty, demand.I.hightech. Availability: always (from minPopulation), unlock (a small graph whose last node must be non-zero), or random (offered for offerMonths with chancePerYear percent, runs for durationMonths once enacted).",
+  "ordinances": [
+    {
+      "id": "power-conservation",
+      "name": "Power Conservation",
+      "category": "Utilities",
+      "description": "Hand out efficient bulbs and run ads about switching things off. Homes and businesses use 15% less power.",
+      "availability": { "kind": "always", "minPopulation": 200 },
+      "nodes": [
+        { "id": "zoned", "op": "select.buildings", "zoned": "true" },
+        { "id": "n", "op": "measure.count", "in": ["zoned"], "label": "Buildings" },
+        { "id": "cost", "op": "math.mul", "in": ["n", 2], "label": "Cost: $2 a building" },
+        { "op": "act.expense", "in": ["cost"], "label": "Power conservation" },
+        { "op": "act.modifier", "key": "power.use", "in": [-15] }
+      ]
+    },
+    {
+      "id": "water-conservation",
+      "name": "Water Conservation",
+      "category": "Utilities",
+      "description": "Low-flow fittings for everyone. Homes and businesses use 20% less water.",
+      "availability": { "kind": "always", "minPopulation": 500 },
+      "nodes": [
+        { "id": "zoned", "op": "select.buildings", "zoned": "true" },
+        { "id": "n", "op": "measure.count", "in": ["zoned"], "label": "Buildings" },
+        { "id": "cost", "op": "math.mul", "in": ["n", 2], "label": "Cost: $2 a building" },
+        { "op": "act.expense", "in": ["cost"], "label": "Water conservation" },
+        { "op": "act.modifier", "key": "water.use", "in": [-20] }
+      ]
+    },
+    {
+      "id": "recycling",
+      "name": "Recycling Program",
+      "category": "Utilities",
+      "description": "Blue bins on every kerb. The city makes 25% less garbage, and the program pays for itself once the town is big enough to sell the scrap.",
+      "availability": { "kind": "always", "minPopulation": 300 },
+      "nodes": [
+        { "id": "pop", "op": "measure.stat", "stat": "population", "label": "Population" },
+        { "id": "cost", "op": "math.div", "in": ["pop", 10], "label": "Bins and trucks: $1 per 10 people" },
+        { "id": "big", "op": "test.ge", "in": ["pop", 5000], "label": "Big enough to sell scrap (5,000 people)" },
+        { "id": "scrap", "op": "math.div", "in": ["pop", 12], "label": "Scrap sales: $1 per 12 people" },
+        { "op": "act.expense", "in": ["cost"], "label": "Recycling" },
+        { "op": "act.income", "in": ["scrap", "big"], "label": "Scrap sales" },
+        { "op": "act.modifier", "key": "garbage", "in": [-25] }
+      ]
+    },
+    {
+      "id": "clean-air-act",
+      "name": "Clean Air Act",
+      "category": "Environment",
+      "description": "Strict limits on smokestacks. Factories pollute 40% less, but dirty industry would rather build elsewhere.",
+      "availability": { "kind": "always", "minPopulation": 1000 },
+      "nodes": [
+        { "id": "inspect", "op": "const", "value": 150, "label": "Inspectors: $150" },
+        { "op": "act.expense", "in": ["inspect"], "label": "Clean air inspectors" },
+        { "op": "act.modifier", "key": "pollution.industry", "in": [-40] },
+        { "op": "act.modifier", "key": "demand.I.dirty", "in": [-20] }
+      ]
+    },
+    {
+      "id": "carpool-incentives",
+      "name": "Carpool Incentives",
+      "category": "Transport",
+      "description": "Reserved parking and a small tax break for shared rides. 15% fewer cars on the road at rush hour.",
+      "availability": { "kind": "always", "minPopulation": 1000 },
+      "nodes": [
+        { "id": "workers", "op": "measure.stat", "stat": "workers", "label": "Commuters" },
+        { "id": "cost", "op": "math.div", "in": ["workers", 20], "label": "Tax break: $1 per 20 commuters" },
+        { "op": "act.expense", "in": ["cost"], "label": "Carpool incentives" },
+        { "op": "act.modifier", "key": "traffic", "in": [-15] }
+      ]
+    },
+    {
+      "id": "pro-reading",
+      "name": "Pro-Reading Campaign",
+      "category": "Education",
+      "description": "Posters, library cards and a mascot nobody asked for. Raises education by 8 points, more if there are schools to back it up.",
+      "availability": { "kind": "always", "minPopulation": 500 },
+      "nodes": [
+        { "id": "pop", "op": "measure.stat", "stat": "population", "label": "Population" },
+        { "id": "cost", "op": "math.div", "in": ["pop", 25], "label": "Cost: $1 per 25 people" },
+        { "id": "schools", "op": "select.buildings", "category": "education" },
+        { "id": "nschools", "op": "measure.count", "in": ["schools"], "label": "Schools" },
+        { "id": "hasSchool", "op": "test.gt", "in": ["nschools", 0], "label": "At least one school" },
+        { "op": "act.expense", "in": ["cost"], "label": "Pro-reading campaign" },
+        { "op": "act.modifier", "key": "education", "in": [8] },
+        { "op": "act.modifier", "key": "education", "in": [4, "hasSchool"] }
+      ]
+    },
+    {
+      "id": "neighborhood-watch",
+      "name": "Neighborhood Watch",
+      "category": "Safety",
+      "description": "Residents keep an eye on each other's porches. Homes feel a little safer: +4 residential desirability.",
+      "availability": { "kind": "always", "minPopulation": 300 },
+      "nodes": [
+        { "id": "homes", "op": "select.buildings", "zone": "R" },
+        { "id": "n", "op": "measure.count", "in": ["homes"], "label": "Homes" },
+        { "id": "cost", "op": "math.mul", "in": ["n", 1], "label": "Cost: $1 a home" },
+        { "op": "act.expense", "in": ["cost"], "label": "Neighborhood watch" },
+        { "op": "act.modifier", "key": "desirability.R", "in": [4] }
+      ]
+    },
+    {
+      "id": "smoke-detectors",
+      "name": "Free Smoke Detectors",
+      "category": "Safety",
+      "description": "A detector in every building. Factories like the lower insurance bills: +5 industrial desirability.",
+      "availability": { "kind": "always", "minPopulation": 300 },
+      "nodes": [
+        { "id": "all", "op": "select.buildings", "zoned": "true" },
+        { "id": "n", "op": "measure.count", "in": ["all"], "label": "Buildings" },
+        { "id": "cost", "op": "math.div", "in": ["n", 2], "label": "Cost: $1 per 2 buildings" },
+        { "op": "act.expense", "in": ["cost"], "label": "Smoke detectors" },
+        { "op": "act.modifier", "key": "desirability.I", "in": [5] }
+      ]
+    },
+    {
+      "id": "free-clinics",
+      "name": "Free Clinics",
+      "category": "Health",
+      "description": "Walk-in clinics for colds, flu and the odd broken bone. Homes like it (+5 residential desirability); costs more in a big city.",
+      "availability": { "kind": "always", "minPopulation": 2000 },
+      "nodes": [
+        { "id": "pop", "op": "measure.stat", "stat": "population", "label": "Population" },
+        { "id": "cost", "op": "math.div", "in": ["pop", 8], "label": "Cost: $1 per 8 people" },
+        { "op": "act.expense", "in": ["cost"], "label": "Free clinics" },
+        { "op": "act.modifier", "key": "desirability.R", "in": [5] }
+      ]
+    },
+    {
+      "id": "legalize-gambling",
+      "name": "Legalize Gambling",
+      "category": "Money",
+      "description": "Card rooms and slot machines bring in money and shoppers, but homes nearby don't love the late-night crowd.",
+      "availability": { "kind": "always", "minPopulation": 1500 },
+      "nodes": [
+        { "id": "pop", "op": "measure.stat", "stat": "population", "label": "Population" },
+        { "id": "take", "op": "math.div", "in": ["pop", 6], "label": "Gaming tax: $1 per 6 people" },
+        { "op": "act.income", "in": ["take"], "label": "Gaming tax" },
+        { "op": "act.modifier", "key": "demand.C", "in": [6] },
+        { "op": "act.modifier", "key": "desirability.R", "in": [-6] }
+      ]
+    },
+    {
+      "id": "tourism-promotion",
+      "name": "Tourism Promotion",
+      "category": "Money",
+      "description": "Glossy brochures in every rest stop. Adds 3 attraction, and 3 more if the city has a road out to the region.",
+      "availability": { "kind": "always", "minPopulation": 1000 },
+      "nodes": [
+        { "id": "ads", "op": "const", "value": 250, "label": "Advertising: $250" },
+        { "id": "edge", "op": "measure.stat", "stat": "edgeCapacity", "label": "Road capacity to the region" },
+        { "id": "connected", "op": "test.gt", "in": ["edge", 0], "label": "Has a neighbour connection" },
+        { "op": "act.expense", "in": ["ads"], "label": "Tourism promotion" },
+        { "op": "act.modifier", "key": "attraction", "in": [3] },
+        { "op": "act.modifier", "key": "attraction", "in": [3, "connected"] }
+      ]
+    },
+    {
+      "id": "tax-holiday",
+      "name": "Small Business Tax Holiday",
+      "category": "Money",
+      "description": "Waive fees for new shops while unemployment is high. Commercial demand +12 while more than 5% of workers have no job; costs $1 per 4 shop jobs.",
+      "availability": { "kind": "always", "minPopulation": 800 },
+      "nodes": [
+        { "id": "labor", "op": "measure.stat", "stat": "laborForce", "label": "Workers" },
+        { "id": "jobless", "op": "measure.stat", "stat": "unemployed", "label": "Without a job" },
+        { "id": "rate", "op": "math.div", "in": [{ "op": "math.mul", "in": ["jobless", 100] }, "labor"], "label": "Unemployment %" },
+        { "id": "high", "op": "test.gt", "in": ["rate", 5], "label": "Unemployment above 5%" },
+        { "id": "shops", "op": "select.buildings", "zone": "C" },
+        { "id": "shopJobs", "op": "measure.sum", "in": ["shops"], "field": "jobs", "label": "Shop jobs" },
+        { "id": "cost", "op": "math.div", "in": ["shopJobs", 4], "label": "Waived fees: $1 per 4 shop jobs" },
+        { "op": "act.expense", "in": ["cost", "high"], "label": "Business tax holiday" },
+        { "op": "act.modifier", "key": "demand.C", "in": [12, "high"] }
+      ]
+    },
+    {
+      "id": "park-rangers",
+      "name": "Park Rangers",
+      "category": "Environment",
+      "description": "Rangers keep the big parks tidy and run nature walks. Unlocked by building a large park. Land value +5 and 2 attraction for each large park.",
+      "availability": {
+        "kind": "unlock",
+        "minPopulation": 0,
+        "unlockText": "Build a large park.",
+        "unlock": [
+          { "id": "parks", "op": "select.buildings", "type": "large-park" },
+          { "id": "n", "op": "measure.count", "in": ["parks"] },
+          { "op": "test.gt", "in": ["n", 0] }
+        ]
+      },
+      "nodes": [
+        { "id": "parks", "op": "select.buildings", "type": "large-park" },
+        { "id": "n", "op": "measure.count", "in": ["parks"], "label": "Large parks" },
+        { "id": "cost", "op": "math.mul", "in": ["n", 60], "label": "Rangers: $60 a park" },
+        { "id": "draw", "op": "math.mul", "in": ["n", 2], "label": "Attraction: 2 a park" },
+        { "op": "act.expense", "in": ["cost"], "label": "Park rangers" },
+        { "op": "act.modifier", "key": "attraction", "in": ["draw"] },
+        { "op": "act.modifier", "key": "landvalue", "in": [5] }
+      ]
+    },
+    {
+      "id": "street-festival",
+      "name": "Street Festival",
+      "category": "Events",
+      "description": "Someone wants to close Main Street for a weekend of food stalls and a slightly alarming parade. Three months of tourists and shoppers.",
+      "availability": { "kind": "random", "minPopulation": 800, "chancePerYear": 60, "offerMonths": 2, "durationMonths": 3 },
+      "nodes": [
+        { "id": "stalls", "op": "const", "value": 400, "label": "Stalls and cleanup: $400" },
+        { "op": "act.expense", "in": ["stalls"], "label": "Street festival" },
+        { "op": "act.modifier", "key": "attraction", "in": [5] },
+        { "op": "act.modifier", "key": "demand.C", "in": [10] },
+        { "op": "act.modifier", "key": "traffic", "in": [10] }
+      ]
+    },
+    {
+      "id": "film-shoot",
+      "name": "Film Shoot Permit",
+      "category": "Events",
+      "description": "A film crew wants your streets for a car chase. They pay well, but traffic is a mess for two months.",
+      "availability": { "kind": "random", "minPopulation": 1500, "chancePerYear": 40, "offerMonths": 2, "durationMonths": 2 },
+      "nodes": [
+        { "id": "pop", "op": "measure.stat", "stat": "population", "label": "Population" },
+        { "id": "fee", "op": "math.add", "in": [1500, { "op": "math.div", "in": ["pop", 4] }], "label": "Location fee: $1,500 plus $1 per 4 people" },
+        { "op": "act.income", "in": ["fee"], "label": "Film location fee" },
+        { "op": "act.modifier", "key": "traffic", "in": [25] },
+        { "op": "act.modifier", "key": "attraction", "in": [2] }
+      ]
+    }
+  ]
+}

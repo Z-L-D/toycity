@@ -25,6 +25,7 @@ message ClientMessage {
     DemandRequest demand = 11;
     ForecastRequest forecast = 12;
     EncyclopediaRequest encyclopedia = 13;
+    OrdinancesRequest ordinances = 14;
   }
 }
 
@@ -51,7 +52,13 @@ message Action {
     SetFunding funding = 7;
     TakeLoan loan = 8;
     PlaceUtility utility = 9;
+    SetOrdinance ordinance = 10;
   }
+}
+
+message SetOrdinance {
+  string id = 1;
+  bool enact = 2;  // false repeals
 }
 
 // A straight or L-shaped run of path cells from (x0,y0) to (x1,y1): horizontal first.
@@ -202,6 +209,8 @@ message ForecastRequest {
 
 message EncyclopediaRequest {}
 
+message OrdinancesRequest {}
+
 // ---------------------------------------------------------------------------
 // Server -> client
 // ---------------------------------------------------------------------------
@@ -222,6 +231,7 @@ message ServerMessage {
     ForecastResult forecast = 12;
     Encyclopedia encyclopedia = 13;
     AlertList alerts = 14;  // sent whenever the list changes
+    OrdinanceList ordinances = 15;
   }
 }
 
@@ -479,6 +489,31 @@ message Article {
 
 message Encyclopedia {
   repeated Article articles = 1;
+}
+
+enum OrdinanceStatus {
+  ORDINANCE_LOCKED = 0;
+  ORDINANCE_AVAILABLE = 1;
+  ORDINANCE_OFFERED = 2;  // a time-limited offer the player can take
+  ORDINANCE_ENACTED = 3;
+}
+
+// An ordinance with its live preview: the rule graph run against the city as it is now.
+message Ordinance {
+  string id = 1;
+  string name = 2;
+  string category = 3;
+  string description = 4;
+  string availability = 5;
+  OrdinanceStatus status = 6;
+  int32 months_left = 7;  // to decide on an offer, or until a time-limited ordinance ends
+  int64 monthly_net = 8;  // income minus cost, this month
+  repeated string effects = 9;
+  repeated KeyValue steps = 10;  // each labelled step of the graph and its value now
+}
+
+message OrdinanceList {
+  repeated Ordinance ordinances = 1;
 }
 
 message Error {

@@ -240,6 +240,9 @@ public sealed partial class SimHost : IDisposable
                 case P.ClientMessage.BodyOneofCase.Demand:
                     reply = new P.ServerMessage { Demand = Mapping.Demand(_world.DemandReport()) };
                     break;
+                case P.ClientMessage.BodyOneofCase.Ordinances:
+                    reply = new P.ServerMessage { Ordinances = Mapping.Ordinances(_world.OrdinanceViews()) };
+                    break;
                 case P.ClientMessage.BodyOneofCase.Encyclopedia:
                     reply = new P.ServerMessage { Encyclopedia = Mapping.Encyclopedia(_world.Encyclopedia()) };
                     break;

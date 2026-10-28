@@ -24,6 +24,7 @@ public static class Mapping
         P.Action.KindOneofCase.Funding => new SetFundingAction(a.Funding.BuildingId, a.Funding.Percent),
         P.Action.KindOneofCase.Loan => new TakeLoanAction(a.Loan.Amount),
         P.Action.KindOneofCase.Utility => new PlaceUtilityAction(a.Utility.X0, a.Utility.Y0, a.Utility.X1, a.Utility.Y1, (UtilityKind)(int)a.Utility.Kind),
+        P.Action.KindOneofCase.Ordinance => new SetOrdinanceAction(a.Ordinance.Id, a.Ordinance.Enact),
         _ => null,
     };
 
@@ -38,6 +39,7 @@ public static class Mapping
         SetFundingAction x => new P.Action { Funding = new P.SetFunding { BuildingId = x.BuildingId, Percent = x.Percent } },
         TakeLoanAction x => new P.Action { Loan = new P.TakeLoan { Amount = x.Amount } },
         PlaceUtilityAction x => new P.Action { Utility = new P.PlaceUtility { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, Kind = (P.UtilityKind)(int)x.Kind } },
+        SetOrdinanceAction x => new P.Action { Ordinance = new P.SetOrdinance { Id = x.Id, Enact = x.Enact } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
     };
 
@@ -190,6 +192,24 @@ public static class Mapping
             foreach (var (k, v) in a.Facts) p.Facts.Add(new P.KeyValue { Key = k, Value = v });
             p.SeeAlso.AddRange(a.SeeAlso);
             r.Articles.Add(p);
+        }
+        return r;
+    }
+
+    public static P.OrdinanceList Ordinances(List<OrdinanceView> views)
+    {
+        var r = new P.OrdinanceList();
+        foreach (var v in views)
+        {
+            var o = new P.Ordinance
+            {
+                Id = v.Def.Id, Name = v.Def.Name, Category = v.Def.Category, Description = v.Def.Description,
+                Availability = v.Def.AvailabilityText, Status = (P.OrdinanceStatus)(int)v.Status, MonthsLeft = v.MonthsLeft,
+                MonthlyNet = v.MonthlyNet,
+            };
+            o.Effects.AddRange(v.Effects);
+            foreach (var (k, val) in v.Trace) o.Steps.Add(new P.KeyValue { Key = k, Value = val });
+            r.Ordinances.Add(o);
         }
         return r;
     }

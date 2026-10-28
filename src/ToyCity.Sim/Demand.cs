@@ -118,16 +118,32 @@ public sealed partial class World
 
         int edu = EducationIndex;
         int[] bias = WealthBias(edu, p);
+        int[] ord = OrdinanceDemand();
         for (int k = 0; k < 9; k++)
         {
             int z = k / 3;
             int raw = _sourcePoints[z, 0] + _sourcePoints[z, 1] + _sourcePoints[z, 2] + _existingPoints[z]
-                + bias[k] - (TaxTenths[k] - 90) * 6 / 10;
+                + bias[k] - (TaxTenths[k] - 90) * 6 / 10 + ord[k];
             raw = Math.Clamp(raw, -100, 100);
             DemandRaw[k] = raw;
             Demand[k] = Math.Min(raw, powerCap);
         }
         _powerCap[0] = _powerCap[1] = _powerCap[2] = powerCap;
+    }
+
+    /// <summary>Demand changes from enacted ordinances, by zone and wealth.</summary>
+    int[] OrdinanceDemand()
+    {
+        var d = new int[9];
+        for (int w = 0; w < 3; w++)
+        {
+            d[w] += (int)Mod(ModKey.DemandR);
+            d[3 + w] += (int)Mod(ModKey.DemandC);
+            d[6 + w] += (int)Mod(ModKey.DemandI);
+        }
+        d[6] += (int)Mod(ModKey.DemandDirty);
+        d[8] += (int)Mod(ModKey.DemandHighTech);
+        return d;
     }
 
     void SplitTargets(int z, int local, int regional, int external, int existing, int floor)
@@ -203,6 +219,9 @@ public sealed partial class World
             int[] tax = new int[3];
             for (int w = 0; w < 3; w++) tax[w] = -(TaxTenths[z * 3 + w] - 90) * 6 / 10;
             adjustments.Add(new DemandLine("tax", "Taxes", tax, "Each point of tax above 9% costs 6 points of demand; each point below adds 6."));
+            var ord = OrdinanceDemand();
+            if (ord[z * 3] != 0 || ord[z * 3 + 1] != 0 || ord[z * 3 + 2] != 0)
+                adjustments.Add(new DemandLine("ordinances", "Ordinances", new[] { ord[z * 3], ord[z * 3 + 1], ord[z * 3 + 2] }, "Enacted ordinances that change this zone's demand. See Laws."));
 
             string powerDetail = PowerCapacity <= 0 ? "There is no power plant. Nothing grows without power."
                 : $"The grid uses {PowerDemand:N0} of {PowerCapacity:N0} kW. Below 25% spare, demand is held down.";

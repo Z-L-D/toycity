@@ -30,6 +30,7 @@ public sealed partial class World
                 Notices.Add(new SimNotice($"Took a loan of ${a.Amount:N0}.", "info"));
                 break;
             case PlaceUtilityAction a: ApplyUtility(a); break;
+            case SetOrdinanceAction a: ApplySetOrdinance(a); break;
         }
     }
 

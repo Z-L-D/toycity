@@ -9,7 +9,7 @@ happening without leaving the game. This page records the rules and numbers as b
 | Gate | How it is checked |
 | --- | --- |
 | A new player can find out why anything is happening without leaving the game | Why panel, demand panel, alerts, forecast and guide; `TalkBackTests` check that every alert, demand verdict and why-requirement links to a guide article |
-| The built-in ordinances all run on the rule-graph format | Part 2 |
+| The built-in ordinances all run on the rule-graph format | `OrdinanceTests.EveryBuiltInOrdinanceIsARuleGraph`: every ordinance acts only through graph nodes, and no sim code names an ordinance |
 | The benchmark sets agent tiers on two different machines | Part 7 |
 
 ## Demand by source
@@ -82,6 +82,51 @@ pollution, noise, services, taxes, budget, neighbour connections, lots, time, fo
 three zones with every template, every civic building and every path profile. Each article ends
 with figures from the current city. Why-panel requirements, alerts and demand verdicts link to
 their article.
+
+## Ordinances and the rule graph
+
+Ordinances live in `content/ordinances.json`. Each one's behaviour is a rule graph: a list of
+nodes evaluated in order, where a node may read any earlier node by id, a plain number, or an
+inline node. The sim has no code for any particular ordinance. The same format will carry
+scenarios and, later, player-made ordinances from the node editor.
+
+| Kind | Ops |
+| --- | --- |
+| Select | `select.buildings` with any of `zone` (R/C/I), `density`, `wealth` (L/M/H), `category`, `type`, `zoned` |
+| Measure | `measure.count`, `measure.sum` (residents, jobs, workers, powerKw, waterUse, garbage, cells), `measure.avg` (a map layer at the selected buildings), `measure.stat` (population, jobs, workers, laborForce, unemployed, funds, education, attraction, month, year, power, water, garbage, edgeCapacity, buildings) |
+| Math | `const`, `math.add`, `sub`, `mul`, `div` (by zero gives 0), `min`, `max`, `percent`, `neg` |
+| Test | `test.gt`, `ge`, `lt`, `le`, `eq`, `and`, `or`, `not` (1 or 0) |
+| Act | `act.modifier` (key, amount), `act.income` and `act.expense` (label, amount); each takes an optional condition as a second input |
+
+Modifier keys: `power.use`, `water.use`, `garbage`, `pollution.industry`, `traffic` (percent of
+zoned buildings' use, factory pollution and commuter trips), `attraction`, `education`,
+`landvalue`, `desirability.R/C/I`, `demand.R/C/I`, `demand.I.dirty`, `demand.I.hightech`
+(points). Desirability and land value show an "Ordinances" factor in the why panel; demand shows
+an "Ordinances" line in the demand panel.
+
+Graphs are checked when content loads: unknown ops, stats, fields, layers, modifier keys,
+building types and references to later nodes are errors.
+
+**Running.** On the first of each month (before pollution, land value and the budget) the sim
+updates availability, then runs every enacted graph and adds up their modifiers and money.
+Enacting or repealing re-runs them at once. Modifiers and money are saved with the city.
+
+**Availability.**
+
+- *Always*: from a minimum population.
+- *Unlock*: a small graph whose last value must be non-zero, checked monthly; once unlocked it
+  stays unlocked. Park Rangers unlocks with a large park; landmark unlocks come in Part 3.
+- *Random*: offered with a yearly chance, for a few months; once enacted it runs for a fixed
+  number of months and ends. Street Festival and Film Shoot are the first two.
+
+**Preview.** The Laws tab shows every ordinance's graph run against the city as it is now: each
+labelled step with its value, the effects and the monthly net. "Forecast with and without" runs
+two one-year forecasts, with the ordinance and without, and shows the difference.
+
+The 15 built-in ordinances: Power Conservation, Water Conservation, Recycling Program, Clean Air
+Act, Carpool Incentives, Pro-Reading Campaign, Neighborhood Watch, Free Smoke Detectors, Free
+Clinics, Legalize Gambling, Tourism Promotion, Small Business Tax Holiday, Park Rangers, Street
+Festival and Film Shoot Permit.
 
 ## Balance changes
 

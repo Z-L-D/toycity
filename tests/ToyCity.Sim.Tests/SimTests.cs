@@ -361,6 +361,7 @@ public class ProtocolTests
             new SetFundingAction(3, 80),
             new TakeLoanAction(25_000),
             new PlaceUtilityAction(1, 1, 8, 9, UtilityKind.WaterPipe),
+            new SetOrdinanceAction("recycling", true),
         };
         foreach (var a in actions) Assert.Equal(a, Mapping.ToSim(Mapping.ToProto(a)));
     }
@@ -527,5 +528,137 @@ public class TalkBackTests
         var brownout = Assert.Single(w.Alerts(), a => a.Key == "brownout");
         Assert.Equal(2, w.Powered[w.Idx(brownout.X, brownout.Y)]);
         Assert.Equal("danger", w.Alerts()[0].Severity);
+    }
+}
+
+public class OrdinanceTests
+{
+    static OrdinanceView View(World w, string id) => w.OrdinanceViews().Single(v => v.Def.Id == id);
+
+    [Fact]
+    public void EveryBuiltInOrdinanceIsARuleGraph()
+    {
+        var ords = Fixture.Content.Ordinances;
+        Assert.True(ords.Count >= 15);
+        Assert.Contains(ords, o => o.Kind == OrdinanceAvailability.Always);
+        Assert.Contains(ords, o => o.Kind == OrdinanceAvailability.Unlock);
+        Assert.Contains(ords, o => o.Kind == OrdinanceAvailability.Random && o.DurationMonths > 0);
+        // All behaviour lives in the graph: every ordinance acts through act.* nodes, and nothing else in the sim
+        // refers to an ordinance by id.
+        Assert.All(ords, o => Assert.Contains(o.Graph.Nodes, n => n.Op.StartsWith("act.")));
+        var simDir = Path.Combine(Path.GetDirectoryName(ContentDb.FindContentDir())!, "src", "ToyCity.Sim");
+        var code = string.Join("\n", Directory.GetFiles(simDir, "*.cs").Select(File.ReadAllText));
+        Assert.All(ords, o => Assert.DoesNotContain($"\"{o.Id}\"", code));
+    }
+
+    [Fact]
+    public void BadGraphsAreRejected()
+    {
+        static void Bad(string nodes) => Assert.Throws<InvalidDataException>(() =>
+            RuleGraph.Compile(System.Text.Json.JsonDocument.Parse(nodes).RootElement, "test"));
+        Bad("""[{ "op": "math.explode", "in": [1, 2] }]""");
+        Bad("""[{ "op": "math.add", "in": ["later", 1] }, { "id": "later", "op": "const", "value": 1 }]""");
+        Bad("""[{ "op": "act.modifier", "key": "happiness", "in": [5] }]""");
+        Bad("""[{ "op": "measure.stat", "stat": "vibes" }]""");
+        var ok = RuleGraph.Compile(System.Text.Json.JsonDocument.Parse("""[{ "id": "a", "op": "const", "value": 6 }, { "op": "math.mul", "in": ["a", { "op": "math.add", "in": [1, 2] }] }]""").RootElement, "test");
+        Assert.Equal(18, Fixture.Starter().EvaluateRules(ok).Last.Number);
+    }
+
+    [Fact]
+    public void LockedOrdinancesCannotBeEnacted()
+    {
+        var w = Fixture.Starter();
+        w.Run(60);
+        Assert.True(w.Population < 2000);
+        Assert.Equal(OrdinanceStatus.Locked, View(w, "free-clinics").Status);
+        w.Enqueue(new SetOrdinanceAction("free-clinics", true));
+        w.Step();
+        Assert.Equal(OrdinanceStatus.Locked, View(w, "free-clinics").Status);
+        Assert.Contains(w.Notices, n => n.Text.Contains("isn't available"));
+    }
+
+    [Fact]
+    public void PowerConservationCutsDemandAndCostsWhatThePreviewSaid()
+    {
+        var w = Fixture.Starter();
+        w.Run(400);
+        var before = View(w, "power-conservation");
+        Assert.Equal(OrdinanceStatus.Available, before.Status);
+        Assert.Contains("-15% power use", before.Effects);
+        Assert.True(before.MonthlyNet < 0);
+        long demand = w.PowerDemand;
+        w.Enqueue(new SetOrdinanceAction("power-conservation", true));
+        w.Step();
+        Assert.Equal(-15, w.Mod(ModKey.PowerUse));
+        Assert.True(w.PowerDemand < demand * 90 / 100, $"{w.PowerDemand} vs {demand}");
+        // Run to the next budget: the cost line is there and matches the preview for the same city.
+        while (w.Day != 1) w.Step();
+        long preview = View(w, "power-conservation").MonthlyNet;
+        w.Step();
+        Assert.Contains(w.LastBudget, l => l.Label == "Power conservation" && l.Amount == preview);
+        w.Enqueue(new SetOrdinanceAction("power-conservation", false));
+        w.Step();
+        Assert.Equal(0, w.Mod(ModKey.PowerUse));
+    }
+
+    [Fact]
+    public void BuildingALargeParkUnlocksParkRangers()
+    {
+        var (w, x, y) = Fixture.FlatSite();
+        w.Run(30);
+        Assert.Equal(OrdinanceStatus.Locked, View(w, "park-rangers").Status);
+        w.Enqueue(new PlaceBuildingAction(x + 2, y + 2, "large-park"));
+        w.Run(31);
+        Assert.Equal(OrdinanceStatus.Available, View(w, "park-rangers").Status);
+        w.Enqueue(new SetOrdinanceAction("park-rangers", true));
+        w.Step();
+        Assert.Equal(5, w.Mod(ModKey.LandValue));
+        Assert.Equal(2, w.Mod(ModKey.Attraction));
+    }
+
+    [Fact]
+    public void RandomOffersAreTimeLimited()
+    {
+        var w = Fixture.Starter();
+        int months = 0;
+        while (View(w, "street-festival").Status != OrdinanceStatus.Offered && months++ < 240) w.Run(World.DaysPerMonth);
+        Assert.Equal(OrdinanceStatus.Offered, View(w, "street-festival").Status);
+        w.Enqueue(new SetOrdinanceAction("street-festival", true));
+        w.Step();
+        var v = View(w, "street-festival");
+        Assert.Equal(OrdinanceStatus.Enacted, v.Status);
+        Assert.Equal(3, v.MonthsLeft);
+        Assert.Equal(5, w.Mod(ModKey.Attraction));
+        w.Run(3 * World.DaysPerMonth + 1);
+        Assert.NotEqual(OrdinanceStatus.Enacted, View(w, "street-festival").Status);
+        Assert.Equal(0, w.Mod(ModKey.Attraction));
+    }
+
+    [Fact]
+    public void EnactedOrdinancesSurviveSaveAndLoad()
+    {
+        var w = Fixture.Starter();
+        w.Run(400);
+        w.Enqueue(new SetOrdinanceAction("recycling", true));
+        w.Enqueue(new SetOrdinanceAction("clean-air-act", true));
+        w.Run(45);
+        var loaded = World.FromSnapshot(Fixture.Content, w.Snapshot());
+        w.Run(200);
+        loaded.Run(200);
+        Assert.Equal(w.StateHash(), loaded.StateHash());
+        Assert.Equal(-25, loaded.Mod(ModKey.Garbage));
+    }
+
+    [Fact]
+    public void CleanAirActCutsFactoryPollution()
+    {
+        var a = Fixture.Starter();
+        a.Run(400);
+        var b = World.FromSnapshot(Fixture.Content, a.Snapshot());
+        b.Enqueue(new SetOrdinanceAction("clean-air-act", true));
+        a.Run(31);
+        b.Run(31);
+        Assert.True(b.Pollution.Sum(p => p) < a.Pollution.Sum(p => p));
+        Assert.Contains(b.DemandReport()[2].Adjustments, l => l.Key == "ordinances" && l.Points[0] == -20);
     }
 }

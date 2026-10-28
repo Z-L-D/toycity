@@ -72,8 +72,8 @@ const conn = new Connection({
     $('#conn').classList.toggle('off', !ok);
     if (!ok) toast('Lost connection to the server. Reconnecting…', 'error');
   },
-  onMessage(kind, body) {
-    if (talk?.onMessage(kind, body)) return;
+  onMessage(kind, body, replyTo) {
+    if (talk?.onMessage(kind, body, replyTo)) return;
     switch (kind) {
       case 'full': {
         const first = !city.loaded || city.width !== body.width;

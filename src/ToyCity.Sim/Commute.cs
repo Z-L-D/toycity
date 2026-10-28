@@ -133,6 +133,8 @@ public sealed partial class World
             foreach (var a in home.Assignments)
                 foreach (var c in a.PathCells) Trips[c] += a.Count * 2;
         }
+        if (Mod(ModKey.Traffic) != 0)
+            for (int i = 0; i < N; i++) if (Trips[i] > 0) Trips[i] = Scaled(Trips[i], ModKey.Traffic);
         for (int i = 0; i < N; i++)
         {
             var p = ProfileAt(i);

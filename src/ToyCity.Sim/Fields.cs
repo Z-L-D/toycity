@@ -38,7 +38,8 @@ public sealed partial class World
         {
             if (b == null || !b.Operating) continue;
             var t = TypeOf(b);
-            if (t.Pollution > 0) Spread(Pollution, b.X, b.Y, b.W, b.H, t.Pollution, 2 + t.Pollution / 10, false);
+            int pollution = t.Zone == Zone.Industrial ? Scaled(t.Pollution, ModKey.IndustryPollution) : t.Pollution;
+            if (pollution > 0) Spread(Pollution, b.X, b.Y, b.W, b.H, pollution, 2 + pollution / 10, false);
             if (t.WaterPollution > 0) Spread(WaterPollution, b.X, b.Y, b.W, b.H, t.WaterPollution, 1 + t.WaterPollution / 12, false);
             if (t.Noise > 0) Spread(Noise, b.X, b.Y, b.W, b.H, t.Noise, 2, false);
         }
@@ -94,6 +95,7 @@ public sealed partial class World
         Add("Health care", Coverage[(int)Service.Health][i] / 12);
         Add("Schools", Coverage[(int)Service.Education][i] / 12);
         Add("Pollution", -Pollution[i] / 2);
+        Add("Ordinances", (int)Mod(ModKey.LandValue));
         Add("Noise", -Noise[i] / 4);
         return Math.Clamp(total, 0, 255);
     }
@@ -137,6 +139,7 @@ public sealed partial class World
                 Add("Noise", -Noise[i] / 4);
                 Add("Traffic", -traffic / 6);
                 Add("Uncollected garbage", -GarbagePenalty);
+                Add("Ordinances", (int)Mod(ModKey.DesirabilityR));
                 if (BuildingAtCell(i) is { } home && home.CommuteMinutes > 20) Add("Long commute", -(home.CommuteMinutes - 20) / 2);
                 break;
             case Zone.Commercial:
@@ -147,11 +150,13 @@ public sealed partial class World
                 Add("Police", Coverage[(int)Service.Police][i] / 10);
                 Add("Pollution", -Pollution[i] / 3);
                 Add("Uncollected garbage", -GarbagePenalty / 2);
+                Add("Ordinances", (int)Mod(ModKey.DesirabilityC));
                 break;
             case Zone.Industrial:
                 Add("Base", 35);
                 Add("Pricey land", -lv / 5);
                 Add("Fire protection", Coverage[(int)Service.Fire][i] / 10);
+                Add("Ordinances", (int)Mod(ModKey.DesirabilityI));
                 if (traffic > 160) Add("Gridlock", -(traffic - 160) / 4);
                 break;
         }

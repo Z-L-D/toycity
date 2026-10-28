@@ -166,6 +166,37 @@ public sealed partial class World
             "The forecast runs a copy of your city ahead and reports what happens: population, money, power and water, and any problems that start. Because the simulation is deterministic, it is exactly what will happen if you change nothing.",
         }, new(), "time");
 
+        Add("ordinances", "Ordinances", "Rules", new()
+        {
+            "Ordinances are city laws you enact from the Laws tab. Each one is a rule graph: a short list of steps that select buildings, measure them or the city, test the numbers and act. The same graph runs every month, gives the live preview, and writes the article for that ordinance, so what you read is what it does.",
+            "Some are always available once the city is big enough, some are unlocked by something you build, and some come up by chance as time-limited offers. Their costs and income appear in the budget; their effects appear in the why panel as an Ordinances factor and in the demand panel.",
+        }, new()
+        {
+            ("Enacted", Ordinances.Count(o => o.Enacted).ToString()),
+            ("Monthly net", Money(OrdinanceMoney.Sum(m => m.Amount))),
+        }, Content.Ordinances.Select(o => o.Id).Take(6).Prepend("budget").ToArray());
+
+        foreach (var v in OrdinanceViews())
+        {
+            var d = v.Def;
+            var paras = new List<string> { d.Description, d.AvailabilityText };
+            var steps = v.Trace.Select(t => $"{t.Label}: {t.Value}").ToList();
+            if (steps.Count > 0) paras.Add("How it works out right now: " + string.Join("; ", steps) + ".");
+            var facts = new List<(string, string)>
+            {
+                ("Status", v.Status switch
+                {
+                    OrdinanceStatus.Enacted => v.MonthsLeft > 0 ? $"enacted, {v.MonthsLeft} months left" : "enacted",
+                    OrdinanceStatus.Offered => $"offered, {v.MonthsLeft} months to decide",
+                    OrdinanceStatus.Available => "available",
+                    _ => "not available yet",
+                }),
+                ("Monthly net", Money(v.MonthlyNet)),
+            };
+            foreach (var e in v.Effects) facts.Add(("Effect", e));
+            Add(d.Id, d.Name, "Ordinances", paras, facts, "ordinances");
+        }
+
         // ---- Zones ----
         foreach (var zone in new[] { Zone.Residential, Zone.Commercial, Zone.Industrial })
         {
