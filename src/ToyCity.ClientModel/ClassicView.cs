@@ -17,7 +17,8 @@ public sealed class ClassicView
     public static readonly float[] ZoomSizes = { 128, 64, 32, 16, 8 };
     /// <summary>One terrain height step, in cells (2 m on a 16 m cell).</summary>
     public const float HeightStep = 0.125f;
-    const float Distance = 400;
+    /// <summary>How far back the camera sits from its target: well above the tallest tower at every angle.</summary>
+    public const float Distance = 150;
 
     public Vector2 Target;       // the map point at the centre of the screen, in cells
     public int Rotation;         // 0..3: looking north-west, north-east, south-east, south-west

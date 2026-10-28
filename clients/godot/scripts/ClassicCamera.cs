@@ -23,7 +23,7 @@ public partial class ClassicCamera : Camera3D
         Projection = ProjectionType.Orthogonal;
         KeepAspect = KeepAspectEnum.Height;
         Near = 1;
-        Far = 2000;
+        Far = 600;
         Apply();
     }
 

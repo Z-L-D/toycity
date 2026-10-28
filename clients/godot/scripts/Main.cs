@@ -15,6 +15,7 @@ public partial class Main : Node
     CityView? _view;
     ClassicCamera? _camera;
     MapView? _map;
+    DirectionalLight3D? _sun;
     Label? _status, _hover;
     bool _smoke, _centred;
     string? _shots, _bench;
@@ -62,8 +63,8 @@ public partial class Main : Node
             },
         });
         // Afternoon sun from the south-west, fixed to the map so shading turns with the camera as in SC4.
-        AddChild(new DirectionalLight3D { RotationDegrees = new Vector3(-50, -150, 0), LightEnergy = 1.1f, ShadowEnabled = true,
-            DirectionalShadowMode = DirectionalLight3D.ShadowMode.Orthogonal, DirectionalShadowMaxDistance = 300 });
+        AddChild(_sun = new DirectionalLight3D { RotationDegrees = new Vector3(-50, -150, 0), LightEnergy = 1.1f, ShadowEnabled = true,
+            DirectionalShadowMode = DirectionalLight3D.ShadowMode.Orthogonal });
 
         _view = new CityView(_client.City);
         AddChild(_view);
@@ -127,6 +128,8 @@ public partial class Main : Node
             _hover!.Text = cell is { } h ? Describe(c, h.X, h.Y) : "";
             _map!.Marker = _camera.View.Target;
             _view.SetFar(_camera.View.Zoom <= 1);
+            // Shadows only as far as the view reaches, so close zoom levels don't cast the whole city.
+            _sun!.DirectionalShadowMaxDistance = ClassicView.Distance + _camera.View.Size * 1.5f;
         }
         if (_bench != null) Bench(c, delta);
         else if (_smoke) Smoke(c, delta);

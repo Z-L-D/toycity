@@ -18,7 +18,9 @@ public partial class CityView : Node3D
     MeshInstance3D? _water;
     MultiMeshInstance3D? _blocks;  // roadside stops, and buildings of a type the catalog doesn't know
     readonly BuildingModels _models = new();
-    readonly Dictionary<(string, int, int), MultiMeshInstance3D> _batches = new();
+    // One batch per model and 32-cell region of the map, so the camera skips regions off screen.
+    readonly Dictionary<(string, int, int, int), MultiMeshInstance3D> _batches = new();
+    const int Region = 32;
     StandardMaterial3D? _voxelMaterial;
     bool _far;
     MeshInstance3D? _cursor;
@@ -159,12 +161,12 @@ public partial class CityView : Node3D
         MaxTop = 0;
         for (int i = 0; i < n; i++) { _top[i] = Mathf.Max(Ground(i), water); MaxTop = Mathf.Max(MaxTop, _top[i]); }
 
-        var groups = new Dictionary<(string, int, int), List<BuildingState>>();
+        var groups = new Dictionary<(string, int, int, int), List<BuildingState>>();
         var stops = new List<BuildingState>();
         foreach (var b in _city.Buildings.Values)
         {
             if (!_city.TypeById.TryGetValue(b.TypeId, out var t) || t.Roadside) { stops.Add(b); continue; }
-            var key = (b.TypeId, b.Width, b.Height);
+            var key = (b.TypeId, b.Width, b.Height, b.Y / Region * 1024 + b.X / Region);
             if (!groups.TryGetValue(key, out var list)) groups[key] = list = new();
             list.Add(b);
         }
