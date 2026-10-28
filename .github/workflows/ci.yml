@@ -17,6 +17,11 @@ jobs:
       - run: dotnet test ToyCity.slnx -c Release --no-build
       - name: Headless run (5 years)
         run: dotnet run --project tools/ToyCity.Bench -c Release --no-build -- 5
+      - name: Agent tiers on this runner
+        run: |
+          dotnet run --project tools/ToyCity.Bench -c Release --no-build -- tiers --quick --out tiers-quick.json
+          dotnet run --project tools/ToyCity.Bench -c Release --no-build -- tiers --out tiers-full.json
+          { echo '### Agent tiers on this runner'; echo '```json'; cat tiers-quick.json; echo; cat tiers-full.json; echo; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   web:
     runs-on: ubuntu-latest

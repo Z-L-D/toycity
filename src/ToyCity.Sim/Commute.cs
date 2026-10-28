@@ -162,14 +162,12 @@ public sealed partial class World
         return weightedMinutes;
     }
 
-    /// <summary>Daily: homes whose id falls on today re-pick their jobs.</summary>
+    /// <summary>Daily: homes whose (jittered) day this is re-pick their jobs.</summary>
     void RunCommutes()
     {
-        int slot = Day - 1;
-        for (int id = slot; id < Buildings.Count; id += DaysPerMonth)
-        {
-            if (Buildings[id] is { } b && b.Operating && b.Residents > 0) MatchCommutes(b);
-        }
+        int day = Day - 1;
+        foreach (var b in Buildings)
+            if (b is { Operating: true, Residents: > 0 } && RematchDay(b) == day) MatchCommutes(b);
     }
 
     /// <summary>Monthly: rebuilds worker counts from the homes' assignments and drops trips to sites that are gone.</summary>

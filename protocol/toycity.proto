@@ -314,6 +314,7 @@ message ServerMessage {
     OrdinanceList ordinances = 15;
     CivicState civic = 16;  // petitions, deals, approval, unlocks and headlines; sent whenever they change
     AdvisorList advisors = 17;
+    AgentRoster agents = 18;  // the followed commuters; sent when they change and monthly
   }
 }
 
@@ -492,6 +493,44 @@ message InspectResult {
   int32 y = 2;
   repeated KeyValue fields = 3;
   BuildingState building = 4;
+  repeated CitizenInfo residents = 5;  // the people who live here, one by one
+}
+
+// One resident. Citizens are the home's counts seen one person at a time, so they always add up to the city's totals.
+message CitizenInfo {
+  int64 id = 1;
+  string name = 2;
+  int32 age = 3;
+  string role = 4;          // "worker", "job seeker", "child", "retiree"
+  string job = 5;           // workplace name, empty without one
+  int32 job_x = 6;
+  int32 job_y = 7;
+  bool by_transit = 8;
+  int32 commute_minutes = 9;
+  string tier = 10;         // "full" (on the map, tracked daily), "light" (monthly record) or "household"
+  int32 days_tracked = 11;  // full agents: days followed so far
+  int32 days_late = 12;     // full agents: days they reached work after nine
+  int32 avg_minutes = 13;   // full agents: average door-to-door minutes at the day's congestion
+  int32 since_month = 14;   // month index they moved in
+}
+
+// The commuters drawn on the map. Each walks or rides its cells in order, leaving home at depart_minute.
+message AgentTripInfo {
+  int64 id = 1;
+  int32 depart_minute = 2;  // minutes after midnight
+  int32 minutes = 3;        // door-to-door at the day's congestion
+  bool by_transit = 4;
+  repeated int32 cells = 5;
+}
+
+message AgentRoster {
+  int32 full_tier = 1;   // this machine's limits, from its benchmark
+  int32 light_tier = 2;
+  int32 full = 3;        // how many are followed now
+  int32 light = 4;
+  int32 citizens = 5;
+  string machine = 6;    // what the benchmark measured
+  repeated AgentTripInfo trips = 7;  // at most a few thousand, the first full agents
 }
 
 message KeyValue {

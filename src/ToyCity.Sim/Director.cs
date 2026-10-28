@@ -327,6 +327,7 @@ public sealed partial class World
             foreach (var (label, amount) in o.Grants)
             {
                 Funds += amount;
+                OneOffs += amount;
                 facts["amount"] = amount.ToString("N0");
             }
             Mood = Math.Clamp(Mood + (int)o.Mood, -50, 50);

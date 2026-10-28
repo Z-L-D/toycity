@@ -10,7 +10,7 @@ happening without leaving the game. This page records the rules and numbers as b
 | --- | --- |
 | A new player can find out why anything is happening without leaving the game | Why panel, demand panel, alerts, forecast and guide; `TalkBackTests` check that every alert, demand verdict and why-requirement links to a guide article |
 | The built-in ordinances all run on the rule-graph format | `OrdinanceTests.EveryBuiltInOrdinanceIsARuleGraph`: every ordinance acts only through graph nodes, and no sim code names an ordinance |
-| The benchmark sets agent tiers on two different machines | Part 7 |
+| The benchmark sets agent tiers on two different machines | `ToyCity.Bench tiers` measured on the dev VM and on every CI run (GitHub's runner); results below |
 | Event director rate-limited; voice can't change the sim | `DirectorTests` |
 
 ## Demand by source
@@ -307,6 +307,54 @@ stop off its line, and save/load with transit commutes.
 square ring, both leftover policies, open land being refused, and a quarter-round block zoned
 right up to its arc.
 
+## Citizens, agent tiers and the books
+
+- **Citizens.** Homes still keep their people as counts; a citizen is the same household seen one
+  person at a time. Slots below the home's labour force are of working age and the rest are
+  children or retirees; employed slots take the home's job assignments in order. So citizens
+  always add up to the city's population, workers and jobs. Each has a name, an age and the month
+  they moved in. Names, ages and roles come from a hash of the world seed, never from the sim's
+  random stream, so looking at people never changes the city.
+- **Life events.** Monthly, residents age; children who reach 18, workers who reach 65 and
+  retirees who reach 95 move out, and 8 in 1,000 others move away, and someone new moves into
+  the slot. Homes look for work again on their own day of the month (a hash of home and month),
+  not all at once.
+- **Agent tiers.** *Full* agents are drawn on the map and make their trip every day at that day's
+  congestion, leaving between 7:45 and 8:35 give or take ten minutes; they're late when they
+  reach work after nine. Drivers pick their own route again once a week, staggered, so a jammed
+  road loses the agents who know a better one. *Light* agents are picked and refreshed monthly.
+  Everyone else is counted with their household. The full tier takes employed citizens in home
+  order; the light tier the next people. Tiers are per machine, so the view reads the city and
+  never writes it: `AccountingTests` check the city's hash is the same with 100,000 full agents
+  or none.
+- **The benchmark.** `dotnet run --project tools/ToyCity.Bench -c Release -- tiers [--quick]`
+  builds a reference city (the starter town, or `--quick` off: a starter town on every dry
+  40x40 block of a 256 map, about 48,000 people), times the city's step and a day of full agents,
+  and gives full agents what's left of half a tick at top speed (25 ms) after four times the
+  step, so a growing city keeps its frame rate. Light agents get ten times as many, capped by
+  what their monthly refresh costs. The server reads `saves/agent-tiers.json`; when it's missing
+  it runs the quick benchmark in the background on first start and saves it.
+- **On screen.** Yellow dots drive and blue dots ride transit; the map runs the morning and
+  evening rush on a 30-second loop whatever the game speed (M hides them). Inspecting a home lists
+  its residents (up to 100): age, workplace (click to jump there), commute, and for full agents
+  how many days they were late and their door-to-door minutes, with a Follow button that rings
+  their dot. The Layers tab shows how many people are followed and this machine's limits.
+
+| Machine | Reference city | Step | Full agent a day | Full / light tiers |
+| --- | --- | --- | --- | --- |
+| Dev VM, 4 cores, Ubuntu 24.04.5 | quick, 1,586 people | 0.63 ms | 6.11 µs | 3,600 / 36,000 |
+| Dev VM, 4 cores, Ubuntu 24.04.5 | full, 48,108 people | 3.63 ms | 0.91 µs | 11,500 / 115,000 |
+RUNNER_ROWS
+The quick city's agents cost more each because its commutes are longer for its size and a
+seventh of them search a route each day; the full city has many short local commutes.
+
+**The books.** `AccountingTests` run a starter town for 30 months through growth, bus stops, a
+fire and a quake, and check every month that people, citizens, workers and jobs add up, that no
+building employs more than its jobs, and that funds move by exactly the month's budget plus the
+one-off spending (building, loans, grants) recorded that tick. Writing them found the director's
+grants moving money outside the budget; one-offs are now recorded. Bulldozing a workplace now
+frees its workers at once instead of at the next re-match.
+
 ## Balance changes
 
 - A path now carries twice its hourly capacity in commuter trips a day (Alpha 1 used a quarter).
@@ -319,4 +367,5 @@ right up to its arc.
 Format version 2 adds the neighbour connection and the utility totals of the last tick, so a
 loaded city's queries and demand limits match the city that was saved. Part 4 adds graffiti and burning days per building, the litter and blight
 layers, the disaster setting and the disasters in progress. Part 5 adds transit legs and stops to
-each commute, riders per cell and per stop, and the day's boardings.
+each commute, riders per cell and per stop, and the day's boardings. Part 7 adds the month each
+resident moved in. Agent tiers and their stats are per machine and never saved with a city.

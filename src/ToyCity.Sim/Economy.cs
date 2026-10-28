@@ -142,6 +142,7 @@ public sealed partial class World
         LastExpenses = expenses;
         bool wasPositive = Funds >= 0;
         Funds += income - expenses;
+        BudgetRan = true;
         if (Funds < 0 && wasPositive)
             Notices.Add(new SimNotice("The treasury is in the red. Raise taxes, cut funding, or take a loan.", "warning"));
     }

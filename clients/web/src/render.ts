@@ -73,6 +73,26 @@ function mix(a: string, b: string, t: number): string {
 }
 
 /** Draws the city top-down, SimCity 1 style, on a single canvas. */
+export interface AgentTrip {
+  id: number;
+  departMinute: number;
+  minutes: number;
+  byTransit: boolean;
+  cells: number[];
+}
+
+/** Evening trips leave this many minutes after the morning ones (7:45 becomes 17:00). */
+export const EVENING_SHIFT = 9 * 60 + 15;
+const RUSH_START = 7 * 60 + 30, RUSH_LENGTH = 150, RUSH_SECONDS = 15;
+
+/** The map's commuter clock: minutes after midnight, cycling through the morning then the evening rush. */
+export function rushClock(now = performance.now()): { minute: number; evening: boolean } {
+  const cycle = (now / 1000) % (2 * RUSH_SECONDS);
+  const evening = cycle >= RUSH_SECONDS;
+  const m = ((cycle % RUSH_SECONDS) / RUSH_SECONDS) * RUSH_LENGTH;
+  return { minute: RUSH_START + (evening ? EVENING_SHIFT : 0) + m, evening };
+}
+
 export class Renderer {
   readonly ctx: CanvasRenderingContext2D;
   scale = 8;
@@ -83,6 +103,11 @@ export class Renderer {
   preview: Preview | null = null;
   selected: { x: number; y: number } | null = null;
   hover: { x: number; y: number } | null = null;
+  /** Followed commuters from the server, drawn as dots moving along their routes. */
+  agents: AgentTrip[] = [];
+  showAgents = true;
+  /** The followed citizen, if any: drawn larger with a ring. */
+  followed: number | null = null;
   private terrain: HTMLCanvasElement = document.createElement('canvas');
   private terrainVersion = -1;
   private blink = false;
@@ -90,7 +115,8 @@ export class Renderer {
   /** True while something on the map moves, so the frame loop keeps drawing. */
   get animating(): boolean {
     const d = this.city.stats.disasters as unknown[] | undefined;
-    return !!d && d.length > 0;
+    if (d && d.length > 0) return true;
+    return this.showAgents && this.agents.length > 0 && this.city.stats.speed > 0;
   }
 
   constructor(readonly canvas: HTMLCanvasElement, readonly city: City) {
@@ -184,6 +210,7 @@ export class Renderer {
       this.drawBuildings(x0, y0, x1, y1, px, py);
       this.drawPowerLines(x0, y0, x1, y1, px, py);
       this.drawDisasters(px, py);
+      if (this.showAgents) this.drawAgents(px, py, x0, y0, x1, y1);
     }
 
     if (this.overlay) {
@@ -213,6 +240,42 @@ export class Renderer {
       ctx.strokeRect(px(this.selected.x) + 1, py(this.selected.y) + 1, s - 2, s - 2);
     }
     ctx.restore();
+  }
+
+  /**
+   * The commuters on the map. The view runs its own clock through the two rush hours (about fifteen seconds
+   * each), whatever the game speed: each dot leaves home at its own time, follows its route cell by cell and
+   * reaches work after its door-to-door minutes; in the evening it goes back the other way.
+   */
+  private drawAgents(px: (x: number) => number, py: (y: number) => number, x0: number, y0: number, x1: number, y1: number) {
+    const ctx = this.ctx;
+    const s = this.scale;
+    const w = this.city.width;
+    const { minute, evening } = rushClock();
+    const r = Math.max(1.2, Math.min(3, s / 5));
+    for (const t of this.agents) {
+      const n = t.cells.length;
+      if (n === 0) continue;
+      const leave = evening ? t.departMinute + EVENING_SHIFT : t.departMinute;
+      const f = (minute - leave) / Math.max(1, t.minutes);
+      if (f < 0 || f > 1) continue;
+      const along = (evening ? 1 - f : f) * (n - 1);
+      const k = Math.floor(along);
+      const a = t.cells[k], b = t.cells[Math.min(n - 1, k + 1)];
+      const u = along - k;
+      const cx = (a % w) * (1 - u) + (b % w) * u, cy = Math.floor(a / w) * (1 - u) + Math.floor(b / w) * u;
+      if (cx < x0 - 1 || cx > x1 + 1 || cy < y0 - 1 || cy > y1 + 1) continue;
+      const big = t.id === this.followed;
+      ctx.fillStyle = t.byTransit ? '#5ad1ff' : '#ffd15a';
+      ctx.beginPath();
+      ctx.arc(px(cx + 0.5), py(cy + 0.5), big ? r * 2 : r, 0, Math.PI * 2);
+      ctx.fill();
+      if (big) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
   }
 
   private drawZones(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {

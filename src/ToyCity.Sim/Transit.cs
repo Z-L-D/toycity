@@ -60,7 +60,7 @@ public sealed partial class World
     };
 
     /// <summary>Whether people can drive, cycle or walk through a cell (rail lines are trains only).</summary>
-    bool StreetPassable(PathProfile p) => p.Cars || p.Bikes || p.Pedestrians;
+    internal static bool StreetPassable(PathProfile p) => p.Cars || p.Bikes || p.Pedestrians;
 
     /// <summary>Time for a vehicle to cross a cell: buses crawl with the traffic, trams too unless they have a lane.</summary>
     int RideCost(TransitKind k, int cell)

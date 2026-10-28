@@ -49,6 +49,8 @@ public sealed class Building
     public int BurningDays;
     /// <summary>Transit stops: people getting on and off a day, from last month's commutes.</summary>
     public int Riders;
+    /// <summary>Homes: the month each resident moved in, by slot. Names and ages come from it.</summary>
+    public int[]? Since;
     /// <summary>Driveway: the path cell this building uses to reach the network, or -1. Derived, not saved.</summary>
     public int Access = -1;
     public List<Assignment> Assignments = new();
@@ -108,6 +110,13 @@ public sealed partial class World
     public readonly int[] TaxTenths = new int[9];
     public readonly int[] Demand = new int[9];
     public long LastIncome, LastExpenses;
+    /// <summary>
+    /// Money that moved outside the monthly budget since the last step began: building, loans, grants. With the
+    /// budget, it accounts for every change in <see cref="Funds"/>. Not saved: each step starts it again.
+    /// </summary>
+    public long OneOffs;
+    /// <summary>True when the last step ran the monthly budget.</summary>
+    public bool BudgetRan;
     public readonly List<(string Label, long Amount)> LastBudget = new();
 
     // City-wide stats, refreshed each tick.
@@ -219,6 +228,8 @@ public sealed partial class World
     /// <summary>Advances the city by one day.</summary>
     public void Step()
     {
+        OneOffs = 0;
+        BudgetRan = false;
         ApplyPending();
         RunDisasters();
 
@@ -243,6 +254,7 @@ public sealed partial class World
             CheckUnlocks();
             RunDirector();
             RollDisaster();
+            RunLifeEvents();
         }
         UpdateOrdinances();
         RunNeighborConnections();
@@ -293,6 +305,8 @@ public sealed partial class World
                 w.Write(b.Funding); w.Write(b.Condition); w.Write(b.Abandoned); w.Write(b.ConstructionLeft);
                 w.Write(b.UnmetMonths); w.Write(b.GoodMonths); w.Write(b.Powered); w.Write(b.Watered);
                 w.Write(b.Workers); w.Write(b.Employed); w.Write(b.CommuteMinutes); w.Write(b.Graffiti); w.Write(b.BurningDays); w.Write(b.Riders);
+                w.Write(b.Since?.Length ?? 0);
+                if (b.Since != null) foreach (var m in b.Since) w.Write(m);
                 w.Write(b.Assignments.Count);
                 foreach (var a in b.Assignments)
                 {
@@ -358,6 +372,8 @@ public sealed partial class World
                 Workers = r.ReadInt32(), Employed = r.ReadInt32(), CommuteMinutes = r.ReadInt32(),
                 Graffiti = r.ReadInt32(), BurningDays = r.ReadInt32(), Riders = r.ReadInt32(),
             };
+            int ns = r.ReadInt32();
+            if (ns > 0) { b.Since = new int[ns]; for (int k = 0; k < ns; k++) b.Since[k] = r.ReadInt32(); }
             int na = r.ReadInt32();
             for (int k = 0; k < na; k++)
             {

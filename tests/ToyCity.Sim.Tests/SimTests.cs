@@ -859,6 +859,7 @@ public class DisasterTests
         var w = Fixture.Starter(3);
         w.Run(200);
         var target = Homes(w)[0];
+        var calm = Fork(w);
         var after = Fork(w);
         after.Enqueue(new TriggerDisasterAction(DisasterKind.Robot, target.X, target.Y));
         after.Step();
@@ -866,10 +867,12 @@ public class DisasterTests
         bool alongX = robot.Dx != 0;
         int lane = alongX ? robot.CellY : robot.CellX;
         after.Run(World.RobotDays + 1);
+        calm.Run(World.RobotDays + 2);
         Assert.Empty(after.Disasters);
-        Assert.True(Lost(w, after) > 0);
-        // Everything it flattened touched its 2-cell-wide lane (growth may also have replaced a few lots).
-        foreach (var b in w.Buildings.Where(b => b != null && (b.Id >= after.Buildings.Count || after.Buildings[b.Id] == null)))
+        Assert.True(Lost(w, after) > Lost(w, calm));
+        // Everything it flattened touched its 2-cell-wide lane; growth replaces a few lots either way.
+        bool Gone(World x, Building b) => b.Id >= x.Buildings.Count || x.Buildings[b.Id] == null;
+        foreach (var b in w.Buildings.Where(b => b != null && Gone(after, b) && !Gone(calm, b)))
         {
             int lo = alongX ? b!.Y : b!.X, hi = lo + (alongX ? b.H : b.W) - 1;
             Assert.True(hi >= lane && lo <= lane + 1, $"building #{b.Id} at {b.X},{b.Y} is off the lane {lane}");
@@ -1202,5 +1205,133 @@ public class BlockTests
             bool touchesRoad = new[] { (1, 0), (-1, 0), (0, 1), (0, -1) }.Any(d => w.Path[w.Idx(cx + d.Item1, cy + d.Item2)] != 0);
             if (touchesRoad) Assert.NotEqual(0, w.ZoneCode[c]);
         }
+    }
+}
+
+public class AccountingTests
+{
+    [Fact]
+    public void TheBooksBalanceEveryMonthThroughGrowthTransitAndDisasters()
+    {
+        var w = Fixture.Starter(31);
+        for (int m = 0; m < 30; m++)
+        {
+            if (m == 10)
+            {
+                // Bus stops beside a few roads, and a fire and a quake for good measure.
+                int placed = 0;
+                for (int i = 0; i < w.N && placed < 12; i += 37)
+                {
+                    int x = i % w.Width, y = i / w.Width;
+                    if (w.BuildingAt[i] != 0 || w.Path[i] != 0 || w.IsWater(i) || !w.InBounds(x + 1, y)) continue;
+                    if (!w.Carries(TransitKind.Bus, w.Idx(x + 1, y))) continue;
+                    w.Enqueue(new PlaceBuildingAction(x, y, "bus-stop"));
+                    placed++;
+                }
+            }
+            if (m == 14)
+            {
+                var home = w.Buildings.First(b => b is { Residents: > 0 })!;
+                w.Enqueue(new TriggerDisasterAction(DisasterKind.Fire, home.X, home.Y));
+                w.Enqueue(new TriggerDisasterAction(DisasterKind.Earthquake, home.X + 10, home.Y));
+            }
+            // Check mid-month too, not only right after the monthly recount.
+            w.Run(17);
+            Assert.Empty(w.Accounts());
+            w.Run(13);
+            Assert.Empty(w.Accounts());
+        }
+        Assert.True(w.Population > 0);
+    }
+
+    [Fact]
+    public void FundsMoveByExactlyTheBudget()
+    {
+        var w = Fixture.Starter(32);
+        int budgets = 0;
+        for (int d = 0; d < 400; d++)
+        {
+            if (d == 100) w.Enqueue(new TakeLoanAction(5_000));
+            if (d == 130) w.Enqueue(new PlacePathAction(0, 0, 5, 0, "street"));
+            long before = w.Funds;
+            w.Step();
+            // Every dollar is either a one-off (building, a loan, a grant) or a budget line.
+            long budget = w.BudgetRan ? w.LastIncome - w.LastExpenses : 0;
+            Assert.Equal(before + w.OneOffs + budget, w.Funds);
+            if (w.BudgetRan) budgets++;
+        }
+        Assert.Equal(13, budgets);
+    }
+
+    [Fact]
+    public void CitizensAddUpAndLifeGoesOn()
+    {
+        var w = Fixture.Starter(33);
+        w.Run(360);
+        var home = w.Buildings.First(b => b is { Residents: > 0, Operating: true } && b.Assignments.Count > 0)!;
+        var people = w.CitizensOf(home);
+        Assert.Equal(home.Residents, people.Count);
+        Assert.Equal(home.Employed, people.Count(c => c.Role == CitizenRole.Worker));
+        Assert.All(people.Where(c => c.Role == CitizenRole.Worker), c => Assert.InRange(c.Age, 18, 64));
+        Assert.All(people, c => Assert.False(string.IsNullOrWhiteSpace(c.Name)));
+        // Over ten years some of them move on and new people arrive.
+        var ids = w.Buildings.Where(b => b is { Residents: > 0, Operating: true }).SelectMany(b => w.CitizensOf(b!)).Select(c => c.Id).ToHashSet();
+        w.Run(360 * 3);
+        var later = w.Buildings.Where(b => b is { Residents: > 0, Operating: true }).SelectMany(b => w.CitizensOf(b!)).Select(c => c.Id).ToHashSet();
+        Assert.True(later.Except(ids).Any(), "nobody new moved in");
+        Assert.True(later.Intersect(ids).Any(), "everyone moved away");
+    }
+
+    [Fact]
+    public void AgentTiersDoNotChangeTheCity()
+    {
+        var a = Fixture.Starter(34);
+        var b = Fixture.Starter(34);
+        var full = new AgentView(a, new AgentTiers(100_000, 0));
+        var none = new AgentView(b, new AgentTiers(0, 0));
+        for (int d = 0; d < 400; d++)
+        {
+            a.Step(); full.Daily();
+            b.Step(); none.Daily();
+        }
+        Assert.Equal(a.StateHash(), b.StateHash());
+        Assert.True(full.Trips.Count > 0);
+        Assert.Empty(none.Trips);
+        var t = full.Trips[0];
+        Assert.Equal(AgentTier.Full, full.TierOf(t.Id));
+        Assert.True(full.StatsOf(t.Id)!.Days > 0);
+        Assert.NotEmpty(t.Cells);
+    }
+
+    [Fact]
+    public void AnAgentsCommuteAgreesWithItsHousehold()
+    {
+        var w = Fixture.Starter(36);
+        w.Run(360);
+        var view = new AgentView(w, new AgentTiers(100_000, 0));
+        view.Select();
+        var minutes = w.Buildings.Where(b => b is { Residents: > 0, Operating: true })
+            .SelectMany(h => w.CitizensOf(h!)).ToDictionary(c => c.Id, c => c.CommuteMinutes);
+        Assert.NotEmpty(view.Trips);
+        int same = view.Trips.Count(t => view.MinutesOf(t) == minutes[t.Id]);
+        Assert.True(same * 100 >= view.Trips.Count * 95, $"{same} of {view.Trips.Count} agree");
+    }
+
+    [Fact]
+    public void TiersFollowTheLimits()
+    {
+        var w = Fixture.Starter(35);
+        w.Run(360);
+        var view = new AgentView(w, new AgentTiers(50, 200));
+        view.Select();
+        Assert.Equal(50, view.Trips.Count);
+        Assert.Equal(200, view.LightCount);
+        Assert.Equal(w.Population, view.Citizens);
+        int full = 0, light = 0;
+        foreach (var home in w.Buildings.Where(b => b is { Residents: > 0, Operating: true }))
+            foreach (var c in w.CitizensOf(home!))
+                switch (view.TierOf(c.Id)) { case AgentTier.Full: full++; break; case AgentTier.Light: light++; break; }
+        Assert.Equal(50, full);
+        Assert.Equal(200, light);
     }
 }

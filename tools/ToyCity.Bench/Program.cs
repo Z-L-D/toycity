@@ -3,6 +3,20 @@ using ToyCity.Sim;
 
 // Headless benchmark: builds the starter town and runs it for some years, printing a yearly report.
 // Usage: dotnet run --project tools/ToyCity.Bench -- [years=10] [size=128] [seed=42]
+//        dotnet run --project tools/ToyCity.Bench -- tiers [--quick] [--out saves/agent-tiers.json]
+//          measures this machine and writes the agent tiers the server will use.
+if (args.Length > 0 && args[0] == "tiers")
+{
+    bool quick = args.Contains("--quick");
+    int outAt = Array.IndexOf(args, "--out");
+    string outPath = outAt >= 0 && outAt + 1 < args.Length ? args[outAt + 1]
+        : Path.Combine(Path.GetDirectoryName(ContentDb.FindContentDir())!, "saves", "agent-tiers.json");
+    var profile = AgentBenchmark.Run(ContentDb.LoadDefault(), quick, Console.WriteLine);
+    AgentBenchmark.Save(profile, outPath);
+    Console.WriteLine($"{profile.Machine} ({profile.Cores} cores, {profile.Os}): full agents {profile.Full:N0}, light agents {profile.Light:N0}");
+    Console.WriteLine($"wrote {outPath}");
+    return 0;
+}
 int years = args.Length > 0 ? int.Parse(args[0]) : 10;
 int size = args.Length > 1 ? int.Parse(args[1]) : 128;
 ulong seed = args.Length > 2 ? ulong.Parse(args[2]) : 42;

@@ -28,6 +28,7 @@ public sealed partial class World
                 if (Debt + a.Amount > MaxDebt) { Reject($"The bank won't lend more than ${MaxDebt:N0} in total."); break; }
                 Debt += a.Amount;
                 Funds += a.Amount;
+                OneOffs += a.Amount;
                 Notices.Add(new SimNotice($"Took a loan of ${a.Amount:N0}.", "info"));
                 break;
             case PlaceUtilityAction a: ApplyUtility(a); break;
@@ -63,6 +64,7 @@ public sealed partial class World
             return false;
         }
         Funds -= cost;
+        OneOffs -= cost;
         return true;
     }
 
@@ -189,6 +191,7 @@ public sealed partial class World
         if (w == 0) { w = type.W; h = type.H; }
         var b = new Building { Id = Buildings.Count, Type = type.Index, X = x, Y = y, W = w, H = h, ConstructionLeft = constructionDays };
         InitTotals(b);
+        if (b.Residents > 0) { b.Since = new int[b.Residents]; Array.Fill(b.Since, MonthIndex); }
         b.Access = FindAccess(x, y, w, h);
         Buildings.Add(b);
         for (int yy = y; yy < y + h; yy++)
@@ -204,6 +207,15 @@ public sealed partial class World
             BuildingAt[Idx(xx, yy)] = 0;
         ReleaseAssignments(b);
         Buildings[b.Id] = null;
+        // Its workers lose their jobs now, not at the next monthly recount.
+        if (b.Jobs > 0)
+            foreach (var home in Buildings)
+            {
+                if (home == null || home.Assignments.Count == 0 || home.Assignments.All(a => a.SiteId != b.Id)) continue;
+                home.Assignments.RemoveAll(a => a.SiteId == b.Id);
+                home.Employed = home.Assignments.Sum(a => a.Count);
+                home.CommuteMinutes = home.Employed > 0 ? (int)(home.Assignments.Sum(a => (long)a.Minutes * a.Count) / home.Employed) : 0;
+            }
     }
 
     void ApplyBulldoze(BulldozeAction a)

@@ -326,3 +326,7 @@ table.cmp { margin-top: 8px; }
 details summary { cursor: pointer; margin: 4px 0; }
 
 #tools label.field { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted, #9aa4b2); margin-top: 4px; }
+
+ul.residents { list-style: none; padding: 0; margin: 4px 0; max-height: 320px; overflow-y: auto; }
+ul.residents li { padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); font-size: 12px; }
+button.mini { padding: 0 6px; font-size: 11px; margin-left: 4px; }

@@ -80,6 +80,8 @@ let dirty = true;
 let activeTab = 'why';
 // Created after the connection; messages that arrive first are handled once it exists.
 let talk: TalkBack | null = null;
+/** The followed commuters and this machine's tiers, as the server last sent them. */
+let roster: Msg | null = null;
 
 const conn = new Connection({
   onStatus(ok) {
@@ -131,6 +133,12 @@ const conn = new Connection({
       }
       case 'saves':
         saveNames = body.names;
+        break;
+      case 'agents':
+        roster = body;
+        renderer.agents = body.trips;
+        if (activeTab === 'layers') renderLayers();
+        dirty = true;
         break;
       case 'error':
         toast(body.message, 'error');
@@ -276,7 +284,7 @@ function buildToolbar() {
 
 /** Lower-left key hints for the current tool (Fortnite style). */
 function updateHints() {
-  const common: [string, string][] = [['Wheel', 'zoom'], ['Right-drag', 'pan'], ['U', renderer.underground ? 'leave underground view' : 'underground view'], ['Space', 'pause']];
+  const common: [string, string][] = [['Wheel', 'zoom'], ['Right-drag', 'pan'], ['U', renderer.underground ? 'leave underground view' : 'underground view'], ['M', 'commuters'], ['Space', 'pause']];
   const per: Record<Tool['kind'], [string, string][]> = {
     query: [['Click', 'ask why']],
     bulldoze: [['Drag', renderer.underground ? 'remove pipes in area' : 'clear area'], ['Esc', 'cancel']],
@@ -555,6 +563,7 @@ window.addEventListener('keydown', (e) => {
   };
   if (keyTools[k]) setTool(keyTools[k]);
   else if (k === 'v') { density = (density + 1) % 3; buildToolbar(); updateHints(); }
+  else if (k === 'm') { renderer.showAgents = !renderer.showAgents; if (activeTab === 'layers') renderLayers(); dirty = true; }
   else if (k === 'u') { renderer.underground = !renderer.underground; updateHints(); dirty = true; }
   else if (k === 'escape' && curveEnds) { curveEnds = null; renderer.preview = null; updateHints(); dirty = true; }
   else if (k === 'escape') { drag = null; renderer.preview = null; setTool({ kind: 'query' }); }
@@ -637,8 +646,45 @@ function renderFunding(b: Msg) {
 
 function renderInspect(r: Msg) {
   const rows = (r.fields as Msg[]).map((f) => `<tr><td>${esc(f.key)}</td><td>${esc(f.value)}</td></tr>`).join('');
-  $('#tab-inspect').innerHTML = `<h3>Cell ${r.x}, ${r.y}</h3><table class="kv">${rows}</table>`;
+  $('#tab-inspect').innerHTML = `<h3>Cell ${r.x}, ${r.y}</h3><table class="kv">${rows}</table>${renderResidents(r)}`;
   if (queriedBuilding && city.typeById.get(queriedBuilding.typeId)?.placeable) renderFunding(queriedBuilding);
+  document.querySelectorAll<HTMLButtonElement>('#tab-inspect button[data-follow]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const id = Number(b.dataset.follow);
+      renderer.followed = renderer.followed === id ? null : id;
+      renderInspect(r);
+      dirty = true;
+    }),
+  );
+  document.querySelectorAll<HTMLAnchorElement>('#tab-inspect a[data-jx]').forEach((a) =>
+    a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(Number(a.dataset.jx), Number(a.dataset.jy)); }),
+  );
+}
+
+const TIER_NAMES: Record<string, string> = {
+  full: 'On the map: followed every day',
+  light: 'Kept on file: checked monthly',
+  household: 'Counted with the household',
+};
+
+/** The people who live in the inspected building, one row each, with their commute and how often they're late. */
+function renderResidents(r: Msg): string {
+  const people = (r.residents ?? []) as Msg[];
+  if (!people.length) return '';
+  const total = r.building?.residents ?? people.length;
+  const items = people.map((c) => {
+    const work = c.job
+      ? `${c.byTransit ? '🚌' : '🚗'} <a href="#" data-jx="${c.jobX}" data-jy="${c.jobY}">${esc(c.job)}</a>, ${c.commuteMinutes} min`
+      : c.role === 'job seeker' ? 'looking for work' : c.role;
+    const late = c.tier === 'full' && c.daysTracked > 0
+      ? ` · late ${c.daysLate} of ${c.daysTracked} days, about ${c.avgMinutes} min door to door`
+      : '';
+    const follow = c.tier === 'full'
+      ? ` <button class="mini" data-follow="${c.id}">${renderer.followed === c.id ? 'Unfollow' : 'Follow'}</button>` : '';
+    return `<li><b>${esc(c.name)}</b>, ${c.age} · ${work}${late}${follow}<br><span class="muted" title="${esc(TIER_NAMES[c.tier] ?? '')}">${esc(TIER_NAMES[c.tier] ?? c.tier)}</span></li>`;
+  }).join('');
+  const more = total > people.length ? `<p class="muted">…and ${total - people.length} more.</p>` : '';
+  return `<h4>Residents (${total})</h4><ul class="residents">${items}</ul>${more}`;
 }
 
 function renderBudget() {
@@ -705,6 +751,9 @@ function renderLayers(low?: string, high?: string) {
       ${OVERLAYS.map((x) => `<button data-overlay="${x.kind}" class="${x.kind === activeOverlay ? 'active' : ''}">${x.name}</button>`).join('')}
     </div>
     ${o ? `<div class="legend"><span>${esc(low ?? 'low')}</span><span class="ramp" style="background:${ramp[o.scheme]}"></span><span>${esc(high ?? 'high')}</span></div>` : ''}
+    <h4>Commuters</h4>
+    <button id="btn-agents" class="${renderer.showAgents ? 'active' : ''}">${renderer.showAgents ? 'Showing commuters' : 'Show commuters'} (M)</button>
+    ${roster ? `<p class="muted">${roster.full.toLocaleString('en-US')} people followed daily (${(roster.trips as Msg[]).length.toLocaleString('en-US')} drawn), ${roster.light.toLocaleString('en-US')} checked monthly, of ${roster.citizens.toLocaleString('en-US')}. This machine's limits: ${roster.fullTier.toLocaleString('en-US')} and ${roster.lightTier.toLocaleString('en-US')} (${esc(roster.machine)}). Yellow drive, blue ride transit; the map runs the morning and evening rush on a loop.</p>` : ''}
     <h4>Underground</h4>
     <button id="btn-under" class="${renderer.underground ? 'active' : ''}">${renderer.underground ? 'Showing pipes' : 'Show water pipes'} (U)</button>`;
   document.querySelectorAll<HTMLButtonElement>('#tab-layers button[data-overlay]').forEach((b) =>
@@ -717,6 +766,7 @@ function renderLayers(low?: string, high?: string) {
     }),
   );
   $('#btn-under').addEventListener('click', () => { renderer.underground = !renderer.underground; renderLayers(); updateHints(); dirty = true; });
+  $('#btn-agents').addEventListener('click', () => { renderer.showAgents = !renderer.showAgents; renderLayers(); dirty = true; });
 }
 
 // ---------------------------------------------------------------------------

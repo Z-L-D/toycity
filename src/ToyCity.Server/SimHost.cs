@@ -40,6 +40,7 @@ public sealed partial class SimHost : IDisposable
         _log = log;
         Directory.CreateDirectory(saveDir);
         _world = NewWorld("Toyville", 2026, 128, starter: true);
+        LoadAgentTiers();
         _thread = new Thread(Loop) { IsBackground = true, Name = "sim" };
         _thread.Start();
     }
@@ -75,6 +76,7 @@ public sealed partial class SimHost : IDisposable
             lock (_gate)
             {
                 _world.Step();
+                Agents().Daily();
                 if (_world.Day == 1 && _world.Month == 1) AutoSave();
                 outbox = BuildDeltas();
             }
@@ -115,6 +117,8 @@ public sealed partial class SimHost : IDisposable
             var civic = Mapping.Civic(_world);
             foreach (var c in _clients) list.Add((c, new P.ServerMessage { Civic = civic }));
         }
+        if (RosterIfChanged() is { } roster)
+            foreach (var c in _clients) list.Add((c, new P.ServerMessage { Agents = roster }));
         return list;
     }
 
@@ -156,6 +160,9 @@ public sealed partial class SimHost : IDisposable
         P.CivicState civicNow;
         lock (_gate) civicNow = Mapping.Civic(_world);
         await SendAsync(client, new P.ServerMessage { Civic = civicNow });
+        P.AgentRoster rosterNow;
+        lock (_gate) rosterNow = Roster(Agents());
+        await SendAsync(client, new P.ServerMessage { Agents = rosterNow });
 
         var buffer = new byte[64 * 1024];
         using var ms = new MemoryStream();
@@ -209,7 +216,7 @@ public sealed partial class SimHost : IDisposable
                     reply = new P.ServerMessage { Why = Mapping.Why(_world.Why(msg.Why.X, msg.Why.Y)) };
                     break;
                 case P.ClientMessage.BodyOneofCase.Inspect:
-                    reply = new P.ServerMessage { Inspect = Mapping.Inspect(_world, msg.Inspect.X, msg.Inspect.Y) };
+                    reply = new P.ServerMessage { Inspect = InspectWithResidents(msg.Inspect.X, msg.Inspect.Y) };
                     break;
                 case P.ClientMessage.BodyOneofCase.Overlay:
                     reply = new P.ServerMessage { Overlay = Mapping.Overlay(_world.Overlay((OverlayKind)(int)msg.Overlay.Kind)) };
