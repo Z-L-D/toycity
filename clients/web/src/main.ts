@@ -624,8 +624,10 @@ function renderWhy(w: Msg) {
     <p class="summary">${esc(w.summary)}</p>
     ${reqs ? `<h4>Needs</h4>${reqs}` : ''}
     ${fac ? `<h4>${(w.requirements as Msg[]).some((r) => r.key === 'desirability') ? 'Desirability factors' : 'Land value factors'}</h4>${fac}` : ''}
-    <div id="funding-slot"></div>`;
+    <div id="funding-slot"></div>
+    <div class="residents-slot"></div>`;
   if (isCivic) renderFunding(b!);
+  fillResidents();
   document.querySelectorAll<HTMLAnchorElement>('#tab-why a.topic').forEach((a) =>
     a.addEventListener('click', (e) => { e.preventDefault(); talk?.article(a.dataset.topic!); }),
   );
@@ -645,20 +647,33 @@ function renderFunding(b: Msg) {
 }
 
 function renderInspect(r: Msg) {
+  lastInspect = r;
   const rows = (r.fields as Msg[]).map((f) => `<tr><td>${esc(f.key)}</td><td>${esc(f.value)}</td></tr>`).join('');
-  $('#tab-inspect').innerHTML = `<h3>Cell ${r.x}, ${r.y}</h3><table class="kv">${rows}</table>${renderResidents(r)}`;
+  $('#tab-inspect').innerHTML = `<h3>Cell ${r.x}, ${r.y}</h3><table class="kv">${rows}</table><div class="residents-slot"></div>`;
   if (queriedBuilding && city.typeById.get(queriedBuilding.typeId)?.placeable) renderFunding(queriedBuilding);
-  document.querySelectorAll<HTMLButtonElement>('#tab-inspect button[data-follow]').forEach((b) =>
-    b.addEventListener('click', () => {
-      const id = Number(b.dataset.follow);
-      renderer.followed = renderer.followed === id ? null : id;
-      renderInspect(r);
-      dirty = true;
-    }),
-  );
-  document.querySelectorAll<HTMLAnchorElement>('#tab-inspect a[data-jx]').forEach((a) =>
-    a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(Number(a.dataset.jx), Number(a.dataset.jy)); }),
-  );
+  fillResidents();
+}
+
+/** The last inspect reply: its residents are listed under both Why and Inspect, whichever arrives first. */
+let lastInspect: Msg | null = null;
+
+function fillResidents() {
+  const r = lastInspect;
+  const html = r && queried && r.x === queried.x && r.y === queried.y ? renderResidents(r) : '';
+  document.querySelectorAll<HTMLElement>('.residents-slot').forEach((slot) => {
+    slot.innerHTML = html;
+    slot.querySelectorAll<HTMLButtonElement>('button[data-follow]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const id = Number(b.dataset.follow);
+        renderer.followed = renderer.followed === id ? null : id;
+        fillResidents();
+        dirty = true;
+      }),
+    );
+    slot.querySelectorAll<HTMLAnchorElement>('a[data-jx]').forEach((a) =>
+      a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(Number(a.dataset.jx), Number(a.dataset.jy)); }),
+    );
+  });
 }
 
 const TIER_NAMES: Record<string, string> = {

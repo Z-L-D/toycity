@@ -142,8 +142,9 @@ public sealed class AgentView
     /// </summary>
     public void Daily()
     {
-        if (_selectedAt != _w.MonthIndex) Select();
         int day = (int)_w.Tick;
+        // Monthly, and weekly while nobody is followed yet (a new city has no jobs on its first day).
+        if (_selectedAt != _w.MonthIndex || (_trips.Count == 0 && day % RerouteEvery == 0)) Select();
         for (int k = 0; k < _trips.Count; k++)
         {
             var t = _trips[k];
