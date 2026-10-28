@@ -399,3 +399,10 @@ body.company #co-panel { display: flex; flex-direction: column; min-height: 0; b
 .lot-card { border: 1px solid #4a3f22; border-radius: 6px; padding: 8px; margin: 8px 0; }
 .lot-card.sel { border-color: #5ad1ff; }
 body.company #hints { display: none; }
+
+/* Building upgrades in the Why and Inspect panels. */
+.upgrade { margin: 6px 0 10px; }
+.upgrade button { margin-bottom: 3px; }
+.upgrade button:disabled { opacity: .45; cursor: not-allowed; }
+.upgrade.locked { opacity: 0.85; }
+.warn { color: #e0a040; }

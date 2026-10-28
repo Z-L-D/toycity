@@ -186,6 +186,34 @@ A bus stop's walking reach is 8 cells (it was 4 in Alpha 2). At 4, a line throug
 starter town reached too few homes and jobs for anyone to ride. Each line shows how many homes and
 jobs its stops reach and, with no riders yet, why.
 
+## Roadside stops and upgrades
+
+Bus stops stand on the **kerb of a road** instead of taking a cell of land: any road with cars,
+on the side you pick. The placement preview follows the cursor, so pointing at the top half of a
+road puts the stop on its north kerb and the bottom half on its south kerb; clicking land beside a
+road puts it on that road's kerb facing the land. A road cell can have a stop on each kerb, but not
+on a side where another road joins. On the map a stop is a sign along the kerb in its type's colour
+(longer for the bigger stops) with a **B** painted in the lane in front of it. Stops take no land, so
+lots and zones beside them are untouched, and a stop goes when its road is bulldozed.
+
+Civic buildings can **upgrade in place**. A building's panel (Why and Inspect) lists the upgrades
+its type offers as buttons; one not yet on offer says what it still needs. An upgrade is cheaper than
+building the bigger type new, keeps the building's place, lease and side, and costs more upkeep after.
+Where a type offers more than one, picking one closes the others for that building.
+
+| | Cost new | Upgrade | Needs | Riders a day | Reach | Upkeep | Standard lease |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Bus Stop | $150 | | | 400 | 8 | $15 | $40 |
+| Bus Shelter | $600 | $250 from a stop | 150 riders | 800 | 8 | $30 | $80 |
+| Bus Bay | $2,000 | $900 from a shelter | 500 riders | 1,600 | 9, 1-minute wait | $60 | $160 |
+| Kiosk Shelter | $1,300 | $450 from a shelter | 200 riders, shops or offices within 3 cells | 900 | 8, 1-minute wait, 3 jobs, $40 a month to the city | $35 | $120 |
+
+A side game that leases a stop keeps it as a bus-stop lot whatever it grows into. When an upgrade
+lifts the standard rent above a business lease's rent, the new rent is proposed with the lease's
+notice period, like any change of terms. Upgrades are data (`upgrades` on a building type in
+`content/buildings.json`), so other services, such as garbage collection, can use the same
+mechanic.
+
 ## Authority rating, paid actions and house rules
 
 Each side game has a rating in each district it has lots in, from -1000 to 1000, shown on its
@@ -234,3 +262,6 @@ state at hand-off with the computer's notes so far, and the last report), the le
 standings (rating, target, statue, exclusive rights, bribe ban), paid actions waiting for an answer,
 compensation waiting to be paid, and each player's consent settings. The content files changed too (district
 names, the bus depot), so Alpha 2 saves don't load.
+
+Format version 4 adds each building's kerb side for roadside stops. Bus stops changed in the content
+files, so earlier Alpha 3 saves don't load.

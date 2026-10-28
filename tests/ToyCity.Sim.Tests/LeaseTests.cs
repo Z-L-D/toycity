@@ -4,7 +4,7 @@ namespace ToyCity.Sim.Tests;
 
 public class LeaseTests
 {
-    static World WithProbe(ulong seed)
+    internal static World WithProbe(ulong seed)
     {
         ProbeGame.Register();
         var w = Fixture.Starter(seed);
@@ -27,7 +27,7 @@ public class LeaseTests
             if (skip-- > 0) continue;
             w.Enqueue(new PlaceBuildingAction(x, y, "bus-stop"));
             w.ApplyPending();
-            return w.BuildingAt[w.Idx(x, y)] - 1;
+            return w.Buildings.Count - 1;
         }
         throw new InvalidOperationException("no site for a stop");
     }

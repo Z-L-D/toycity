@@ -49,7 +49,7 @@ public sealed partial class World
         };
         string fix = c is { } cat ? FirstUnlocked(cat) : "";
         // A crowded stop wants another of the same kind nearby.
-        if (a.Key == "stop-crowded" && InBounds(a.X, a.Y) && BuildingAtCell(Idx(a.X, a.Y)) is { } stop) fix = TypeOf(stop).Id;
+        if (a.Key == "stop-crowded" && InBounds(a.X, a.Y) && BuildingOrStopAt(Idx(a.X, a.Y)) is { } stop) fix = TypeOf(stop).Id;
         return (fix, area);
     }
 

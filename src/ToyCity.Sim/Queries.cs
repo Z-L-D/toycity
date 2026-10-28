@@ -24,6 +24,7 @@ public sealed partial class World
         int i = Idx(x, y);
         if (IsWater(i)) return new WhyReport(x, y, "Water", "Nothing can be built on water yet.", reqs, factors);
 
+        if (RoadsideAt(i).FirstOrDefault() is { } stop) return WhyCivic(stop, x, y);
         if (ProfileAt(i) is { } p)
         {
             int level = Traffic[i];
@@ -155,7 +156,7 @@ public sealed partial class World
         f.Add(("Water", Watered[i] switch { 1 => "yes", 2 => "shortage", _ => "no" }));
         if (Path[i] != 0) f.Add(("Traffic", $"{Trips[i]} trips/day, level {Traffic[i]}"));
         f.Add(("Coverage P / F / H / E / Parks", string.Join(" / ", Coverage.Select(c => c[i] * 100 / 255 + "%"))));
-        if (BuildingAtCell(i) is { } b)
+        if (BuildingOrStopAt(i) is { } b)
         {
             var t = TypeOf(b);
             f.Add(("Building", $"#{b.Id} {t.Name}"));
@@ -166,7 +167,7 @@ public sealed partial class World
                 f.Add(("Getting to work", $"{b.Employed - ride} on the street, {ride} by transit; {CarlessOf(b)} of {LaborOf(b)} workers have no car"));
             }
             if (t.Transit != TransitKind.None) f.Add(("Riders", $"{b.Riders} a day of {t.Capacity}, wait {StopWait(b) / 600.0:0.#} min"));
-            f.Add(("Lot", $"{b.W} × {b.H}"));
+            f.Add(("Lot", t.Roadside ? $"roadside, {SideNames[b.Side]} kerb" : $"{b.W} × {b.H}"));
             if (b.Jobs > 0) f.Add(("Jobs", $"{b.Workers} of {b.Jobs} filled"));
             if (t.Placeable) f.Add(("Funding", $"{b.Funding}%"));
             f.Add(("Condition", $"{b.Condition} ({LookOf(b)}), graffiti {b.Graffiti}{(b.BurningDays > 0 ? $", burning {b.BurningDays} days" : "")}"));

@@ -38,6 +38,25 @@ public sealed class PathProfile
     [JsonIgnore] public int CellTime { get; set; }
 }
 
+/// <summary>
+/// An upgrade from one civic building type to another, in place: it keeps its lot, lease and funding. It costs less
+/// than building the bigger type new, and is on offer only once the building has earned it.
+/// </summary>
+public sealed class UpgradeDef
+{
+    /// <summary>The type it becomes.</summary>
+    public string To { get; set; } = "";
+    public int Cost { get; set; }
+    /// <summary>Transit stops: people getting on and off a day, at least.</summary>
+    public int Riders { get; set; }
+    /// <summary>The city's population, at least.</summary>
+    public int Population { get; set; }
+    /// <summary>"R", "C" or "I": a building of that zone within three cells.</summary>
+    public string NearZone { get; set; } = "";
+    /// <summary>What the upgrade does, for the button.</summary>
+    public string Text { get; set; } = "";
+}
+
 /// <summary>A building type: either a zoned template that grows by itself or a civic building the mayor places.</summary>
 public sealed class BuildingType
 {
@@ -82,6 +101,14 @@ public sealed class BuildingType
     public int Catchment { get; set; }
     /// <summary>Transit stops: average wait in minutes when not crowded.</summary>
     public int Wait { get; set; }
+    /// <summary>Placed on one side of a road instead of on land: it takes no tile and doesn't block the road.</summary>
+    public bool Roadside { get; set; }
+    /// <summary>What side games lease it as ("bus-stop", "bus-depot"), whatever size it has grown to; empty when not leasable.</summary>
+    public string LotKind { get; set; } = "";
+    /// <summary>Monthly rent on the city's standard lease for it; 0 for the lot kind's default.</summary>
+    public int LeaseRent { get; set; }
+    /// <summary>What it can become, and when. Several make a branch: taking one rules out the others.</summary>
+    public List<UpgradeDef> Upgrades { get; set; } = new();
 
     [JsonIgnore] public int Index { get; set; }
     [JsonIgnore] public bool Placeable => Category != Category.Zoned;
@@ -177,6 +204,10 @@ public sealed class ContentDb
         public int Capacity { get; set; }
         public int Catchment { get; set; }
         public int Wait { get; set; }
+        public bool Roadside { get; set; }
+        public string LotKind { get; set; } = "";
+        public int LeaseRent { get; set; }
+        public List<UpgradeDef> Upgrades { get; set; } = new();
     }
 
     sealed class BuildingsFile
@@ -290,9 +321,19 @@ public sealed class ContentDb
                 Income = c.Income, Unique = c.Unique, UnlockText = c.UnlockText,
                 Transit = c.Transit switch { "" => TransitKind.None, "bus" => TransitKind.Bus, "tram" => TransitKind.Tram, "rail" => TransitKind.Rail, _ => throw new InvalidDataException($"{c.Id}: bad transit '{c.Transit}'") },
                 Capacity = c.Capacity, Catchment = c.Catchment, Wait = c.Wait,
+                Roadside = c.Roadside, LotKind = c.LotKind, LeaseRent = c.LeaseRent, Upgrades = c.Upgrades,
                 Unlock = c.Unlock is { } u ? RuleGraph.Compile(u, c.Id + " unlock") : null,
             });
         }
+        foreach (var t in db.Types)
+            foreach (var u in t.Upgrades)
+            {
+                int to = db.TypeIndex(u.To);
+                if (to < 0 || !db.Types[to].Placeable) throw new InvalidDataException($"{t.Id}: upgrade to unknown type '{u.To}'");
+                if (db.Types[to].Roadside != t.Roadside || db.Types[to].W != t.W || db.Types[to].H != t.H)
+                    throw new InvalidDataException($"{t.Id}: an upgrade must keep the footprint ('{u.To}' doesn't)");
+                if (u.NearZone is not ("" or "R" or "C" or "I")) throw new InvalidDataException($"{t.Id}: bad nearZone '{u.NearZone}'");
+            }
         if (ordinancesJson != null) db.Ordinances = OrdinanceDef.Parse(ordinancesJson);
         if (eventsJson != null) (db.Events, db.Director) = EventDef.Parse(eventsJson);
         if (voiceJson != null) db.Voice = Voice.Parse(voiceJson);

@@ -123,7 +123,11 @@ export class Transport {
     const city = this.host.city;
     const lots: CompanyLot[] = this.allLots().map((l) => {
       const b = city.buildings.get(l.buildingId);
-      return { buildingId: l.buildingId, kind: l.kind, x: l.x, y: l.y, w: b?.width ?? 1, h: b?.height ?? 1, leased: l.leaseId > 0, closed: l.closedDays > 0 };
+      const t = b ? city.typeById.get(b.typeId) : undefined;
+      return {
+        buildingId: l.buildingId, kind: l.kind, x: l.x, y: l.y, w: b?.width ?? 1, h: b?.height ?? 1, leased: l.leaseId > 0, closed: l.closedDays > 0,
+        reach: t?.catchment ?? 0, side: t?.roadside && b ? b.side : -1,
+      };
     });
     this.host.setCompanyMap({ lots, catchment: this.catchment(), showCatchment: this.showCatchment, selected: this.selected });
   }
@@ -133,8 +137,8 @@ export class Transport {
   /** Homes and workplaces within walking reach of a stop, from the city's map. */
   private reach(l: Msg) {
     const city = this.host.city;
-    const r = this.catchment();
     const stop = city.buildings.get(l.buildingId);
+    const r = (stop && city.typeById.get(stop.typeId)?.catchment) || this.catchment();
     const sw = stop?.width ?? 1, sh = stop?.height ?? 1;
     let homes = 0, people = 0, sites = 0, jobs = 0;
     for (const b of city.buildings.values()) {
@@ -154,8 +158,9 @@ export class Transport {
   /** A click on the map in the company's view. */
   mapClick(x: number, y: number) {
     if (!this.view) return;
-    const id = this.host.city.buildingAt[y * this.host.city.width + x] - 1;
-    const lot = this.allLots().find((l) => l.buildingId === id);
+    const city = this.host.city, lots = this.allLots();
+    const near = [city.buildingAtCell(x, y), ...city.stopsAt(x, y), ...city.stopsFacing(x, y)].filter(Boolean).map((b) => b!.id);
+    const lot = near.map((id) => lots.find((l) => l.buildingId === id)).find(Boolean);
     if (this.tool === 'line' && this.draft) {
       if (!lot || lot.leaseId === 0 || lot.kind !== 'bus-stop') {
         this.host.toast('Click a bus stop the company leases (solid yellow). Lease free ones (dashed) with the Lease tool.', 'warning');

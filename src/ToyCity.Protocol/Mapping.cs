@@ -18,7 +18,8 @@ public static class Mapping
         P.Action.KindOneofCase.Path => new PlacePathAction(a.Path.X0, a.Path.Y0, a.Path.X1, a.Path.Y1, a.Path.ProfileId, a.Path.Curved, a.Path.Cx, a.Path.Cy),
         P.Action.KindOneofCase.Block => new ZoneBlockAction(a.Block.X, a.Block.Y, (Zone)(int)a.Block.Zone, (Level)(int)a.Block.Density, (Leftover)(int)a.Block.Leftover),
         P.Action.KindOneofCase.Zone => new PaintZoneAction(Rect(a.Zone.Area), (Zone)(int)a.Zone.Zone, (Level)(int)a.Zone.Density),
-        P.Action.KindOneofCase.Building => new PlaceBuildingAction(a.Building.X, a.Building.Y, a.Building.TypeId),
+        P.Action.KindOneofCase.Building => new PlaceBuildingAction(a.Building.X, a.Building.Y, a.Building.TypeId, a.Building.Side - 1),
+        P.Action.KindOneofCase.Upgrade => new UpgradeBuildingAction(a.Upgrade.BuildingId, a.Upgrade.ToTypeId),
         P.Action.KindOneofCase.Bulldoze => new BulldozeAction(Rect(a.Bulldoze.Area), a.Bulldoze.Underground),
         P.Action.KindOneofCase.Terraform => new TerraformAction(Rect(a.Terraform.Area), (TerraformMode)(int)a.Terraform.Mode),
         P.Action.KindOneofCase.Tax => new SetTaxAction((Zone)(int)a.Tax.Zone, (Level)(int)a.Tax.Wealth, a.Tax.PercentTenths),
@@ -44,7 +45,8 @@ public static class Mapping
         PlacePathAction x => new P.Action { Path = new P.PlacePath { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, ProfileId = x.ProfileId, Curved = x.Curved, Cx = x.CX, Cy = x.CY } },
         ZoneBlockAction x => new P.Action { Block = new P.ZoneBlock { X = x.X, Y = x.Y, Zone = (P.ZoneKind)(int)x.Zone, Density = (P.Density)(int)x.Density, Leftover = (P.Leftover)(int)x.Leftover } },
         PaintZoneAction x => new P.Action { Zone = new P.PaintZone { Area = Rect(x.Area), Zone = (P.ZoneKind)(int)x.Zone, Density = (P.Density)(int)x.Density } },
-        PlaceBuildingAction x => new P.Action { Building = new P.PlaceBuilding { X = x.X, Y = x.Y, TypeId = x.TypeId } },
+        PlaceBuildingAction x => new P.Action { Building = new P.PlaceBuilding { X = x.X, Y = x.Y, TypeId = x.TypeId, Side = x.Side + 1 } },
+        UpgradeBuildingAction x => new P.Action { Upgrade = new P.UpgradeBuilding { BuildingId = x.BuildingId, ToTypeId = x.ToTypeId } },
         BulldozeAction x => new P.Action { Bulldoze = new P.Bulldoze { Area = Rect(x.Area), Underground = x.Underground } },
         TerraformAction x => new P.Action { Terraform = new P.Terraform { Area = Rect(x.Area), Mode = (P.TerraformMode)(int)x.Mode } },
         SetTaxAction x => new P.Action { Tax = new P.SetTax { Zone = (P.ZoneKind)(int)x.Zone, Wealth = (P.Wealth)(int)x.Wealth, PercentTenths = x.PercentTenths } },
@@ -94,6 +96,15 @@ public static class Mapping
                 Cost = t.Cost, Placeable = t.Placeable, Color = t.Color, UnlockText = t.Unlock != null ? t.UnlockText : "",
                 Unique = t.Unique, Income = t.Income, Attraction = t.Attraction,
                 Transit = t.Transit == TransitKind.None ? "" : t.Transit.ToString().ToLowerInvariant(), Capacity = t.Capacity, Catchment = t.Catchment,
+                Roadside = t.Roadside, LotKind = t.LotKind, Maintenance = t.Maintenance, LeaseRent = t.LeaseRent,
+                Upgrades =
+                {
+                    t.Upgrades.Select(u => new P.UpgradeInfo
+                    {
+                        ToTypeId = u.To, Cost = u.Cost, Riders = u.Riders, Population = u.Population, Text = u.Text,
+                        NearZone = u.NearZone switch { "R" => P.ZoneKind.ZoneResidential, "C" => P.ZoneKind.ZoneCommercial, "I" => P.ZoneKind.ZoneIndustrial, _ => P.ZoneKind.ZoneNone },
+                    }),
+                },
             });
         foreach (var sizes in c.LotSizes) cat.LotDepth.Add(sizes.Max(z => Math.Max(z.W, z.D)));
         return cat;
@@ -110,6 +121,7 @@ public static class Mapping
             Workers = b.Residents > 0 ? b.Employed : b.Workers, Powered = b.Powered, Watered = b.Watered,
             Abandoned = b.Abandoned, ConstructionDaysLeft = b.ConstructionLeft, FundingPercent = b.Funding, Condition = b.Condition,
             Graffiti = b.Graffiti, BurningDays = b.BurningDays, Look = (P.BuildingLook)(int)w.LookOf(b), Riders = b.Riders,
+            Side = b.Side,
         };
     }
 
@@ -352,7 +364,12 @@ public static class Mapping
     {
         var p = new P.InspectResult { X = x, Y = y };
         foreach (var (k, v) in w.Inspect(x, y)) p.Fields.Add(new P.KeyValue { Key = k, Value = v });
-        if (w.InBounds(x, y) && w.BuildingAtCell(w.Idx(x, y)) is { } b) p.Building = Building(w, b);
+        if (w.InBounds(x, y) && w.BuildingOrStopAt(w.Idx(x, y)) is { } b)
+        {
+            p.Building = Building(w, b);
+            foreach (var u in w.UpgradeOptions(b))
+                p.Upgrades.Add(new P.UpgradeChoice { ToTypeId = u.To.Id, Name = u.To.Name, Cost = u.Def.Cost, Available = u.Available, WhyNot = u.WhyNot, Text = u.Def.Text });
+        }
         return p;
     }
 

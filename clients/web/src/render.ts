@@ -1,4 +1,5 @@
-import { City, lCells } from './state';
+import { City, lCells, SIDE_DX, SIDE_DY } from './state';
+import type { Building, BuildingType } from './state';
 
 export interface Preview {
   kind: 'line' | 'rect' | 'footprint' | 'cell' | 'cells';
@@ -11,6 +12,8 @@ export interface Preview {
   verticalFirst?: boolean;
   /** Transit stops: the walking reach to outline around the footprint, in cells. */
   catchment?: number;
+  /** Roadside stops: the kerb of the road cell at x0, y0 the stop goes on (0 north, 1 east, 2 south, 3 west). */
+  side?: number;
   /** kind 'cells': the cells to fill, with an optional colour each. */
   cells?: [number, number][];
   colors?: string[];
@@ -108,7 +111,7 @@ export function agentAt(t: AgentTrip, clock: { minute: number; evening: boolean 
 }
 
 /** A lot as the bus company's view draws it. */
-export interface CompanyLot { buildingId: number; kind: string; x: number; y: number; w: number; h: number; leased: boolean; closed: boolean }
+export interface CompanyLot { buildingId: number; kind: string; x: number; y: number; w: number; h: number; leased: boolean; closed: boolean; reach: number; side: number }
 
 export class Renderer {
   readonly ctx: CanvasRenderingContext2D;
@@ -176,6 +179,12 @@ export class Renderer {
     this.scale = ns;
     this.offX = sx - cx * ns;
     this.offY = sy - cy * ns;
+  }
+
+  /** Where in its cell a screen point falls, 0..1 across and down. */
+  cellFrac(sx: number, sy: number): { x: number; y: number } {
+    const fx = (sx - this.offX) / this.scale, fy = (sy - this.offY) / this.scale;
+    return { x: fx - Math.floor(fx), y: fy - Math.floor(fy) };
   }
 
   cellAt(sx: number, sy: number): { x: number; y: number } {
@@ -332,14 +341,16 @@ export class Renderer {
       ctx.lineWidth = 1;
       for (const l of co.lots) {
         if (!l.leased || l.kind !== 'bus-stop') continue;
-        const r = co.catchment;
+        const r = l.reach || co.catchment;
         ctx.fillRect(px(l.x - r), py(l.y - r), (l.w + 2 * r) * s, (l.h + 2 * r) * s);
         ctx.strokeRect(px(l.x - r) + 0.5, py(l.y - r) + 0.5, (l.w + 2 * r) * s - 1, (l.h + 2 * r) * s - 1);
       }
     }
     for (const l of co.lots) {
-      const x = px(l.x), y = py(l.y), bw = l.w * s, bh = l.h * s;
-      ctx.lineWidth = Math.max(2, s / 6);
+      let x = px(l.x), y = py(l.y), bw = l.w * s, bh = l.h * s;
+      // A roadside stop is marked on its kerb, not over the road.
+      if (l.side >= 0) [x, y, bw, bh] = kerbRect(x - 1, y - 1, s + 2, l.side, 1, Math.max(5, s * 0.4));
+      ctx.lineWidth = l.side >= 0 ? 1 : Math.max(2, s / 6);
       if (l.leased) {
         ctx.fillStyle = l.closed ? '#8a4a44' : '#ffcc4d';
         ctx.fillRect(x, y, bw, bh);
@@ -605,6 +616,7 @@ export class Renderer {
     for (const b of c.buildings.values()) {
       if (b.x > x1 || b.y > y1 || b.x + b.width < x0 || b.y + b.height < y0) continue;
       const t = c.typeById.get(b.typeId);
+      if (t?.roadside) { this.drawStop(b, t, px(b.x), py(b.y)); continue; }
       const bx = px(b.x);
       const by = py(b.y);
       const bw = b.width * s;
@@ -705,6 +717,36 @@ export class Renderer {
     }
   }
 
+  /**
+   * A roadside stop: a sign along the road cell's kerb in its type's colour, longer for the bigger stops, and a "B"
+   * painted in the lane in front of it.
+   */
+  private drawStop(b: Building, t: BuildingType, x: number, y: number) {
+    const ctx = this.ctx;
+    const s = this.scale;
+    const len = t.capacity <= 400 ? 0.5 : t.capacity <= 900 ? 0.75 : 1;
+    const [rx, ry, rw, rh] = kerbRect(x, y, s, b.side, len, Math.max(2, s * 0.2));
+    ctx.fillStyle = b.constructionDaysLeft > 0 ? 'rgba(255,200,40,0.85)' : b.abandoned ? '#6b6b6b' : t.color;
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1);
+    if (t.income > 0 && s >= 8) {
+      // A kiosk: a white dot on the sign.
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(rx + rw / 2, ry + rh / 2, Math.max(1, Math.min(rw, rh) * 0.3), 0, Math.PI * 2); ctx.fill();
+    }
+    if (s >= 9) {
+      // In the half of the road nearest the stop, so stops on both kerbs each keep their own.
+      const lx = x + s / 2 + SIDE_DX[b.side] * s * 0.22, ly = y + s / 2 + SIDE_DY[b.side] * s * 0.22;
+      ctx.fillStyle = 'rgba(255,236,150,0.95)';
+      ctx.font = `bold ${Math.round(s * 0.34)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('B', lx, ly);
+    }
+  }
+
   private drawFlames(bx: number, by: number, bw: number, bh: number, seed: number) {
     const ctx = this.ctx;
     const t = performance.now() / 120;
@@ -794,6 +836,20 @@ export class Renderer {
         ctx.fillStyle = p.ok ? p.colors?.[k] ?? p.color : 'rgba(230,60,60,0.55)';
         ctx.fillRect(px(x), py(y), s, s);
       });
+    } else if (p.side !== undefined) {
+      const [rx, ry, rw, rh] = kerbRect(px(p.x0), py(p.y0), s, p.side, 1, Math.max(3, s * 0.28));
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1);
+      if (p.catchment) {
+        const r = p.catchment;
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(px(p.x0 - r), py(p.y0 - r), (1 + 2 * r) * s, (1 + 2 * r) * s);
+        ctx.strokeRect(px(p.x0 - r) + 0.5, py(p.y0 - r) + 0.5, (1 + 2 * r) * s - 1, (1 + 2 * r) * s - 1);
+        ctx.restore();
+      }
     } else if (p.kind === 'line') {
       const cells = p.verticalFirst
         ? [...lCells(p.x0, p.y0, p.x0, p.y1), ...lCells(p.x0, p.y1, p.x1, p.y1).slice(1)]
@@ -817,5 +873,16 @@ export class Renderer {
         ctx.restore();
       }
     }
+  }
+}
+
+/** The strip along one side of a cell at screen (x, y): len is its share of the side, thick its depth in pixels. */
+export function kerbRect(x: number, y: number, s: number, side: number, len: number, thick: number): [number, number, number, number] {
+  const l = s * len, off = (s - l) / 2;
+  switch (side) {
+    case 0: return [x + off, y, l, thick];
+    case 1: return [x + s - thick, y + off, thick, l];
+    case 2: return [x + off, y + s - thick, l, thick];
+    default: return [x, y + off, thick, l];
   }
 }
