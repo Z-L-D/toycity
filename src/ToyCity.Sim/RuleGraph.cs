@@ -7,6 +7,7 @@ public enum ModKey
 {
     PowerUse, WaterUse, Garbage, IndustryPollution, Traffic, Attraction, Education, LandValue,
     DesirabilityR, DesirabilityC, DesirabilityI, DemandR, DemandC, DemandI, DemandDirty, DemandHighTech,
+    Litter, Graffiti, FireSpread,
 }
 
 /// <summary>
@@ -39,6 +40,7 @@ public sealed class RuleGraph
         ["desirability.R"] = ModKey.DesirabilityR, ["desirability.C"] = ModKey.DesirabilityC, ["desirability.I"] = ModKey.DesirabilityI,
         ["demand.R"] = ModKey.DemandR, ["demand.C"] = ModKey.DemandC, ["demand.I"] = ModKey.DemandI,
         ["demand.I.dirty"] = ModKey.DemandDirty, ["demand.I.hightech"] = ModKey.DemandHighTech,
+        ["litter"] = ModKey.Litter, ["graffiti"] = ModKey.Graffiti, ["fire.spread"] = ModKey.FireSpread,
     };
 
     /// <summary>How a modifier reads in words, for previews and the guide.</summary>
@@ -63,6 +65,9 @@ public sealed class RuleGraph
             ModKey.DemandI => $"{s} industrial demand",
             ModKey.DemandDirty => $"{s} dirty industry demand",
             ModKey.DemandHighTech => $"{s} high-tech demand",
+            ModKey.Litter => $"{s}% litter",
+            ModKey.Graffiti => $"{s}% graffiti",
+            ModKey.FireSpread => $"{s}% fire spread",
             _ => $"{s} {k}",
         };
     }

@@ -26,6 +26,8 @@ public static class Mapping
         P.Action.KindOneofCase.Utility => new PlaceUtilityAction(a.Utility.X0, a.Utility.Y0, a.Utility.X1, a.Utility.Y1, (UtilityKind)(int)a.Utility.Kind),
         P.Action.KindOneofCase.Ordinance => new SetOrdinanceAction(a.Ordinance.Id, a.Ordinance.Enact),
         P.Action.KindOneofCase.Respond => new RespondPromptAction(a.Respond.PromptId, a.Respond.Accept),
+        P.Action.KindOneofCase.Disaster => new TriggerDisasterAction((DisasterKind)(int)a.Disaster.Kind, a.Disaster.X, a.Disaster.Y),
+        P.Action.KindOneofCase.Disasters => new SetDisasterSettingAction((DisasterSetting)(int)a.Disasters.Setting),
         _ => null,
     };
 
@@ -42,6 +44,8 @@ public static class Mapping
         PlaceUtilityAction x => new P.Action { Utility = new P.PlaceUtility { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, Kind = (P.UtilityKind)(int)x.Kind } },
         SetOrdinanceAction x => new P.Action { Ordinance = new P.SetOrdinance { Id = x.Id, Enact = x.Enact } },
         RespondPromptAction x => new P.Action { Respond = new P.RespondPrompt { PromptId = x.PromptId, Accept = x.Accept } },
+        TriggerDisasterAction x => new P.Action { Disaster = new P.TriggerDisaster { Kind = (P.DisasterKind)(int)x.Kind, X = x.X, Y = x.Y } },
+        SetDisasterSettingAction x => new P.Action { Disasters = new P.SetDisasters { Setting = (P.DisasterSetting)(int)x.Setting } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
     };
 
@@ -78,6 +82,7 @@ public static class Mapping
             Residents = b.Operating ? b.Residents : 0, Jobs = b.Operating ? b.Jobs : 0,
             Workers = b.Residents > 0 ? b.Employed : b.Workers, Powered = b.Powered, Watered = b.Watered,
             Abandoned = b.Abandoned, ConstructionDaysLeft = b.ConstructionLeft, FundingPercent = b.Funding, Condition = b.Condition,
+            Graffiti = b.Graffiti, BurningDays = b.BurningDays, Look = (P.BuildingLook)(int)w.LookOf(b),
         };
     }
 
@@ -94,6 +99,9 @@ public static class Mapping
         s.Demand.AddRange(w.Demand);
         s.DemandRaw.AddRange(w.DemandRaw);
         s.TaxTenths.AddRange(w.TaxTenths);
+        s.DisasterSetting = (P.DisasterSetting)(int)w.DisasterSetting;
+        foreach (var d in w.Disasters)
+            s.Disasters.Add(new P.Disaster { Id = d.Id, Kind = (P.DisasterKind)(int)d.Kind, X = d.X, Y = d.Y, DaysLeft = d.DaysLeft, Destroyed = d.Destroyed, Damaged = d.Damaged });
         foreach (var (label, amount) in w.LastBudget) s.Budget.Add(new P.BudgetLine { Label = label, Amount = amount });
         return s;
     }
@@ -133,7 +141,7 @@ public static class Mapping
     static string TopicOf(string key) => key switch
     {
         "road" => "lots", "power" or "grid" => "power", "water" or "pipe" => "water", "desirability" => "desirability",
-        "demand" => "demand", "jobs" or "workers" => "traffic", _ => "",
+        "demand" => "demand", "jobs" or "workers" => "traffic", "condition" => "wear", _ => "",
     };
 
     static P.DemandLine Line(DemandLine d)

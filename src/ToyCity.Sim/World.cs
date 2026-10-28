@@ -36,6 +36,10 @@ public sealed class Building
     /// <summary>For homes: residents with a job.</summary>
     public int Employed;
     public int CommuteMinutes;
+    /// <summary>Tags on the walls, 0..3. Lowers upkeep and spreads blight.</summary>
+    public int Graffiti;
+    /// <summary>Days this building has been on fire, 0 when it isn't.</summary>
+    public int BurningDays;
     /// <summary>Driveway: the path cell this building uses to reach the network, or -1. Derived, not saved.</summary>
     public int Access = -1;
     public List<Assignment> Assignments = new();
@@ -143,6 +147,8 @@ public sealed partial class World
         WaterDistance = new byte[N];
         Coverage = new byte[5][];
         for (int i = 0; i < 5; i++) Coverage[i] = new byte[N];
+        Litter = new byte[N];
+        Blight = new byte[N];
         Array.Fill(TaxTenths, 90);
         InitOrdinances();
         InitDirector();
@@ -204,6 +210,7 @@ public sealed partial class World
     public void Step()
     {
         ApplyPending();
+        RunDisasters();
 
         if (Day == 1 && Tick > 0) RunMonthly();
         RunUtilities();
@@ -225,6 +232,7 @@ public sealed partial class World
         {
             CheckUnlocks();
             RunDirector();
+            RollDisaster();
         }
         UpdateOrdinances();
         RunNeighborConnections();
@@ -232,6 +240,7 @@ public sealed partial class World
         RunPollutionAndNoise();
         RunCoverage();
         RunTraffic();
+        RunWear();
         RunLandValue();
         RunDesirability();
         UpdateStats();
@@ -263,6 +272,7 @@ public sealed partial class World
             w.Write(Pollution); w.Write(WaterPollution); w.Write(Noise); w.Write(Traffic);
             WriteI32(w, Trips); WriteI32(w, TravelCost); w.Write(WaterDistance);
             foreach (var c in Coverage) w.Write(c);
+            w.Write(Litter); w.Write(Blight);
 
             w.Write(Buildings.Count);
             foreach (var b in Buildings)
@@ -272,7 +282,7 @@ public sealed partial class World
                 w.Write(b.Type); w.Write(b.X); w.Write(b.Y); w.Write(b.W); w.Write(b.H);
                 w.Write(b.Funding); w.Write(b.Condition); w.Write(b.Abandoned); w.Write(b.ConstructionLeft);
                 w.Write(b.UnmetMonths); w.Write(b.GoodMonths); w.Write(b.Powered); w.Write(b.Watered);
-                w.Write(b.Workers); w.Write(b.Employed); w.Write(b.CommuteMinutes);
+                w.Write(b.Workers); w.Write(b.Employed); w.Write(b.CommuteMinutes); w.Write(b.Graffiti); w.Write(b.BurningDays);
                 w.Write(b.Assignments.Count);
                 foreach (var a in b.Assignments)
                 {
@@ -295,6 +305,7 @@ public sealed partial class World
             w.Write(GarbageCapacity); w.Write(GarbageProduced);
             WriteOrdinances(w);
             WriteDirector(w);
+            WriteDisasters(w);
         }
         return ms.ToArray();
     }
@@ -319,6 +330,7 @@ public sealed partial class World
         ReadBytes(r, w.Pollution); ReadBytes(r, w.WaterPollution); ReadBytes(r, w.Noise); ReadBytes(r, w.Traffic);
         ReadI32(r, w.Trips); ReadI32(r, w.TravelCost); ReadBytes(r, w.WaterDistance);
         foreach (var c in w.Coverage) ReadBytes(r, c);
+        ReadBytes(r, w.Litter); ReadBytes(r, w.Blight);
 
         int count = r.ReadInt32();
         for (int id = 0; id < count; id++)
@@ -330,6 +342,7 @@ public sealed partial class World
                 Funding = r.ReadInt32(), Condition = r.ReadInt32(), Abandoned = r.ReadBoolean(), ConstructionLeft = r.ReadInt32(),
                 UnmetMonths = r.ReadInt32(), GoodMonths = r.ReadInt32(), Powered = r.ReadBoolean(), Watered = r.ReadBoolean(),
                 Workers = r.ReadInt32(), Employed = r.ReadInt32(), CommuteMinutes = r.ReadInt32(),
+                Graffiti = r.ReadInt32(), BurningDays = r.ReadInt32(),
             };
             int na = r.ReadInt32();
             for (int k = 0; k < na; k++)
@@ -355,6 +368,7 @@ public sealed partial class World
         w.GarbageCapacity = r.ReadInt64(); w.GarbageProduced = r.ReadInt64();
         w.ReadOrdinances(r);
         w.ReadDirector(r);
+        w.ReadDisasters(r);
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

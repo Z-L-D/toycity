@@ -5,7 +5,7 @@ public enum OverlayKind
 {
     None = 0, LandValue = 1, DesirabilityR = 2, DesirabilityC = 3, DesirabilityI = 4, GroundPollution = 5,
     WaterPollution = 6, Power = 7, Water = 8, Traffic = 9, Noise = 10, Police = 11, Fire = 12, Health = 13,
-    Education = 14, Parks = 15, Commute = 16, Elevation = 17,
+    Education = 14, Parks = 15, Commute = 16, Elevation = 17, Litter = 18, Blight = 19,
 }
 
 public sealed record WhyReport(int X, int Y, string Subject, string Summary, List<Requirement> Requirements, List<Factor> Factors);
@@ -40,6 +40,7 @@ public sealed partial class World
         }
 
         var v = EvaluateLot(i, reqs, factors);
+        if (b != null && b.ConstructionLeft == 0) reqs.Add(ConditionRequirement(b));
         if (b == null)
         {
             var zone = ZoneOf(ZoneCode[i]);
@@ -54,11 +55,12 @@ public sealed partial class World
         var t = TypeOf(b);
         string what = $"{t.Name} ({WealthTag(t.Zone, t.Wealth)}, {t.Density.ToString().ToLowerInvariant()} density)";
         string verdict;
-        if (b.ConstructionLeft > 0) verdict = $"Under construction: {b.ConstructionLeft} days left.";
+        if (b.BurningDays > 0) verdict = $"On fire for {b.BurningDays} days. It burns down after {BurnDaysToDestroy} unless firefighters put it out; fire coverage here is {Coverage[(int)Service.Fire][i] * 100 / 255}%.";
+        else if (b.ConstructionLeft > 0) verdict = $"Under construction: {b.ConstructionLeft} days left.";
         else if (b.Abandoned) verdict = v.AllMet
             ? $"Abandoned, but the problems are fixed. People move back in {MonthsToRecover - b.GoodMonths} months if it stays that way."
             : "Abandoned. Fix the unmet needs below and people will move back.";
-        else if (v.AllMet) verdict = "Doing fine.";
+        else if (v.AllMet) verdict = b.Condition < RunDownBelow ? "Doing fine, but run down: see Condition below." : "Doing fine.";
         else verdict = $"At risk: unmet needs for {b.UnmetMonths} of {MonthsToAbandon} months before it's abandoned.";
         return new WhyReport(x, y, what, verdict, reqs, factors);
     }
@@ -82,8 +84,22 @@ public sealed partial class World
             _ => b.Powered || t.PowerKw == 0 ? $"Covers a radius of {EffectiveRadius(b)} cells at {b.Funding}% funding." : "Not working: no power.",
         };
         if (t.PowerKw > 0 && !b.Powered && t.Category != Category.Power) reqs.Add(new Requirement("grid", "Grid", false, "Run a power line from a plant, or place it next to powered buildings or zones."));
+        if (b.ConstructionLeft == 0) reqs.Add(ConditionRequirement(b));
+        if (b.BurningDays > 0) summary = $"On fire for {b.BurningDays} days! " + summary;
         if (t.Category == Category.Water) reqs.Add(new Requirement("pipe", "Pipe connection", WaterPipeTouches(b), WaterPipeTouches(b) ? "Connected to a pipe." : "Lay a water pipe touching the pump."));
         return new WhyReport(x, y, t.Name, summary, reqs, factors);
+    }
+
+    /// <summary>Condition, where it is heading and why, as a line for the why-panel.</summary>
+    Requirement ConditionRequirement(Building b)
+    {
+        var parts = new List<Factor>();
+        int target = UpkeepTarget(b, parts);
+        string why = b.Abandoned
+            ? "Nobody looks after an abandoned building: it loses 5 a month."
+            : $"Owners keep it at {target}: " + string.Join(", ", parts.Select(p => $"{p.Label.ToLowerInvariant()} {(p.Value > 0 ? "+" : "")}{p.Value}")) + ".";
+        string tags = b.Graffiti > 0 ? $" Graffiti: {b.Graffiti} of 3." : "";
+        return new Requirement("condition", "Condition", b.Condition >= RunDownBelow, $"{b.Condition} of 100 ({LookOf(b).ToString().ToLowerInvariant()}). {why}{tags}");
     }
 
     bool WaterPipeTouches(Building b)
@@ -108,6 +124,7 @@ public sealed partial class World
         f.Add(("Desirability R / C / I", $"{DesR[i]} / {DesC[i]} / {DesI[i]}"));
         f.Add(("Pollution (ground / water)", $"{Pollution[i]} / {WaterPollution[i]}"));
         f.Add(("Noise", Noise[i].ToString()));
+        f.Add(("Litter / blight", $"{Litter[i]} / {Blight[i]}"));
         f.Add(("Power", Powered[i] switch { 1 => "yes", 2 => "brownout", _ => "no" }));
         f.Add(("Water", Watered[i] switch { 1 => "yes", 2 => "shortage", _ => "no" }));
         if (Path[i] != 0) f.Add(("Traffic", $"{Trips[i]} trips/day, level {Traffic[i]}"));
@@ -120,6 +137,7 @@ public sealed partial class World
             f.Add(("Lot", $"{b.W} × {b.H}"));
             if (b.Jobs > 0) f.Add(("Jobs", $"{b.Workers} of {b.Jobs} filled"));
             if (t.Placeable) f.Add(("Funding", $"{b.Funding}%"));
+            f.Add(("Condition", $"{b.Condition} ({LookOf(b)}), graffiti {b.Graffiti}{(b.BurningDays > 0 ? $", burning {b.BurningDays} days" : "")}"));
         }
         return f;
     }
@@ -153,6 +171,8 @@ public sealed partial class World
                     v[Idx(b.X, b.Y)] = (byte)Math.Min(255, b.Employed == 0 ? 255 : b.CommuteMinutes * 4);
                 }
                 low = "short"; high = "long or none"; break;
+            case OverlayKind.Litter: Array.Copy(Litter, v, N); low = "tidy"; high = "strewn"; break;
+            case OverlayKind.Blight: Array.Copy(Blight, v, N); low = "kept up"; high = "run down"; break;
             case OverlayKind.Elevation: for (int i = 0; i < N; i++) v[i] = (byte)(Height[i] * 255 / MaxHeight); break;
         }
         return new OverlayResult(kind, v, low, high);

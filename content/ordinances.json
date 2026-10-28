@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Built-in ordinances, written as rule graphs: nodes select buildings, measure them or the city, test the numbers and act. Nodes run in order and may use any earlier node by id; inputs can also be plain numbers. act.* nodes take an amount and an optional condition. Modifier keys: power.use, water.use, garbage, pollution.industry, traffic, attraction, education, landvalue (percent or points as named in the guide), desirability.R/C/I, demand.R/C/I, demand.I.dirty, demand.I.hightech. Availability: always (from minPopulation), unlock (a small graph whose last node must be non-zero), or random (offered for offerMonths with chancePerYear percent, runs for durationMonths once enacted).",
+  "notes": "Built-in ordinances, written as rule graphs: nodes select buildings, measure them or the city, test the numbers and act. Nodes run in order and may use any earlier node by id; inputs can also be plain numbers. act.* nodes take an amount and an optional condition. Modifier keys: power.use, water.use, garbage, pollution.industry, traffic, attraction, education, landvalue (percent or points as named in the guide), desirability.R/C/I, demand.R/C/I, demand.I.dirty, demand.I.hightech, litter, graffiti, fire.spread (percent). Availability: always (from minPopulation), unlock (a small graph whose last node must be non-zero), or random (offered for offerMonths with chancePerYear percent, runs for durationMonths once enacted).",
   "ordinances": [
     {
       "id": "power-conservation",
@@ -107,14 +107,43 @@
       "id": "smoke-detectors",
       "name": "Free Smoke Detectors",
       "category": "Safety",
-      "description": "A detector in every building. Factories like the lower insurance bills: +5 industrial desirability.",
+      "description": "A detector in every building. Fires are caught early and spread 40% less often, and factories like the lower insurance bills: +5 industrial desirability.",
       "availability": { "kind": "always", "minPopulation": 300 },
       "nodes": [
         { "id": "all", "op": "select.buildings", "zoned": "true" },
         { "id": "n", "op": "measure.count", "in": ["all"], "label": "Buildings" },
         { "id": "cost", "op": "math.div", "in": ["n", 2], "label": "Cost: $1 per 2 buildings" },
         { "op": "act.expense", "in": ["cost"], "label": "Smoke detectors" },
-        { "op": "act.modifier", "key": "desirability.I", "in": [5] }
+        { "op": "act.modifier", "key": "desirability.I", "in": [5] },
+        { "op": "act.modifier", "key": "fire.spread", "in": [-40] }
+      ]
+    },
+    {
+      "id": "anti-litter",
+      "name": "Anti-Litter Campaign",
+      "category": "Environment",
+      "description": "Bins on every corner and a cartoon raccoon on the buses. Streets carry 40% less litter, which keeps buildings in better shape.",
+      "availability": { "kind": "always", "minPopulation": 500 },
+      "nodes": [
+        { "id": "shops", "op": "select.buildings", "zone": "C" },
+        { "id": "n", "op": "measure.count", "in": ["shops"], "label": "Shops" },
+        { "id": "cost", "op": "math.add", "in": [50, { "op": "math.mul", "in": ["n", 2] }], "label": "Bins and posters: $50 plus $2 a shop" },
+        { "op": "act.expense", "in": ["cost"], "label": "Anti-litter campaign" },
+        { "op": "act.modifier", "key": "litter", "in": [-40] }
+      ]
+    },
+    {
+      "id": "graffiti-removal",
+      "name": "Graffiti Removal",
+      "category": "Safety",
+      "description": "A crew with pressure washers. New tags are half as likely and old ones get scrubbed off, even where police are thin.",
+      "availability": { "kind": "always", "minPopulation": 800 },
+      "nodes": [
+        { "id": "all", "op": "select.buildings", "zoned": "true" },
+        { "id": "n", "op": "measure.count", "in": ["all"], "label": "Buildings" },
+        { "id": "cost", "op": "math.add", "in": [100, { "op": "math.div", "in": ["n", 3] }], "label": "Crew: $100 plus $1 per 3 buildings" },
+        { "op": "act.expense", "in": ["cost"], "label": "Graffiti removal" },
+        { "op": "act.modifier", "key": "graffiti", "in": [-50] }
       ]
     },
     {
@@ -213,7 +242,8 @@
         { "op": "act.expense", "in": ["stalls"], "label": "Street festival" },
         { "op": "act.modifier", "key": "attraction", "in": [5] },
         { "op": "act.modifier", "key": "demand.C", "in": [10] },
-        { "op": "act.modifier", "key": "traffic", "in": [10] }
+        { "op": "act.modifier", "key": "traffic", "in": [10] },
+        { "op": "act.modifier", "key": "litter", "in": [30] }
       ]
     },
     {

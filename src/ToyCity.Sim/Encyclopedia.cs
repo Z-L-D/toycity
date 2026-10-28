@@ -77,7 +77,7 @@ public sealed partial class World
         {
             ("Struggling buildings", Buildings.Count(b => b is { Abandoned: false, UnmetMonths: > 0 }).ToString("N0")),
             ("Abandoned buildings", Buildings.Count(b => b is { Abandoned: true }).ToString("N0")),
-        }, "growth", "traffic");
+        }, "growth", "traffic", "wear");
 
         Add("power", "Power", "Rules", new()
         {
@@ -222,6 +222,31 @@ public sealed partial class World
         }, Content.Types.Where(t => t.Category is Category.Landmark or Category.Reward)
             .Select(t => (t.Name, TypeUnlocked[t.Index] ? (Buildings.Any(b => b != null && b.Type == t.Index) ? "built" : "unlocked") : t.UnlockText)).ToList(),
             "approval", "events");
+
+        Add("wear", "Wear, litter and graffiti", "Rules", new()
+        {
+            $"Every building has a condition from 0 to 100. Each month it moves up to 3 points toward the level its owners keep it at: two thirds of land value (at most 80) plus 35, minus 8 for each level of graffiti and a quarter of the pollution and litter on the lot. Civic buildings follow their funding instead. Abandoned buildings lose 5 a month.",
+            $"Below {RunDownBelow} a building is run down. Run-down buildings, abandoned and derelict ones (abandoned for {DerelictAfter} months more), graffiti and heavy litter all spread blight, which lowers land value (a sixth of blight), residential desirability (a fifth) and commercial desirability (an eighth). Left alone, a run-down block drags its neighbours down with it.",
+            "Shops, attractions and busy roads drop litter. When garbage collection has spare capacity half of it is cleared. Graffiti appears where police coverage is under 30%, faster on abandoned or shabby buildings, and is scrubbed off where coverage is over 40%; elsewhere owners of buildings in decent shape paint over it now and then. The Anti-Litter Campaign and Graffiti Removal ordinances help.",
+        }, new()
+        {
+            ("Run-down buildings", Buildings.Count(b => b is { Abandoned: false, ConstructionLeft: 0 } && b.Condition < RunDownBelow).ToString("N0")),
+            ("Buildings with graffiti", Buildings.Count(b => b is { Graffiti: > 0 }).ToString("N0")),
+            ("Average condition", Buildings.Any(b => b != null) ? ((int)Buildings.Where(b => b != null).Average(b => b!.Condition)).ToString() : "-"),
+        }, "decline", "land-value", "desirability", "garbage", "services", "ordinances");
+
+        Add("disasters", "Disasters", "Rules", new()
+        {
+            $"Fires burn for up to {BurnDaysToDestroy} days before a building is lost. Each day a burning building may be put out (5% plus a third of the fire coverage) or spread to its neighbours (14% minus an eighth of coverage, at least 2%). Fire stations are the defence; Free Smoke Detectors cuts spread by 40%.",
+            "Tornadoes wander for 10 to 17 days, damaging what they pass over and tearing down power lines. Earthquakes hit everything within 14 cells at once, hardest at the centre, and can start fires.",
+            $"The Clockwork Colossus, a giant wind-up tin robot, walks in from the nearest edge of the map and flattens a 2×2 path for {RobotDays} days until its spring runs down. Nobody knows who winds it.",
+            "Disasters happen by themselves on Rare (about once in ten years, after the first three years and once the city has 1,000 people; the Colossus only visits cities of 5,000) or Normal (about once in three years), or never on Off. The sandbox menu starts any of them, wherever you click, whatever the setting.",
+        }, new()
+        {
+            ("Setting", DisasterSetting.ToString()),
+            ("In progress", Disasters.Count == 0 ? "none" : string.Join(", ", Disasters.Select(d => DisasterName(d.Kind)))),
+            ("Burning buildings", Buildings.Count(b => b is { BurningDays: > 0 }).ToString("N0")),
+        }, "fire-station", "services", "ordinances");
 
         // ---- Zones ----
         foreach (var zone in new[] { Zone.Residential, Zone.Commercial, Zone.Industrial })

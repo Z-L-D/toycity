@@ -6,6 +6,38 @@
   "streetNames": ["Elm", "Maple", "Sprocket", "Teapot", "Gumdrop", "Lantern", "Marble", "Pinwheel", "Wobble", "Kite", "Thimble", "Juniper", "Crayon", "Domino", "Pebble", "Yo-Yo"],
   "streetKinds": ["Street", "Lane", "Avenue", "Road", "Way", "Crescent"],
   "templates": {
+    "disaster.fire.start": [
+      "Fire on {street}! Smoke is pouring out of a building and the sirens are on their way.",
+      "A fire has broken out on {street}. Neighbours are out on the pavement with garden hoses."
+    ],
+    "disaster.fire.end": [
+      "The fire on {street} is out. {count} buildings were lost and {damaged} were singed.",
+      "Firefighters have put out the blaze near {street}: {count} buildings gone, {damaged} damaged."
+    ],
+    "disaster.tornado.start": [
+      "Tornado! A funnel cloud has touched down near {street}. Hold on to your hats, and your roofs.",
+      "The sky over {street} has gone green. A tornado is on the ground."
+    ],
+    "disaster.tornado.end": [
+      "The tornado has blown itself out. It destroyed {count} buildings and damaged {damaged}; check the power lines it tore down.",
+      "Calm again. The twister took {count} buildings and knocked {damaged} about, and it ripped up power lines on its way."
+    ],
+    "disaster.earthquake.start": [
+      "Earthquake! The ground shook hard around {street}. Teacups everywhere are in pieces.",
+      "A quake centred under {street} rattled the whole city."
+    ],
+    "disaster.earthquake.end": [
+      "The aftershocks have stopped. The quake brought down {count} buildings and cracked {damaged}.",
+      "Engineers have finished their survey: {count} buildings lost to the quake, {damaged} damaged."
+    ],
+    "disaster.robot.start": [
+      "The Clockwork Colossus has wound itself up and is clanking towards {street}! Nobody knows who wound it.",
+      "A giant tin robot, key still turning in its back, has stomped into town heading for {street}."
+    ],
+    "disaster.robot.end": [
+      "The Clockwork Colossus has run down at last and keeled over with a sad little 'ping'. It flattened {count} buildings and dented {damaged}.",
+      "The tin giant's spring is spent. It sits by {street} like a very large toy someone forgot. Toll: {count} buildings flattened, {damaged} dented."
+    ],
     "petition-park": [
       "{name} and {count} neighbours on {street} have signed a petition: \"Our kids are playing in the gutter. We'd like a park within walking distance.\"",
       "A petition from {street}: {count} residents, led by {name}, ask for a park nearby. They've drawn a picture of it. It has a dragon."

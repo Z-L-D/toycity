@@ -101,7 +101,7 @@ scenarios and, later, player-made ordinances from the node editor.
 
 Modifier keys: `power.use`, `water.use`, `garbage`, `pollution.industry`, `traffic` (percent of
 zoned buildings' use, factory pollution and commuter trips), `attraction`, `education`,
-`landvalue`, `desirability.R/C/I`, `demand.R/C/I`, `demand.I.dirty`, `demand.I.hightech`
+`landvalue`, `desirability.R/C/I`, `demand.R/C/I`, `demand.I.dirty`, `demand.I.hightech`, `litter`, `graffiti`, `fire.spread`
 (points). Desirability and land value show an "Ordinances" factor in the why panel; demand shows
 an "Ordinances" line in the demand panel.
 
@@ -199,6 +199,60 @@ change what happens. A test runs the same city with a near-empty voice file and 
 population, money, approval and every prompt match. A small local language model can later
 replace this layer without touching the sim.
 
+## Wear, litter and graffiti
+
+Every building has a condition from 0 to 100 that moves up to 3 points a month toward what its
+owners keep it at (`World.UpkeepTarget`, shown in the Why panel as the Condition line):
+
+| Zoned buildings | |
+| --- | --- |
+| Owners' budget | two thirds of land value, at most 80 |
+| Base upkeep | +35 |
+| Graffiti | -8 per level (0 to 3) |
+| Pollution, litter | -a quarter of each on the lot |
+
+The result is clamped to 10..100. Civic buildings follow their funding. Abandoned buildings lose 5
+a month.
+
+- **Looks.** A building shows as fine, under construction, struggling (unmet needs), run down
+  (condition under 35), abandoned, derelict (abandoned 12 months beyond the 6 that led to it) or
+  burning. The look goes over the wire as `BuildingState.look`.
+- **Litter.** Shops (a sixth of their jobs plus 10, at most 120), attractions (4 per point) and
+  busy roads drop litter around them. Half of it is cleared when garbage collection has spare
+  capacity. The `litter` modifier scales what's left.
+- **Graffiti.** Each month a building gains a level with a chance of (30 - police coverage%)/6,
+  plus 8 if abandoned and 3 if condition is under 50, scaled by the `graffiti` modifier. A level is
+  scrubbed off where police coverage is over 40%, where the graffiti modifier is -50 or lower, or,
+  one month in four, by the owners of a building in decent shape (condition 50 or more).
+- **Blight.** Abandoned (40, derelict 70, radius 3), run-down ((35 - condition) x 2, radius 2) and
+  tagged (10 per level, radius 2) buildings spread blight; the worst neighbour counts, not the
+  sum. Litter above 20 adds half its excess. Blight is a "Run-down area" factor: land value
+  -blight/6, residential desirability -blight/5, commercial -blight/8.
+- New overlays: Litter (18) and Run-down (19). New ordinances: Anti-Litter Campaign (-40% litter)
+  and Graffiti Removal (-50% graffiti, cleans without police). The Street Festival leaves +30%
+  litter behind.
+
+## Disasters and the sandbox menu
+
+| Disaster | What it does |
+| --- | --- |
+| Fire | Lights the building at the spot, or the nearest within 4 cells. Each day a burning building is put out with a chance of 5% + a third of fire coverage (losing 30 condition), or spreads to each touching neighbour with a chance of 14% - an eighth of coverage (at least 2%, scaled by `fire.spread`). After 6 days it is destroyed. |
+| Tornado | Picks one of 16 headings and wanders at 400/256 cells a day for 10 to 17 days, damaging buildings within a cell by 55, tearing down power lines and sometimes starting fires. |
+| Earthquake | Hits every building within 14 cells at once: up to 90 damage at the centre, falling off with distance; heavy hits can start fires. |
+| Clockwork Colossus | The first absurd disaster: a giant wind-up tin robot walks in from the nearest map edge, through the spot, at one cell a day for 60 days, flattening its 2x2 footprint (200 damage). |
+
+A building whose condition falls to 0 is destroyed and its lot can grow again. Disasters happen
+by themselves on Rare (1 in 120 a month) or Normal (1 in 36), never in a town's first three years
+or under 1,000 people; the Colossus only visits cities of 5,000 (otherwise the roll becomes a
+fire). Off stops them. The sandbox tool (K) starts any disaster wherever you click, whatever the
+setting. Free Smoke Detectors now also cuts fire spread by 40%.
+
+Disasters show up as alerts that jump to them, a news headline when they start and a toll when
+they end (both from the voice file), and on the map: flames on burning buildings, a spinning
+funnel, a clanking tin robot and a shaking view during a quake. `DisasterTests` cover fire
+coverage, the robot's lane, the quake radius, the sandbox with disasters off, and save/load and
+replay mid-disaster.
+
 ## Balance changes
 
 - A path now carries twice its hourly capacity in commuter trips a day (Alpha 1 used a quarter).
@@ -209,4 +263,5 @@ replace this layer without touching the sim.
 ## Save format
 
 Format version 2 adds the neighbour connection and the utility totals of the last tick, so a
-loaded city's queries and demand limits match the city that was saved.
+loaded city's queries and demand limits match the city that was saved. Part 4 adds graffiti and burning days per building, the litter and blight
+layers, the disaster setting and the disasters in progress.

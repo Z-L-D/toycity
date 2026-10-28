@@ -16,7 +16,11 @@ type Tool =
   | { kind: 'dezone' }
   | { kind: 'utility'; utility: number }
   | { kind: 'building' }
-  | { kind: 'terraform' };
+  | { kind: 'terraform' }
+  | { kind: 'disaster' };
+
+const DISASTER_NAMES = ['Fire', 'Tornado', 'Earthquake', 'Clockwork Colossus'];
+const DISASTER_SETTINGS = ['Off', 'Rare', 'Normal'];
 
 const DENSITY_NAMES = ['Low', 'Medium', 'High'];
 const TERRAFORM_NAMES = ['Raise', 'Lower', 'Level'];
@@ -40,6 +44,8 @@ const OVERLAYS: { kind: number; name: string; scheme: OverlayView['scheme'] }[] 
   { kind: 15, name: 'Parks', scheme: 'good' },
   { kind: 16, name: 'Commute', scheme: 'bad' },
   { kind: 17, name: 'Elevation', scheme: 'good' },
+  { kind: 18, name: 'Litter', scheme: 'bad' },
+  { kind: 19, name: 'Run-down', scheme: 'bad' },
 ];
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -55,6 +61,7 @@ let density = 0;
 let profileId = 'road';
 let buildingTypeId = 'police-station';
 let terraformMode = 0;
+let disasterKind = 0;
 let drag: { x: number; y: number } | null = null;
 let shiftHeld = false;
 let saveNames: string[] = [];
@@ -226,6 +233,11 @@ function buildToolbar() {
     <h4>Land</h4>
     ${btn('Terraform', 'T', { kind: 'terraform' })}
     <div class="row">${TERRAFORM_NAMES.map((n, k) => `<button data-terraform="${k}" class="${k === terraformMode ? 'active' : ''}">${n}</button>`).join('')}</div>
+    <h4>Disasters</h4>
+    ${btn('Start disaster', 'K', { kind: 'disaster' })}
+    <select id="sel-disaster" title="Which disaster the sandbox tool starts">${DISASTER_NAMES.map((n, k) => `<option value="${k}" ${k === disasterKind ? 'selected' : ''}>${n}</option>`).join('')}</select>
+    <label class="field" title="How often disasters happen by themselves. The sandbox tool works either way.">By themselves
+      <select id="sel-disaster-setting">${DISASTER_SETTINGS.map((n, k) => `<option value="${k}" ${k === (city.stats.disasterSetting ?? 1) ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
   `;
   el.querySelectorAll<HTMLButtonElement>('button[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(JSON.parse(b.dataset.tool!))));
   el.querySelectorAll<HTMLButtonElement>('button[data-density]').forEach((b) =>
@@ -235,6 +247,11 @@ function buildToolbar() {
     b.addEventListener('click', () => { terraformMode = Number(b.dataset.terraform); setTool({ kind: 'terraform' }); }),
   );
   $<HTMLSelectElement>('#sel-profile').addEventListener('change', (e) => { profileId = (e.target as HTMLSelectElement).value; setTool({ kind: 'path' }); });
+  $<HTMLSelectElement>('#sel-disaster').addEventListener('change', (e) => { disasterKind = Number((e.target as HTMLSelectElement).value); setTool({ kind: 'disaster' }); });
+  $<HTMLSelectElement>('#sel-disaster-setting').addEventListener('change', (e) => {
+    const setting = Number((e.target as HTMLSelectElement).value);
+    act({ disasters: { setting } }, `Disasters: ${DISASTER_SETTINGS[setting].toLowerCase()}`);
+  });
   $<HTMLSelectElement>('#sel-building').addEventListener('change', (e) => { buildingTypeId = (e.target as HTMLSelectElement).value; setTool({ kind: 'building' }); });
 }
 
@@ -250,6 +267,7 @@ function updateHints() {
     utility: [['Drag', 'draw line'], ['Shift', 'vertical leg first'], ['Esc', 'cancel']],
     building: [['Click', 'place'], ['Esc', 'cancel']],
     terraform: [['Drag', `${TERRAFORM_NAMES[terraformMode].toLowerCase()} area`], ['Esc', 'cancel']],
+    disaster: [['Click', `start a ${DISASTER_NAMES[disasterKind].toLowerCase()} here`], ['Esc', 'cancel']],
   };
   $('#hints').innerHTML = [...per[tool.kind], ...common].map(([k, v]) => `<div><kbd>${k}</kbd>${v}</div>`).join('');
 }
@@ -389,6 +407,10 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || !city.loaded) return;
   const cell = renderer.cellAt(sx, sy);
   if (tool.kind === 'query') { if (city.inBounds(cell.x, cell.y)) query(cell.x, cell.y); return; }
+  if (tool.kind === 'disaster') {
+    if (city.inBounds(cell.x, cell.y)) act({ disaster: { kind: disasterKind, x: cell.x, y: cell.y } }, `${DISASTER_NAMES[disasterKind]} at ${cell.x},${cell.y}`);
+    return;
+  }
   if (tool.kind === 'building') {
     const f = footprintAt(cell.x, cell.y);
     act({ building: { x: f.x, y: f.y, typeId: buildingTypeId } }, `${city.typeById.get(buildingTypeId)?.name ?? buildingTypeId} at ${f.x},${f.y}`);
@@ -434,7 +456,7 @@ window.addEventListener('keydown', (e) => {
   const keyTools: Record<string, Tool> = {
     q: { kind: 'query' }, b: { kind: 'bulldoze' }, r: { kind: 'path' }, z: { kind: 'zone', zone: 1 }, x: { kind: 'zone', zone: 2 },
     c: { kind: 'zone', zone: 3 }, d: { kind: 'dezone' }, p: { kind: 'utility', utility: 0 }, w: { kind: 'utility', utility: 1 },
-    e: { kind: 'building' }, t: { kind: 'terraform' },
+    e: { kind: 'building' }, t: { kind: 'terraform' }, k: { kind: 'disaster' },
   };
   if (keyTools[k]) setTool(keyTools[k]);
   else if (k === 'v') { density = (density + 1) % 3; buildToolbar(); updateHints(); }
@@ -673,7 +695,8 @@ $('#btn-load').addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 
 function frame() {
-  if (dirty || renderer.preview) {
+  // Disasters animate: flames flicker, the tornado spins, the Colossus clanks.
+  if (dirty || renderer.preview || renderer.animating) {
     renderer.draw();
     dirty = false;
   }

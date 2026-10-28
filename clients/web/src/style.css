@@ -324,3 +324,5 @@ table.cmp { margin-top: 8px; }
 .news { padding: 3px 0; border-bottom: 1px solid #262e3f; font-size: 12px; }
 .news.good { color: #bdf5cf; }
 details summary { cursor: pointer; margin: 4px 0; }
+
+#tools label.field { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted, #9aa4b2); margin-top: 4px; }

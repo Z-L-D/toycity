@@ -98,6 +98,7 @@ public sealed partial class World
         Add("Pollution", -Pollution[i] / 2);
         Add("Ordinances", (int)Mod(ModKey.LandValue));
         Add("Noise", -Noise[i] / 4);
+        Add("Run-down area", -Blight[i] / 6);
         return Math.Clamp(total, 0, 255);
     }
 
@@ -140,6 +141,7 @@ public sealed partial class World
                 Add("Noise", -Noise[i] / 4);
                 Add("Traffic", -traffic / 6);
                 Add("Uncollected garbage", -GarbagePenalty);
+                Add("Run-down area", -Blight[i] / 5);
                 Add("Ordinances", (int)Mod(ModKey.DesirabilityR));
                 if (BuildingAtCell(i) is { } home && home.CommuteMinutes > 20) Add("Long commute", -(home.CommuteMinutes - 20) / 2);
                 break;
@@ -151,6 +153,7 @@ public sealed partial class World
                 Add("Police", Coverage[(int)Service.Police][i] / 10);
                 Add("Pollution", -Pollution[i] / 3);
                 Add("Uncollected garbage", -GarbagePenalty / 2);
+                Add("Run-down area", -Blight[i] / 8);
                 Add("Ordinances", (int)Mod(ModKey.DesirabilityC));
                 break;
             case Zone.Industrial:

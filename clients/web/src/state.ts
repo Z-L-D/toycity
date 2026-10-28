@@ -20,6 +20,10 @@ export interface Building {
   constructionDaysLeft: number;
   fundingPercent: number;
   condition: number;
+  graffiti: number;
+  burningDays: number;
+  /** BuildingLook: 0 fine, 1 building, 2 struggling, 3 run down, 4 abandoned, 5 derelict, 6 burning. */
+  look: number;
 }
 
 export interface Profile {

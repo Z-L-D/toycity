@@ -55,7 +55,55 @@ message Action {
     PlaceUtility utility = 9;
     SetOrdinance ordinance = 10;
     RespondPrompt respond = 11;
+    TriggerDisaster disaster = 12;
+    SetDisasters disasters = 13;
   }
+}
+
+enum DisasterKind {
+  DISASTER_FIRE = 0;
+  DISASTER_TORNADO = 1;
+  DISASTER_EARTHQUAKE = 2;
+  DISASTER_ROBOT = 3;  // the Clockwork Colossus
+}
+
+enum DisasterSetting {
+  DISASTERS_OFF = 0;
+  DISASTERS_RARE = 1;
+  DISASTERS_NORMAL = 2;
+}
+
+// Sandbox: start a disaster at a cell. Works whatever the setting is.
+message TriggerDisaster {
+  DisasterKind kind = 1;
+  int32 x = 2;
+  int32 y = 3;
+}
+
+// How often disasters happen by themselves.
+message SetDisasters {
+  DisasterSetting setting = 1;
+}
+
+// A disaster in progress. x and y are in 1/256ths of a cell so movers animate smoothly.
+message Disaster {
+  int32 id = 1;
+  DisasterKind kind = 2;
+  int32 x = 3;
+  int32 y = 4;
+  int32 days_left = 5;
+  int32 destroyed = 6;
+  int32 damaged = 7;
+}
+
+enum BuildingLook {
+  LOOK_FINE = 0;
+  LOOK_UNDER_CONSTRUCTION = 1;
+  LOOK_STRUGGLING = 2;
+  LOOK_RUN_DOWN = 3;
+  LOOK_ABANDONED = 4;
+  LOOK_DERELICT = 5;
+  LOOK_BURNING = 6;
 }
 
 // Answer a deal (accept or decline), or dismiss a petition (accept = false).
@@ -177,6 +225,8 @@ enum OverlayKind {
   OVERLAY_PARKS = 15;
   OVERLAY_COMMUTE = 16;
   OVERLAY_ELEVATION = 17;
+  OVERLAY_LITTER = 18;
+  OVERLAY_BLIGHT = 19;
 }
 
 message OverlayRequest {
@@ -311,6 +361,9 @@ message BuildingState {
   int32 construction_days_left = 17;
   int32 funding_percent = 18;
   int32 condition = 19;  // 0..100
+  int32 graffiti = 20;   // 0..3
+  int32 burning_days = 21;
+  BuildingLook look = 22;
 }
 
 message CityStats {
@@ -337,6 +390,8 @@ message CityStats {
   string city_name = 21;
   repeated BudgetLine budget = 22;
   repeated int32 demand_raw = 23;  // demand before capacity limits, same order as demand
+  repeated Disaster disasters = 24;
+  DisasterSetting disaster_setting = 25;
 }
 
 message BudgetLine {

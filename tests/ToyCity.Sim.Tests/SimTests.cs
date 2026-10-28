@@ -362,6 +362,9 @@ public class ProtocolTests
             new TakeLoanAction(25_000),
             new PlaceUtilityAction(1, 1, 8, 9, UtilityKind.WaterPipe),
             new SetOrdinanceAction("recycling", true),
+            new RespondPromptAction(4, true),
+            new TriggerDisasterAction(DisasterKind.Robot, 10, 20),
+            new SetDisasterSettingAction(DisasterSetting.Off),
         };
         foreach (var a in actions) Assert.Equal(a, Mapping.ToSim(Mapping.ToProto(a)));
     }
@@ -810,5 +813,177 @@ public class DirectorTests
             Assert.All(a.Messages, m => Assert.DoesNotContain("advisor.", m.Text));
             Assert.All(a.Messages, m => Assert.Contains(m.Topic, ids));
         }
+    }
+}
+
+public class DisasterTests
+{
+    static World Fork(World w) => World.FromSnapshot(Fixture.Content, w.Snapshot());
+
+    /// <summary>Buildings that existed in <paramref name="before"/> and are gone now.</summary>
+    static int Lost(World before, World after) =>
+        before.Buildings.Count(b => b != null && (b.Id >= after.Buildings.Count || after.Buildings[b.Id] == null));
+
+    static List<Building> Homes(World w) => w.Buildings
+        .Where(b => b != null && !w.TypeOf(b).Placeable && w.TypeOf(b).Zone == Zone.Residential && b.ConstructionLeft == 0)
+        .Select(b => b!).ToList();
+
+    [Fact]
+    public void FireSpreadsWithoutCoverageAndFireStationsContainIt()
+    {
+        var w = Fixture.Starter(5);
+        w.Run(365); // day 6: three weeks before coverage is recomputed
+        var homes = Homes(w);
+        var targets = new[] { homes[0], homes[homes.Count / 2], homes[^1] };
+        var bare = Fork(w);
+        var covered = Fork(w);
+        Array.Fill(covered.Coverage[(int)Service.Fire], (byte)255);
+        foreach (var t in targets)
+        {
+            bare.Enqueue(new TriggerDisasterAction(DisasterKind.Fire, t.X, t.Y));
+            covered.Enqueue(new TriggerDisasterAction(DisasterKind.Fire, t.X, t.Y));
+        }
+        bare.Run(20);
+        covered.Run(20);
+        int lostBare = Lost(w, bare), lostCovered = Lost(w, covered);
+        Assert.True(lostBare >= 3, $"only {lostBare} lost with no fire coverage");
+        Assert.True(lostCovered < lostBare, $"{lostCovered} lost with full coverage vs {lostBare} without");
+        Assert.DoesNotContain(covered.Buildings, b => b is { BurningDays: > 0 });
+    }
+
+    [Fact]
+    public void TheColossusFlattensAStraightPathAndWindsDown()
+    {
+        var w = Fixture.Starter(3);
+        w.Run(200);
+        var target = Homes(w)[0];
+        var after = Fork(w);
+        after.Enqueue(new TriggerDisasterAction(DisasterKind.Robot, target.X, target.Y));
+        after.Step();
+        var robot = Assert.Single(after.Disasters);
+        bool alongX = robot.Dx != 0;
+        int lane = alongX ? robot.CellY : robot.CellX;
+        after.Run(World.RobotDays + 1);
+        Assert.Empty(after.Disasters);
+        Assert.True(Lost(w, after) > 0);
+        // Everything it flattened touched its 2-cell-wide lane (growth may also have replaced a few lots).
+        foreach (var b in w.Buildings.Where(b => b != null && (b.Id >= after.Buildings.Count || after.Buildings[b.Id] == null)))
+        {
+            int lo = alongX ? b!.Y : b!.X, hi = lo + (alongX ? b.H : b.W) - 1;
+            Assert.True(hi >= lane && lo <= lane + 1, $"building #{b.Id} at {b.X},{b.Y} is off the lane {lane}");
+        }
+        Assert.Contains(after.Headlines, h => h.Text.Contains("spring") || h.Text.Contains("run down"));
+    }
+
+    [Fact]
+    public void AQuakeOnlyReachesItsRadius()
+    {
+        var w = Fixture.Starter(8);
+        w.Run(100);
+        var centre = Homes(w)[0];
+        var shaken = Fork(w);
+        var calm = Fork(w);
+        shaken.Enqueue(new TriggerDisasterAction(DisasterKind.Earthquake, centre.X, centre.Y));
+        shaken.Step();
+        calm.Step();
+        int hit = 0;
+        foreach (var b in calm.Buildings)
+        {
+            if (b == null || b.Id >= shaken.Buildings.Count) continue;
+            int dx = Math.Max(0, Math.Max(b.X - centre.X, centre.X - (b.X + b.W - 1)));
+            int dy = Math.Max(0, Math.Max(b.Y - centre.Y, centre.Y - (b.Y + b.H - 1)));
+            int dist = (int)Math.Sqrt(dx * dx + dy * dy);
+            var s = shaken.Buildings[b.Id];
+            if (dist > World.QuakeRadius) Assert.True(s != null && s.Condition == b.Condition, $"#{b.Id} at distance {dist} was hit");
+            else if (s == null || s.Condition < b.Condition) hit++;
+        }
+        Assert.True(hit > 0);
+    }
+
+    [Fact]
+    public void ActiveDisastersSurviveSaveAndReplay()
+    {
+        var w = Fixture.Starter(12);
+        w.Run(120);
+        var home = Homes(w)[^1];
+        w.Enqueue(new TriggerDisasterAction(DisasterKind.Tornado, home.X, home.Y));
+        w.Enqueue(new TriggerDisasterAction(DisasterKind.Fire, home.X + 3, home.Y));
+        w.Run(4);
+        Assert.NotEmpty(w.Disasters);
+        var loaded = Mapping.Load(Fixture.Content, Mapping.Save(w));
+        Assert.Equal(w.StateHash(), loaded.StateHash());
+        w.Run(40);
+        loaded.Run(40);
+        Assert.Equal(w.StateHash(), loaded.StateHash());
+        var replayed = World.Replay(Fixture.Content, 12, 128, "Testville", w.Log, w.Tick);
+        Assert.Equal(w.StateHash(), replayed.StateHash());
+    }
+
+    [Fact]
+    public void TheSandboxWorksWithDisastersOff()
+    {
+        var w = Fixture.Starter();
+        w.Run(30);
+        w.Enqueue(new SetDisasterSettingAction(DisasterSetting.Off));
+        var home = Homes(w)[0];
+        w.Enqueue(new TriggerDisasterAction(DisasterKind.Tornado, home.X, home.Y));
+        w.Step();
+        Assert.Equal(DisasterSetting.Off, w.DisasterSetting);
+        Assert.Contains(w.Disasters, d => d.Kind == DisasterKind.Tornado);
+        Assert.Contains(w.Alerts(), a => a.Topic == "disasters");
+    }
+}
+
+public class WearTests
+{
+    [Fact]
+    public void GraffitiGrowsWithoutPoliceAndTheRemovalOrdinanceCleansIt()
+    {
+        var w = Fixture.Starter(21);
+        w.Run(360 * 2);
+        int before = w.Buildings.Sum(b => b is { Abandoned: false } ? b.Graffiti : 0);
+        Assert.True(before > 0, "no graffiti in a town without police");
+        var cleaned = World.FromSnapshot(Fixture.Content, w.Snapshot());
+        cleaned.Enqueue(new SetOrdinanceAction("graffiti-removal", true));
+        w.Run(360);
+        cleaned.Run(360);
+        int left = cleaned.Buildings.Sum(b => b is { Abandoned: false } ? b.Graffiti : 0);
+        int untouched = w.Buildings.Sum(b => b is { Abandoned: false } ? b.Graffiti : 0);
+        Assert.True(left * 2 < untouched, $"{left} graffiti with the crew vs {untouched} without");
+    }
+
+    [Fact]
+    public void ConditionHeadsForWhatOwnersCanAffordAndWhySaysSo()
+    {
+        var w = Fixture.Starter(4);
+        w.Run(360 * 2);
+        var homes = w.Buildings.Where(b => b is { Abandoned: false, ConstructionLeft: 0 } && !w.TypeOf(b).Placeable).Select(b => b!).ToList();
+        // Richer land is kept up better.
+        var rich = homes.OrderByDescending(b => w.LandValue[w.Idx(b.X, b.Y)]).Take(10).Average(b => w.UpkeepTarget(b, null));
+        var poor = homes.OrderBy(b => w.LandValue[w.Idx(b.X, b.Y)]).Take(10).Average(b => w.UpkeepTarget(b, null));
+        Assert.True(rich > poor, $"{rich} vs {poor}");
+        var why = w.Why(homes[0].X, homes[0].Y);
+        var cond = Assert.Single(why.Requirements, r => r.Key == "condition");
+        Assert.Contains("Owners keep it at", cond.Detail);
+        Assert.Contains(w.Encyclopedia(), a => a.Id == "wear");
+    }
+
+    [Fact]
+    public void RunDownBuildingsBlightTheirNeighbours()
+    {
+        var w = Fixture.Starter(6);
+        w.Run(60);
+        var home = w.Buildings.First(b => b is { ConstructionLeft: 0 } && !w.TypeOf(b).Placeable && w.TypeOf(b).Zone == Zone.Residential)!;
+        int i = w.Idx(home.X, home.Y);
+        int lvBefore = w.LandValueOf(i, null);
+        home.Condition = 0;
+        home.Abandoned = true;
+        home.UnmetMonths = World.MonthsToAbandon + World.DerelictAfter;
+        Assert.Equal(BuildingLook.Derelict, w.LookOf(home));
+        w.Run(31);
+        Assert.True(w.Blight[i] > 0);
+        var f = new List<Factor>();
+        w.LandValueOf(i, f);
+        Assert.Contains(f, x => x.Label == "Run-down area" && x.Value < 0);
     }
 }

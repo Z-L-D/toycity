@@ -23,6 +23,20 @@ public sealed partial class World
         for (int i = 0; i < N && !anyZoned; i++)
             if (ZoneCode[i] != 0) { anyZoned = true; firstZoned = i; }
 
+        foreach (var d in Disasters)
+        {
+            int at = InBounds(d.CellX, d.CellY) ? Idx(d.CellX, d.CellY) : -1;
+            int burning = Buildings.Count(b => b is { BurningDays: > 0 });
+            string text = d.Kind switch
+            {
+                DisasterKind.Fire => $"Fire: {burning} building{(burning == 1 ? " is" : "s are")} burning. Fire stations nearby put fires out faster and stop them spreading.",
+                DisasterKind.Tornado => $"A tornado is on the ground: {d.Destroyed} buildings destroyed so far. It tears down power lines as it goes.",
+                DisasterKind.Earthquake => $"Earthquake aftermath: {d.Destroyed} buildings destroyed and {d.Damaged} damaged.",
+                _ => $"The Clockwork Colossus is loose, {d.DaysLeft} days of spring left: {d.Destroyed} buildings flattened so far.",
+            };
+            Add($"disaster-{d.Id}", "danger", text, at, 1, "disasters");
+        }
+
         if (Funds < 0)
             Add("treasury", "danger", $"The treasury is ${-Funds:N0} in the red. Raise taxes, cut funding or take a loan.", -1, 1, "budget");
 
@@ -48,7 +62,7 @@ public sealed partial class World
         }
 
         // Buildings: civic problems and zoned buildings at risk or abandoned.
-        int risk = 0, riskAt = -1, riskWorst = 0, abandoned = 0, abandonedAt = -1;
+        int risk = 0, riskAt = -1, riskWorst = 0, abandoned = 0, abandonedAt = -1, runDown = 0, runDownAt = -1, tagged = 0, taggedAt = -1;
         foreach (var b in Buildings)
         {
             if (b == null || b.ConstructionLeft > 0) continue;
@@ -64,6 +78,8 @@ public sealed partial class World
                     Add("landfill-road", "warning", $"{t.Name} has no road, so no trucks come.", at, 1, "garbage");
                 continue;
             }
+            if (b.Graffiti >= 2) { tagged++; if (taggedAt < 0) taggedAt = at; }
+            if (!b.Abandoned && b.Condition < RunDownBelow) { runDown++; if (runDownAt < 0) runDownAt = at; }
             if (b.Abandoned) { abandoned++; if (abandonedAt < 0) abandonedAt = at; }
             else if (b.UnmetMonths > 0)
             {
@@ -75,6 +91,11 @@ public sealed partial class World
             Add("at-risk", "warning", risk == 1 ? "A building is struggling and may be abandoned." : $"{risk} buildings are struggling and may be abandoned.", riskAt, risk, "decline");
         if (abandoned > 0)
             Add("abandoned", "info", abandoned == 1 ? "A building is abandoned." : $"{abandoned} buildings are abandoned.", abandonedAt, abandoned, "decline");
+
+        if (runDown > 0)
+            Add("run-down", "info", runDown == 1 ? "A building is run down and drags its block's value down." : $"{runDown} buildings are run down and drag their blocks' value down.", runDownAt, runDown, "wear");
+        if (tagged >= 3)
+            Add("graffiti", "info", $"{tagged} buildings are covered in graffiti. Police coverage or a graffiti removal ordinance clean it up.", taggedAt, tagged, "wear");
 
         // Zoned land no lot can use.
         int stranded = 0, strandedAt = -1;
