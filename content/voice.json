@@ -5,6 +5,8 @@
   "lastNames": ["Applebottom", "Brickwell", "Cogsworth", "Dimplefield", "Eggers", "Fairweather", "Gumm", "Hollyhock", "Inkster", "Jumble", "Kettleby", "Lumpkin", "Muddle", "Nutley", "Oddbody", "Puddingstone", "Quill", "Rattlesby", "Sprocket", "Tumbleweed", "Upshaw", "Vane", "Whistlewood", "Yarrow", "Zoltan"],
   "streetNames": ["Elm", "Maple", "Sprocket", "Teapot", "Gumdrop", "Lantern", "Marble", "Pinwheel", "Wobble", "Kite", "Thimble", "Juniper", "Crayon", "Domino", "Pebble", "Yo-Yo"],
   "streetKinds": ["Street", "Lane", "Avenue", "Road", "Way", "Crescent"],
+  "districtNames": ["Tinker", "Button", "Clockwork", "Gingerbread", "Marbleside", "Kettle", "Paperclip", "Lollipop", "Rocking Horse", "Pinball", "Spinning Top", "Tin Soldier"],
+  "districtKinds": ["Heights", "Flats", "Hollow", "Green", "Park", "Quarter", "Corner", "Village"],
   "templates": {
     "disaster.fire.start": [
       "Fire on {street}! Smoke is pouring out of a building and the sirens are on their way.",

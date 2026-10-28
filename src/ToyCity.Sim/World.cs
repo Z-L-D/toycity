@@ -64,7 +64,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 2;
+    public const int FormatVersion = 3;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -239,6 +239,7 @@ public sealed partial class World
         RunGrowth();
         RunCommutes();
         UpdateStats();
+        RunSideGames();
         Tick++;
     }
 
@@ -334,6 +335,7 @@ public sealed partial class World
             WriteOrdinances(w);
             WriteDirector(w);
             WriteDisasters(w);
+            WriteSideGames(w);
         }
         return ms.ToArray();
     }
@@ -403,6 +405,7 @@ public sealed partial class World
         w.ReadOrdinances(r);
         w.ReadDirector(r);
         w.ReadDisasters(r);
+        w.ReadSideGames(r);
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

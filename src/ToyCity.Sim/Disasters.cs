@@ -101,12 +101,14 @@ public sealed partial class World
         string text = Say($"disaster.{DisasterName(kind)}.start", d.Id, 0, facts);
         Notices.Add(new SimNotice(text, "warning", d.CellX, d.CellY));
         AddHeadline(text, "warning", d.CellX, d.CellY);
+        RaiseIncident(DisasterName(kind), d.CellX, d.CellY, "city", "disaster", 3, text);
     }
 
     void Ignite(Building b)
     {
         if (b.BurningDays > 0) return;
         b.BurningDays = 1;
+        RaiseIncident("fire", b.X, b.Y, "city", TypeOf(b).Name, 2, "");
     }
 
     /// <summary>Damages a building. Returns true when it was destroyed.</summary>

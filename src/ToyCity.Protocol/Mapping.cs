@@ -29,6 +29,8 @@ public static class Mapping
         P.Action.KindOneofCase.Respond => new RespondPromptAction(a.Respond.PromptId, a.Respond.Accept),
         P.Action.KindOneofCase.Disaster => new TriggerDisasterAction((DisasterKind)(int)a.Disaster.Kind, a.Disaster.X, a.Disaster.Y),
         P.Action.KindOneofCase.Disasters => new SetDisasterSettingAction((DisasterSetting)(int)a.Disasters.Setting),
+        P.Action.KindOneofCase.SideGame => new SideGameAction(a.SideGame.Game, a.SideGame.Seat, a.SideGame.Payload.ToByteArray()),
+        P.Action.KindOneofCase.Attach => new AttachSideGameAction(a.Attach.Game),
         _ => null,
     };
 
@@ -48,6 +50,8 @@ public static class Mapping
         RespondPromptAction x => new P.Action { Respond = new P.RespondPrompt { PromptId = x.PromptId, Accept = x.Accept } },
         TriggerDisasterAction x => new P.Action { Disaster = new P.TriggerDisaster { Kind = (P.DisasterKind)(int)x.Kind, X = x.X, Y = x.Y } },
         SetDisasterSettingAction x => new P.Action { Disasters = new P.SetDisasters { Setting = (P.DisasterSetting)(int)x.Setting } },
+        SideGameAction x => new P.Action { SideGame = new P.SideGameCommand { Game = x.GameId, Seat = x.Seat, Payload = ByteString.CopyFrom(x.Payload) } },
+        AttachSideGameAction x => new P.Action { Attach = new P.AttachSideGame { Game = x.GameId } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
     };
 

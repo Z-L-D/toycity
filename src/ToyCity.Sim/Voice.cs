@@ -13,6 +13,7 @@ public sealed class Voice
 {
     readonly Dictionary<string, List<string>> _templates = new();
     List<string> _first = new() { "Pat" }, _last = new() { "Smith" }, _streets = new() { "Main" }, _kinds = new() { "Street" };
+    List<string> _districtFirst = new() { "Old" }, _districtKinds = new() { "Town" };
 
     public IReadOnlyCollection<string> Keys => _templates.Keys;
 
@@ -26,6 +27,8 @@ public sealed class Voice
         if (Strings("lastNames") is { Count: > 0 } l) v._last = l;
         if (Strings("streetNames") is { Count: > 0 } s) v._streets = s;
         if (Strings("streetKinds") is { Count: > 0 } k) v._kinds = k;
+        if (Strings("districtNames") is { Count: > 0 } dn) v._districtFirst = dn;
+        if (Strings("districtKinds") is { Count: > 0 } dk) v._districtKinds = dk;
         foreach (var t in root.GetProperty("templates").EnumerateObject())
             v._templates[t.Name] = t.Value.ValueKind == JsonValueKind.Array
                 ? t.Value.EnumerateArray().Select(e => e.GetString()!).ToList()
@@ -47,6 +50,13 @@ public sealed class Voice
     {
         ulong seed = (ulong)(x / 8) * 7919 + (ulong)(y / 8) * 104729;
         return $"{Pick(_streets, seed, "street")} {Pick(_kinds, seed, "kind")}";
+    }
+
+    /// <summary>A district's name, the same every time for the same district number.</summary>
+    public string District(int id)
+    {
+        ulong seed = (ulong)id * 2654435761UL + 17;
+        return $"{Pick(_districtFirst, seed, "district")} {Pick(_districtKinds, seed, "districtKind")}";
     }
 
     /// <summary>Words a template. Unknown keys fall back to the key itself so a missing line is visible, not silent.</summary>

@@ -50,6 +50,7 @@ public sealed partial class SimHost : IDisposable
         var w = World.Create(_content, seed, size, name);
         if (starter) StarterTown.Apply(w);
         w.ApplyPending();
+        AttachSideGames(w);
         return w;
     }
 
@@ -119,6 +120,8 @@ public sealed partial class SimHost : IDisposable
         }
         if (RosterIfChanged() is { } roster)
             foreach (var c in _clients) list.Add((c, new P.ServerMessage { Agents = roster }));
+        foreach (var view in ChangedViews(all: false))
+            foreach (var c in _clients) list.Add((c, view));
         return list;
     }
 
@@ -161,8 +164,10 @@ public sealed partial class SimHost : IDisposable
         lock (_gate) civicNow = Mapping.Civic(_world);
         await SendAsync(client, new P.ServerMessage { Civic = civicNow });
         P.AgentRoster rosterNow;
-        lock (_gate) rosterNow = Roster(Agents());
+        List<P.ServerMessage> viewsNow;
+        lock (_gate) { rosterNow = Roster(Agents()); viewsNow = ChangedViews(all: true); }
         await SendAsync(client, new P.ServerMessage { Agents = rosterNow });
+        foreach (var v in viewsNow) await SendAsync(client, v);
 
         var buffer = new byte[64 * 1024];
         using var ms = new MemoryStream();
@@ -240,6 +245,7 @@ public sealed partial class SimHost : IDisposable
                     {
                         if (!ValidName(msg.Load.Name)) throw new InvalidDataException("bad save name");
                         _world = Mapping.Load(_content, File.ReadAllBytes(SavePath(msg.Load.Name)));
+                        AttachSideGames(_world);
                         broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).Concat(BuildDeltas(forceAlerts: true)).ToList();
                     }
                     catch (Exception e) when (e is IOException or InvalidDataException or InvalidProtocolBufferException)

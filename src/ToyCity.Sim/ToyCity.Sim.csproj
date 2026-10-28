@@ -8,4 +8,7 @@
   <ItemGroup>
     <PackageReference Include="System.IO.Hashing" Version="9.0.0" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ToyCity.Contract/ToyCity.Contract.csproj" />
+  </ItemGroup>
 </Project>

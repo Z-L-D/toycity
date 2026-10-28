@@ -58,7 +58,21 @@ message Action {
     TriggerDisaster disaster = 12;
     SetDisasters disasters = 13;
     ZoneBlock block = 14;
+    SideGameCommand side_game = 15;
+    AttachSideGame attach = 16;
   }
+}
+
+// A command for a side game from one of its seats, as the side game's own message bytes (for the bus company,
+// a toycity.transport.v1.Command).
+message SideGameCommand {
+  string game = 1;
+  string seat = 2;
+  bytes payload = 3;
+}
+
+message AttachSideGame {
+  string game = 1;
 }
 
 enum DisasterKind {
@@ -315,6 +329,7 @@ message ServerMessage {
     CivicState civic = 16;  // petitions, deals, approval, unlocks and headlines; sent whenever they change
     AdvisorList advisors = 17;
     AgentRoster agents = 18;  // the followed commuters; sent when they change and monthly
+    SideGameView side_game = 19;  // sent when a side game's view changes
   }
 }
 
@@ -521,6 +536,16 @@ message AgentTripInfo {
   int32 minutes = 3;        // door-to-door at the day's congestion
   bool by_transit = 4;
   repeated int32 cells = 5;
+}
+
+// What a side game shows its seat, as the side game's own message bytes (for the bus company, a
+// toycity.transport.v1.View), plus the city's word on it.
+message SideGameView {
+  string game = 1;
+  string name = 2;
+  string seat = 3;
+  bytes payload = 4;
+  string status = 5;
 }
 
 message AgentRoster {
