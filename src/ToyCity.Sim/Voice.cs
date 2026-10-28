@@ -15,6 +15,17 @@ public sealed class Voice
     List<string> _first = new() { "Pat" }, _last = new() { "Smith" }, _streets = new() { "Main" }, _kinds = new() { "Street" };
     List<string> _districtFirst = new() { "Old" }, _districtKinds = new() { "Town" };
 
+    readonly Dictionary<string, List<Quirk>> _quirks = new();
+
+    public IReadOnlyList<string> StreetNames => _streets;
+    public IReadOnlyList<string> StreetKinds => _kinds;
+
+    /// <summary>A quirky statistic for a kind of building: so many <see cref="Unit"/> per person served, and how many of them came good.</summary>
+    public sealed record Quirk(string Label, double Per, string Unit);
+
+    /// <summary>The quirky statistics for a building category ("park", "education"), empty when it has none.</summary>
+    public IReadOnlyList<Quirk> Quirks(string category) => _quirks.TryGetValue(category, out var q) ? q : Array.Empty<Quirk>();
+
     public IReadOnlyCollection<string> Keys => _templates.Keys;
 
     public static Voice Parse(string json)
@@ -29,6 +40,10 @@ public sealed class Voice
         if (Strings("streetKinds") is { Count: > 0 } k) v._kinds = k;
         if (Strings("districtNames") is { Count: > 0 } dn) v._districtFirst = dn;
         if (Strings("districtKinds") is { Count: > 0 } dk) v._districtKinds = dk;
+        if (root.TryGetProperty("quirks", out var qs))
+            foreach (var cat in qs.EnumerateObject())
+                v._quirks[cat.Name] = cat.Value.EnumerateArray()
+                    .Select(q => new Quirk(q.GetProperty("label").GetString()!, q.GetProperty("per").GetDouble(), q.GetProperty("unit").GetString()!)).ToList();
         foreach (var t in root.GetProperty("templates").EnumerateObject())
             v._templates[t.Name] = t.Value.ValueKind == JsonValueKind.Array
                 ? t.Value.EnumerateArray().Select(e => e.GetString()!).ToList()

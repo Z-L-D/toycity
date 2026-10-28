@@ -235,8 +235,18 @@ mechanic.
 | --- | --- | --- | --- | --- |
 | Serves | 400 pupils aged 5–11 | 900 pupils aged 12–17 | 60 patients a month | 400 patients a month |
 
-  The count is shown on the panel ("Teaching 98 of 400 pupils"). Patients are 2% of the residents
-  in reach each month. Being over capacity is shown but has no effect yet.
+  Police stations count 2,500 residents patrolled and fire stations 3,000 protected. Parks count
+  visitors a day (a quarter of the residents in reach): 100 for a pocket park, 300 small, 500 for a
+  plaza, 1,200 large. Plants, pumps and the landfill count their share of the city's demand against
+  their output, and stops count riders. Patients are 2% of the residents in reach each month. Being
+  over capacity is shown but has no effect yet.
+- **Gauges.** A public building's Why panel opens with its gauge: served of capacity, with a bar that
+  turns amber at 85% ("Nearly full: plan another one") and red past 100% ("Over capacity by N:
+  build another nearby"). Beside it is one of the city's quirky statistics for that kind of building
+  (bears spotted in a park, pencils found at a school, cats rescued by the police), scaled by how busy
+  the building is. It changes each month. The lists are in `content/voice.json` under `quirks`.
+- **Road names on the map.** From a moderate zoom, each straight run of road on screen is labelled
+  with its name. Avenues read up the road.
 
 ## Authority rating, paid actions and house rules
 

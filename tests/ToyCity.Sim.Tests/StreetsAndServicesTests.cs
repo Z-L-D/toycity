@@ -119,6 +119,14 @@ public class StreetsAndServicesTests
         Assert.Matches(@"Teaching [\d,]+ of 400 pupils", w.Why(school.X, school.Y).Summary);
         Assert.Contains(w.Inspect(clinic.X, clinic.Y), f => f.Key == "Patients" && f.Value.EndsWith("of 60 a month"));
         Assert.Null(w.ServiceLoad(homes[0]!));
+        // The panel's gauges: the load first, then a quirky statistic that rotates by month.
+        var gauges = w.Gauges(school);
+        Assert.Equal(2, gauges.Count);
+        Assert.Equal(("Pupils", one.Served, 400L, false), (gauges[0].Label, (int)gauges[0].Value, gauges[0].Max, gauges[0].Fun));
+        Assert.True(gauges[1].Fun && gauges[1].Value <= gauges[1].Max && gauges[1].Max > 0);
+        w.Run(World.DaysPerMonth);
+        Assert.NotEqual(gauges[1].Label, w.Gauges(school)[1].Label);
+        Assert.Empty(w.Gauges(homes[0]!));
 
         // A second school shares the pupils; nobody is counted twice.
         var second = PlaceNear("elementary-school", 6);

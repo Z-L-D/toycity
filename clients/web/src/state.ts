@@ -96,6 +96,8 @@ export class City {
   types: BuildingType[] = [];
   typeById = new Map<string, BuildingType>();
   lotDepth: number[] = [2, 3, 4];
+  streetNames: string[] = ['Main'];
+  streetKinds: string[] = ['Street'];
   /** Placeable building types the mayor may build now (landmarks and reward lots unlock over time). */
   unlocked = new Set<string>();
   /** Bumped when terrain changes, so the renderer can rebuild its cached ground layer. */
@@ -119,6 +121,8 @@ export class City {
     this.types = f.catalog.buildingTypes;
     this.typeById = new Map(this.types.map((t) => [t.id, t]));
     if (f.catalog.lotDepth?.length === 3) this.lotDepth = f.catalog.lotDepth;
+    if (f.catalog.streetNames?.length) this.streetNames = f.catalog.streetNames;
+    if (f.catalog.streetKinds?.length) this.streetKinds = f.catalog.streetKinds;
     this.buildings.clear();
     this.buildingAt = new Int32Array(n);
     for (const b of f.buildings as Building[]) this.putBuilding(b);
@@ -164,6 +168,29 @@ export class City {
         if (this.buildingAt[i] === id + 1) this.buildingAt[i] = 0;
       }
     this.buildings.delete(id);
+  }
+
+  /** A road's name from the line it runs along, as the server names it (Voice.RoadName). */
+  roadName(northSouth: boolean, line: number): string {
+    if (northSouth) {
+      const n = line + 1, t = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th';
+      return `${n}${t} Avenue`;
+    }
+    const kinds = this.streetKinds.filter((k) => k !== 'Avenue');
+    if (!kinds.length) kinds.push('Street');
+    const n = this.streetNames.length;
+    const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+    const name = n === 1 ? 0 : gcd(7, n) === 1 ? (line * 7) % n : line % n;
+    return `${this.streetNames[name]} ${kinds[Math.floor(line / n) % kinds.length]}`;
+  }
+
+  /** Whether a path cell has a path to its east or west, and to its north or south. */
+  roadEW(x: number, y: number) {
+    return (x > 0 && !!this.paths[y * this.width + x - 1]) || (x < this.width - 1 && !!this.paths[y * this.width + x + 1]);
+  }
+
+  roadNS(x: number, y: number) {
+    return (y > 0 && !!this.paths[(y - 1) * this.width + x]) || (y < this.height - 1 && !!this.paths[(y + 1) * this.width + x]);
   }
 
   inBounds(x: number, y: number) {

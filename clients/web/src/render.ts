@@ -275,12 +275,65 @@ export class Renderer {
       ctx.stroke();
     }
 
+    if (s >= 9 && !this.company) this.drawStreetNames(x0, y0, x1, y1, px, py);
     this.drawFlash(px, py);
     this.drawPreview(px, py);
     if (this.selected) {
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
       ctx.strokeRect(px(this.selected.x) + 1, py(this.selected.y) + 1, s - 2, s - 2);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Street names along the roads, as the news and petitions use them: one label for each straight run that's on
+   * screen and long enough to hold it. East-west runs read across; north-south avenues read up the road.
+   */
+  private drawStreetNames(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {
+    const c = this.city;
+    const ctx = this.ctx;
+    const s = this.scale;
+    ctx.save();
+    ctx.font = `600 ${Math.round(Math.max(10, Math.min(15, s * 0.5)))}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(20,24,32,0.85)';
+    ctx.fillStyle = '#f4f1e6';
+    const label = (text: string, cx: number, cy: number, cells: number, vertical: boolean) => {
+      const w = ctx.measureText(text).width;
+      if (w + s > cells * s) return;
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (vertical) ctx.rotate(-Math.PI / 2);
+      ctx.strokeText(text, 0, 0);
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+    };
+    const path = (x: number, y: number) => !!c.paths[y * c.width + x];
+    for (let y = y0; y <= y1; y++) {
+      let start = -1;
+      for (let x = x0; x <= x1 + 1; x++) {
+        const on = x <= x1 && path(x, y) && c.roadEW(x, y);
+        if (on && start < 0) start = x;
+        if (!on && start >= 0) {
+          label(c.roadName(false, y), px(start) + ((x - start) * s) / 2, py(y) + s / 2, x - start, false);
+          start = -1;
+        }
+      }
+    }
+    for (let x = x0; x <= x1; x++) {
+      let start = -1;
+      for (let y = y0; y <= y1 + 1; y++) {
+        const on = y <= y1 && path(x, y) && c.roadNS(x, y);  // through crossings, so an avenue gets one label
+        if (on && start < 0) start = y;
+        if (!on && start >= 0) {
+          label(c.roadName(true, x), px(x) + s / 2, py(start) + ((y - start) * s) / 2, y - start, true);
+          start = -1;
+        }
+      }
     }
     ctx.restore();
   }

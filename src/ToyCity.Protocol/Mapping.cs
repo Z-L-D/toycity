@@ -107,6 +107,8 @@ public static class Mapping
                 },
             });
         foreach (var sizes in c.LotSizes) cat.LotDepth.Add(sizes.Max(z => Math.Max(z.W, z.D)));
+        cat.StreetNames.AddRange(c.Voice.StreetNames);
+        cat.StreetKinds.AddRange(c.Voice.StreetKinds);
         return cat;
     }
 
@@ -168,9 +170,11 @@ public static class Mapping
 
     public static P.Notice Notice(SimNotice n) => new() { Text = n.Text, Severity = n.Severity, X = n.X, Y = n.Y };
 
-    public static P.WhyResult Why(WhyReport r)
+    public static P.WhyResult Why(World w, WhyReport r)
     {
         var p = new P.WhyResult { X = r.X, Y = r.Y, Subject = r.Subject, Summary = r.Summary };
+        if (w.InBounds(r.X, r.Y) && w.BuildingOrStopAt(w.Idx(r.X, r.Y)) is { } b)
+            foreach (var g in w.Gauges(b)) p.Gauges.Add(new P.Gauge { Label = g.Label, Value = g.Value, Max = g.Max, Unit = g.Unit, Fun = g.Fun });
         foreach (var q in r.Requirements)
             p.Requirements.Add(new P.Requirement { Key = q.Key, Label = q.Label, Met = q.Met, Detail = q.Detail, Topic = TopicOf(q.Key) });
         foreach (var f in r.Factors) p.Factors.Add(new P.Factor { Label = f.Label, Value = f.Value });

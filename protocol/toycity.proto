@@ -482,6 +482,8 @@ message Catalog {
   repeated PathProfileInfo profiles = 1;
   repeated BuildingTypeInfo building_types = 2;
   repeated int32 lot_depth = 3;  // deepest lot a zoned building can grow on, by density (low, medium, high)
+  repeated string street_names = 4;  // for naming roads as the server does (see World.StreetAt)
+  repeated string street_kinds = 5;
 }
 
 message BuildingState {
@@ -592,6 +594,16 @@ message WhyResult {
   string summary = 4;   // one-line verdict
   repeated Requirement requirements = 5;
   repeated Factor factors = 6;
+  repeated Gauge gauges = 7;  // public buildings: what they serve against their capacity, then a quirky statistic
+}
+
+// One gauge on a building's panel: value of max, in unit. A fun one is one of the city's quirky statistics.
+message Gauge {
+  string label = 1;
+  int64 value = 2;
+  int64 max = 3;
+  string unit = 4;
+  bool fun = 5;
 }
 
 message Factor {

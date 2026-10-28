@@ -406,3 +406,22 @@ body.company #hints { display: none; }
 .upgrade button:disabled { opacity: .45; cursor: not-allowed; }
 .upgrade.locked { opacity: 0.85; }
 .warn { color: #e0a040; }
+
+/* A public building's gauges: what it serves of its capacity, then a quirky city statistic. */
+.gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 12px; }
+.gauge { background: #141a24; border: 2px solid var(--good); border-radius: 8px; padding: 8px 10px; }
+.gauge.full { border-color: #e0a040; }
+.gauge.over { border-color: var(--bad); }
+.gauge.fun { border-color: #b98cf0; border-style: dashed; }
+.gauge .g-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.gauge .g-num { font-size: 13px; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
+.gauge .g-num b { font-size: 24px; }
+.gauge .g-num span { color: var(--muted); font-size: 11px; }
+.gauge .g-track { height: 8px; background: #0f131b; border-radius: 4px; overflow: hidden; }
+.gauge .g-track span { display: block; height: 100%; background: var(--good); }
+.gauge.full .g-track span { background: #e0a040; }
+.gauge.over .g-track span { background: var(--bad); }
+.gauge.fun .g-track span { background: #b98cf0; }
+.gauge .g-note { font-size: 11px; margin-top: 4px; }
+.gauge.over .g-note { color: var(--bad); font-weight: 600; }
+.gauge.full .g-note { color: #e0a040; font-weight: 600; }

@@ -683,8 +683,22 @@ function renderWhy(w: Msg) {
     .join('');
   const b = queriedBuilding;
   const isCivic = b && city.typeById.get(b.typeId)?.placeable;
+  const gauges = ((w.gauges ?? []) as Msg[]).map((g) => {
+    const pct = g.max > 0 ? (g.value * 100) / g.max : 0;
+    const level = g.fun ? 'fun' : pct > 100 ? 'over' : pct >= 85 ? 'full' : 'ok';
+    const note = g.fun ? 'City statistic, this month'
+      : pct > 100 ? `Over capacity by ${(g.value - g.max).toLocaleString()}: build another nearby`
+      : pct >= 85 ? 'Nearly full: plan another one' : `Room for ${(g.max - g.value).toLocaleString()} more`;
+    return `<div class="gauge ${level}">
+      <div class="g-label">${g.fun ? '✨ ' : ''}${esc(g.label)}</div>
+      <div class="g-num"><b>${Number(g.value).toLocaleString()}</b> / ${Number(g.max).toLocaleString()} <span>${esc(g.unit)}</span></div>
+      <div class="g-track"><span style="width:${Math.min(100, pct)}%"></span></div>
+      <div class="g-note">${note}</div>
+    </div>`;
+  }).join('');
   $('#tab-why').innerHTML = `
     <h3>${esc(w.subject)}</h3>
+    ${gauges ? `<div class="gauges">${gauges}</div>` : ''}
     <div class="muted">Cell ${w.x}, ${w.y}</div>
     <p class="summary">${esc(w.summary)}</p>
     ${reqs ? `<h4>Needs</h4>${reqs}` : ''}
