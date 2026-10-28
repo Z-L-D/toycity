@@ -97,16 +97,18 @@ public sealed partial class World
             }
         }
         Disasters.Add(d);
-        var facts = new Dictionary<string, string> { ["street"] = Content.Voice.Street(d.CellX, d.CellY) };
+        var facts = new Dictionary<string, string> { ["street"] = StreetNear(d.CellX, d.CellY) };
         string text = Say($"disaster.{DisasterName(kind)}.start", d.Id, 0, facts);
         Notices.Add(new SimNotice(text, "warning", d.CellX, d.CellY));
         AddHeadline(text, "warning", d.CellX, d.CellY);
+        RaiseIncident(DisasterName(kind), d.CellX, d.CellY, "city", "disaster", 3, text);
     }
 
     void Ignite(Building b)
     {
         if (b.BurningDays > 0) return;
         b.BurningDays = 1;
+        RaiseIncident("fire", b.X, b.Y, "city", TypeOf(b).Name, 2, "");
     }
 
     /// <summary>Damages a building. Returns true when it was destroyed.</summary>
@@ -172,7 +174,7 @@ public sealed partial class World
             int x = Math.Clamp(d.CellX, 0, Width - 1), y = Math.Clamp(d.CellY, 0, HeightCells - 1);
             var facts = new Dictionary<string, string>
             {
-                ["street"] = Content.Voice.Street(x, y), ["count"] = d.Destroyed.ToString("N0"), ["damaged"] = d.Damaged.ToString("N0"),
+                ["street"] = StreetNear(x, y), ["count"] = d.Destroyed.ToString("N0"), ["damaged"] = d.Damaged.ToString("N0"),
             };
             string text = Say($"disaster.{DisasterName(d.Kind)}.end", d.Id, 1, facts);
             Notices.Add(new SimNotice(text, "info", x, y));
@@ -257,7 +259,7 @@ public sealed partial class World
         int roll = Rng.Next(100);
         var kind = roll < 60 ? DisasterKind.Fire : roll < 80 ? DisasterKind.Tornado : roll < 92 ? DisasterKind.Earthquake : DisasterKind.Robot;
         // The Colossus only bothers with cities worth stomping.
-        if (kind == DisasterKind.Robot && Population < 5000) kind = DisasterKind.Fire;
+        if (kind == DisasterKind.Robot && (Population < 5000 || !Allowed(Mechanic.AbsurdDisasters))) kind = DisasterKind.Fire;
         StartDisaster(kind, at.X, at.Y);
     }
 

@@ -1,4 +1,5 @@
-import { City, lCells } from './state';
+import { City, lCells, SIDE_DX, SIDE_DY } from './state';
+import type { Building, BuildingType } from './state';
 
 export interface Preview {
   kind: 'line' | 'rect' | 'footprint' | 'cell' | 'cells';
@@ -11,6 +12,8 @@ export interface Preview {
   verticalFirst?: boolean;
   /** Transit stops: the walking reach to outline around the footprint, in cells. */
   catchment?: number;
+  /** Roadside stops: the kerb of the road cell at x0, y0 the stop goes on (0 north, 1 east, 2 south, 3 west). */
+  side?: number;
   /** kind 'cells': the cells to fill, with an optional colour each. */
   cells?: [number, number][];
   colors?: string[];
@@ -107,6 +110,9 @@ export function agentAt(t: AgentTrip, clock: { minute: number; evening: boolean 
   return { x: (a % width) * (1 - u) + (b % width) * u, y: Math.floor(a / width) * (1 - u) + Math.floor(b / width) * u, state };
 }
 
+/** A lot as the bus company's view draws it. */
+export interface CompanyLot { buildingId: number; kind: string; x: number; y: number; w: number; h: number; leased: boolean; closed: boolean; reach: number; side: number }
+
 export class Renderer {
   readonly ctx: CanvasRenderingContext2D;
   scale = 8;
@@ -124,6 +130,15 @@ export class Renderer {
   flash: { x0: number; y0: number; x1: number; y1: number; until: number } | null = null;
   /** The followed citizen, if any: drawn larger with a ring. */
   followed: number | null = null;
+  /** The bus company's running lines: drawn along their streets, with their buses going back and forth. */
+  busLines: { color: string; cells: number[]; buses: number; running: boolean }[] = [];
+  /** In the city view the routes show only when the Layers tab asks for them. */
+  showRoutes = false;
+  /**
+   * Set while the bus company's own view is up: the city is dimmed and the company's lots stand out, with the
+   * walking reach of its stops when asked for.
+   */
+  company: { lots: CompanyLot[]; catchment: number; showCatchment: boolean; selected: number | null } | null = null;
   private terrain: HTMLCanvasElement = document.createElement('canvas');
   private terrainVersion = -1;
   private blink = false;
@@ -134,6 +149,7 @@ export class Renderer {
     if (d && d.length > 0) return true;
     if (this.flash && this.flash.until > performance.now()) return true;
     if (this.followed !== null) return true;
+    if ((this.company || this.showRoutes) && this.busLines.some((l) => l.buses > 0) && this.city.stats.speed > 0) return true;
     return this.showAgents && this.agents.length > 0 && this.city.stats.speed > 0;
   }
 
@@ -163,6 +179,12 @@ export class Renderer {
     this.scale = ns;
     this.offX = sx - cx * ns;
     this.offY = sy - cy * ns;
+  }
+
+  /** Where in its cell a screen point falls, 0..1 across and down. */
+  cellFrac(sx: number, sy: number): { x: number; y: number } {
+    const fx = (sx - this.offX) / this.scale, fy = (sy - this.offY) / this.scale;
+    return { x: fx - Math.floor(fx), y: fy - Math.floor(fy) };
   }
 
   cellAt(sx: number, sy: number): { x: number; y: number } {
@@ -228,7 +250,9 @@ export class Renderer {
       this.drawBuildings(x0, y0, x1, y1, px, py);
       this.drawPowerLines(x0, y0, x1, y1, px, py);
       this.drawDisasters(px, py);
-      this.drawAgents(px, py, x0, y0, x1, y1);
+      if (this.company) this.drawCompany(px, py, r.width, r.height);
+      if (this.company || this.showRoutes) this.drawBusLines(px, py);
+      if (!this.company) this.drawAgents(px, py, x0, y0, x1, y1);
     }
 
     if (this.overlay) {
@@ -251,12 +275,65 @@ export class Renderer {
       ctx.stroke();
     }
 
+    if (s >= 9 && !this.company) this.drawStreetNames(x0, y0, x1, y1, px, py);
     this.drawFlash(px, py);
     this.drawPreview(px, py);
     if (this.selected) {
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
       ctx.strokeRect(px(this.selected.x) + 1, py(this.selected.y) + 1, s - 2, s - 2);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Street names along the roads, as the news and petitions use them: one label for each straight run that's on
+   * screen and long enough to hold it. East-west runs read across; north-south avenues read up the road.
+   */
+  private drawStreetNames(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {
+    const c = this.city;
+    const ctx = this.ctx;
+    const s = this.scale;
+    ctx.save();
+    ctx.font = `600 ${Math.round(Math.max(10, Math.min(15, s * 0.5)))}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(20,24,32,0.85)';
+    ctx.fillStyle = '#f4f1e6';
+    const label = (text: string, cx: number, cy: number, cells: number, vertical: boolean) => {
+      const w = ctx.measureText(text).width;
+      if (w + s > cells * s) return;
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (vertical) ctx.rotate(-Math.PI / 2);
+      ctx.strokeText(text, 0, 0);
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+    };
+    const path = (x: number, y: number) => !!c.paths[y * c.width + x];
+    for (let y = y0; y <= y1; y++) {
+      let start = -1;
+      for (let x = x0; x <= x1 + 1; x++) {
+        const on = x <= x1 && path(x, y) && c.roadEW(x, y);
+        if (on && start < 0) start = x;
+        if (!on && start >= 0) {
+          label(c.roadName(false, y), px(start) + ((x - start) * s) / 2, py(y) + s / 2, x - start, false);
+          start = -1;
+        }
+      }
+    }
+    for (let x = x0; x <= x1; x++) {
+      let start = -1;
+      for (let y = y0; y <= y1 + 1; y++) {
+        const on = y <= y1 && path(x, y) && c.roadNS(x, y);  // through crossings, so an avenue gets one label
+        if (on && start < 0) start = y;
+        if (!on && start >= 0) {
+          label(c.roadName(true, x), px(x) + s / 2, py(start) + ((y - start) * s) / 2, y - start, true);
+          start = -1;
+        }
+      }
     }
     ctx.restore();
   }
@@ -303,6 +380,99 @@ export class Renderer {
     }
     this.drawFollowed(px, py, clock, r);
   }
+
+  /** The company's view: the city dimmed, its stops' walking reach, and its lots and the free ones marked. */
+  private drawCompany(px: (x: number) => number, py: (y: number) => number, w: number, h: number) {
+    const ctx = this.ctx;
+    const s = this.scale;
+    const co = this.company!;
+    ctx.fillStyle = 'rgba(12,16,26,0.55)';
+    ctx.fillRect(0, 0, w, h);
+    if (co.showCatchment) {
+      ctx.fillStyle = 'rgba(255,204,77,0.10)';
+      ctx.strokeStyle = 'rgba(255,204,77,0.45)';
+      ctx.lineWidth = 1;
+      for (const l of co.lots) {
+        if (!l.leased || l.kind !== 'bus-stop') continue;
+        const r = l.reach || co.catchment;
+        ctx.fillRect(px(l.x - r), py(l.y - r), (l.w + 2 * r) * s, (l.h + 2 * r) * s);
+        ctx.strokeRect(px(l.x - r) + 0.5, py(l.y - r) + 0.5, (l.w + 2 * r) * s - 1, (l.h + 2 * r) * s - 1);
+      }
+    }
+    for (const l of co.lots) {
+      let x = px(l.x), y = py(l.y), bw = l.w * s, bh = l.h * s;
+      // A roadside stop is marked on its kerb, not over the road.
+      if (l.side >= 0) [x, y, bw, bh] = kerbRect(x - 1, y - 1, s + 2, l.side, 1, Math.max(5, s * 0.4));
+      ctx.lineWidth = l.side >= 0 ? 1 : Math.max(2, s / 6);
+      if (l.leased) {
+        ctx.fillStyle = l.closed ? '#8a4a44' : '#ffcc4d';
+        ctx.fillRect(x, y, bw, bh);
+        ctx.strokeStyle = '#fff';
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(x, y, bw, bh);
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.setLineDash([3, 3]);
+      }
+      ctx.strokeRect(x + 1, y + 1, bw - 2, bh - 2);
+      ctx.setLineDash([]);
+      if (co.selected === l.buildingId) {
+        ctx.strokeStyle = '#5ad1ff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - 3, y - 3, bw + 6, bh + 6);
+      }
+      if (s >= 10 && l.kind === 'bus-depot') {
+        ctx.fillStyle = l.leased ? '#1b2230' : '#fff';
+        ctx.font = `${Math.round(s * 0.8)}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('D', x + bw / 2, y + bh / 2);
+      }
+    }
+  }
+
+  /**
+   * Bus lines along their streets, and their buses: each runs the line end to end and back on a cosmetic clock
+   * (half a minute a round trip), spaced evenly. They stand still while the game is paused.
+   */
+  private drawBusLines(px: (x: number) => number, py: (y: number) => number) {
+    const ctx = this.ctx;
+    const s = this.scale;
+    const w = this.city.width;
+    const now = this.city.stats.speed > 0 ? performance.now() : (this.pausedAt ??= performance.now());
+    if (this.city.stats.speed > 0) this.pausedAt = null;
+    for (const line of this.busLines) {
+      const cells = line.cells;
+      if (cells.length < 2) continue;
+      ctx.strokeStyle = line.color + 'aa';
+      ctx.lineWidth = Math.max(2, s / 3);
+      ctx.lineJoin = 'round';
+      // A line that isn't running (no buses, every bus in the workshop) is drawn dashed, without buses.
+      if (!line.running) ctx.setLineDash([s, s]);
+      ctx.beginPath();
+      cells.forEach((c, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, px((c % w) + 0.5), py(Math.floor(c / w) + 0.5)));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (!line.running) continue;
+      const last = cells.length - 1;
+      const size = Math.max(3, s * 0.7);
+      for (let b = 0; b < line.buses; b++) {
+        const phase = (now / 30000 + b / line.buses) % 1;
+        let u = phase * 2 * last;
+        if (u > last) u = 2 * last - u;
+        const i = Math.min(last - 1, Math.floor(u));
+        const f = u - i;
+        const ax = cells[i] % w, ay = Math.floor(cells[i] / w), bx = cells[i + 1] % w, by = Math.floor(cells[i + 1] / w);
+        const x = px(ax + (bx - ax) * f + 0.5), y = py(ay + (by - ay) * f + 0.5);
+        ctx.fillStyle = line.color;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.fillRect(x - size / 2, y - size / 2, size, size);
+        ctx.strokeRect(x - size / 2, y - size / 2, size, size);
+      }
+    }
+  }
+  private pausedAt: number | null = null;
 
   /** Where the followed citizen is now, and what they're doing; null when nobody is followed or they aren't drawn. */
   followedNow(): { x: number; y: number; status: string; minute: number } | null {
@@ -499,6 +669,7 @@ export class Renderer {
     for (const b of c.buildings.values()) {
       if (b.x > x1 || b.y > y1 || b.x + b.width < x0 || b.y + b.height < y0) continue;
       const t = c.typeById.get(b.typeId);
+      if (t?.roadside) { this.drawStop(b, t, px(b.x), py(b.y)); continue; }
       const bx = px(b.x);
       const by = py(b.y);
       const bw = b.width * s;
@@ -599,6 +770,36 @@ export class Renderer {
     }
   }
 
+  /**
+   * A roadside stop: a sign along the road cell's kerb in its type's colour, longer for the bigger stops, and a "B"
+   * painted in the lane in front of it.
+   */
+  private drawStop(b: Building, t: BuildingType, x: number, y: number) {
+    const ctx = this.ctx;
+    const s = this.scale;
+    const len = t.capacity <= 400 ? 0.5 : t.capacity <= 900 ? 0.75 : 1;
+    const [rx, ry, rw, rh] = kerbRect(x, y, s, b.side, len, Math.max(2, s * 0.2));
+    ctx.fillStyle = b.constructionDaysLeft > 0 ? 'rgba(255,200,40,0.85)' : b.abandoned ? '#6b6b6b' : t.color;
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1);
+    if (t.income > 0 && s >= 8) {
+      // A kiosk: a white dot on the sign.
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(rx + rw / 2, ry + rh / 2, Math.max(1, Math.min(rw, rh) * 0.3), 0, Math.PI * 2); ctx.fill();
+    }
+    if (s >= 9) {
+      // In the half of the road nearest the stop, so stops on both kerbs each keep their own.
+      const lx = x + s / 2 + SIDE_DX[b.side] * s * 0.22, ly = y + s / 2 + SIDE_DY[b.side] * s * 0.22;
+      ctx.fillStyle = 'rgba(255,236,150,0.95)';
+      ctx.font = `bold ${Math.round(s * 0.34)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('B', lx, ly);
+    }
+  }
+
   private drawFlames(bx: number, by: number, bw: number, bh: number, seed: number) {
     const ctx = this.ctx;
     const t = performance.now() / 120;
@@ -688,6 +889,20 @@ export class Renderer {
         ctx.fillStyle = p.ok ? p.colors?.[k] ?? p.color : 'rgba(230,60,60,0.55)';
         ctx.fillRect(px(x), py(y), s, s);
       });
+    } else if (p.side !== undefined) {
+      const [rx, ry, rw, rh] = kerbRect(px(p.x0), py(p.y0), s, p.side, 1, Math.max(3, s * 0.28));
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1);
+      if (p.catchment) {
+        const r = p.catchment;
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(px(p.x0 - r), py(p.y0 - r), (1 + 2 * r) * s, (1 + 2 * r) * s);
+        ctx.strokeRect(px(p.x0 - r) + 0.5, py(p.y0 - r) + 0.5, (1 + 2 * r) * s - 1, (1 + 2 * r) * s - 1);
+        ctx.restore();
+      }
     } else if (p.kind === 'line') {
       const cells = p.verticalFirst
         ? [...lCells(p.x0, p.y0, p.x0, p.y1), ...lCells(p.x0, p.y1, p.x1, p.y1).slice(1)]
@@ -711,5 +926,16 @@ export class Renderer {
         ctx.restore();
       }
     }
+  }
+}
+
+/** The strip along one side of a cell at screen (x, y): len is its share of the side, thick its depth in pixels. */
+export function kerbRect(x: number, y: number, s: number, side: number, len: number, thick: number): [number, number, number, number] {
+  const l = s * len, off = (s - l) / 2;
+  switch (side) {
+    case 0: return [x + off, y, l, thick];
+    case 1: return [x + s - thick, y + off, thick, l];
+    case 2: return [x + off, y + s - thick, l, thick];
+    default: return [x, y + off, thick, l];
   }
 }

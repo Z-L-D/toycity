@@ -18,7 +18,8 @@ public static class Mapping
         P.Action.KindOneofCase.Path => new PlacePathAction(a.Path.X0, a.Path.Y0, a.Path.X1, a.Path.Y1, a.Path.ProfileId, a.Path.Curved, a.Path.Cx, a.Path.Cy),
         P.Action.KindOneofCase.Block => new ZoneBlockAction(a.Block.X, a.Block.Y, (Zone)(int)a.Block.Zone, (Level)(int)a.Block.Density, (Leftover)(int)a.Block.Leftover),
         P.Action.KindOneofCase.Zone => new PaintZoneAction(Rect(a.Zone.Area), (Zone)(int)a.Zone.Zone, (Level)(int)a.Zone.Density),
-        P.Action.KindOneofCase.Building => new PlaceBuildingAction(a.Building.X, a.Building.Y, a.Building.TypeId),
+        P.Action.KindOneofCase.Building => new PlaceBuildingAction(a.Building.X, a.Building.Y, a.Building.TypeId, a.Building.Side - 1),
+        P.Action.KindOneofCase.Upgrade => new UpgradeBuildingAction(a.Upgrade.BuildingId, a.Upgrade.ToTypeId),
         P.Action.KindOneofCase.Bulldoze => new BulldozeAction(Rect(a.Bulldoze.Area), a.Bulldoze.Underground),
         P.Action.KindOneofCase.Terraform => new TerraformAction(Rect(a.Terraform.Area), (TerraformMode)(int)a.Terraform.Mode),
         P.Action.KindOneofCase.Tax => new SetTaxAction((Zone)(int)a.Tax.Zone, (Level)(int)a.Tax.Wealth, a.Tax.PercentTenths),
@@ -29,6 +30,13 @@ public static class Mapping
         P.Action.KindOneofCase.Respond => new RespondPromptAction(a.Respond.PromptId, a.Respond.Accept),
         P.Action.KindOneofCase.Disaster => new TriggerDisasterAction((DisasterKind)(int)a.Disaster.Kind, a.Disaster.X, a.Disaster.Y),
         P.Action.KindOneofCase.Disasters => new SetDisasterSettingAction((DisasterSetting)(int)a.Disasters.Setting),
+        P.Action.KindOneofCase.SideGame => new SideGameAction(a.SideGame.Game, a.SideGame.Seat, a.SideGame.Payload.ToByteArray()),
+        P.Action.KindOneofCase.Attach => new AttachSideGameAction(a.Attach.Game),
+        P.Action.KindOneofCase.Lease => new LeaseLotAction(a.Lease.Game, a.Lease.BuildingId, a.Lease.Terms == null ? null : Terms(a.Lease.Terms)),
+        P.Action.KindOneofCase.LeaseTerms => new SetLeaseTermsAction(a.LeaseTerms.LeaseId, Terms(a.LeaseTerms.Terms)),
+        P.Action.KindOneofCase.EndLease => new EndLeaseAction(a.EndLease.LeaseId, a.EndLease.ByOperator),
+        P.Action.KindOneofCase.Consent => new SetConsentAction(a.Consent.Owner, (Mechanic)(int)a.Consent.Mechanic, a.Consent.Allowed),
+        P.Action.KindOneofCase.Seat => new SetSeatAction(a.Seat.Seat, a.Seat.Owner, (ToyCity.Contract.OperatorLevel)(int)a.Seat.Level, (AutopilotStyle)(int)a.Seat.Style, a.Seat.SpendCap),
         _ => null,
     };
 
@@ -37,7 +45,8 @@ public static class Mapping
         PlacePathAction x => new P.Action { Path = new P.PlacePath { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, ProfileId = x.ProfileId, Curved = x.Curved, Cx = x.CX, Cy = x.CY } },
         ZoneBlockAction x => new P.Action { Block = new P.ZoneBlock { X = x.X, Y = x.Y, Zone = (P.ZoneKind)(int)x.Zone, Density = (P.Density)(int)x.Density, Leftover = (P.Leftover)(int)x.Leftover } },
         PaintZoneAction x => new P.Action { Zone = new P.PaintZone { Area = Rect(x.Area), Zone = (P.ZoneKind)(int)x.Zone, Density = (P.Density)(int)x.Density } },
-        PlaceBuildingAction x => new P.Action { Building = new P.PlaceBuilding { X = x.X, Y = x.Y, TypeId = x.TypeId } },
+        PlaceBuildingAction x => new P.Action { Building = new P.PlaceBuilding { X = x.X, Y = x.Y, TypeId = x.TypeId, Side = x.Side + 1 } },
+        UpgradeBuildingAction x => new P.Action { Upgrade = new P.UpgradeBuilding { BuildingId = x.BuildingId, ToTypeId = x.ToTypeId } },
         BulldozeAction x => new P.Action { Bulldoze = new P.Bulldoze { Area = Rect(x.Area), Underground = x.Underground } },
         TerraformAction x => new P.Action { Terraform = new P.Terraform { Area = Rect(x.Area), Mode = (P.TerraformMode)(int)x.Mode } },
         SetTaxAction x => new P.Action { Tax = new P.SetTax { Zone = (P.ZoneKind)(int)x.Zone, Wealth = (P.Wealth)(int)x.Wealth, PercentTenths = x.PercentTenths } },
@@ -48,7 +57,23 @@ public static class Mapping
         RespondPromptAction x => new P.Action { Respond = new P.RespondPrompt { PromptId = x.PromptId, Accept = x.Accept } },
         TriggerDisasterAction x => new P.Action { Disaster = new P.TriggerDisaster { Kind = (P.DisasterKind)(int)x.Kind, X = x.X, Y = x.Y } },
         SetDisasterSettingAction x => new P.Action { Disasters = new P.SetDisasters { Setting = (P.DisasterSetting)(int)x.Setting } },
+        SideGameAction x => new P.Action { SideGame = new P.SideGameCommand { Game = x.GameId, Seat = x.Seat, Payload = ByteString.CopyFrom(x.Payload) } },
+        AttachSideGameAction x => new P.Action { Attach = new P.AttachSideGame { Game = x.GameId } },
+        LeaseLotAction x => new P.Action { Lease = new P.LeaseLot { Game = x.GameId, BuildingId = x.BuildingId, Terms = x.Terms == null ? null : Terms(x.Terms) } },
+        SetLeaseTermsAction x => new P.Action { LeaseTerms = new P.SetLeaseTerms { LeaseId = x.LeaseId, Terms = Terms(x.Terms) } },
+        EndLeaseAction x => new P.Action { EndLease = new P.EndLease { LeaseId = x.LeaseId, ByOperator = x.ByOperator } },
+        SetConsentAction x => new P.Action { Consent = new P.SetConsent { Owner = x.Owner, Mechanic = (P.Mechanic)(int)x.Mechanic, Allowed = x.Allowed } },
+        SetSeatAction x => new P.Action { Seat = new P.SetSeat { Seat = x.SeatId, Owner = x.Owner, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style, SpendCap = x.SpendCap } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
+    };
+
+    static ToyCity.Contract.LeaseTerms Terms(P.LeaseTerms? t) => t == null ? World.StandardTerms("bus-stop")
+        : new((ToyCity.Contract.LeaseMode)(int)t.Mode, t.RentPerMonth, t.TaxTenths, t.SubsidyPerMonth, t.FareCapCents, t.NoticeMonths);
+
+    static P.LeaseTerms Terms(ToyCity.Contract.LeaseTerms t) => new()
+    {
+        Mode = (P.LeaseMode)(int)t.Mode, RentPerMonth = t.RentPerMonth, TaxTenths = t.TaxTenths, SubsidyPerMonth = t.SubsidyPerMonth,
+        FareCapCents = t.FareCapCents, NoticeMonths = t.NoticeMonths,
     };
 
     static string CategoryName(Category c) => c.ToString().ToLowerInvariant();
@@ -71,8 +96,19 @@ public static class Mapping
                 Cost = t.Cost, Placeable = t.Placeable, Color = t.Color, UnlockText = t.Unlock != null ? t.UnlockText : "",
                 Unique = t.Unique, Income = t.Income, Attraction = t.Attraction,
                 Transit = t.Transit == TransitKind.None ? "" : t.Transit.ToString().ToLowerInvariant(), Capacity = t.Capacity, Catchment = t.Catchment,
+                Roadside = t.Roadside, LotKind = t.LotKind, Maintenance = t.Maintenance, LeaseRent = t.LeaseRent,
+                Upgrades =
+                {
+                    t.Upgrades.Select(u => new P.UpgradeInfo
+                    {
+                        ToTypeId = u.To, Cost = u.Cost, Riders = u.Riders, Population = u.Population, Text = u.Text,
+                        NearZone = u.NearZone switch { "R" => P.ZoneKind.ZoneResidential, "C" => P.ZoneKind.ZoneCommercial, "I" => P.ZoneKind.ZoneIndustrial, _ => P.ZoneKind.ZoneNone },
+                    }),
+                },
             });
         foreach (var sizes in c.LotSizes) cat.LotDepth.Add(sizes.Max(z => Math.Max(z.W, z.D)));
+        cat.StreetNames.AddRange(c.Voice.StreetNames);
+        cat.StreetKinds.AddRange(c.Voice.StreetKinds);
         return cat;
     }
 
@@ -87,6 +123,7 @@ public static class Mapping
             Workers = b.Residents > 0 ? b.Employed : b.Workers, Powered = b.Powered, Watered = b.Watered,
             Abandoned = b.Abandoned, ConstructionDaysLeft = b.ConstructionLeft, FundingPercent = b.Funding, Condition = b.Condition,
             Graffiti = b.Graffiti, BurningDays = b.BurningDays, Look = (P.BuildingLook)(int)w.LookOf(b), Riders = b.Riders,
+            Side = b.Side,
         };
     }
 
@@ -133,9 +170,11 @@ public static class Mapping
 
     public static P.Notice Notice(SimNotice n) => new() { Text = n.Text, Severity = n.Severity, X = n.X, Y = n.Y };
 
-    public static P.WhyResult Why(WhyReport r)
+    public static P.WhyResult Why(World w, WhyReport r)
     {
         var p = new P.WhyResult { X = r.X, Y = r.Y, Subject = r.Subject, Summary = r.Summary };
+        if (w.InBounds(r.X, r.Y) && w.BuildingOrStopAt(w.Idx(r.X, r.Y)) is { } b)
+            foreach (var g in w.Gauges(b)) p.Gauges.Add(new P.Gauge { Label = g.Label, Value = g.Value, Max = g.Max, Unit = g.Unit, Fun = g.Fun });
         foreach (var q in r.Requirements)
             p.Requirements.Add(new P.Requirement { Key = q.Key, Label = q.Label, Met = q.Met, Detail = q.Detail, Topic = TopicOf(q.Key) });
         foreach (var f in r.Factors) p.Factors.Add(new P.Factor { Label = f.Label, Value = f.Value });
@@ -246,13 +285,67 @@ public static class Mapping
                 Id = p.Id, EventId = ev.Id, Kind = p.Kind == EventKind.Deal ? "deal" : "petition", X = p.X, Y = p.Y,
                 Petitioner = p.Petitioner, Text = p.Text, Goal = ev.GoalText, Status = (P.PromptStatus)(int)p.Status,
                 MonthsLeft = p.Status == PromptStatus.Open ? (int)Math.Max(0, (p.Deadline - w.Tick + World.DaysPerMonth - 1) / World.DaysPerMonth) : 0,
-                ResultText = p.ResultText, FixType = fix, Area = Rect(area),
+                ResultText = p.ResultText, FixType = fix, Area = Rect(area), Progress = w.PromptProgress(p),
             });
         }
         for (int t = 0; t < w.TypeUnlocked.Length; t++)
             if (w.TypeUnlocked[t] && w.Content.Types[t].Placeable) r.UnlockedTypes.Add(w.Content.Types[t].Id);
         foreach (var h in w.Headlines)
             r.Headlines.Add(new P.Headline { Seq = h.Seq, Tick = h.Tick, Text = h.Text, Severity = h.Severity, X = h.X, Y = h.Y });
+        foreach (var s in w.Seats)
+        {
+            var seat = new P.SeatState
+            {
+                Id = s.Id, Name = s.Id == Seat.Mayor ? "City" : w.SideGame(s.Id)?.Game.Manifest.Name ?? s.Id, Owner = s.Owner,
+                Level = (P.SeatLevel)(int)s.Level, Style = (P.AutopilotStyle)(int)s.Style, SpendCap = s.SpendCap,
+                AwaySinceTick = s.Away?.Tick ?? -1,
+            };
+            if (s.Report is { } rep)
+            {
+                var pr = new P.AwayReport { FromTick = rep.FromTick, ToTick = rep.ToTick, Level = (P.SeatLevel)(int)rep.Level };
+                pr.Changes.AddRange(rep.Changes);
+                pr.News.AddRange(rep.News);
+                foreach (var n in rep.Notes) pr.Notes.Add(new P.AwayNote { Tick = n.Tick, Text = n.Text, X = n.X, Y = n.Y });
+                seat.Report = pr;
+            }
+            r.Seats.Add(seat);
+        }
+        foreach (var hg in w.SideGames)
+        {
+            var info = new P.SideGameInfo { Id = hg.Id, Name = hg.Game.Manifest.Name, Description = hg.Game.Manifest.Description };
+            info.LotKinds.AddRange(hg.Game.Manifest.LotKinds);
+            foreach (var s in w.Standings.Where(s => s.GameId == hg.Id))
+                info.Standings.Add(new P.StandingState
+                {
+                    District = s.District, DistrictName = w.DistrictName(s.District), Rating = s.Rating, Target = s.Target, Statue = s.Statue,
+                    ExclusiveDays = (int)Math.Max(0, s.ExclusiveUntil - w.Tick), BribeBanDays = (int)Math.Max(0, s.BribeBanUntil - w.Tick),
+                });
+            r.SideGames.Add(info);
+        }
+        var table = new P.ConsentTable();
+        table.Owners.AddRange(w.Owners());
+        foreach (var row in w.ConsentTable())
+        {
+            var pr = new P.ConsentRow { Mechanic = (P.Mechanic)(int)row.Mechanic, Name = row.Name, Note = row.Note, Effective = row.Effective };
+            pr.ByOwner.AddRange(row.ByOwner);
+            pr.Blockers.AddRange(row.Blockers);
+            table.Rows.Add(pr);
+        }
+        r.Consent = table;
+        foreach (var l in w.Leases)
+        {
+            var b = w.Buildings[l.BuildingId];
+            var ls = new P.LeaseState
+            {
+                Id = l.Id, Game = l.GameId, GameName = w.SideGame(l.GameId)?.Game.Manifest.Name ?? l.GameId, BuildingId = l.BuildingId, Kind = l.Kind,
+                X = b?.X ?? -1, Y = b?.Y ?? -1, Terms = Terms(l.Terms), PendingTerms = l.PendingTerms == null ? null : Terms(l.PendingTerms),
+                PendingMonths = l.PendingMonths, Arrears = l.Arrears, BadStanding = l.BadStanding, CureMonthsLeft = l.CureMonthsLeft,
+                Terminable = l.Terminable, Jobs = l.Jobs, LastMonthFares = l.LastRevenue, EvictMonths = l.EvictMonths,
+                Rating = b == null ? 0 : w.RatingOf(l.GameId, w.DistrictOf(b.X, b.Y)),
+            };
+            if (b != null) ls.Targets.AddRange(w.LeaseTargets(l));
+            r.Leases.Add(ls);
+        }
         return r;
     }
 
@@ -275,7 +368,12 @@ public static class Mapping
     {
         var p = new P.InspectResult { X = x, Y = y };
         foreach (var (k, v) in w.Inspect(x, y)) p.Fields.Add(new P.KeyValue { Key = k, Value = v });
-        if (w.InBounds(x, y) && w.BuildingAtCell(w.Idx(x, y)) is { } b) p.Building = Building(w, b);
+        if (w.InBounds(x, y) && w.BuildingOrStopAt(w.Idx(x, y)) is { } b)
+        {
+            p.Building = Building(w, b);
+            foreach (var u in w.UpgradeOptions(b))
+                p.Upgrades.Add(new P.UpgradeChoice { ToTypeId = u.To.Id, Name = u.To.Name, Cost = u.Def.Cost, Available = u.Available, WhyNot = u.WhyNot, Text = u.Def.Text });
+        }
         return p;
     }
 

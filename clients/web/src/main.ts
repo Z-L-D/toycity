@@ -1,8 +1,10 @@
 import './style.css';
 import { Connection, type Msg } from './net';
-import { City, curveCells, lCells } from './state';
+import { City, curveCells, lCells, SIDE_DX, SIDE_DY, type BuildingType } from './state';
 import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
+import { Seats } from './seats';
+import { Transport } from './transport';
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -80,15 +82,19 @@ let dirty = true;
 let activeTab = 'why';
 // Created after the connection; messages that arrive first are handled once it exists.
 let talk: TalkBack | null = null;
+let seats: Seats | null = null;
+let transport: Transport | null = null;
 /** The followed commuters and this machine's tiers, as the server last sent them. */
 let roster: Msg | null = null;
 
 const conn = new Connection({
   onStatus(ok) {
     $('#conn').classList.toggle('off', !ok);
+    transport?.onCityTick();
     if (!ok) toast('Lost connection to the server. Reconnecting…', 'error');
   },
   onMessage(kind, body, replyTo) {
+    if (kind === 'civic') seats?.onCivic(body);
     if (talk?.onMessage(kind, body, replyTo)) return;
     switch (kind) {
       case 'full': {
@@ -109,6 +115,7 @@ const conn = new Connection({
         city.applyDelta(body);
         for (const n of body.notices as Msg[]) toast(n.text, n.severity, n.x, n.y);
         updateTopBar();
+        transport?.onCityTick();
         if (city.stats.day === 1) {
           renderBudget();
           if (queried) query(queried.x, queried.y, false);
@@ -142,6 +149,10 @@ const conn = new Connection({
         break;
       case 'error':
         toast(body.message, 'error');
+        break;
+      case 'sideGame':
+        transport?.onView(body);
+        dirty = true;
         break;
     }
   },
@@ -325,6 +336,37 @@ function lineCells(x0: number, y0: number, x1: number, y1: number, verticalFirst
   return verticalFirst ? [...lCells(x0, y0, x0, y1), ...lCells(x0, y1, x1, y1).slice(1)] : lCells(x0, y0, x1, y1);
 }
 
+/**
+ * Where a roadside stop goes for the cursor at screen (sx, sy) over a cell: on the kerb of the road under it nearest
+ * the cursor, or on the kerb of a road beside clicked land, facing it. Mirrors World.CheckKerb.
+ */
+function kerbSpot(t: BuildingType, cell: { x: number; y: number }, sx: number, sy: number): { x: number; y: number; side: number; why: string } {
+  const carries = (x: number, y: number) => {
+    if (!city.inBounds(x, y)) return false;
+    const p = city.profileAt(y * city.width + x);
+    return !!p && (t.transit === 'bus' ? p.cars : t.transit === 'tram' ? !!p.tram : t.transit === 'rail' ? p.rail : true);
+  };
+  const kerb = (x: number, y: number, k: number) => {
+    const nx = x + SIDE_DX[k], ny = y + SIDE_DY[k];
+    return !city.inBounds(nx, ny) || !city.paths[ny * city.width + nx];
+  };
+  const { x: fx, y: fy } = renderer.cellFrac(sx, sy);
+  const edge = [fy, 1 - fx, 1 - fy, fx];  // the cursor's distance to the north, east, south and west edges
+  const order = [0, 1, 2, 3].sort((a, b) => edge[a] - edge[b]);
+  const what = t.transit === 'bus' ? 'a road buses can use' : t.transit === 'tram' ? 'a tram line' : t.transit === 'rail' ? 'a rail line' : 'a road';
+  let { x, y } = cell;
+  let side = -1;
+  if (carries(x, y)) side = order.find((k) => kerb(x, y, k)) ?? -1;
+  else if (city.inBounds(x, y) && !city.paths[y * city.width + x]) {
+    // Beside a road: the stop faces the land, on the road toward the cursor's nearest edge.
+    const k = order.find((k) => carries(x + SIDE_DX[k], y + SIDE_DY[k]));
+    if (k !== undefined) { x += SIDE_DX[k]; y += SIDE_DY[k]; side = (k + 2) % 4; }
+  }
+  if (side < 0) return { x, y, side: 0, why: carries(x, y) ? 'no kerb here: roads join on every side' : `must go beside ${what}` };
+  if (city.stopsAt(x, y).some((b) => b.side === side)) return { x, y, side, why: 'a stop is already on that side' };
+  return { x, y, side, why: '' };
+}
+
 /** Updates the tool preview and the cost tag under the cursor. */
 function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
   renderer.hover = city.inBounds(cell.x, cell.y) ? cell : null;
@@ -332,7 +374,13 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
   let text = '';
   let ok = true;
   renderer.preview = null;
-  if (tool.kind === 'building') {
+  if (tool.kind === 'building' && city.typeById.get(buildingTypeId)?.roadside) {
+    const t = city.typeById.get(buildingTypeId)!;
+    const k = kerbSpot(t, cell, sx, sy);
+    renderer.preview = { kind: 'cell', x0: k.x, y0: k.y, x1: k.x, y1: k.y, ok: !k.why, color: t.color + 'dd', catchment: t.catchment || undefined, side: k.side };
+    text = `${t.name}: ${money(t.cost)} · ${k.why || `${['north', 'east', 'south', 'west'][k.side]} side of the road, serves ${t.catchment} cells around`}`;
+    ok = !k.why;
+  } else if (tool.kind === 'building') {
     const f = footprintAt(cell.x, cell.y);
     const t = city.typeById.get(buildingTypeId);
     for (let y = f.y; y < f.y + f.h; y++)
@@ -487,6 +535,7 @@ canvas.addEventListener('mousedown', (e) => {
   }
   if (e.button !== 0 || !city.loaded) return;
   const cell = renderer.cellAt(sx, sy);
+  if (transport?.company) { if (city.inBounds(cell.x, cell.y)) transport.mapClick(cell.x, cell.y); return; }
   if (tool.kind === 'query') { if (city.inBounds(cell.x, cell.y)) query(cell.x, cell.y); return; }
   if (tool.kind === 'path' && curveEnds) {
     const e = curveEnds;
@@ -503,6 +552,13 @@ canvas.addEventListener('mousedown', (e) => {
   }
   if (tool.kind === 'disaster') {
     if (city.inBounds(cell.x, cell.y)) act({ disaster: { kind: disasterKind, x: cell.x, y: cell.y } }, `${DISASTER_NAMES[disasterKind]} at ${cell.x},${cell.y}`);
+    return;
+  }
+  if (tool.kind === 'building' && city.typeById.get(buildingTypeId)?.roadside) {
+    const t = city.typeById.get(buildingTypeId)!;
+    const k = kerbSpot(t, cell, sx, sy);
+    if (k.why) { toast(`${t.name}: ${k.why}.`, 'warning'); return; }
+    act({ building: { x: k.x, y: k.y, typeId: buildingTypeId, side: k.side + 1 } }, `${t.name} on the ${['north', 'east', 'south', 'west'][k.side]} side at ${k.x},${k.y}`);
     return;
   }
   if (tool.kind === 'building') {
@@ -522,6 +578,7 @@ window.addEventListener('mousemove', (e) => {
     dirty = true;
     return;
   }
+  if (transport?.company) return;
   if (e.target === canvas || drag) updatePreview(renderer.cellAt(sx, sy), sx, sy);
 });
 window.addEventListener('mouseup', (e) => {
@@ -557,6 +614,12 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Shift') { shiftHeld = true; return; }
   held.add(e.key);
   const k = e.key.toLowerCase();
+  // The company's view has its own tools; only the shared keys (pause, speed, panning) work there.
+  if (transport?.company) {
+    if (k === ' ') { e.preventDefault(); conn.send({ speed: { speed: city.stats.speed === 0 ? 1 : 0 } }); }
+    else if (k >= '1' && k <= '3') conn.send({ speed: { speed: Number(k) } });
+    return;
+  }
   const keyTools: Record<string, Tool> = {
     q: { kind: 'query' }, b: { kind: 'bulldoze' }, r: { kind: 'path' }, z: { kind: 'zone', zone: 1 }, x: { kind: 'zone', zone: 2 },
     c: { kind: 'zone', zone: 3 }, d: { kind: 'dezone' }, p: { kind: 'utility', utility: 0 }, w: { kind: 'utility', utility: 1 },
@@ -620,14 +683,32 @@ function renderWhy(w: Msg) {
     .join('');
   const b = queriedBuilding;
   const isCivic = b && city.typeById.get(b.typeId)?.placeable;
+  const gauges = ((w.gauges ?? []) as Msg[]).map((g) => {
+    const pct = g.max > 0 ? (g.value * 100) / g.max : 0;
+    const level = g.fun ? 'fun' : pct > 100 ? 'over' : pct >= 85 ? 'full' : 'ok';
+    const note = g.fun ? 'City statistic, this month'
+      : pct > 100 ? `Over capacity by ${(g.value - g.max).toLocaleString()}: build another nearby`
+      : pct >= 85 ? 'Nearly full: plan another one' : `Room for ${(g.max - g.value).toLocaleString()} more`;
+    return `<div class="gauge ${level}">
+      <div class="g-label">${g.fun ? '✨ ' : ''}${esc(g.label)}</div>
+      <div class="g-num"><b>${Number(g.value).toLocaleString()}</b> / ${Number(g.max).toLocaleString()} <span>${esc(g.unit)}</span></div>
+      <div class="g-track"><span style="width:${Math.min(100, pct)}%"></span></div>
+      <div class="g-note">${note}</div>
+    </div>`;
+  }).join('');
   $('#tab-why').innerHTML = `
     <h3>${esc(w.subject)}</h3>
+    ${gauges ? `<div class="gauges">${gauges}</div>` : ''}
     <div class="muted">Cell ${w.x}, ${w.y}</div>
     <p class="summary">${esc(w.summary)}</p>
     ${reqs ? `<h4>Needs</h4>${reqs}` : ''}
     ${fac ? `<h4>${(w.requirements as Msg[]).some((r) => r.key === 'desirability') ? 'Desirability factors' : 'Land value factors'}</h4>${fac}` : ''}
-    <div id="funding-slot"></div>`;
+    <div class="upgrade-slot"></div>
+    <div id="funding-slot"></div>
+    <div id="lease-slot"></div>`;
+  fillUpgrades();
   if (isCivic) renderFunding(b!);
+  if (isCivic) seats?.renderLease(b!, $('#lease-slot'));
   document.querySelectorAll<HTMLAnchorElement>('#tab-why a.topic').forEach((a) =>
     a.addEventListener('click', (e) => { e.preventDefault(); talk?.article(a.dataset.topic!); }),
   );
@@ -637,7 +718,7 @@ function renderFunding(b: Msg) {
   const slot = document.getElementById('funding-slot');
   if (!slot) return;
   slot.innerHTML = `<h4>Funding</h4><div class="slider"><span>Budget</span><input type="range" min="0" max="200" step="10" value="${b.fundingPercent}" id="funding"><span id="funding-val">${b.fundingPercent}%</span></div>
-    <p class="muted">Funding scales running cost and output. Coverage radius grows with the square root of funding.</p>`;
+    <p class="muted">Funding scales running cost, output and how many people it can serve. Coverage radius grows with the square root of funding.</p>`;
   const input = $<HTMLInputElement>('#funding');
   input.addEventListener('input', () => ($('#funding-val').textContent = `${input.value}%`));
   input.addEventListener('change', () => {
@@ -649,9 +730,41 @@ function renderFunding(b: Msg) {
 function renderInspect(r: Msg) {
   lastInspect = r;
   const rows = (r.fields as Msg[]).map((f) => `<tr><td>${esc(f.key)}</td><td>${esc(f.value)}</td></tr>`).join('');
-  $('#tab-inspect').innerHTML = `<h3>Cell ${r.x}, ${r.y}</h3><table class="kv">${rows}</table><div class="residents-slot"></div>`;
+  $('#tab-inspect').innerHTML = `<h3>Cell ${r.x}, ${r.y}</h3><div class="upgrade-slot"></div><table class="kv">${rows}</table><div class="residents-slot"></div>`;
+  fillUpgrades();
   if (queriedBuilding && city.typeById.get(queriedBuilding.typeId)?.placeable) renderFunding(queriedBuilding);
   fillResidents();
+}
+
+/** The upgrades on offer for the inspected building, as buttons; the ones not yet on offer say what they need. */
+function fillUpgrades() {
+  const r = lastInspect;
+  const b = r?.building;
+  const ups = (r && queried && r.x === queried.x && r.y === queried.y ? r.upgrades ?? [] : []) as Msg[];
+  const html = !ups.length || !b ? '' : `<h4>Upgrade</h4>
+    ${ups.length > 1 ? '<p class="muted small">Pick one: the others are gone once it’s built.</p>' : ''}
+    ${ups.map((u) => {
+      const t = city.typeById.get(u.toTypeId);
+      const newCost = t?.cost ?? 0;
+      const facts = t ? `${t.capacity ? `${t.capacity.toLocaleString()} riders a day, ` : ''}upkeep ${money(t.maintenance)}/mo${t.leaseRent ? `, lease ${money(t.leaseRent)}/mo` : ''}` : '';
+      return `<div class="upgrade ${u.available ? '' : 'locked'}">
+        <button data-upgrade="${esc(u.toTypeId)}" ${u.available && city.stats.funds >= u.cost ? '' : 'disabled'}>${esc(u.name)}: ${money(u.cost)}</button>
+        <div class="small">${esc(u.text)}${newCost ? ` <span class="muted">(${money(newCost)} to build new)</span>` : ''}</div>
+        <div class="small muted">${facts}</div>
+        ${u.available ? '' : `<div class="small warn">${esc(u.whyNot)}</div>`}
+      </div>`;
+    }).join('')}`;
+  document.querySelectorAll<HTMLElement>('.upgrade-slot').forEach((slot) => {
+    slot.innerHTML = html;
+    slot.querySelectorAll<HTMLButtonElement>('button[data-upgrade]').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        const name = city.typeById.get(btn.dataset.upgrade!)?.name ?? btn.dataset.upgrade;
+        conn.action({ upgrade: { buildingId: b.id, toTypeId: btn.dataset.upgrade } });
+        toast(`Upgrading to a ${name}…`, 'info');
+        setTimeout(() => queried && query(queried.x, queried.y, false), 700);
+      }),
+    );
+  });
 }
 
 /** The last inspect reply, so a Follow click can redraw its residents. */
@@ -769,6 +882,8 @@ function renderLayers(low?: string, high?: string) {
     <h4>Commuters</h4>
     <button id="btn-agents" class="${renderer.showAgents ? 'active' : ''}">${renderer.showAgents ? 'Showing commuters' : 'Show commuters'} (M)</button>
     ${roster ? `<p class="muted">${roster.full.toLocaleString('en-US')} people followed daily (${(roster.trips as Msg[]).length.toLocaleString('en-US')} drawn), ${roster.light.toLocaleString('en-US')} checked monthly, of ${roster.citizens.toLocaleString('en-US')}. This machine's limits: ${roster.fullTier.toLocaleString('en-US')} and ${roster.lightTier.toLocaleString('en-US')} (${esc(roster.machine)}). Yellow drive, blue ride transit; the map runs the morning and evening rush on a loop.</p>` : ''}
+    <h4>Bus company</h4>
+    <button id="btn-routes" class="${renderer.showRoutes ? 'active' : ''}">${renderer.showRoutes ? 'Showing bus routes' : 'Show bus routes'}</button>
     <h4>Underground</h4>
     <button id="btn-under" class="${renderer.underground ? 'active' : ''}">${renderer.underground ? 'Showing pipes' : 'Show water pipes'} (U)</button>`;
   document.querySelectorAll<HTMLButtonElement>('#tab-layers button[data-overlay]').forEach((b) =>
@@ -782,6 +897,7 @@ function renderLayers(low?: string, high?: string) {
   );
   $('#btn-under').addEventListener('click', () => { renderer.underground = !renderer.underground; renderLayers(); updateHints(); dirty = true; });
   $('#btn-agents').addEventListener('click', () => { renderer.showAgents = !renderer.showAgents; renderLayers(); dirty = true; });
+  $('#btn-routes').addEventListener('click', () => { renderer.showRoutes = !renderer.showRoutes; renderLayers(); dirty = true; });
 }
 
 // ---------------------------------------------------------------------------
@@ -934,7 +1050,21 @@ renderer.resize();
 updateHints();
 renderLayers();
 talk = new TalkBack({ conn, city, jumpTo, showTab, onUnlocks: () => buildToolbar(), flash, pickBuilding });
+seats = new Seats({ conn, jumpTo });
+transport = new Transport({
+  conn, city, jumpTo, toast,
+  setLines: (lines) => { renderer.busLines = lines; dirty = true; },
+  setCompanyMap: (m) => { renderer.company = m; dirty = true; },
+  onModeChange: (company) => {
+    drag = null;
+    renderer.preview = null;
+    renderer.selected = null;
+    canvas.style.cursor = company ? 'pointer' : '';
+    renderer.resize();
+    dirty = true;
+  },
+});
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.
-(window as any).toycity = { city, renderer, conn, setTool, query, talk };
+(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport };

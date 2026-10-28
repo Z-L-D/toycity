@@ -35,6 +35,14 @@ public sealed partial class World
             case SetOrdinanceAction a: ApplySetOrdinance(a); break;
             case RespondPromptAction a: ApplyRespondPrompt(a); break;
             case TriggerDisasterAction a: StartDisaster(a.Kind, a.X, a.Y); break;
+            case AttachSideGameAction a: ApplyAttach(a); break;
+            case SideGameAction a: ApplySideGameAction(a); break;
+            case SetSeatAction a: ApplySetSeat(a); break;
+            case LeaseLotAction a: ApplyLeaseLot(a); break;
+            case SetLeaseTermsAction a: ApplySetLeaseTerms(a); break;
+            case EndLeaseAction a: ApplyEndLease(a); break;
+            case SetConsentAction a: ApplySetConsent(a); break;
+            case UpgradeBuildingAction a: ApplyUpgrade(a); break;
             case SetDisasterSettingAction a:
                 DisasterSetting = a.Setting;
                 Notices.Add(new SimNotice(a.Setting switch { DisasterSetting.Off => "Disasters off: only the ones you start will happen.", DisasterSetting.Rare => "Disasters set to rare.", _ => "Disasters set to normal." }, "info"));
@@ -98,6 +106,7 @@ public sealed partial class World
         if (err != null) { Reject(err, bx, by); return; }
         if (!Spend(cost, a.X0, a.Y0)) return;
         ushort code = (ushort)(Content.ProfileIndex(a.ProfileId) + 1);
+        ForgetBusRoutes();
         foreach (var (x, y) in PathCellsOf(a))
         {
             int i = Idx(x, y);
@@ -135,13 +144,18 @@ public sealed partial class World
     }
 
     /// <summary>Checks a civic building placement. Returns null when valid.</summary>
-    public string? ValidatePlacement(PlaceBuildingAction a, out BuildingType? type)
+    public string? ValidatePlacement(PlaceBuildingAction a, out BuildingType? type) => CheckPlacement(a, out type, out _);
+
+    /// <summary>Checks a placement, and says where it would go: roadside buildings snap to a kerb.</summary>
+    string? CheckPlacement(PlaceBuildingAction a, out BuildingType? type, out (int X, int Y, int Side) at)
     {
+        at = (a.X, a.Y, 0);
         int ti = Content.TypeIndex(a.TypeId);
         type = ti >= 0 ? Content.Types[ti] : null;
         if (type == null || !type.Placeable) return $"'{a.TypeId}' isn't something the mayor can place.";
         if (!TypeUnlocked[ti]) return $"{type.Name} isn't available yet. {type.UnlockText}";
         if (type.Unique && Buildings.Any(b => b != null && b.Type == ti)) return $"The city already has a {type.Name}.";
+        if (type.Roadside) return CheckKerb(type, a.X, a.Y, a.Side, out at);
         int minH = int.MaxValue, maxH = int.MinValue;
         for (int y = a.Y; y < a.Y + type.H; y++)
         for (int x = a.X; x < a.X + type.W; x++)
@@ -160,9 +174,15 @@ public sealed partial class World
 
     void ApplyPlaceBuilding(PlaceBuildingAction a)
     {
-        var err = ValidatePlacement(a, out var type);
+        var err = CheckPlacement(a, out var type, out var at);
         if (err != null) { Reject(err, a.X, a.Y); return; }
         if (!Spend(type!.Cost, a.X, a.Y)) return;
+        if (type.Roadside)
+        {
+            AddBuilding(type, at.X, at.Y, constructionDays: 0).Side = at.Side;
+            Notices.Add(new SimNotice($"Built {type.Name} on {StreetNear(at.X, at.Y)}.", "info", at.X, at.Y));
+            return;
+        }
         for (int y = a.Y; y < a.Y + type.H; y++)
         for (int x = a.X; x < a.X + type.W; x++)
         {
@@ -192,8 +212,9 @@ public sealed partial class World
         var b = new Building { Id = Buildings.Count, Type = type.Index, X = x, Y = y, W = w, H = h, ConstructionLeft = constructionDays };
         InitTotals(b);
         if (b.Residents > 0) { b.Since = new int[b.Residents]; Array.Fill(b.Since, MonthIndex); }
-        b.Access = FindAccess(x, y, w, h);
+        b.Access = type.Roadside ? Idx(x, y) : FindAccess(x, y, w, h);
         Buildings.Add(b);
+        if (type.Roadside) return b;
         for (int yy = y; yy < y + h; yy++)
         for (int xx = x; xx < x + w; xx++)
             BuildingAt[Idx(xx, yy)] = b.Id + 1;
@@ -202,7 +223,8 @@ public sealed partial class World
 
     internal void RemoveBuilding(Building b)
     {
-        for (int yy = b.Y; yy < b.Y + b.H; yy++)
+        if (!TypeOf(b).Roadside)
+            for (int yy = b.Y; yy < b.Y + b.H; yy++)
         for (int xx = b.X; xx < b.X + b.W; xx++)
             BuildingAt[Idx(xx, yy)] = 0;
         ReleaseAssignments(b);
@@ -232,8 +254,19 @@ public sealed partial class World
             if (BuildingAt[i] != 0) doomed.Add(BuildingAt[i] - 1);
             if (Path[i] != 0 || PowerLine[i] != 0) cost += Content.BulldozeCostPerCell;
         }
+        // Roadside stops go with their road.
+        if (!a.Underground)
+            foreach (var s in Buildings)
+                if (s != null && TypeOf(s).Roadside && s.X >= x0 && s.X <= x1 && s.Y >= y0 && s.Y <= y1) doomed.Add(s.Id);
+        if (doomed.Select(id => LeaseOn(id)).FirstOrDefault(l => l != null && !l.Terminable) is { } leased)
+        {
+            var lb = Buildings[leased.BuildingId]!;
+            Reject($"{Cap(LotName(lb))} is leased to {GameName(leased.GameId)}. The lease has to end first.", lb.X, lb.Y);
+            return;
+        }
         foreach (var id in doomed) cost += Content.BulldozeCostPerCell * Buildings[id]!.W * Buildings[id]!.H;
         if (!Spend(cost, r.X0, r.Y0)) return;
+        ForgetBusRoutes();
         foreach (var id in doomed) RemoveBuilding(Buildings[id]!);
         for (int y = y0; y <= y1; y++)
         for (int x = x0; x <= x1; x++)

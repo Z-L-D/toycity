@@ -1,0 +1,186 @@
+// The side-game contract, version 1, on the wire. In solo play side games run in the city's process and trade the
+// same messages as C# objects (src/ToyCity.Contract); this file is what a side game in another process or language
+// speaks. Frozen at the Alpha 3 gate: additive changes keep the version; anything else is v2.
+syntax = "proto3";
+
+package toycity.contract.v1;
+
+option csharp_namespace = "ToyCity.Protocol.Contract";
+
+message Manifest {
+  string id = 1;
+  string name = 2;
+  int32 contract_version = 3;
+  repeated string lot_kinds = 4;  // e.g. "bus-stop", "bus-depot"
+  string description = 5;
+}
+
+enum OperatorLevel {
+  MANUAL = 0;
+  STASIS = 1;
+  CARETAKER = 2;
+  AUTOPILOT = 3;
+}
+
+enum LeaseMode {
+  BUSINESS = 0;
+  PUBLIC_SERVICE = 1;
+}
+
+message LeaseTerms {
+  LeaseMode mode = 1;
+  int64 rent_per_month = 2;
+  int32 tax_tenths = 3;         // tax on fare revenue, tenths of a percent
+  int64 subsidy_per_month = 4;
+  int32 fare_cap_cents = 5;     // public service: 0 = free to ride
+  int32 notice_months = 6;
+}
+
+message LeasedLot {
+  int32 lease_id = 1;
+  int32 building_id = 2;
+  string kind = 3;
+  int32 x = 4;
+  int32 y = 5;
+  int32 w = 6;
+  int32 h = 7;
+  int32 access_cell = 8;
+  int32 district_id = 9;
+  LeaseTerms terms = 10;
+  LeaseTerms pending_terms = 11;  // unset when no change is coming
+  int32 pending_months = 12;
+  bool bad_standing = 13;
+}
+
+message District {
+  int32 id = 1;
+  string name = 2;
+  int32 x0 = 3;
+  int32 y0 = 4;
+  int32 x1 = 5;
+  int32 y1 = 6;
+  int32 population = 7;
+  int32 jobs = 8;
+  int32 land_value = 9;
+  int32 crime = 10;
+  int32 health = 11;
+  int32 rating = 12;  // this side game's authority rating there, -1000..1000
+}
+
+message TripDemand {
+  int32 from_district = 1;
+  int32 to_district = 2;
+  int32 trips = 3;
+}
+
+message LineRidership {
+  int32 line_id = 1;
+  int32 riders = 2;
+  repeated int32 boardings_by_stop = 3;
+}
+
+message Incident {
+  int64 id = 1;
+  string kind = 2;
+  int32 x = 3;
+  int32 y = 4;
+  string source = 5;  // "city" or a side game's id
+  string cause = 6;
+  int32 severity = 7;  // 1..3
+  string text = 8;
+}
+
+message Bill {
+  int32 lease_id = 1;
+  string label = 2;
+  int64 amount = 3;  // positive: the side game pays; negative: the city pays it
+}
+
+message CityToGame {
+  int64 tick = 1;
+  int32 day = 2;
+  int32 month = 3;
+  int32 year = 4;
+  bool new_month = 5;
+  OperatorLevel operator = 6;
+  string owner_name = 7;
+  repeated LeasedLot lots = 8;
+  repeated District districts = 9;
+  repeated TripDemand demand = 10;
+  repeated LineRidership ridership = 11;
+  repeated Incident incidents = 12;
+  repeated Bill bills = 13;
+  repeated OpenLot open_lots = 14;
+  repeated PaidActionOffer offers = 15;
+  repeated AuthorityResult authority_results = 16;  // yesterday's paid actions
+}
+
+// A paid action for standing in a district: "advertise", "statue", "exclusive-rights" or "bribe".
+message PaidActionOffer {
+  string kind = 1;
+  string name = 2;
+  int64 cost = 3;
+  bool allowed = 4;   // false when the players' consent settings switch it off
+  string why_not = 5;
+}
+
+message AuthorityAction {
+  string kind = 1;
+  int32 district_id = 2;
+}
+
+// When ok the side game pays cost; otherwise nothing is owed.
+message AuthorityResult {
+  string kind = 1;
+  int32 district_id = 2;
+  bool ok = 3;
+  int64 cost = 4;
+  string text = 5;
+  int32 rating = 6;  // the side game's rating in the district now
+}
+
+// A lot nobody leases yet that the side game could ask for, with the city's standard terms for it.
+message OpenLot {
+  int32 building_id = 1;
+  string kind = 2;
+  int32 x = 3;
+  int32 y = 4;
+  int32 w = 5;
+  int32 h = 6;
+  int32 access_cell = 7;
+  int32 district_id = 8;
+  LeaseTerms terms = 9;
+}
+
+message TransitLine {
+  int32 line_id = 1;
+  string name = 2;
+  string color = 3;
+  repeated int32 stop_lease_ids = 4;
+  int32 headway_minutes = 5;
+  int32 fare_cents = 6;
+  int32 seats_per_hour = 7;
+}
+
+message GameToCity {
+  repeated TransitLine lines = 1;
+  map<int32, int32> jobs_by_lease = 2;
+  repeated Incident incidents = 3;
+  map<int32, int64> paid = 4;
+  map<int32, int64> revenue_by_lease = 5;  // fares taken today at each leased lot
+  int32 service_quality = 6;
+  string status = 7;
+  repeated int32 lease_requests = 8;  // building ids to lease on the city's standard terms
+  repeated int32 lease_releases = 9;  // lease ids given up
+  repeated AuthorityAction authority_actions = 10;  // answered in tomorrow's authority_results
+}
+
+message StreetRoute {
+  repeated int32 cells = 1;
+  int32 minutes = 2;
+}
+
+message CommandResult {
+  bool ok = 1;
+  string message = 2;
+}

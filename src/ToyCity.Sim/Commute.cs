@@ -36,8 +36,8 @@ public sealed partial class World
         if (labor == 0 || !home.Operating) return;
         int carless = CarlessOf(home);
         long weighted = 0;
-        if (carless > 0) weighted += Search(home, carless, CarlessPenalty);
-        if (labor > carless) weighted += Search(home, labor - carless, 0);
+        if (carless > 0) weighted += Search(home, carless, carless: true);
+        if (labor > carless) weighted += Search(home, labor - carless, carless: false);
         home.CommuteMinutes = home.Employed > 0 ? (int)(weighted / home.Employed) : 0;
     }
 
@@ -46,9 +46,9 @@ public sealed partial class World
     /// result is deterministic. Nodes: layer * N + cell, then one per stop (just got off), then one per job site
     /// (reached on foot from a stop). Returns the workers' minutes, summed.
     /// </summary>
-    long Search(Building home, int need, int streetPenalty)
+    long Search(Building home, int need, bool carless)
     {
-        int ln = Layers * N, nb = Buildings.Count, m = ln + 2 * nb;
+        int ln = Layers * N, nb = Buildings.Count, lb = ln + 2 * nb, m = lb + _lineNodes;
         if (_dist.Length < m)
         {
             int size = m + 4096;
@@ -68,14 +68,24 @@ public sealed partial class World
             _pq.Enqueue(node, (long)cost * m + node);
         }
 
-        if (home.Access >= 0) Push(home.Access, TravelCost[home.Access] + streetPenalty, -1, -1);
+        // Boarding at a stop: the city's own service, or the lines of the company that leases it.
+        void Board(StopInfo s, int cost, int parent)
+        {
+            if (_lineNodesAt.TryGetValue(s.Id, out var nodes))
+                foreach (int k in nodes) Push(lb + k, cost + _lines[_lineOfNode[k]].BoardCost, parent, s.Id);
+            if (s.RideStates.Length == 0) return;
+            int c = cost + StopWait(Buildings[s.Id]!);
+            foreach (int st in s.RideStates) Push(st, c, parent, s.Id);
+        }
+
+        int Street(int cell) => carless ? Math.Max(TravelCost[cell], CarlessCellTime) : TravelCost[cell];
+        if (home.Access >= 0) Push(home.Access, Street(home.Access) + (carless ? CarlessPenalty : 0), -1, -1);
         foreach (var s in _stops)
         {
             var sb = Buildings[s.Id]!;
             int d = RectGap(home, sb);
             if (d > TypeOf(sb).Catchment) continue;
-            int c = StopWalkBase + d * StopWalkPerCell + StopWait(sb);
-            foreach (int st in s.RideStates) Push(st, c, -1, s.Id);
+            Board(s, StopWalkBase + d * StopWalkPerCell, -1);
         }
 
         var seen = new HashSet<int>();
@@ -91,19 +101,43 @@ public sealed partial class World
             var cells = new List<int>();
             var ride = new List<int>();
             var stops = new List<int>();
+            var legs = new List<int>();
+            int alightPos = -1;
             for (int p = node; p >= 0; p = _parent[p])
             {
                 if (p < N) cells.Add(p);
                 else if (p < ln) { ride.Add(p); if (_via[p] >= 0) stops.Add(_via[p]); }
                 else if (p < ln + nb) stops.Add(p - ln);
+                else if (p >= lb)
+                {
+                    // A company line, walked backwards from where they got off to where they got on.
+                    var line = _lines[_lineOfNode[p - lb]];
+                    int pos = p - lb - line.Base;
+                    if (alightPos < 0) alightPos = pos;
+                    int parent = _parent[p];
+                    if (parent >= lb && _lineOfNode[parent - lb] == _lineOfNode[p - lb])
+                    {
+                        int from = parent - lb - line.Base;
+                        var seg = line.SegCells[Math.Min(from, pos)];
+                        for (int c = seg.Length - 1; c >= 0; c--) ride.Add((int)TransitKind.Bus * N + seg[c]);
+                    }
+                    if (_via[p] >= 0)
+                    {
+                        stops.Add(_via[p]);
+                        // Kept in reverse too, so the legs come out in order with the rest.
+                        legs.Add(alightPos); legs.Add(pos); legs.Add(line.LineId); legs.Add(line.GameSlot);
+                        alightPos = -1;
+                    }
+                }
             }
             cells.Reverse();
             ride.Reverse();
             stops.Reverse();
+            legs.Reverse();
             int minutes = Math.Max(1, cost / 600);
             home.Assignments.Add(new Assignment
             {
-                SiteId = sid, Count = take, Minutes = minutes, PathCells = cells.ToArray(), RideCells = ride.ToArray(), Stops = stops.ToArray(),
+                SiteId = sid, Count = take, Minutes = minutes, PathCells = cells.ToArray(), RideCells = ride.ToArray(), Stops = stops.ToArray(), LineLegs = legs.ToArray(),
             });
             site.Workers += take;
             home.Employed += take;
@@ -127,7 +161,7 @@ public sealed partial class World
                     int nx = x + Dx4[k], ny = y + Dy4[k];
                     if (!InBounds(nx, ny)) continue;
                     int n = Idx(nx, ny);
-                    if (ProfileAt(n) is { } p && StreetPassable(p)) Push(n, cost + TravelCost[n], node, -1);
+                    if (ProfileAt(n) is { } p && StreetPassable(p)) Push(n, cost + Street(n), node, -1);
                 }
             }
             else if (node < ln)
@@ -151,13 +185,21 @@ public sealed partial class World
                 // Just got off: walk to work, or to another stop to change.
                 var info = _stopById[node - ln];
                 foreach (var (site, d) in info.Sites) Push(ln + nb + site, cost + StopWalkBase + d * StopWalkPerCell, node, -1);
-                foreach (var (t, d) in info.Transfers)
-                {
-                    int c = cost + StopWalkBase + d * StopWalkPerCell + StopWait(Buildings[t]!);
-                    foreach (int st in _stopById[t].RideStates) Push(st, c, node, t);
-                }
+                foreach (var (t, d) in info.Transfers) Board(_stopById[t], cost + StopWalkBase + d * StopWalkPerCell, node);
+                // Or change to another company line at the same stop.
+                if (_lineNodesAt.ContainsKey(info.Id)) Board(info, cost, node);
             }
-            else Take(node - ln - nb, node, cost);
+            else if (node < lb) Take(node - ln - nb, node, cost);
+            else
+            {
+                // On a company bus: get off here, or ride on to the next stop either way.
+                int k = node - lb;
+                var line = _lines[_lineOfNode[k]];
+                int pos = k - line.Base;
+                Push(ln + line.StopIds[pos], cost + AlightTime, node, -1);
+                if (pos + 1 < line.StopIds.Length) Push(node + 1, cost + line.SegCost[pos], node, -1);
+                if (pos > 0) Push(node - 1, cost + line.SegCost[pos - 1], node, -1);
+            }
         }
         return weightedMinutes;
     }
@@ -194,6 +236,7 @@ public sealed partial class World
     /// <summary>Monthly: commuter trips per path cell, congestion level and congested travel time.</summary>
     void RunTraffic()
     {
+        ForgetBusRoutes();
         Array.Clear(Trips);
         Array.Clear(Riders);
         TransitBoardings = 0;
@@ -212,7 +255,8 @@ public sealed partial class World
                 }
                 foreach (var sid in a.Stops)
                     if (sid < Buildings.Count && Buildings[sid] is { } stop) stop.Riders += a.Count * 2;
-                TransitBoardings += a.Count * 2 * (a.Stops.Length / 2);
+                // The city's own service: the company's riders pay the company.
+                TransitBoardings += a.Count * 2 * (a.Stops.Length / 2 - a.LineLegs.Length / 4);
             }
         }
         // A bus carries about twenty commuters: it adds that much less to the traffic than their cars would.

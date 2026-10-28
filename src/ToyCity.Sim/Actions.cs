@@ -28,7 +28,15 @@ public enum Leftover : byte { Leave = 0, Parks = 1, Zone = 2 }
 
 /// <summary>Zones the whole block enclosed by paths around (X,Y), lot-deep from the road; <c>Leftover</c> decides the rest.</summary>
 public sealed record ZoneBlockAction(int X, int Y, Zone Zone, Level Density, Leftover Leftover) : SimAction;
-public sealed record PlaceBuildingAction(int X, int Y, string TypeId) : SimAction;
+/// <summary>
+/// Places a civic building with its top-left at (X,Y). A roadside one (a bus stop) goes on a road cell, on the kerb
+/// given by Side (0 north, 1 east, 2 south, 3 west; -1 picks one); clicked on the land beside a road, it goes on that
+/// road's kerb facing the click.
+/// </summary>
+public sealed record PlaceBuildingAction(int X, int Y, string TypeId, int Side = -1) : SimAction;
+
+/// <summary>Upgrades a civic building in place to one of the types its own type lists.</summary>
+public sealed record UpgradeBuildingAction(int BuildingId, string ToTypeId) : SimAction;
 /// <summary>Clears buildings, paths and power lines in the area, or only water pipes when <c>Underground</c> is set.</summary>
 public sealed record BulldozeAction(CellRect Area, bool Underground = false) : SimAction;
 public sealed record TerraformAction(CellRect Area, TerraformMode Mode) : SimAction;

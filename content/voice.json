@@ -3,8 +3,69 @@
   "notes": "The template voice layer: every sentence the city says. The sim decides what happens and passes facts; the voice only words them, so a different voice (another language, or a small local language model later) can replace this file without changing the game. Each key has one or more variants; one is picked from a hash of the event, so the choice never touches the simulation's random numbers. Placeholders in braces are filled from the facts; unknown ones are left as they are.",
   "firstNames": ["Ada", "Bert", "Carmen", "Dmitri", "Edna", "Farouk", "Gwen", "Hiro", "Ines", "Jules", "Kofi", "Lena", "Marisol", "Ned", "Odile", "Pip", "Quentin", "Rosa", "Sol", "Tamsin", "Ulla", "Viktor", "Wanda", "Xavier", "Yuki", "Zeb"],
   "lastNames": ["Applebottom", "Brickwell", "Cogsworth", "Dimplefield", "Eggers", "Fairweather", "Gumm", "Hollyhock", "Inkster", "Jumble", "Kettleby", "Lumpkin", "Muddle", "Nutley", "Oddbody", "Puddingstone", "Quill", "Rattlesby", "Sprocket", "Tumbleweed", "Upshaw", "Vane", "Whistlewood", "Yarrow", "Zoltan"],
-  "streetNames": ["Elm", "Maple", "Sprocket", "Teapot", "Gumdrop", "Lantern", "Marble", "Pinwheel", "Wobble", "Kite", "Thimble", "Juniper", "Crayon", "Domino", "Pebble", "Yo-Yo"],
+  "streetNames": ["Elm", "Maple", "Sprocket", "Teapot", "Gumdrop", "Lantern", "Marble", "Pinwheel", "Wobble", "Kite", "Thimble", "Juniper", "Crayon", "Domino", "Pebble", "Yo-Yo", "Acorn", "Biscuit", "Clover", "Doodle", "Fiddle", "Gadget", "Hazel", "Jigsaw", "Kazoo", "Locket", "Muffin", "Noodle", "Pudding", "Ribbon", "Saddle", "Tinker"],
   "streetKinds": ["Street", "Lane", "Avenue", "Road", "Way", "Crescent"],
+  "districtNames": ["Tinker", "Button", "Clockwork", "Gingerbread", "Marbleside", "Kettle", "Paperclip", "Lollipop", "Rocking Horse", "Pinball", "Spinning Top", "Tin Soldier"],
+  "districtKinds": ["Heights", "Flats", "Hollow", "Green", "Park", "Quarter", "Corner", "Village"],
+  "quirks": {
+    "education": [
+      { "label": "Library books back on time", "per": 2, "unit": "books" },
+      { "label": "Pencils found", "per": 6, "unit": "pencils dropped" },
+      { "label": "Permission slips signed", "per": 1, "unit": "slips sent home" },
+      { "label": "Gold stars stuck on", "per": 4, "unit": "stars in the jar" },
+      { "label": "Homework the dog didn't eat", "per": 3, "unit": "assignments" }
+    ],
+    "health": [
+      { "label": "Lollipops handed out", "per": 3, "unit": "in the jar" },
+      { "label": "Sneezes blessed", "per": 20, "unit": "sneezes" },
+      { "label": "Rubber ducks X-rayed", "per": 0.05, "unit": "ducks swallowed" },
+      { "label": "Magazines newer than 1987", "per": 0.4, "unit": "in the waiting room" },
+      { "label": "Kids who didn't cry at the jab", "per": 1, "unit": "jabs" }
+    ],
+    "police": [
+      { "label": "Cats rescued from trees", "per": 0.01, "unit": "cats up trees" },
+      { "label": "Jaywalkers waved on", "per": 0.05, "unit": "jaywalkers" },
+      { "label": "Doughnuts accounted for", "per": 0.02, "unit": "doughnuts ordered" },
+      { "label": "Lost kites returned", "per": 0.005, "unit": "kites reported" },
+      { "label": "Garden gnomes recovered", "per": 0.004, "unit": "gnomes reported missing" }
+    ],
+    "fire": [
+      { "label": "Kittens retrieved", "per": 0.004, "unit": "kittens reported" },
+      { "label": "Smoke alarms tested", "per": 0.3, "unit": "alarms" },
+      { "label": "Hose kinks untangled", "per": 0.01, "unit": "kinks" },
+      { "label": "Chili cook-off votes counted", "per": 0.02, "unit": "ballots" },
+      { "label": "Burnt toast calls answered", "per": 0.01, "unit": "calls" }
+    ],
+    "park": [
+      { "label": "Bears spotted", "per": 0.02, "unit": "bears reported" },
+      { "label": "Frisbees rescued from trees", "per": 0.05, "unit": "frisbees thrown" },
+      { "label": "Ducks fed", "per": 0.5, "unit": "ducks" },
+      { "label": "Picnic ants turned away", "per": 3, "unit": "ants" },
+      { "label": "Kites still flying", "per": 0.1, "unit": "kites launched" }
+    ],
+    "power": [
+      { "label": "Squirrels politely declined", "per": 0.01, "unit": "squirrels" },
+      { "label": "Night lights kept on", "per": 0.5, "unit": "night lights" },
+      { "label": "Static shocks delivered", "per": 0.2, "unit": "doorknobs" },
+      { "label": "Toasters satisfied", "per": 0.3, "unit": "toasters" }
+    ],
+    "water": [
+      { "label": "Rubber ducks filtered out", "per": 0.005, "unit": "ducks" },
+      { "label": "Ice cubes frozen", "per": 2, "unit": "trays" },
+      { "label": "Garden hoses sprayed at siblings", "per": 0.02, "unit": "hoses" }
+    ],
+    "garbage": [
+      { "label": "Single socks reunited", "per": 0.05, "unit": "lone socks" },
+      { "label": "Treasures found", "per": 0.01, "unit": "bags searched" },
+      { "label": "Seagulls shooed", "per": 0.1, "unit": "seagulls" }
+    ],
+    "transit": [
+      { "label": "Umbrellas returned", "per": 0.05, "unit": "left behind" },
+      { "label": "Seats offered", "per": 0.3, "unit": "seats" },
+      { "label": "Exact change paid", "per": 0.6, "unit": "fares" },
+      { "label": "Buses waved at by toddlers", "per": 2, "unit": "buses" }
+    ]
+  },
   "templates": {
     "disaster.fire.start": [
       "Fire on {street}! Smoke is pouring out of a building and the sirens are on their way.",

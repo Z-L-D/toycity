@@ -16,8 +16,12 @@ public sealed partial class World
     public const int TransferReach = 3;
     /// <summary>Getting off: half a minute.</summary>
     public const int AlightTime = 300;
-    /// <summary>Households without a car still get to work (a lift, a long walk) but it costs them this much more.</summary>
-    public const int CarlessPenalty = 8 * 600;
+    /// <summary>
+    /// Workers without a car still get to work, by bike, on foot or with a lift: two minutes to get going, and no faster
+    /// than a bike (15 km/h) on any street. Short trips they make as quickly as anyone; long ones are where transit helps.
+    /// </summary>
+    public const int CarlessPenalty = 2 * 600;
+    public static readonly int CarlessCellTime = CellTimeAt(15);
     /// <summary>What the city keeps from each boarding, in cents.</summary>
     public const int FareCents = 4;
 
@@ -100,12 +104,18 @@ public sealed partial class World
         _stops.Clear();
         _stopById.Clear();
         _stopsAtState.Clear();
+        _leasedStops.Clear();
+        foreach (var l in Leases) if (l.Kind == "bus-stop") _leasedStops.Add(l.BuildingId);
+        AddExclusiveStops();
         foreach (var b in Buildings)
         {
             if (b == null || TypeOf(b).Transit == TransitKind.None || !StopWorks(b)) continue;
             var t = TypeOf(b);
             var info = new StopInfo { Id = b.Id, Kind = t.Transit };
             var states = new List<int>();
+            // A roadside stop serves its own road cell; others the cells around them.
+            if (t.Roadside) { if (Carries(t.Transit, Idx(b.X, b.Y))) states.Add((int)t.Transit * N + Idx(b.X, b.Y)); }
+            else
             for (int y = b.Y - 1; y <= b.Y + b.H; y++)
             for (int x = b.X - 1; x <= b.X + b.W; x++)
             {
@@ -115,6 +125,8 @@ public sealed partial class World
                 if (Carries(t.Transit, i)) states.Add((int)t.Transit * N + i);
             }
             if (states.Count == 0) continue;
+            // A leased stop is served only by its company's lines, never by the city's own buses.
+            if (StopLeased(b.Id)) states.Clear();
             info.RideStates = states.ToArray();
             var sites = new List<(int, int)>();
             var seen = new HashSet<int>();
@@ -148,6 +160,7 @@ public sealed partial class World
             }
             a.Transfers = tr.ToArray();
         }
+        RebuildLines();
     }
 
     /// <summary>Workers in a home who have no car.</summary>

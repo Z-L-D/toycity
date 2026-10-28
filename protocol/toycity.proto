@@ -58,7 +58,101 @@ message Action {
     TriggerDisaster disaster = 12;
     SetDisasters disasters = 13;
     ZoneBlock block = 14;
+    SideGameCommand side_game = 15;
+    AttachSideGame attach = 16;
+    SetSeat seat = 17;
+    LeaseLot lease = 18;
+    SetLeaseTerms lease_terms = 19;
+    EndLease end_lease = 20;
+    SetConsent consent = 21;
+    UpgradeBuilding upgrade = 22;
   }
+}
+
+enum Mechanic {
+  MECH_BRIBERY = 0;
+  MECH_EXCLUSIVE_RIGHTS = 1;
+  MECH_SABOTAGE = 2;
+  MECH_HOSTILE_EVICTIONS = 3;
+  MECH_ABSURD_DISASTERS = 4;
+  MECH_TARGETED_CRIME = 5;
+}
+
+// A player switches a mechanic on or off for themselves. It is on in the city only while every seat owner allows it.
+message SetConsent {
+  string owner = 1;
+  Mechanic mechanic = 2;
+  bool allowed = 3;
+}
+
+enum LeaseMode {
+  LEASE_BUSINESS = 0;        // the operator pays rent and a fare tax and keeps the profit
+  LEASE_PUBLIC_SERVICE = 1;  // the city pays a subsidy and caps fares
+}
+
+message LeaseTerms {
+  LeaseMode mode = 1;
+  int64 rent_per_month = 2;
+  int32 tax_tenths = 3;  // fare tax, tenths of a percent
+  int64 subsidy_per_month = 4;
+  int32 fare_cap_cents = 5;  // 0 = free to ride
+  int32 notice_months = 6;
+}
+
+// The mayor leases a lot (a bus stop or depot) to a side game. No terms: the city's standard ones.
+message LeaseLot {
+  string game = 1;
+  int32 building_id = 2;
+  LeaseTerms terms = 3;
+}
+
+// New terms for a lease, starting after the current terms' notice period.
+message SetLeaseTerms {
+  int32 lease_id = 1;
+  LeaseTerms terms = 2;
+}
+
+// The operator gives up a lease, or the mayor ends one past its cure period (or, with hostile evictions on, any
+// lease after notice and with compensation).
+message EndLease {
+  int32 lease_id = 1;
+  bool by_operator = 2;
+}
+
+// How a seat is played: by its owner, or by the computer at a level the owner picks. Stasis is for the city seat.
+enum SeatLevel {
+  SEAT_MANUAL = 0;
+  SEAT_STASIS = 1;     // the city holds still: no growth, decay, money or new builds; people keep moving
+  SEAT_CARETAKER = 2;  // pays bills, rebuilds like for like, nudges taxes, turns down deals; never expands
+  SEAT_AUTOPILOT = 3;  // plays the seat in a style, within the spending cap
+}
+
+enum AutopilotStyle {
+  STYLE_GROWTH = 0;
+  STYLE_GREEN = 1;
+  STYLE_PROFIT = 2;
+  STYLE_CHAOS = 3;
+}
+
+// Claims or hands over a seat ("mayor", or a side game's id). An empty owner leaves it to nobody.
+message SetSeat {
+  string seat = 1;
+  string owner = 2;
+  SeatLevel level = 3;
+  AutopilotStyle style = 4;
+  int64 spend_cap = 5;  // the most the computer may spend in a month
+}
+
+// A command for a side game from one of its seats, as the side game's own message bytes (for the bus company,
+// a toycity.transport.v1.Command).
+message SideGameCommand {
+  string game = 1;
+  string seat = 2;
+  bytes payload = 3;
+}
+
+message AttachSideGame {
+  string game = 1;
 }
 
 enum DisasterKind {
@@ -174,6 +268,13 @@ message PlaceBuilding {
   int32 x = 1;
   int32 y = 2;
   string type_id = 3;
+  int32 side = 4;  // roadside types: 1 north, 2 east, 3 south, 4 west kerb; 0 picks one
+}
+
+// Upgrades a building in place to one of the types its own type offers (see BuildingTypeInfo.upgrades).
+message UpgradeBuilding {
+  int32 building_id = 1;
+  string to_type_id = 2;
 }
 
 message Bulldoze {
@@ -315,6 +416,7 @@ message ServerMessage {
     CivicState civic = 16;  // petitions, deals, approval, unlocks and headlines; sent whenever they change
     AdvisorList advisors = 17;
     AgentRoster agents = 18;  // the followed commuters; sent when they change and monthly
+    SideGameView side_game = 19;  // sent when a side game's view changes
   }
 }
 
@@ -359,12 +461,29 @@ message BuildingTypeInfo {
   string transit = 16;  // "bus", "tram", "rail" or empty
   int32 capacity = 17;  // transit: people a day
   int32 catchment = 18; // transit: walking reach in cells
+  bool roadside = 19;   // stands on a road's kerb instead of on land (bus stops)
+  string lot_kind = 20; // side games can lease it as this kind of lot; empty when not
+  int32 maintenance = 21;  // a month
+  int64 lease_rent = 22;   // standard lease rent a month
+  repeated UpgradeInfo upgrades = 23;
+}
+
+// An upgrade a type offers: what it becomes, what it costs and what the building must earn first.
+message UpgradeInfo {
+  string to_type_id = 1;
+  int64 cost = 2;
+  int32 riders = 3;      // riders a day needed; 0 when not
+  int32 population = 4;  // city population needed; 0 when not
+  ZoneKind near_zone = 5;  // zoned buildings needed within 3 cells; ZONE_NONE when not
+  string text = 6;
 }
 
 message Catalog {
   repeated PathProfileInfo profiles = 1;
   repeated BuildingTypeInfo building_types = 2;
   repeated int32 lot_depth = 3;  // deepest lot a zoned building can grow on, by density (low, medium, high)
+  repeated string street_names = 4;  // for naming roads as the server does (see World.StreetAt)
+  repeated string street_kinds = 5;
 }
 
 message BuildingState {
@@ -391,6 +510,7 @@ message BuildingState {
   int32 burning_days = 21;
   BuildingLook look = 22;
   int32 riders = 23;  // transit stops: people getting on or off a day
+  int32 side = 24;    // roadside buildings: 0 north, 1 east, 2 south, 3 west kerb of the road cell at x, y
 }
 
 message CityStats {
@@ -474,6 +594,16 @@ message WhyResult {
   string summary = 4;   // one-line verdict
   repeated Requirement requirements = 5;
   repeated Factor factors = 6;
+  repeated Gauge gauges = 7;  // public buildings: what they serve against their capacity, then a quirky statistic
+}
+
+// One gauge on a building's panel: value of max, in unit. A fun one is one of the city's quirky statistics.
+message Gauge {
+  string label = 1;
+  int64 value = 2;
+  int64 max = 3;
+  string unit = 4;
+  bool fun = 5;
 }
 
 message Factor {
@@ -494,6 +624,16 @@ message InspectResult {
   repeated KeyValue fields = 3;
   BuildingState building = 4;
   repeated CitizenInfo residents = 5;  // the people who live here, one by one
+  repeated UpgradeChoice upgrades = 6;  // what the building could become, on offer or not yet
+}
+
+message UpgradeChoice {
+  string to_type_id = 1;
+  string name = 2;
+  int64 cost = 3;
+  bool available = 4;
+  string why_not = 5;  // what it still needs; empty when available
+  string text = 6;
 }
 
 // One resident. Citizens are the home's counts seen one person at a time, so they always add up to the city's totals.
@@ -521,6 +661,16 @@ message AgentTripInfo {
   int32 minutes = 3;        // door-to-door at the day's congestion
   bool by_transit = 4;
   repeated int32 cells = 5;
+}
+
+// What a side game shows its seat, as the side game's own message bytes (for the bus company, a
+// toycity.transport.v1.View), plus the city's word on it.
+message SideGameView {
+  string game = 1;
+  string name = 2;
+  string seat = 3;
+  bytes payload = 4;
+  string status = 5;
 }
 
 message AgentRoster {
@@ -678,6 +828,7 @@ message Prompt {
   string result_text = 11;
   string fix_type = 12;  // petitions: the building whose coverage would satisfy them, empty when none
   Rect area = 13;        // the petitioners' neighbourhood (x0 = -1 when not located)
+  string progress = 14;  // open petitions: where the goal's measures stand now, e.g. "Police coverage here (%): 22"
 }
 
 message Headline {
@@ -694,6 +845,93 @@ message CivicState {
   repeated string unlocked_types = 2;
   int32 approval = 3;
   repeated Headline headlines = 4;  // newest last
+  repeated SeatState seats = 5;     // the mayor's seat first
+  repeated LeaseState leases = 6;
+  repeated SideGameInfo side_games = 7;
+  ConsentTable consent = 8;
+}
+
+// Every seat owner against every mechanic: the effective result and who is blocking each one.
+message ConsentTable {
+  repeated string owners = 1;
+  repeated ConsentRow rows = 2;
+}
+
+message ConsentRow {
+  Mechanic mechanic = 1;
+  string name = 2;
+  string note = 3;
+  repeated bool by_owner = 4;  // in the order of owners
+  bool effective = 5;
+  repeated string blockers = 6;
+}
+
+// A side game's standing in a district.
+message StandingState {
+  int32 district = 1;
+  string district_name = 2;
+  int32 rating = 3;  // -1000..1000
+  int32 target = 4;  // where it is heading this month
+  bool statue = 5;
+  int32 exclusive_days = 6;
+  int32 bribe_ban_days = 7;
+}
+
+message SideGameInfo {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string lot_kinds = 4;  // building type ids it can lease
+  repeated StandingState standings = 5;
+}
+
+message LeaseState {
+  int32 id = 1;
+  string game = 2;
+  string game_name = 3;
+  int32 building_id = 4;
+  string kind = 5;
+  int32 x = 6;
+  int32 y = 7;
+  LeaseTerms terms = 8;
+  LeaseTerms pending_terms = 9;  // unset when none
+  int32 pending_months = 10;
+  int64 arrears = 11;
+  bool bad_standing = 12;
+  int32 cure_months_left = 13;
+  bool terminable = 14;
+  int32 jobs = 15;
+  int64 last_month_fares = 16;
+  repeated string targets = 17;  // what it takes to get back into good standing
+  int32 evict_months = 18;       // months until a hostile eviction ends it; 0 when none
+  int32 rating = 19;             // the side game's rating in the lot's district
+}
+
+message SeatState {
+  string id = 1;
+  string name = 2;  // "City" or the side game's name
+  string owner = 3;
+  SeatLevel level = 4;
+  AutopilotStyle style = 5;
+  int64 spend_cap = 6;
+  int64 away_since_tick = 7;  // -1 when the owner is playing it
+  AwayReport report = 8;      // the last "while you were away" report, if any
+}
+
+message AwayNote {
+  int64 tick = 1;
+  string text = 2;
+  int32 x = 3;  // -1 when not located
+  int32 y = 4;
+}
+
+message AwayReport {
+  int64 from_tick = 1;
+  int64 to_tick = 2;
+  SeatLevel level = 3;
+  repeated string changes = 4;
+  repeated AwayNote notes = 5;
+  repeated string news = 6;
 }
 
 message Advisor {

@@ -351,6 +351,7 @@ export class TalkBack {
         <div class="muted small">${p.kind === 'deal' ? 'Deal' : `Petition from ${esc(p.petitioner)}`} · ${p.monthsLeft} month${p.monthsLeft === 1 ? '' : 's'} left</div>
         <div>${esc(p.text)}</div>
         ${p.goal ? `<div class="small goal">Wants: ${esc(p.goal)}</div>` : ''}
+        ${p.progress ? `<div class="small muted">Now: ${esc(p.progress)}. It clears the day this is met.</div>` : ''}
         <div class="row-flex" style="margin-top:6px">
           ${p.kind === 'deal'
             ? `<button class="active" data-respond="${p.id}" data-accept="1">Accept</button><button data-respond="${p.id}" data-accept="0">Decline</button>`

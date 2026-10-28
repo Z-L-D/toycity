@@ -1,5 +1,6 @@
 import protobuf from 'protobufjs';
 import protoText from '../../../protocol/toycity.proto?raw';
+import transportText from '../../../protocol/transport.proto?raw';
 
 // The .proto file is the single source of truth; the client parses it at startup.
 const root = protobuf.parse(protoText, { keepCase: false }).root;
@@ -7,6 +8,19 @@ const ClientMessage = root.lookupType('toycity.v0.ClientMessage');
 const ServerMessage = root.lookupType('toycity.v0.ServerMessage');
 
 export type Msg = Record<string, any>;
+
+// The bus company's own messages travel as bytes inside the city's; only its panel reads them.
+const transportRoot = protobuf.parse(transportText, { keepCase: false }).root;
+const TransportView = transportRoot.lookupType('toycity.transport.v1.View');
+const TransportCommand = transportRoot.lookupType('toycity.transport.v1.Command');
+
+export function decodeTransportView(bytes: Uint8Array): Msg {
+  return TransportView.toObject(TransportView.decode(bytes), { longs: Number, enums: Number, defaults: true, arrays: true }) as Msg;
+}
+
+export function encodeTransportCommand(cmd: Msg): Uint8Array {
+  return TransportCommand.encode(TransportCommand.fromObject(cmd)).finish();
+}
 
 export interface ServerEvents {
   onMessage(kind: string, body: Msg, replyTo: number): void;

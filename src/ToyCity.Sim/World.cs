@@ -17,6 +17,8 @@ public sealed class Assignment
     public int[] RideCells = Array.Empty<int>();
     /// <summary>Stops used, in order: where each leg got on, then off.</summary>
     public int[] Stops = Array.Empty<int>();
+    /// <summary>Rides on side games' lines, four numbers each: game slot, line id, boarding stop index, alighting stop index.</summary>
+    public int[] LineLegs = Array.Empty<int>();
 
     public bool ByTransit => RideCells.Length > 0;
 }
@@ -26,6 +28,8 @@ public sealed class Building
     public int Id;
     public int Type;
     public int X, Y, W, H;
+    /// <summary>Roadside buildings: which kerb of their road cell they stand on (0 north, 1 east, 2 south, 3 west).</summary>
+    public int Side;
     // Totals for this building: zoned templates are per cell, so a bigger lot holds more. Derived, not saved.
     public int Residents, Jobs, PowerKw, WaterUse, Garbage;
     public int Funding = 100;
@@ -64,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 2;
+    public const int FormatVersion = 4;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -169,6 +173,7 @@ public sealed partial class World
         Riders = new int[N];
         Blight = new byte[N];
         Array.Fill(TaxTenths, 90);
+        InitSeats();
         InitOrdinances();
         InitDirector();
     }
@@ -231,14 +236,23 @@ public sealed partial class World
         OneOffs = 0;
         BudgetRan = false;
         ApplyPending();
-        RunDisasters();
+        bool stasis = InStasis;
+        if (stasis) HoldPrompts();
+        else RunDisasters();
 
         if (Day == 1 && Tick > 0) RunMonthly();
         RunUtilities();
-        RunConstruction();
-        RunGrowth();
+        // Coverage is cheap and petitions hang on it, so a new station counts from the day it opens.
+        RunCoverage();
+        if (!stasis && Tick > 0) CheckPetitions();
+        if (!stasis)
+        {
+            RunConstruction();
+            RunGrowth();
+        }
         RunCommutes();
         UpdateStats();
+        RunSideGames();
         Tick++;
     }
 
@@ -247,9 +261,14 @@ public sealed partial class World
         for (int i = 0; i < days; i++) Step();
     }
 
+    /// <summary>
+    /// Monthly. In stasis only the derived layers are recomputed (coverage, traffic, desirability and so on); nothing
+    /// that persists changes: no prompts, disasters, life events, wear, budget, decline or approval.
+    /// </summary>
     void RunMonthly()
     {
-        if (Tick > 0)
+        bool live = Tick > 0 && !InStasis;
+        if (live)
         {
             CheckUnlocks();
             RunDirector();
@@ -262,13 +281,14 @@ public sealed partial class World
         RunPollutionAndNoise();
         RunCoverage();
         RunTraffic();
-        RunWear();
+        if (!InStasis) RunWear();
         RunLandValue();
         RunDesirability();
         UpdateStats();
-        if (Tick > 0)
+        if (live)
         {
             RunBudget();
+            RunAutomation();
             RunDecline();
             UpdateApproval();
         }
@@ -301,7 +321,7 @@ public sealed partial class World
             {
                 w.Write(b != null);
                 if (b == null) continue;
-                w.Write(b.Type); w.Write(b.X); w.Write(b.Y); w.Write(b.W); w.Write(b.H);
+                w.Write(b.Type); w.Write(b.X); w.Write(b.Y); w.Write(b.W); w.Write(b.H); w.Write(b.Side);
                 w.Write(b.Funding); w.Write(b.Condition); w.Write(b.Abandoned); w.Write(b.ConstructionLeft);
                 w.Write(b.UnmetMonths); w.Write(b.GoodMonths); w.Write(b.Powered); w.Write(b.Watered);
                 w.Write(b.Workers); w.Write(b.Employed); w.Write(b.CommuteMinutes); w.Write(b.Graffiti); w.Write(b.BurningDays); w.Write(b.Riders);
@@ -317,6 +337,8 @@ public sealed partial class World
                     foreach (var c in a.RideCells) w.Write(c);
                     w.Write(a.Stops.Length);
                     foreach (var c in a.Stops) w.Write(c);
+                    w.Write(a.LineLegs.Length);
+                    foreach (var c in a.LineLegs) w.Write(c);
                 }
             }
 
@@ -334,6 +356,10 @@ public sealed partial class World
             WriteOrdinances(w);
             WriteDirector(w);
             WriteDisasters(w);
+            WriteSideGames(w);
+            WriteSeats(w);
+            WriteLeases(w);
+            WriteAuthority(w);
         }
         return ms.ToArray();
     }
@@ -366,7 +392,7 @@ public sealed partial class World
             if (!r.ReadBoolean()) { w.Buildings.Add(null); continue; }
             var b = new Building
             {
-                Id = id, Type = r.ReadInt32(), X = r.ReadInt32(), Y = r.ReadInt32(), W = r.ReadInt32(), H = r.ReadInt32(),
+                Id = id, Type = r.ReadInt32(), X = r.ReadInt32(), Y = r.ReadInt32(), W = r.ReadInt32(), H = r.ReadInt32(), Side = r.ReadInt32(),
                 Funding = r.ReadInt32(), Condition = r.ReadInt32(), Abandoned = r.ReadBoolean(), ConstructionLeft = r.ReadInt32(),
                 UnmetMonths = r.ReadInt32(), GoodMonths = r.ReadInt32(), Powered = r.ReadBoolean(), Watered = r.ReadBoolean(),
                 Workers = r.ReadInt32(), Employed = r.ReadInt32(), CommuteMinutes = r.ReadInt32(),
@@ -384,6 +410,8 @@ public sealed partial class World
                 for (int c = 0; c < a.RideCells.Length; c++) a.RideCells[c] = r.ReadInt32();
                 a.Stops = new int[r.ReadInt32()];
                 for (int c = 0; c < a.Stops.Length; c++) a.Stops[c] = r.ReadInt32();
+                a.LineLegs = new int[r.ReadInt32()];
+                for (int c = 0; c < a.LineLegs.Length; c++) a.LineLegs[c] = r.ReadInt32();
                 b.Assignments.Add(a);
             }
             w.InitTotals(b);
@@ -403,6 +431,10 @@ public sealed partial class World
         w.ReadOrdinances(r);
         w.ReadDirector(r);
         w.ReadDisasters(r);
+        w.ReadSideGames(r);
+        w.ReadSeats(r);
+        w.ReadLeases(r);
+        w.ReadAuthority(r);
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

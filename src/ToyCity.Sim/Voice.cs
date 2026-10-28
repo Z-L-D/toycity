@@ -13,6 +13,18 @@ public sealed class Voice
 {
     readonly Dictionary<string, List<string>> _templates = new();
     List<string> _first = new() { "Pat" }, _last = new() { "Smith" }, _streets = new() { "Main" }, _kinds = new() { "Street" };
+    List<string> _districtFirst = new() { "Old" }, _districtKinds = new() { "Town" };
+
+    readonly Dictionary<string, List<Quirk>> _quirks = new();
+
+    public IReadOnlyList<string> StreetNames => _streets;
+    public IReadOnlyList<string> StreetKinds => _kinds;
+
+    /// <summary>A quirky statistic for a kind of building: so many <see cref="Unit"/> per person served, and how many of them came good.</summary>
+    public sealed record Quirk(string Label, double Per, string Unit);
+
+    /// <summary>The quirky statistics for a building category ("park", "education"), empty when it has none.</summary>
+    public IReadOnlyList<Quirk> Quirks(string category) => _quirks.TryGetValue(category, out var q) ? q : Array.Empty<Quirk>();
 
     public IReadOnlyCollection<string> Keys => _templates.Keys;
 
@@ -26,6 +38,12 @@ public sealed class Voice
         if (Strings("lastNames") is { Count: > 0 } l) v._last = l;
         if (Strings("streetNames") is { Count: > 0 } s) v._streets = s;
         if (Strings("streetKinds") is { Count: > 0 } k) v._kinds = k;
+        if (Strings("districtNames") is { Count: > 0 } dn) v._districtFirst = dn;
+        if (Strings("districtKinds") is { Count: > 0 } dk) v._districtKinds = dk;
+        if (root.TryGetProperty("quirks", out var qs))
+            foreach (var cat in qs.EnumerateObject())
+                v._quirks[cat.Name] = cat.Value.EnumerateArray()
+                    .Select(q => new Quirk(q.GetProperty("label").GetString()!, q.GetProperty("per").GetDouble(), q.GetProperty("unit").GetString()!)).ToList();
         foreach (var t in root.GetProperty("templates").EnumerateObject())
             v._templates[t.Name] = t.Value.ValueKind == JsonValueKind.Array
                 ? t.Value.EnumerateArray().Select(e => e.GetString()!).ToList()
@@ -42,11 +60,28 @@ public sealed class Voice
     /// <summary>A person's name, the same every time for the same seed.</summary>
     public string Name(ulong seed) => $"{Pick(_first, seed, "first")} {Pick(_last, seed, "last")}";
 
-    /// <summary>A street name for a cell. Cells in the same 8×8 block share a name, so a neighbourhood stays recognisable.</summary>
-    public string Street(int x, int y)
+    /// <summary>
+    /// A road's name from the line it runs along. North-south roads are numbered avenues by column (12th Avenue);
+    /// east-west roads are named streets by row, every row a different name until the names run out.
+    /// </summary>
+    public string RoadName(bool northSouth, int line)
     {
-        ulong seed = (ulong)(x / 8) * 7919 + (ulong)(y / 8) * 104729;
-        return $"{Pick(_streets, seed, "street")} {Pick(_kinds, seed, "kind")}";
+        if (northSouth) return $"{Ordinal(line + 1)} Avenue";
+        var kinds = _kinds.Where(k => k != "Avenue").DefaultIfEmpty("Street").ToList();
+        int n = _streets.Count;
+        int name = n == 1 ? 0 : Coprime(7, n) ? line * 7 % n : line % n;
+        return $"{_streets[name]} {kinds[line / n % kinds.Count]}";
+    }
+
+    static bool Coprime(int a, int b) { while (b != 0) (a, b) = (b, a % b); return a == 1; }
+
+    static string Ordinal(int n) => n + (n % 100 is >= 11 and <= 13 ? "th" : (n % 10) switch { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" });
+
+    /// <summary>A district's name, the same every time for the same district number.</summary>
+    public string District(int id)
+    {
+        ulong seed = (ulong)id * 2654435761UL + 17;
+        return $"{Pick(_districtFirst, seed, "district")} {Pick(_districtKinds, seed, "districtKind")}";
     }
 
     /// <summary>Words a template. Unknown keys fall back to the key itself so a missing line is visible, not silent.</summary>

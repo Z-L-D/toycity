@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/ToyCity.Contract/ToyCity.Contract.csproj" />
     <Project Path="src/ToyCity.Protocol/ToyCity.Protocol.csproj" />
     <Project Path="src/ToyCity.Server/ToyCity.Server.csproj" />
     <Project Path="src/ToyCity.Sim/ToyCity.Sim.csproj" />
+    <Project Path="src/ToyCity.Transport/ToyCity.Transport.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ToyCity.Sim.Tests/ToyCity.Sim.Tests.csproj" />

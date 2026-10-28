@@ -335,3 +335,93 @@ button.mini { padding: 0 6px; font-size: 11px; margin-left: 4px; }
 #follow { position: absolute; top: 44px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
   background: rgba(10, 13, 20, 0.9); border: 1px solid #ffd15a; border-radius: 16px; padding: 4px 6px 4px 12px; font-size: 13px; }
 #follow.hidden { display: none; }
+
+/* Seats and the computer playing the city */
+#btn-seat.away { border-color: #ffd15a; color: #ffd15a; }
+#away { position: absolute; top: 80px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
+  background: rgba(10, 13, 20, 0.9); border: 1px solid #8ab4ff; border-radius: 16px; padding: 4px 6px 4px 12px; font-size: 13px; }
+#away.hidden { display: none; }
+.levels { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.level-opt { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: start; padding: 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); cursor: pointer; }
+.level-opt input { grid-row: span 2; margin-top: 3px; }
+.seat-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+ul.report { padding-left: 18px; margin: 6px 0; }
+ul.report li { margin: 2px 0; }
+.report-notes { max-height: 240px; overflow-y: auto; }
+.report-notes .note, .report-notes .news { padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); font-size: 12px; }
+.report-notes .note[data-jump] { cursor: pointer; }
+#dlg { max-width: 520px; }
+
+/* The bus company */
+.bus-line { border-left: 4px solid #888; padding: 4px 8px; margin: 6px 0; background: rgba(255, 255, 255, 0.03); border-radius: 0 6px 6px 0; }
+.bus-line.draft { border-left-color: #ffd15a; }
+.bus-line .row-flex { gap: 6px; align-items: center; }
+.lot-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; padding: 2px 0; }
+.lot-row.bad a { color: #ff8a7a; }
+tr.total td { border-top: 1px solid rgba(255, 255, 255, 0.2); font-weight: 600; }
+
+/* Standing in the districts and the house rules table */
+.standing { padding: 6px 0; border-bottom: 1px solid #8883; }
+.rating-bar { position: relative; height: 6px; background: #8883; border-radius: 3px; margin-top: 4px; }
+.rating-bar span { position: absolute; top: 0; bottom: 0; background: var(--good); border-radius: 3px; }
+.rating-bar::after { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: currentColor; opacity: .4; }
+table.consent { border-collapse: collapse; width: 100%; margin: 8px 0; }
+table.consent th, table.consent td { padding: 4px 6px; border-bottom: 1px solid #8883; text-align: center; vertical-align: top; }
+table.consent td:first-child { text-align: left; }
+#tab-buses .pos, .lease-slot .pos, #lease-slot .pos { color: var(--good); }
+#tab-buses .neg, #lease-slot .neg { color: var(--bad); }
+#tab-buses button:disabled { opacity: .45; cursor: not-allowed; }
+
+/* The bus company's own view: it replaces the city's top bar, tools and panel. */
+#top, #co-top { grid-column: 1 / 4; grid-row: 1; }
+#tools, #co-tools { grid-column: 1; grid-row: 2; }
+#view { grid-column: 2; grid-row: 2; }
+#panel, #co-panel { grid-column: 3; grid-row: 2; }
+#co-top, #co-tools, #co-panel { display: none; }
+body.company #top, body.company #tools, body.company #panel { display: none; }
+body.company #co-top { display: flex; align-items: center; gap: 10px; padding: 0 10px; background: #2a2416; border-bottom: 2px solid var(--accent); }
+body.company #co-tools { display: block; background: #1f1b12; border-right: 1px solid #4a3f22; padding: 8px; overflow-y: auto; }
+body.company #co-panel { display: flex; flex-direction: column; min-height: 0; background: #1f1b12; border-left: 1px solid #4a3f22; overflow: hidden; }
+.co-brand { font-weight: 700; color: var(--accent); }
+#co-top .spacer { flex: 1; }
+#co-tools h4 { margin: 10px 0 4px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+#co-tools button { display: flex; width: 100%; justify-content: space-between; margin-bottom: 4px; text-align: left; }
+#co-tools .tip { font-size: 12px; color: var(--muted); margin: 6px 0; }
+#co-tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; padding: 6px; border-bottom: 1px solid #4a3f22; }
+#co-tabs button { padding: 3px 0; font-size: 12px; }
+#co-body { padding: 10px 12px; overflow-y: auto; flex: 1; }
+#co-body .pos { color: var(--good); }
+#co-body .neg { color: var(--bad); }
+#co-body button:disabled { opacity: .45; cursor: not-allowed; }
+#co-seat .note { font-size: 12px; color: var(--muted); margin-right: 6px; }
+.co-warn { background: #4a2a22; border: 1px solid var(--bad); border-radius: 6px; padding: 6px 8px; margin: 6px 0; font-size: 12px; }
+.co-hint { background: #2a3040; border-radius: 6px; padding: 6px 8px; margin: 6px 0; font-size: 12px; color: var(--muted); }
+.lot-card { border: 1px solid #4a3f22; border-radius: 6px; padding: 8px; margin: 8px 0; }
+.lot-card.sel { border-color: #5ad1ff; }
+body.company #hints { display: none; }
+
+/* Building upgrades in the Why and Inspect panels. */
+.upgrade { margin: 6px 0 10px; }
+.upgrade button { margin-bottom: 3px; }
+.upgrade button:disabled { opacity: .45; cursor: not-allowed; }
+.upgrade.locked { opacity: 0.85; }
+.warn { color: #e0a040; }
+
+/* A public building's gauges: what it serves of its capacity, then a quirky city statistic. */
+.gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 12px; }
+.gauge { background: #141a24; border: 2px solid var(--good); border-radius: 8px; padding: 8px 10px; }
+.gauge.full { border-color: #e0a040; }
+.gauge.over { border-color: var(--bad); }
+.gauge.fun { border-color: #b98cf0; border-style: dashed; }
+.gauge .g-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.gauge .g-num { font-size: 13px; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
+.gauge .g-num b { font-size: 24px; }
+.gauge .g-num span { color: var(--muted); font-size: 11px; }
+.gauge .g-track { height: 8px; background: #0f131b; border-radius: 4px; overflow: hidden; }
+.gauge .g-track span { display: block; height: 100%; background: var(--good); }
+.gauge.full .g-track span { background: #e0a040; }
+.gauge.over .g-track span { background: var(--bad); }
+.gauge.fun .g-track span { background: #b98cf0; }
+.gauge .g-note { font-size: 11px; margin-top: 4px; }
+.gauge.over .g-note { color: var(--bad); font-weight: 600; }
+.gauge.full .g-note { color: #e0a040; font-weight: 600; }

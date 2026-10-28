@@ -50,6 +50,7 @@ public sealed partial class SimHost : IDisposable
         var w = World.Create(_content, seed, size, name);
         if (starter) StarterTown.Apply(w);
         w.ApplyPending();
+        AttachSideGames(w);
         return w;
     }
 
@@ -110,7 +111,7 @@ public sealed partial class SimHost : IDisposable
             }
         }
         // Petitions, deals, unlocks and headlines change at most monthly or on an action, so a cheap signature will do.
-        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}";
+        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}/{string.Join(",", _world.Seats.Select(s => $"{s.Owner}:{(int)s.Level}:{(int)s.Style}:{s.SpendCap}:{s.Report?.ToTick}"))}/{string.Join(",", _world.Leases.Select(l => $"{l.Id}:{l.Terms.GetHashCode()}:{l.PendingMonths}:{l.Arrears}:{l.BadStanding}:{l.CureMonthsLeft}:{l.Jobs}:{l.LastRevenue}:{l.EvictMonths}"))}/{_world.SideGames.Count}/{_world.ConsentSig()}/{string.Join(",", _world.Standings.Select(s => $"{s.Rating}:{s.Statue}:{s.ExclusiveUntil > _world.Tick}"))}";
         if (forceAlerts || civicSig != _civicSig)
         {
             _civicSig = civicSig;
@@ -119,6 +120,8 @@ public sealed partial class SimHost : IDisposable
         }
         if (RosterIfChanged() is { } roster)
             foreach (var c in _clients) list.Add((c, new P.ServerMessage { Agents = roster }));
+        foreach (var view in ChangedViews(all: false))
+            foreach (var c in _clients) list.Add((c, view));
         return list;
     }
 
@@ -161,8 +164,10 @@ public sealed partial class SimHost : IDisposable
         lock (_gate) civicNow = Mapping.Civic(_world);
         await SendAsync(client, new P.ServerMessage { Civic = civicNow });
         P.AgentRoster rosterNow;
-        lock (_gate) rosterNow = Roster(Agents());
+        List<P.ServerMessage> viewsNow;
+        lock (_gate) { rosterNow = Roster(Agents()); viewsNow = ChangedViews(all: true); }
         await SendAsync(client, new P.ServerMessage { Agents = rosterNow });
+        foreach (var v in viewsNow) await SendAsync(client, v);
 
         var buffer = new byte[64 * 1024];
         using var ms = new MemoryStream();
@@ -203,17 +208,16 @@ public sealed partial class SimHost : IDisposable
                 case P.ClientMessage.BodyOneofCase.Action:
                     if (Mapping.ToSim(msg.Action) is { } a)
                     {
+                        // Applied now, not at the next tick: at a slow speed a day is many seconds. It is logged at the
+                        // current tick, before that tick's step, which is where a replay applies it too.
                         _world.Enqueue(a);
-                        if (_speed == 0)
-                        {
-                            _world.ApplyPending();
-                            broadcast = BuildDeltas(forceAlerts: true);
-                        }
+                        _world.ApplyPending();
+                        broadcast = BuildDeltas(forceAlerts: true);
                     }
                     else reply = Error(msg.Seq, "Unknown action.");
                     break;
                 case P.ClientMessage.BodyOneofCase.Why:
-                    reply = new P.ServerMessage { Why = Mapping.Why(_world.Why(msg.Why.X, msg.Why.Y)) };
+                    reply = new P.ServerMessage { Why = Mapping.Why(_world, _world.Why(msg.Why.X, msg.Why.Y)) };
                     break;
                 case P.ClientMessage.BodyOneofCase.Inspect:
                     reply = new P.ServerMessage { Inspect = InspectWithResidents(msg.Inspect.X, msg.Inspect.Y) };
@@ -240,6 +244,7 @@ public sealed partial class SimHost : IDisposable
                     {
                         if (!ValidName(msg.Load.Name)) throw new InvalidDataException("bad save name");
                         _world = Mapping.Load(_content, File.ReadAllBytes(SavePath(msg.Load.Name)));
+                        AttachSideGames(_world);
                         broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).Concat(BuildDeltas(forceAlerts: true)).ToList();
                     }
                     catch (Exception e) when (e is IOException or InvalidDataException or InvalidProtocolBufferException)
