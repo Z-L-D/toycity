@@ -62,7 +62,8 @@ public partial class Main : Node
             },
         });
         // Afternoon sun from the south-west, fixed to the map so shading turns with the camera as in SC4.
-        AddChild(new DirectionalLight3D { RotationDegrees = new Vector3(-50, -150, 0), LightEnergy = 1.1f, ShadowEnabled = true });
+        AddChild(new DirectionalLight3D { RotationDegrees = new Vector3(-50, -150, 0), LightEnergy = 1.1f, ShadowEnabled = true,
+            DirectionalShadowMode = DirectionalLight3D.ShadowMode.Orthogonal, DirectionalShadowMaxDistance = 300 });
 
         _view = new CityView(_client.City);
         AddChild(_view);
@@ -193,17 +194,18 @@ public partial class Main : Node
     }
 
     int _benchZoom = -1, _benchFrame;
+    double _benchClock;
     readonly List<double> _times = new();
     readonly List<string> _benchRows = new();
 
     /// <summary>
-    /// The frame-budget run: the dense city at each zoom level, 30 frames to settle and 240 measured, with the
+    /// The frame-budget run: the dense city at each zoom level, 30 frames to settle and up to 240 measured, with the
     /// draw calls, triangles and memory each costs. The map is centred and the classic angle used throughout.
     /// </summary>
     void Bench(CityMirror c, double delta)
     {
         _smokeTime += delta;
-        if (_smokeTime > 180) { GD.PrintErr("BENCH FAILED: timed out"); GetTree().Quit(1); return; }
+        if (_smokeTime > 600) { GD.PrintErr("BENCH FAILED: timed out"); GetTree().Quit(1); return; }
         if (!_frozen || !_map!.Drawn) return;
         var v = _camera!.View;
         if (_benchZoom < 0)
@@ -214,9 +216,12 @@ public partial class Main : Node
             v.Zoom = 0;
             return;
         }
+        // Settle for 30 frames, then measure 240 frames or 8 seconds, whichever comes first (slow machines and CI).
         _benchFrame++;
-        if (_benchFrame > 30) _times.Add(delta * 1000);
-        if (_benchFrame < 30 + 240) return;
+        if (_benchFrame <= 30) { _benchClock = 0; return; }
+        _times.Add(delta * 1000);
+        _benchClock += delta;
+        if (_times.Count < 240 && _benchClock < 8) return;
         _times.Sort();
         double avg = _times.Average(), p95 = _times[(int)(_times.Count * 0.95)], worst = _times[^1];
         long tris = (long)Performance.GetMonitor(Performance.Monitor.RenderTotalPrimitivesInFrame);
