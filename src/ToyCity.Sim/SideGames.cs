@@ -118,7 +118,7 @@ public sealed partial class World
             hg.Game.Tick(input, Queries, output);
             hg.Last = output;
             foreach (var inc in output.Incidents) TakeIncident(hg, inc);
-            if (newMonth) SettleLeases(hg, output);
+            SettleLeases(hg, input, output);
         }
     }
 
@@ -261,7 +261,8 @@ public sealed partial class World
         w.Write(o.JobsByLease.Count);
         foreach (var (lease, jobs) in o.JobsByLease.OrderBy(j => j.Key)) { w.Write(lease); w.Write(jobs); }
         w.Write(o.ServiceQuality);
-        w.Write(o.TaxableRevenue);
+        w.Write(o.RevenueByLease.Count);
+        foreach (var (lease, v) in o.RevenueByLease.OrderBy(j => j.Key)) { w.Write(lease); w.Write(v); }
         w.Write(o.Status);
     }
 
@@ -281,7 +282,8 @@ public sealed partial class World
         int nj = r.ReadInt32();
         for (int i = 0; i < nj; i++) o.JobsByLease[r.ReadInt32()] = r.ReadInt32();
         o.ServiceQuality = r.ReadInt32();
-        o.TaxableRevenue = r.ReadInt64();
+        int nr = r.ReadInt32();
+        for (int i = 0; i < nr; i++) o.RevenueByLease[r.ReadInt32()] = r.ReadInt64();
         o.Status = r.ReadString();
         return o;
     }

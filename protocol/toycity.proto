@@ -61,7 +61,43 @@ message Action {
     SideGameCommand side_game = 15;
     AttachSideGame attach = 16;
     SetSeat seat = 17;
+    LeaseLot lease = 18;
+    SetLeaseTerms lease_terms = 19;
+    EndLease end_lease = 20;
   }
+}
+
+enum LeaseMode {
+  LEASE_BUSINESS = 0;        // the operator pays rent and a fare tax and keeps the profit
+  LEASE_PUBLIC_SERVICE = 1;  // the city pays a subsidy and caps fares
+}
+
+message LeaseTerms {
+  LeaseMode mode = 1;
+  int64 rent_per_month = 2;
+  int32 tax_tenths = 3;  // fare tax, tenths of a percent
+  int64 subsidy_per_month = 4;
+  int32 fare_cap_cents = 5;  // 0 = free to ride
+  int32 notice_months = 6;
+}
+
+// The mayor leases a lot (a bus stop or depot) to a side game. No terms: the city's standard ones.
+message LeaseLot {
+  string game = 1;
+  int32 building_id = 2;
+  LeaseTerms terms = 3;
+}
+
+// New terms for a lease, starting after the current terms' notice period.
+message SetLeaseTerms {
+  int32 lease_id = 1;
+  LeaseTerms terms = 2;
+}
+
+// The operator gives up a lease, or the mayor ends one past its cure period.
+message EndLease {
+  int32 lease_id = 1;
+  bool by_operator = 2;
 }
 
 // How a seat is played: by its owner, or by the computer at a level the owner picks. Stasis is for the city seat.
@@ -745,6 +781,35 @@ message CivicState {
   int32 approval = 3;
   repeated Headline headlines = 4;  // newest last
   repeated SeatState seats = 5;     // the mayor's seat first
+  repeated LeaseState leases = 6;
+  repeated SideGameInfo side_games = 7;
+}
+
+message SideGameInfo {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string lot_kinds = 4;  // building type ids it can lease
+}
+
+message LeaseState {
+  int32 id = 1;
+  string game = 2;
+  string game_name = 3;
+  int32 building_id = 4;
+  string kind = 5;
+  int32 x = 6;
+  int32 y = 7;
+  LeaseTerms terms = 8;
+  LeaseTerms pending_terms = 9;  // unset when none
+  int32 pending_months = 10;
+  int64 arrears = 11;
+  bool bad_standing = 12;
+  int32 cure_months_left = 13;
+  bool terminable = 14;
+  int32 jobs = 15;
+  int64 last_month_fares = 16;
+  repeated string targets = 17;  // what it takes to get back into good standing
 }
 
 message SeatState {

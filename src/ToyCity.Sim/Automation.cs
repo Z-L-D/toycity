@@ -29,6 +29,12 @@ public sealed partial class World
             return;
         }
         AutopilotTaxes(seat.Style);
+        foreach (var lease in Leases.Where(l => l.Terminable).ToList())
+        {
+            var b = Buildings[lease.BuildingId]!;
+            EndLease(lease, $"The city ended {GameName(lease.GameId)}'s lease on {{0}}.");
+            AwayNoteAdd($"Ended {GameName(lease.GameId)}'s lease on {LotName(b)}: it stayed in bad standing through its cure period.", b.X, b.Y);
+        }
         ReplaceLostCivic();
         AutopilotUtilities(seat.Style);
         AutopilotPetitions();

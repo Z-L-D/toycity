@@ -111,7 +111,7 @@ public sealed partial class SimHost : IDisposable
             }
         }
         // Petitions, deals, unlocks and headlines change at most monthly or on an action, so a cheap signature will do.
-        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}/{string.Join(",", _world.Seats.Select(s => $"{s.Owner}:{(int)s.Level}:{(int)s.Style}:{s.SpendCap}:{s.Report?.ToTick}"))}";
+        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}/{string.Join(",", _world.Seats.Select(s => $"{s.Owner}:{(int)s.Level}:{(int)s.Style}:{s.SpendCap}:{s.Report?.ToTick}"))}/{string.Join(",", _world.Leases.Select(l => $"{l.Id}:{l.Terms.GetHashCode()}:{l.PendingMonths}:{l.Arrears}:{l.BadStanding}:{l.CureMonthsLeft}:{l.Jobs}:{l.LastRevenue}"))}/{_world.SideGames.Count}";
         if (forceAlerts || civicSig != _civicSig)
         {
             _civicSig = civicSig;

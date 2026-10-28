@@ -1,3 +1,4 @@
+using ToyCity.Contract;
 namespace ToyCity.Sim;
 
 /// <summary>Map layers a front end can ask for. Numbers match the protocol's OverlayKind.</summary>
@@ -81,6 +82,8 @@ public sealed partial class World
                 : "Not pumping: a pump needs power.",
             Category.Garbage => HasFrontage(b) ? $"Takes {t.GarbageCap * FundingFactor(b.Funding) / 100:N0} units a day. City makes {GarbageProduced:N0}, can handle {GarbageCapacity:N0}."
                 : "Not collecting: garbage trucks need a road next to the landfill.",
+            Category.Transit when t.Transit == TransitKind.None => LeaseOn(b.Id) == null
+                ? "A lot for a side game to lease: a bus company keeps its buses here and hires drivers." : "",
             Category.Transit => TransitSummary(b),
             _ => b.Powered || t.PowerKw == 0 ? $"Covers a radius of {EffectiveRadius(b)} cells at {b.Funding}% funding." : "Not working: no power.",
         };
@@ -88,7 +91,18 @@ public sealed partial class World
         if (b.ConstructionLeft == 0) reqs.Add(ConditionRequirement(b));
         if (b.BurningDays > 0) summary = $"On fire for {b.BurningDays} days! " + summary;
         if (t.Category == Category.Water) reqs.Add(new Requirement("pipe", "Pipe connection", WaterPipeTouches(b), WaterPipeTouches(b) ? "Connected to a pipe." : "Lay a water pipe touching the pump."));
-        return new WhyReport(x, y, t.Name, summary, reqs, factors);
+        if (LeaseOn(b.Id) is { } lease)
+        {
+            var lt = lease.Terms;
+            string terms = lt.Mode == LeaseMode.Business
+                ? $"business lease: ${lt.RentPerMonth:N0} a month and {lt.TaxTenths / 10.0:0.#}% of fares (${lease.LastRevenue:N0} in fares last month)"
+                : $"public service: the city pays ${lt.SubsidyPerMonth:N0} a month and fares are capped at {Fare(lt.FareCapCents)}";
+            summary = $"Leased to {GameName(lease.GameId)}, {terms}. " + summary;
+            if (lease.PendingTerms != null) summary += $" New terms start in {lease.PendingMonths} month{(lease.PendingMonths == 1 ? "" : "s")}.";
+            reqs.Add(new Requirement("lease", "Lease standing", !lease.BadStanding,
+                lease.BadStanding ? "Bad standing. " + string.Join(" ", LeaseTargets(lease)) : "Good standing: paid up and well regarded in the district."));
+        }
+        return new WhyReport(x, y, t.Name, summary.Trim(), reqs, factors);
     }
 
     /// <summary>Condition, where it is heading and why, as a line for the why-panel.</summary>

@@ -26,8 +26,24 @@ const STYLE_HELP = [
 ];
 const SEEN_KEY = 'toycity.seenReport';
 
+const money = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-US');
+const fare = (cents: number) => (cents === 0 ? 'free' : `$${(cents / 100).toFixed(2)}`);
+
+/** The city's standard offer, as the sim defines it: a business lease, rent by size, a 10% fare tax, three months' notice. */
+const standardTerms = (kind: string) => ({ mode: 0, rentPerMonth: kind === 'bus-depot' ? 300 : 40, taxTenths: 100, subsidyPerMonth: 0, fareCapCents: 0, noticeMonths: 3 });
+
+export function termsText(t: Msg) {
+  return t.mode === 0
+    ? `Business lease: ${money(t.rentPerMonth)} a month and ${t.taxTenths / 10}% of fares`
+    : `Public service: the city pays ${money(t.subsidyPerMonth)} a month, fares capped at ${fare(t.fareCapCents)}`;
+}
+
 export class Seats {
   private seats: Msg[] = [];
+  leases: Msg[] = [];
+  sideGames: Msg[] = [];
+  /** The building whose lease panel is showing, so it can redraw when the lease changes. */
+  private leaseView: { b: Msg; slot: HTMLElement } | null = null;
   private shownReport = -1;
 
   constructor(private readonly host: SeatsHost) {
@@ -40,6 +56,9 @@ export class Seats {
 
   onCivic(c: Msg) {
     this.seats = c.seats ?? [];
+    this.leases = c.leases ?? [];
+    this.sideGames = c.sideGames ?? [];
+    if (this.leaseView && this.leaseView.slot.isConnected) this.renderLease(this.leaseView.b, this.leaseView.slot);
     const m = this.mayor;
     if (!m) return;
     const btn = $('#btn-seat');
@@ -134,6 +153,87 @@ export class Seats {
       }),
     );
     dlg.onclose = null;
+    dlg.showModal();
+  }
+
+  // -------------------------------------------------------------------------
+  // Leases on side-game lots
+  // -------------------------------------------------------------------------
+
+  /** The lease part of a building's panel: who leases it and on what terms, or who could. */
+  renderLease(b: Msg, slot: HTMLElement) {
+    this.leaseView = { b, slot };
+    const lease = this.leases.find((l) => l.buildingId === b.id);
+    const takers = this.sideGames.filter((g) => (g.lotKinds as string[]).includes(b.typeId));
+    if (!lease && !takers.length) { slot.innerHTML = ''; return; }
+    if (!lease) {
+      slot.innerHTML = `<h4>Lease</h4><p class="muted small">Not leased. Unleased stops keep the city's own bus service.</p>
+        ${takers.map((g) => `<button data-lease-to="${esc(g.id)}">Lease to ${esc(g.name)}…</button>`).join(' ')}`;
+      slot.querySelectorAll<HTMLButtonElement>('button[data-lease-to]').forEach((btn) =>
+        btn.addEventListener('click', () => {
+          const g = this.sideGames.find((x) => x.id === btn.dataset.leaseTo)!;
+          this.termsDialog(`Lease to ${g.name}`, standardTerms(b.typeId), 'Lease', (terms) =>
+            this.host.conn.action({ lease: { game: g.id, buildingId: b.id, terms } }));
+        }),
+      );
+      return;
+    }
+    const pending = lease.pendingTerms ? `<p class="small">From ${lease.pendingMonths} month${lease.pendingMonths === 1 ? '' : 's'} on: ${esc(termsText(lease.pendingTerms))}.</p>` : '';
+    slot.innerHTML = `<h4>Lease</h4>
+      <p>Leased to <b>${esc(lease.gameName)}</b>. ${esc(termsText(lease.terms))}, ${lease.terms.noticeMonths} months' notice.</p>
+      ${pending}
+      <p class="small">${lease.jobs} jobs here · ${money(lease.lastMonthFares)} in fares last month${lease.arrears > 0 ? ` · <span class="neg">${money(lease.arrears)} owed</span>` : ''}</p>
+      <div class="req ${lease.badStanding ? 'unmet' : 'met'}"><span class="mark">${lease.badStanding ? '✗' : '✓'}</span><span class="label">Standing</span>
+        <span class="detail">${lease.badStanding ? esc((lease.targets as string[]).join(' ')) : 'Good: paid up and well regarded.'}</span></div>
+      <div class="row-flex" style="margin-top:6px">
+        <button id="lease-change">Change terms…</button>
+        <button id="lease-end" ${lease.terminable ? '' : 'disabled title="Only a lease in bad standing past its cure period can be ended by the city"'}>End lease</button>
+      </div>`;
+    slot.querySelector('#lease-change')!.addEventListener('click', () =>
+      this.termsDialog(`New terms for ${lease.gameName}`, lease.pendingTerms ?? lease.terms, 'Give notice', (terms) =>
+        this.host.conn.action({ leaseTerms: { leaseId: lease.id, terms } }),
+        `The new terms start after ${lease.terms.noticeMonths} months' notice, so ${lease.gameName} isn't caught out.`));
+    slot.querySelector('#lease-end')!.addEventListener('click', () => this.host.conn.action({ endLease: { leaseId: lease.id, byOperator: false } }));
+  }
+
+  private termsDialog(title: string, t: Msg, okLabel: string, done: (terms: Msg) => void, note = '') {
+    const dlg = $<HTMLDialogElement>('#dlg');
+    const form = $<HTMLFormElement>('#dlg-form');
+    form.innerHTML = `
+      <h3>${esc(title)}</h3>
+      ${note ? `<p class="muted small">${esc(note)}</p>` : ''}
+      <label><input type="radio" name="mode" value="0" ${t.mode === 0 ? 'checked' : ''}> <b>Business lease</b> <span class="muted small">the operator pays rent and a fare tax and keeps the profit</span></label>
+      <label><input type="radio" name="mode" value="1" ${t.mode === 1 ? 'checked' : ''}> <b>Public service</b> <span class="muted small">the city pays a subsidy and caps fares</span></label>
+      <div id="biz-opts">
+        <label>Rent a month ($)</label><input type="number" name="rent" min="0" step="10" value="${t.rentPerMonth}">
+        <label>Fare tax (%)</label><input type="number" name="tax" min="0" max="50" step="0.5" value="${t.taxTenths / 10}">
+      </div>
+      <div id="pub-opts">
+        <label>Subsidy a month ($)</label><input type="number" name="subsidy" min="0" step="10" value="${t.subsidyPerMonth}">
+        <label>Fare cap ($, 0 for free)</label><input type="number" name="cap" min="0" step="0.25" value="${t.fareCapCents / 100}">
+      </div>
+      <label>Notice for future changes (months)</label><input type="number" name="notice" min="1" max="12" value="${t.noticeMonths}">
+      <div class="actions"><button value="cancel">Cancel</button><button value="ok" class="active">${esc(okLabel)}</button></div>`;
+    const sync = () => {
+      const pub = new FormData(form).get('mode') === '1';
+      $('#biz-opts').style.display = pub ? 'none' : '';
+      $('#pub-opts').style.display = pub ? '' : 'none';
+    };
+    form.addEventListener('change', sync);
+    sync();
+    dlg.onclose = () => {
+      if (dlg.returnValue !== 'ok') return;
+      const fd = new FormData(form);
+      const pub = fd.get('mode') === '1';
+      done({
+        mode: pub ? 1 : 0,
+        rentPerMonth: pub ? 0 : Number(fd.get('rent') || 0),
+        taxTenths: pub ? 0 : Math.round(Number(fd.get('tax') || 0) * 10),
+        subsidyPerMonth: pub ? Number(fd.get('subsidy') || 0) : 0,
+        fareCapCents: pub ? Math.round(Number(fd.get('cap') || 0) * 100) : 0,
+        noticeMonths: Number(fd.get('notice') || 3),
+      });
+    };
     dlg.showModal();
   }
 }

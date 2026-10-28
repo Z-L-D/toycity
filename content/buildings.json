@@ -868,6 +868,18 @@
       "color": "#d9822b"
     },
     {
+      "id": "bus-depot",
+      "name": "Bus Depot",
+      "category": "transit",
+      "w": 3,
+      "h": 2,
+      "cost": 2500,
+      "maintenance": 20,
+      "powerKw": 20,
+      "noise": 10,
+      "color": "#b5651d"
+    },
+    {
       "id": "tram-stop",
       "name": "Tram Stop",
       "category": "transit",

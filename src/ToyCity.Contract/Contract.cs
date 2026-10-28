@@ -83,8 +83,12 @@ public sealed class GameToCity
     public readonly List<Incident> Incidents = new();
     /// <summary>What was paid against this month's bills, by lease. Unpaid bills put a lease in arrears.</summary>
     public readonly Dictionary<int, long> Paid = new();
-    /// <summary>Revenue this month that business-lease tax applies to.</summary>
-    public long TaxableRevenue;
+    /// <summary>Fares taken today at each leased lot, in dollars. Business leases pay their fare tax on the month's total.</summary>
+    public readonly Dictionary<int, long> RevenueByLease = new();
+    /// <summary>Lots (by building id) the side game would like to lease on the city's standard terms.</summary>
+    public readonly List<int> LeaseRequests = new();
+    /// <summary>Leases the side game gives up. They end today; anything owed is written off.</summary>
+    public readonly List<int> LeaseReleases = new();
     /// <summary>0..100: how well the side game serves the city (on time, not crowded). Feeds its authority rating.</summary>
     public int ServiceQuality = 50;
     /// <summary>One line for the city's why-traces and the news ("Buses running on 3 lines").</summary>

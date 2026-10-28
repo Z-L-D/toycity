@@ -11,6 +11,7 @@ autopilot as they choose. This page records the rules and numbers as built, next
 | --- | --- |
 | A player runs a bus company inside a city with visible effects in both directions, while the city sits in stasis, caretaker or autopilot as chosen | Part 6 |
 | The city seat can be held in stasis, caretaker or autopilot, with a "while you were away" report | `SeatTests` |
+| Business lease or public service on side-game lots, with notice and bad standing | `LeaseTests` |
 | The side-game contract is frozen at v1 | `ContractInfo.Version = 1`; `protocol/contract.proto`; `SideGameTests` round-trip every message |
 
 ## The side-game contract (v1)
@@ -24,8 +25,8 @@ one process on one tick: each day the city takes its own step, then each side ga
 | Part | City to side game | Side game to city |
 | --- | --- | --- |
 | Register | | `Manifest`: id, name, contract version, the lot kinds it can lease |
-| Lease | `LeasedLot` per lot: where, its district, its terms, any change on notice, bad standing | jobs per leased lot |
-| Signals | the day; districts with people, jobs, land value, crime, health and this game's rating there (monthly); commuter trips between districts (monthly); yesterday's riders per line | transit lines (stops, headway, fare, seats an hour); taxable revenue; a 0-100 service quality; a status line |
+| Lease | `LeasedLot` per lot: where, its district, its terms, any change on notice, bad standing | jobs per leased lot; lots it asks for on standard terms; leases it gives up |
+| Signals | the day; districts with people, jobs, land value, crime, health and this game's rating there (monthly); commuter trips between districts (monthly); yesterday's riders per line | transit lines (stops, headway, fare, seats an hour); fares taken at each lot; a 0-100 service quality; a status line |
 | Money | bills: rent, tax, subsidy (monthly) | what it paid against them |
 | Incidents | everything the city and other side games raised, except its own | its own: breakdowns, injuries, anything |
 | Hand-off | who owns the seat and how it's played today (manual, stasis, caretaker, autopilot) | |
@@ -92,9 +93,41 @@ speeds from Alpha 2 (a game day takes 10 seconds at normal speed) a day-night cy
 real clock would show the same light for months of game time, so it's dropped until there is a
 speed where it makes sense.
 
+## Leases
+
+Side games lease lots from the city: in this alpha, **bus stops** and the new **bus depot** (3x2,
+$2,500, built by the mayor like any civic building). The city keeps the building; inside it the
+side game decides, so a leased lot can't be bulldozed while the lease stands. A disaster can still
+take it, and the lease ends with it. The building's panel shows the lease and lets the mayor lease
+an empty lot or change the terms.
+
+| | Business lease | Public service |
+| --- | --- | --- |
+| Money | the operator pays rent and a tax on the fares taken at the lot, and keeps the rest | the city pays a monthly subsidy |
+| Fares | the operator's call | capped by the city (0 = free to ride) |
+| Standard terms | rent $40 a month for a stop, $300 for a depot; 10% fare tax; 3 months' notice | (set by the mayor) |
+
+- **Granting.** The mayor, playing by hand, may lease on any terms. A side game can also ask for a
+  lot itself; the city grants it on its standard terms. While the city is on stasis, caretaker or
+  autopilot the computer grants only standard terms or better for the city.
+- **Billing.** On the first of each month the city bills rent, the fare tax on last month's fares
+  and anything overdue (or pays the subsidy). What the side game pays shows on the budget as
+  "Leases: <name>", subsidies as "Subsidies: <name>". The city keeps billing and paying in stasis:
+  that's the side game's business, not the city's growth.
+- **Changing terms.** New terms, including a switch between business and public service, start
+  after the current terms' notice period. The side game sees them coming in `PendingTerms`.
+- **Bad standing.** A lease falls into bad standing when the operator is behind on what it owes,
+  or its authority rating in the lot's district stays below -200 for three months. It gets three
+  months to put it right; the panel's why-trace lists exactly what's needed ("Pay the $40 owed",
+  "Raise the rating in Button Hollow from -260 to -200 or more"). If it doesn't, the mayor may end
+  the lease (autopilot does; caretaker doesn't). A lease in good standing can't be ended by the
+  city. The operator can give one up whenever it likes; anything owed is written off.
+- **Jobs.** The side game says how many people it employs at each lot. They are real jobs: the
+  city's commuters fill them like any other.
+
 ## Save format
 
 Format version 3 adds the side games (each one's own saved state, its last output and its riders),
 the incidents not yet handed on, the last 50 incidents, and the seats (owner, level, style, cap, the
-state at hand-off with the computer's notes so far, and the last report). The content files changed too (district
-names), so Alpha 2 saves don't load.
+state at hand-off with the computer's notes so far, and the last report), and the leases. The content files changed too (district
+names, the bus depot), so Alpha 2 saves don't load.

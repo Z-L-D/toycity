@@ -17,6 +17,12 @@ public sealed class ProbeGame : ISideGame
     public ulong Seed;
     public readonly List<string> Heard = new();
     public OperatorLevel LastOperator;
+    /// <summary>Lease behaviour for the lease tests: pay the bills, take fares and hire at each lot, ask for or give up lots.</summary>
+    public bool PaysBills = true;
+    public int FaresPerLot, JobsPerLot;
+    public readonly List<int> Requests = new(), Releases = new();
+    public readonly List<Bill> LastBills = new();
+    public readonly List<LeasedLot> Lots = new();
 
     public static void Register() => SideGameCatalog.Register(Id, () => new ProbeGame());
 
@@ -31,6 +37,20 @@ public sealed class ProbeGame : ISideGame
         if (input.Day == 5)
             output.Incidents.Add(new Incident(0, "breakdown", 10, 10, Id, "a probe", 2, $"A probe broke down on day {Days}."));
         output.Status = $"{Days} days";
+        Lots.Clear();
+        Lots.AddRange(input.Lots);
+        foreach (var lot in input.Lots)
+        {
+            if (FaresPerLot > 0) output.RevenueByLease[lot.LeaseId] = FaresPerLot;
+            if (JobsPerLot > 0) output.JobsByLease[lot.LeaseId] = JobsPerLot;
+        }
+        if (input.Bills.Count > 0) { LastBills.Clear(); LastBills.AddRange(input.Bills); }
+        if (PaysBills)
+            foreach (var b in input.Bills.Where(b => b.Amount > 0)) output.Paid[b.LeaseId] = output.Paid.GetValueOrDefault(b.LeaseId) + b.Amount;
+        output.LeaseRequests.AddRange(Requests);
+        output.LeaseReleases.AddRange(Releases);
+        Requests.Clear();
+        Releases.Clear();
     }
 
     public CommandResult Command(string seat, byte[] payload, ICityQueries city)
@@ -159,16 +179,22 @@ public class SideGameTests
         Assert.Equal(c.Ridership.Single().BoardingsByStop, back.Ridership.Single().BoardingsByStop);
         Assert.Equal((c.Tick, c.Operator, c.OwnerName), (back.Tick, back.Operator, back.OwnerName));
 
-        var g = new GameToCity { TaxableRevenue = 1234, ServiceQuality = 77, Status = "ok" };
+        var g = new GameToCity { ServiceQuality = 77, Status = "ok" };
         g.Lines.Add(new TransitLine(1, "Line 1", "#f80", new[] { 1, 2, 3 }, 12, 150, 400));
         g.JobsByLease[1] = 12;
         g.Paid[1] = 300;
+        g.RevenueByLease[1] = 1234;
+        g.LeaseRequests.Add(7);
+        g.LeaseReleases.Add(2);
         var gb = ContractWire.FromWire(ToyCity.Protocol.Contract.GameToCity.Parser.ParseFrom(ContractWire.ToWire(g).ToByteArray()));
         Assert.Equal(g.Lines.Single() with { StopLeaseIds = gb.Lines.Single().StopLeaseIds }, gb.Lines.Single());
         Assert.Equal(new[] { 1, 2, 3 }, gb.Lines.Single().StopLeaseIds);
         Assert.Equal(g.JobsByLease, gb.JobsByLease);
         Assert.Equal(g.Paid, gb.Paid);
-        Assert.Equal((1234L, 77, "ok"), (gb.TaxableRevenue, gb.ServiceQuality, gb.Status));
+        Assert.Equal(g.RevenueByLease, gb.RevenueByLease);
+        Assert.Equal(new[] { 7 }, gb.LeaseRequests);
+        Assert.Equal(new[] { 2 }, gb.LeaseReleases);
+        Assert.Equal((77, "ok"), (gb.ServiceQuality, gb.Status));
     }
 
     sealed class LotComparer : IEqualityComparer<LeasedLot>

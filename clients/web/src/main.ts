@@ -629,8 +629,10 @@ function renderWhy(w: Msg) {
     <p class="summary">${esc(w.summary)}</p>
     ${reqs ? `<h4>Needs</h4>${reqs}` : ''}
     ${fac ? `<h4>${(w.requirements as Msg[]).some((r) => r.key === 'desirability') ? 'Desirability factors' : 'Land value factors'}</h4>${fac}` : ''}
-    <div id="funding-slot"></div>`;
+    <div id="funding-slot"></div>
+    <div id="lease-slot"></div>`;
   if (isCivic) renderFunding(b!);
+  if (isCivic) seats?.renderLease(b!, $('#lease-slot'));
   document.querySelectorAll<HTMLAnchorElement>('#tab-why a.topic').forEach((a) =>
     a.addEventListener('click', (e) => { e.preventDefault(); talk?.article(a.dataset.topic!); }),
   );

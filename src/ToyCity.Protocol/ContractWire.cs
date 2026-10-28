@@ -81,7 +81,7 @@ public static class ContractWire
 
     public static W.GameToCity ToWire(C.GameToCity g)
     {
-        var m = new W.GameToCity { TaxableRevenue = g.TaxableRevenue, ServiceQuality = g.ServiceQuality, Status = g.Status };
+        var m = new W.GameToCity { ServiceQuality = g.ServiceQuality, Status = g.Status };
         foreach (var l in g.Lines)
         {
             var w = new W.TransitLine { LineId = l.LineId, Name = l.Name, Color = l.Color, HeadwayMinutes = l.HeadwayMinutes, FareCents = l.FareCents, SeatsPerHour = l.SeatsPerHour };
@@ -91,16 +91,22 @@ public static class ContractWire
         foreach (var (k, v) in g.JobsByLease) m.JobsByLease[k] = v;
         foreach (var i in g.Incidents) m.Incidents.Add(ToWire(i));
         foreach (var (k, v) in g.Paid) m.Paid[k] = v;
+        foreach (var (k, v) in g.RevenueByLease) m.RevenueByLease[k] = v;
+        m.LeaseRequests.AddRange(g.LeaseRequests);
+        m.LeaseReleases.AddRange(g.LeaseReleases);
         return m;
     }
 
     public static C.GameToCity FromWire(W.GameToCity m)
     {
-        var g = new C.GameToCity { TaxableRevenue = m.TaxableRevenue, ServiceQuality = m.ServiceQuality, Status = m.Status };
+        var g = new C.GameToCity { ServiceQuality = m.ServiceQuality, Status = m.Status };
         foreach (var l in m.Lines) g.Lines.Add(new C.TransitLine(l.LineId, l.Name, l.Color, l.StopLeaseIds.ToArray(), l.HeadwayMinutes, l.FareCents, l.SeatsPerHour));
         foreach (var (k, v) in m.JobsByLease) g.JobsByLease[k] = v;
         foreach (var i in m.Incidents) g.Incidents.Add(FromWire(i));
         foreach (var (k, v) in m.Paid) g.Paid[k] = v;
+        foreach (var (k, v) in m.RevenueByLease) g.RevenueByLease[k] = v;
+        g.LeaseRequests.AddRange(m.LeaseRequests);
+        g.LeaseReleases.AddRange(m.LeaseReleases);
         return g;
     }
 }

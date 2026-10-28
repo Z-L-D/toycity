@@ -31,6 +31,9 @@ public static class Mapping
         P.Action.KindOneofCase.Disasters => new SetDisasterSettingAction((DisasterSetting)(int)a.Disasters.Setting),
         P.Action.KindOneofCase.SideGame => new SideGameAction(a.SideGame.Game, a.SideGame.Seat, a.SideGame.Payload.ToByteArray()),
         P.Action.KindOneofCase.Attach => new AttachSideGameAction(a.Attach.Game),
+        P.Action.KindOneofCase.Lease => new LeaseLotAction(a.Lease.Game, a.Lease.BuildingId, a.Lease.Terms == null ? null : Terms(a.Lease.Terms)),
+        P.Action.KindOneofCase.LeaseTerms => new SetLeaseTermsAction(a.LeaseTerms.LeaseId, Terms(a.LeaseTerms.Terms)),
+        P.Action.KindOneofCase.EndLease => new EndLeaseAction(a.EndLease.LeaseId, a.EndLease.ByOperator),
         P.Action.KindOneofCase.Seat => new SetSeatAction(a.Seat.Seat, a.Seat.Owner, (ToyCity.Contract.OperatorLevel)(int)a.Seat.Level, (AutopilotStyle)(int)a.Seat.Style, a.Seat.SpendCap),
         _ => null,
     };
@@ -53,8 +56,20 @@ public static class Mapping
         SetDisasterSettingAction x => new P.Action { Disasters = new P.SetDisasters { Setting = (P.DisasterSetting)(int)x.Setting } },
         SideGameAction x => new P.Action { SideGame = new P.SideGameCommand { Game = x.GameId, Seat = x.Seat, Payload = ByteString.CopyFrom(x.Payload) } },
         AttachSideGameAction x => new P.Action { Attach = new P.AttachSideGame { Game = x.GameId } },
+        LeaseLotAction x => new P.Action { Lease = new P.LeaseLot { Game = x.GameId, BuildingId = x.BuildingId, Terms = x.Terms == null ? null : Terms(x.Terms) } },
+        SetLeaseTermsAction x => new P.Action { LeaseTerms = new P.SetLeaseTerms { LeaseId = x.LeaseId, Terms = Terms(x.Terms) } },
+        EndLeaseAction x => new P.Action { EndLease = new P.EndLease { LeaseId = x.LeaseId, ByOperator = x.ByOperator } },
         SetSeatAction x => new P.Action { Seat = new P.SetSeat { Seat = x.SeatId, Owner = x.Owner, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style, SpendCap = x.SpendCap } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
+    };
+
+    static ToyCity.Contract.LeaseTerms Terms(P.LeaseTerms? t) => t == null ? World.StandardTerms("bus-stop")
+        : new((ToyCity.Contract.LeaseMode)(int)t.Mode, t.RentPerMonth, t.TaxTenths, t.SubsidyPerMonth, t.FareCapCents, t.NoticeMonths);
+
+    static P.LeaseTerms Terms(ToyCity.Contract.LeaseTerms t) => new()
+    {
+        Mode = (P.LeaseMode)(int)t.Mode, RentPerMonth = t.RentPerMonth, TaxTenths = t.TaxTenths, SubsidyPerMonth = t.SubsidyPerMonth,
+        FareCapCents = t.FareCapCents, NoticeMonths = t.NoticeMonths,
     };
 
     static string CategoryName(Category c) => c.ToString().ToLowerInvariant();
@@ -276,6 +291,25 @@ public static class Mapping
                 seat.Report = pr;
             }
             r.Seats.Add(seat);
+        }
+        foreach (var hg in w.SideGames)
+        {
+            var info = new P.SideGameInfo { Id = hg.Id, Name = hg.Game.Manifest.Name, Description = hg.Game.Manifest.Description };
+            info.LotKinds.AddRange(hg.Game.Manifest.LotKinds);
+            r.SideGames.Add(info);
+        }
+        foreach (var l in w.Leases)
+        {
+            var b = w.Buildings[l.BuildingId];
+            var ls = new P.LeaseState
+            {
+                Id = l.Id, Game = l.GameId, GameName = w.SideGame(l.GameId)?.Game.Manifest.Name ?? l.GameId, BuildingId = l.BuildingId, Kind = l.Kind,
+                X = b?.X ?? -1, Y = b?.Y ?? -1, Terms = Terms(l.Terms), PendingTerms = l.PendingTerms == null ? null : Terms(l.PendingTerms),
+                PendingMonths = l.PendingMonths, Arrears = l.Arrears, BadStanding = l.BadStanding, CureMonthsLeft = l.CureMonthsLeft,
+                Terminable = l.Terminable, Jobs = l.Jobs, LastMonthFares = l.LastRevenue,
+            };
+            if (b != null) ls.Targets.AddRange(w.LeaseTargets(l));
+            r.Leases.Add(ls);
         }
         return r;
     }

@@ -38,6 +38,9 @@ public sealed partial class World
             case AttachSideGameAction a: ApplyAttach(a); break;
             case SideGameAction a: ApplySideGameAction(a); break;
             case SetSeatAction a: ApplySetSeat(a); break;
+            case LeaseLotAction a: ApplyLeaseLot(a); break;
+            case SetLeaseTermsAction a: ApplySetLeaseTerms(a); break;
+            case EndLeaseAction a: ApplyEndLease(a); break;
             case SetDisasterSettingAction a:
                 DisasterSetting = a.Setting;
                 Notices.Add(new SimNotice(a.Setting switch { DisasterSetting.Off => "Disasters off: only the ones you start will happen.", DisasterSetting.Rare => "Disasters set to rare.", _ => "Disasters set to normal." }, "info"));
@@ -234,6 +237,12 @@ public sealed partial class World
             if (a.Underground) { if (WaterPipe[i] != 0) cost += Content.BulldozeCostPerCell; continue; }
             if (BuildingAt[i] != 0) doomed.Add(BuildingAt[i] - 1);
             if (Path[i] != 0 || PowerLine[i] != 0) cost += Content.BulldozeCostPerCell;
+        }
+        if (doomed.Select(id => LeaseOn(id)).FirstOrDefault(l => l != null && !l.Terminable) is { } leased)
+        {
+            var lb = Buildings[leased.BuildingId]!;
+            Reject($"{Cap(LotName(lb))} is leased to {GameName(leased.GameId)}. The lease has to end first.", lb.X, lb.Y);
+            return;
         }
         foreach (var id in doomed) cost += Content.BulldozeCostPerCell * Buildings[id]!.W * Buildings[id]!.H;
         if (!Spend(cost, r.X0, r.Y0)) return;

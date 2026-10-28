@@ -127,9 +127,11 @@ message GameToCity {
   map<int32, int32> jobs_by_lease = 2;
   repeated Incident incidents = 3;
   map<int32, int64> paid = 4;
-  int64 taxable_revenue = 5;
+  map<int32, int64> revenue_by_lease = 5;  // fares taken today at each leased lot
   int32 service_quality = 6;
   string status = 7;
+  repeated int32 lease_requests = 8;  // building ids to lease on the city's standard terms
+  repeated int32 lease_releases = 9;  // lease ids given up
 }
 
 message StreetRoute {

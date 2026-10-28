@@ -349,6 +349,7 @@ public sealed partial class World
             WriteDisasters(w);
             WriteSideGames(w);
             WriteSeats(w);
+            WriteLeases(w);
         }
         return ms.ToArray();
     }
@@ -420,6 +421,7 @@ public sealed partial class World
         w.ReadDisasters(r);
         w.ReadSideGames(r);
         w.ReadSeats(r);
+        w.ReadLeases(r);
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
