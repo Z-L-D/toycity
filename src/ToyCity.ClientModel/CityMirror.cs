@@ -88,6 +88,13 @@ public sealed class CityMirror
         foreach (int id in d.RemovedBuildings) RemoveBuilding(id);
         foreach (var b in d.Buildings)
         {
+            // Most updates are a building's numbers changing; only a new footprint touches the cells.
+            if (Buildings.TryGetValue(b.Id, out var old) && (old.X, old.Y, old.Width, old.Height, old.TypeId) == (b.X, b.Y, b.Width, b.Height, b.TypeId))
+            {
+                Buildings[b.Id] = b;
+                _dirtyBuildings.Add(b.Id);
+                continue;
+            }
             RemoveBuilding(b.Id);
             PutBuilding(b);
         }
@@ -115,10 +122,10 @@ public sealed class CityMirror
     {
         Buildings[b.Id] = b;
         _dirtyBuildings.Add(b.Id);
-        if (IsRoadside(b)) return;
+        if (IsRoadside(b)) { if (InBounds(b.X, b.Y)) _dirtyCells.Add(Idx(b.X, b.Y)); return; }
         for (int y = b.Y; y < b.Y + b.Height; y++)
             for (int x = b.X; x < b.X + b.Width; x++)
-                if (InBounds(x, y)) BuildingAt[Idx(x, y)] = b.Id + 1;
+                if (InBounds(x, y)) { BuildingAt[Idx(x, y)] = b.Id + 1; _dirtyCells.Add(Idx(x, y)); }
     }
 
     void RemoveBuilding(int id)
@@ -126,10 +133,10 @@ public sealed class CityMirror
         if (!Buildings.TryGetValue(id, out var b)) return;
         _dirtyBuildings.Add(id);
         Buildings.Remove(id);
-        if (IsRoadside(b)) return;
+        if (IsRoadside(b)) { if (InBounds(b.X, b.Y)) _dirtyCells.Add(Idx(b.X, b.Y)); return; }
         for (int y = b.Y; y < b.Y + b.Height; y++)
             for (int x = b.X; x < b.X + b.Width; x++)
-                if (InBounds(x, y) && BuildingAt[Idx(x, y)] == id + 1) BuildingAt[Idx(x, y)] = 0;
+                if (InBounds(x, y) && BuildingAt[Idx(x, y)] == id + 1) { BuildingAt[Idx(x, y)] = 0; _dirtyCells.Add(Idx(x, y)); }
     }
 
     public BuildingState? BuildingAtCell(int x, int y) =>

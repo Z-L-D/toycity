@@ -63,3 +63,17 @@ jobs:
           "$GODOT_BIN" --headless --path clients/godot --import
           timeout 90 "$GODOT_BIN" --headless --path clients/godot -- --smoke | tee smoke.log
           grep -q "SMOKE OK" smoke.log
+      - name: Screenshots of each view (software OpenGL)
+        run: |
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri > /dev/null
+          xvfb-run -a -s "-screen 0 1600x900x24" timeout 120 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
+            --path clients/godot -- --shots "$PWD/shots" | tee shots.log
+          grep -q "SMOKE OK" shots.log
+          ls shots/*.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: godot-views
+          path: |
+            shots/
+            server.log
