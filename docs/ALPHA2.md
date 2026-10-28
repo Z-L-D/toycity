@@ -11,6 +11,7 @@ happening without leaving the game. This page records the rules and numbers as b
 | A new player can find out why anything is happening without leaving the game | Why panel, demand panel, alerts, forecast and guide; `TalkBackTests` check that every alert, demand verdict and why-requirement links to a guide article |
 | The built-in ordinances all run on the rule-graph format | `OrdinanceTests.EveryBuiltInOrdinanceIsARuleGraph`: every ordinance acts only through graph nodes, and no sim code names an ordinance |
 | The benchmark sets agent tiers on two different machines | Part 7 |
+| Event director rate-limited; voice can't change the sim | `DirectorTests` |
 
 ## Demand by source
 
@@ -127,6 +128,76 @@ The 15 built-in ordinances: Power Conservation, Water Conservation, Recycling Pr
 Act, Carpool Incentives, Pro-Reading Campaign, Neighborhood Watch, Free Smoke Detectors, Free
 Clinics, Legalize Gambling, Tourism Promotion, Small Business Tax Holiday, Park Rangers, Street
 Festival and Film Shoot Permit.
+
+## Event director, petitions and deals
+
+Event templates live in `content/events.json`; every condition and outcome is a rule graph. On
+the first of each month the director:
+
+1. Resolves open prompts. A petition is fulfilled as soon as its goal graph (run at the
+   petition's location) turns non-zero, and ignored when its deadline passes. A deal is
+   declined if the mayor hasn't answered by its deadline.
+2. Perhaps raises one petition or deal: a 40% chance, only if fewer than 3 are open and the last
+   was at least 2 months ago. Eligible templates have enough population, are past their own
+   cooldown, have somewhere to happen, and pass their trigger graph. One is picked by weight
+   with the city's random numbers.
+3. Perhaps runs one news item (30%), picked the same way.
+
+Templates `locate` their event: the home, shop, factory or road with the lowest or highest
+value of a layer (for example the home with the least park coverage). Ties are broken with the
+city's random numbers.
+
+Outcome graphs run once when an event resolves. Three ops act only then: `act.grant` (money),
+`act.mood` (approval) and `act.unlock` (a building type). If the outcome has `durationMonths`,
+its modifiers and money keep running monthly for that long, like a temporary ordinance.
+
+| Kind | Templates |
+| --- | --- |
+| Petitions | Park, police, school, clinic, lower taxes, fix traffic, recycling |
+| Deals | Casino, toxic waste dump, Mega Pickle plant (each unlocks a reward lot), billboards, minor-league team |
+| News | Pie contest, weather, the cat on the library board, a pothole named Gerald, smog, jobs |
+
+## Mayor approval
+
+Approval (0 to 100) is worked out monthly: base 45, plus a third of residents' average
+desirability (±25), plus services near homes (up to about +15), minus a point per half point of
+residential tax above 9%, minus unemployment above 5% (up to 15), plus 2 per landmark or
+attractive reward lot (up to 10), plus mood, minus 10 when the treasury is in the red. Mood is
+moved by petitions and deals (±2 to ±10 each) and fades by a sixth a month. Approval moves
+residential demand by a point per 5 points away from 50.
+
+## Landmarks and reward lots
+
+Placeable types can carry an `unlock` graph; the sim checks locked ones monthly, and they stay
+unlocked. One of each may be built (`unique`).
+
+| Kind | Buildings |
+| --- | --- |
+| Landmarks (free) | Toy Soldier Statue (400 people), Giant Rubber Duck Fountain (1,200), Wind-Up Clocktower (2,500), Observation Wheel (5,000) |
+| Reward lots | Mayor's House (60% approval), City Hall (2,000 people and 55%), Statue of the Mayor (80%) |
+| Deal lots | Lucky Lug Nut Casino ($900 a month), Toxic Waste Dump ($1,500 a month, heavy pollution), Mega Pickle Plant (180 jobs) |
+
+Landmarks and reward lots with a radius cover their surroundings like a park, and their
+attraction feeds tourism and residential sights. `income` is paid monthly under "Deals and
+reward lots".
+
+## Advisors and the news ticker
+
+Five advisors (finance, utilities, planning, safety and health, transport and environment) read
+the same numbers as the alerts and demand panel and say what they would do. Each message links
+to a guide article and, where it has one, a place on the map.
+
+The ticker shows the newest headline, then cycles through recent ones; headlines come from
+prompts, outcomes, news items, milestones, laws and unlocks. The last 40 are saved with the city.
+
+## The voice layer
+
+Every sentence comes from `content/voice.json`, keyed by event or situation, with placeholders
+filled from facts the sim provides (names, streets, amounts). Variants, names and street names
+are picked from a hash, never from the sim's random numbers, so a different voice file can't
+change what happens. A test runs the same city with a near-empty voice file and checks that
+population, money, approval and every prompt match. A small local language model can later
+replace this layer without touching the sim.
 
 ## Balance changes
 

@@ -27,6 +27,7 @@ public sealed partial class SimHost : IDisposable
     string _alertSig = "";
     P.AlertList _alerts = new();
     long _alertsAt = -1;
+    string _civicSig = "";
     readonly Stopwatch _clock = Stopwatch.StartNew();
 
     /// <summary>Milliseconds per tick (one day) at speeds 1, 2 and 3.</summary>
@@ -106,6 +107,14 @@ public sealed partial class SimHost : IDisposable
                 foreach (var c in _clients) list.Add((c, new P.ServerMessage { Alerts = alerts }));
             }
         }
+        // Petitions, deals, unlocks and headlines change at most monthly or on an action, so a cheap signature will do.
+        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}";
+        if (forceAlerts || civicSig != _civicSig)
+        {
+            _civicSig = civicSig;
+            var civic = Mapping.Civic(_world);
+            foreach (var c in _clients) list.Add((c, new P.ServerMessage { Civic = civic }));
+        }
         return list;
     }
 
@@ -144,6 +153,9 @@ public sealed partial class SimHost : IDisposable
         P.AlertList alerts;
         lock (_gate) alerts = Mapping.Alerts(_world.Alerts());
         await SendAsync(client, new P.ServerMessage { Alerts = alerts });
+        P.CivicState civicNow;
+        lock (_gate) civicNow = Mapping.Civic(_world);
+        await SendAsync(client, new P.ServerMessage { Civic = civicNow });
 
         var buffer = new byte[64 * 1024];
         using var ms = new MemoryStream();
@@ -239,6 +251,9 @@ public sealed partial class SimHost : IDisposable
                 }
                 case P.ClientMessage.BodyOneofCase.Demand:
                     reply = new P.ServerMessage { Demand = Mapping.Demand(_world.DemandReport()) };
+                    break;
+                case P.ClientMessage.BodyOneofCase.Advisors:
+                    reply = new P.ServerMessage { Advisors = Mapping.Advisors(_world) };
                     break;
                 case P.ClientMessage.BodyOneofCase.Ordinances:
                     reply = new P.ServerMessage { Ordinances = Mapping.Ordinances(_world.OrdinanceViews()) };

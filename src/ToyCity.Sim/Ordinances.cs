@@ -153,6 +153,7 @@ public sealed partial class World
                     {
                         s.OfferUntil = Tick + d.OfferMonths * DaysPerMonth;
                         Notices.Add(new SimNotice($"Offer: {d.Name}. {d.Description} Open Laws to decide.", "info"));
+                        AddHeadline(Say("news.ordinance.offered", Tick, k, new() { ["ordinance"] = d.Name, ["months"] = d.OfferMonths.ToString() }));
                     }
                     break;
             }
@@ -179,6 +180,16 @@ public sealed partial class World
             for (int m = 0; m < Mods.Length; m++) Mods[m] += o.Mods[m];
             OrdinanceMoney.AddRange(o.Money);
         }
+        // Event outcomes that last a while run the same way, then drop off when they end.
+        ActiveEffects.RemoveAll(e => e.Until <= Tick);
+        foreach (var e in ActiveEffects)
+        {
+            var ev = Content.Events[e.Event];
+            var g = (e.Yes ? ev.Yes : ev.No)!.Graph;
+            var o = EvaluateRules(g);
+            for (int m = 0; m < Mods.Length; m++) Mods[m] += o.Mods[m];
+            OrdinanceMoney.AddRange(o.Money);
+        }
     }
 
     void ApplySetOrdinance(SetOrdinanceAction a)
@@ -200,6 +211,7 @@ public sealed partial class World
             s.OfferUntil = -1;
             s.ExpiresAt = d.DurationMonths > 0 ? Tick + d.DurationMonths * DaysPerMonth : -1;
             Notices.Add(new SimNotice($"Enacted: {d.Name}.", "good"));
+            AddHeadline(Say("news.ordinance.enacted", Tick, k, new() { ["ordinance"] = d.Name }), "good");
         }
         else
         {
@@ -207,6 +219,7 @@ public sealed partial class World
             s.Enacted = false;
             s.ExpiresAt = -1;
             Notices.Add(new SimNotice($"Repealed: {d.Name}.", "info"));
+            AddHeadline(Say("news.ordinance.repealed", Tick, k, new() { ["ordinance"] = d.Name }));
         }
         RunOrdinanceGraphs();
     }

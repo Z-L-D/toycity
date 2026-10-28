@@ -48,6 +48,10 @@ export interface BuildingType {
   cost: number;
   placeable: boolean;
   color: string;
+  unlockText: string;
+  unique: boolean;
+  income: number;
+  attraction: number;
 }
 
 /** The client's mirror of the city, kept current from FullState and TickDelta messages. */
@@ -68,6 +72,8 @@ export class City {
   types: BuildingType[] = [];
   typeById = new Map<string, BuildingType>();
   lotDepth: number[] = [2, 3, 4];
+  /** Placeable building types the mayor may build now (landmarks and reward lots unlock over time). */
+  unlocked = new Set<string>();
   /** Bumped when terrain changes, so the renderer can rebuild its cached ground layer. */
   terrainVersion = 0;
   loaded = false;

@@ -207,7 +207,7 @@
       "name": "Street Festival",
       "category": "Events",
       "description": "Someone wants to close Main Street for a weekend of food stalls and a slightly alarming parade. Three months of tourists and shoppers.",
-      "availability": { "kind": "random", "minPopulation": 800, "chancePerYear": 60, "offerMonths": 2, "durationMonths": 3 },
+      "availability": { "kind": "random", "minPopulation": 800, "chancePerYear": 35, "offerMonths": 2, "durationMonths": 3 },
       "nodes": [
         { "id": "stalls", "op": "const", "value": 400, "label": "Stalls and cleanup: $400" },
         { "op": "act.expense", "in": ["stalls"], "label": "Street festival" },

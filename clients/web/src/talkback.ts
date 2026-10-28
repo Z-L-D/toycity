@@ -8,6 +8,8 @@ export interface TalkBackHost {
   /** Centres the map on a cell and opens the why panel for it. */
   jumpTo(x: number, y: number): void;
   showTab(name: string): void;
+  /** Called when the set of buildable landmarks and reward lots changes. */
+  onUnlocks(): void;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -45,6 +47,56 @@ export class TalkBack {
     this.renderGuide();
     $('#rci').addEventListener('click', () => this.open('demand'));
     $('#btn-alerts').addEventListener('click', () => this.open('alerts'));
+    $('#approval').addEventListener('click', () => this.open('people'));
+    $('#ticker').addEventListener('click', () => {
+      const h = this.headlines[this.tickerIndex];
+      if (h && h.x >= 0) this.host.jumpTo(h.x, h.y);
+      else this.open('people');
+    });
+    setInterval(() => this.rotateTicker(), 7000);
+  }
+
+  private civic: Msg | null = null;
+  private headlines: Msg[] = [];
+  private tickerIndex = -1;
+  private lastSeq = 0;
+  private advisors: Msg | null = null;
+
+  private rotateTicker() {
+    if (!this.headlines.length) return;
+    this.tickerIndex = (this.tickerIndex + 1) % Math.min(6, this.headlines.length);
+    this.showHeadline(this.headlines[this.tickerIndex]);
+  }
+
+  private showHeadline(h: Msg) {
+    const el = $('#ticker-text');
+    el.textContent = h.text;
+    el.className = `sev-${h.severity}`;
+    el.classList.remove('slide');
+    void el.offsetWidth;
+    el.classList.add('slide');
+    $('#ticker').classList.toggle('located', h.x >= 0);
+  }
+
+  private onCivic(c: Msg) {
+    this.civic = c;
+    const before = [...this.host.city.unlocked].sort().join();
+    this.host.city.unlocked = new Set(c.unlockedTypes);
+    if ([...this.host.city.unlocked].sort().join() !== before) this.host.onUnlocks();
+    // Newest first for the ticker.
+    this.headlines = [...c.headlines].reverse();
+    const newest = this.headlines[0];
+    if (newest && newest.seq !== this.lastSeq) {
+      this.lastSeq = newest.seq;
+      this.tickerIndex = 0;
+      this.showHeadline(newest);
+    }
+    const a = $('#approval');
+    a.textContent = `${c.approval >= 50 ? '👍' : '👎'} ${c.approval}%`;
+    a.classList.toggle('neg', c.approval < 40);
+    const open = (c.prompts as Msg[]).filter((p) => p.status === 0);
+    $('#tabs button[data-tab="people"]').textContent = open.length ? `People (${open.length})` : 'People';
+    this.renderPeople();
   }
 
   /** Opens a tab and asks the server for fresh data when the tab needs it. */
@@ -56,12 +108,13 @@ export class TalkBack {
   refresh(tab: string) {
     if (tab === 'demand') this.host.conn.send({ demand: {} });
     if (tab === 'laws') this.host.conn.send({ ordinances: {} });
+    if (tab === 'people') this.host.conn.send({ advisors: {} });
     if (tab === 'guide') this.host.conn.send({ encyclopedia: {} });
   }
 
   /** Called on the first day of each month so open panels stay live. */
   onMonth(activeTab: string) {
-    if (activeTab === 'demand' || activeTab === 'guide' || activeTab === 'laws') this.refresh(activeTab);
+    if (['demand', 'guide', 'laws', 'people'].includes(activeTab)) this.refresh(activeTab);
   }
 
   onMessage(kind: string, body: Msg, replyTo = 0): boolean {
@@ -73,6 +126,8 @@ export class TalkBack {
     }
     switch (kind) {
       case 'ordinances': this.ordinances = body.ordinances; this.renderLaws(); return true;
+      case 'civic': this.onCivic(body); return true;
+      case 'advisors': this.advisors = body; this.renderPeople(); return true;
       case 'demand': this.renderDemand(body); return true;
       case 'alerts': this.alerts = body.alerts; this.renderAlerts(); return true;
       case 'forecast': this.forecastBusy = false; this.lastForecast = body; this.renderForecast(); return true;
@@ -242,6 +297,61 @@ export class TalkBack {
       this.renderForecast();
     });
     document.getElementById('fc-plan-clear')?.addEventListener('click', () => { this.plan = []; this.renderForecast(); });
+    this.wireLinks(el);
+  }
+
+  // -------------------------------------------------------------------------
+  // People: approval, petitions and deals, advisors, news
+  // -------------------------------------------------------------------------
+
+  private renderPeople() {
+    const el = $('#tab-people');
+    const c = this.civic;
+    if (!c) return;
+    const prompts = c.prompts as Msg[];
+    const open = prompts.filter((p) => p.status === 0);
+    const done = prompts.filter((p) => p.status !== 0).slice(-6).reverse();
+    const promptCard = (p: Msg) => `
+      <div class="alert ${p.kind === 'deal' ? 'deal' : 'petition'}" ${p.x >= 0 ? `data-jump="${p.x},${p.y}"` : ''}>
+        <div class="muted small">${p.kind === 'deal' ? 'Deal' : `Petition from ${esc(p.petitioner)}`} · ${p.monthsLeft} month${p.monthsLeft === 1 ? '' : 's'} left</div>
+        <div>${esc(p.text)}</div>
+        ${p.goal ? `<div class="small goal">Wants: ${esc(p.goal)}</div>` : ''}
+        <div class="row-flex" style="margin-top:6px">
+          ${p.kind === 'deal'
+            ? `<button class="active" data-respond="${p.id}" data-accept="1">Accept</button><button data-respond="${p.id}" data-accept="0">Decline</button>`
+            : `<button data-respond="${p.id}" data-accept="0" title="Turn them down now">Dismiss</button>`}
+          ${p.x >= 0 ? '<span class="go">Go there →</span>' : ''}
+        </div>
+      </div>`;
+    const MOOD: Record<string, string> = { happy: '🙂', worried: '😟', alarmed: '😱' };
+    const adv = this.advisors
+      ? (this.advisors.advisors as Msg[]).map((a) => `
+        <div class="advisor ${a.mood}">
+          <div class="adv-head"><span class="face">${MOOD[a.mood] ?? '🙂'}</span><b>${esc(a.name)}</b><span class="muted small">${esc(a.title)}</span></div>
+          ${(a.messages as Msg[]).map((m) => `<div class="adv-msg ${m.severity}" ${m.x >= 0 ? `data-jump="${m.x},${m.y}"` : ''}>${esc(m.text)} ${this.topicLink(m.topic, 'Why?')}</div>`).join('')}
+        </div>`).join('')
+      : '<p class="muted">Asking the advisors…</p>';
+    const factors = this.advisors
+      ? (this.advisors.approvalFactors as Msg[]).map((f) => `<tr><td>${esc(f.label)}</td><td class="num ${f.value >= 0 ? 'pos' : 'neg'}">${f.value > 0 ? '+' : ''}${f.value}</td></tr>`).join('')
+      : '';
+    el.innerHTML = `
+      <h3>People</h3>
+      <div class="approval-meter"><span style="width:${c.approval}%"></span></div>
+      <div class="row-flex" style="justify-content:space-between"><span>Mayor approval <b>${c.approval}%</b></span>${this.topicLink('approval')}</div>
+      ${factors ? `<details><summary class="muted small">Why ${c.approval}%?</summary><table class="kv">${factors}</table></details>` : ''}
+      <h4>Waiting for you (${open.length})</h4>
+      ${open.length ? open.map(promptCard).join('') : '<p class="muted">No petitions or offers right now.</p>'}
+      <h4>Advisors</h4>
+      ${adv}
+      ${done.length ? `<h4>Recently settled</h4>${done.map((p) => `<div class="alert ${p.status === 1 || p.status === 3 ? 'good' : 'warning'}" ${p.x >= 0 ? `data-jump="${p.x},${p.y}"` : ''}>${esc(p.resultText)}</div>`).join('')}` : ''}
+      <h4>News</h4>
+      ${this.headlines.slice(0, 12).map((h) => `<div class="news ${h.severity}" ${h.x >= 0 ? `data-jump="${h.x},${h.y}"` : ''}>${esc(h.text)}</div>`).join('')}`;
+    el.querySelectorAll<HTMLButtonElement>('button[data-respond]').forEach((b) =>
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.host.conn.action({ respond: { promptId: Number(b.dataset.respond), accept: b.dataset.accept === '1' } });
+      }),
+    );
     this.wireLinks(el);
   }
 

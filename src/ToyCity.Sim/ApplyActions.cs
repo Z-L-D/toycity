@@ -31,6 +31,7 @@ public sealed partial class World
                 break;
             case PlaceUtilityAction a: ApplyUtility(a); break;
             case SetOrdinanceAction a: ApplySetOrdinance(a); break;
+            case RespondPromptAction a: ApplyRespondPrompt(a); break;
         }
     }
 
@@ -130,6 +131,8 @@ public sealed partial class World
         int ti = Content.TypeIndex(a.TypeId);
         type = ti >= 0 ? Content.Types[ti] : null;
         if (type == null || !type.Placeable) return $"'{a.TypeId}' isn't something the mayor can place.";
+        if (!TypeUnlocked[ti]) return $"{type.Name} isn't available yet. {type.UnlockText}";
+        if (type.Unique && Buildings.Any(b => b != null && b.Type == ti)) return $"The city already has a {type.Name}.";
         int minH = int.MaxValue, maxH = int.MinValue;
         for (int y = a.Y; y < a.Y + type.H; y++)
         for (int x = a.X; x < a.X + type.W; x++)

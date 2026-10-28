@@ -26,6 +26,7 @@ message ClientMessage {
     ForecastRequest forecast = 12;
     EncyclopediaRequest encyclopedia = 13;
     OrdinancesRequest ordinances = 14;
+    AdvisorsRequest advisors = 15;
   }
 }
 
@@ -53,7 +54,14 @@ message Action {
     TakeLoan loan = 8;
     PlaceUtility utility = 9;
     SetOrdinance ordinance = 10;
+    RespondPrompt respond = 11;
   }
+}
+
+// Answer a deal (accept or decline), or dismiss a petition (accept = false).
+message RespondPrompt {
+  int32 prompt_id = 1;
+  bool accept = 2;
 }
 
 message SetOrdinance {
@@ -211,6 +219,8 @@ message EncyclopediaRequest {}
 
 message OrdinancesRequest {}
 
+message AdvisorsRequest {}
+
 // ---------------------------------------------------------------------------
 // Server -> client
 // ---------------------------------------------------------------------------
@@ -232,6 +242,8 @@ message ServerMessage {
     Encyclopedia encyclopedia = 13;
     AlertList alerts = 14;  // sent whenever the list changes
     OrdinanceList ordinances = 15;
+    CivicState civic = 16;  // petitions, deals, approval, unlocks and headlines; sent whenever they change
+    AdvisorList advisors = 17;
   }
 }
 
@@ -267,6 +279,10 @@ message BuildingTypeInfo {
   int64 cost = 9;
   bool placeable = 10;  // true for buildings the mayor places directly
   string color = 11;
+  string unlock_text = 12;  // how to unlock it; empty when always available
+  bool unique = 13;         // one per city
+  int64 income = 14;        // paid to the city monthly while it operates
+  int32 attraction = 15;
 }
 
 message Catalog {
@@ -514,6 +530,59 @@ message Ordinance {
 
 message OrdinanceList {
   repeated Ordinance ordinances = 1;
+}
+
+enum PromptStatus {
+  PROMPT_OPEN = 0;
+  PROMPT_FULFILLED = 1;
+  PROMPT_IGNORED = 2;
+  PROMPT_ACCEPTED = 3;
+  PROMPT_DECLINED = 4;
+}
+
+// A petition or deal put to the mayor.
+message Prompt {
+  int32 id = 1;
+  string event_id = 2;
+  string kind = 3;  // "petition" or "deal"
+  int32 x = 4;      // -1 when not located
+  int32 y = 5;
+  string petitioner = 6;
+  string text = 7;
+  string goal = 8;  // for petitions: what would satisfy them
+  PromptStatus status = 9;
+  int32 months_left = 10;
+  string result_text = 11;
+}
+
+message Headline {
+  int64 seq = 1;
+  int64 tick = 2;
+  string text = 3;
+  string severity = 4;
+  int32 x = 5;
+  int32 y = 6;
+}
+
+message CivicState {
+  repeated Prompt prompts = 1;
+  repeated string unlocked_types = 2;
+  int32 approval = 3;
+  repeated Headline headlines = 4;  // newest last
+}
+
+message Advisor {
+  string role = 1;
+  string name = 2;
+  string title = 3;
+  string mood = 4;  // "happy", "worried", "alarmed"
+  repeated Alert messages = 5;
+}
+
+message AdvisorList {
+  repeated Advisor advisors = 1;
+  int32 approval = 2;
+  repeated Factor approval_factors = 3;
 }
 
 message Error {

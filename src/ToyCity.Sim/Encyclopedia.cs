@@ -197,6 +197,32 @@ public sealed partial class World
             Add(d.Id, d.Name, "Ordinances", paras, facts, "ordinances");
         }
 
+        var approvalFactors = new List<Factor>();
+        ApprovalOf(approvalFactors);
+        Add("approval", "Mayor approval", "Rules", new()
+        {
+            "Approval runs from 0 to 100 and is worked out each month from how nice homes are, services near homes, residential taxes, unemployment, landmarks and the mood left by petitions and deals. That mood fades by a sixth each month.",
+            "Approval above 50 raises residential demand and below 50 lowers it, by 1 point for every 5. Some reward lots unlock at high approval.",
+        }, approvalFactors.Select(f => (f.Label, (f.Value > 0 ? "+" : "") + f.Value)).Prepend(("Approval now", $"{Approval}%")).ToList(), "events", "landmarks", "demand");
+
+        Add("events", "Petitions, deals and news", "Rules", new()
+        {
+            $"An event director looks at the city every month and sometimes raises a petition or a deal: at most {Content.Director.MaxOpen} open at once, at least {Content.Director.MinMonthsBetween} months apart, and each kind has its own cooldown. Whether one comes up is decided by the city's own random numbers, so a replay is the same.",
+            "A petition asks for something specific near where the petitioners live. It resolves itself: met before the deadline and approval rises, missed and it falls. A deal waits for you to accept or decline; no answer counts as no. Accepting a deal can pay money, unlock a reward lot, or change the city for a while.",
+            "All the words come from a template voice, picked by a hash so they never change what happens.",
+        }, new()
+        {
+            ("Open requests", Prompts.Count(p => p.Status == PromptStatus.Open).ToString()),
+            ("Settled", Prompts.Count(p => p.Status != PromptStatus.Open).ToString()),
+        }, "approval", "landmarks");
+
+        Add("landmarks", "Landmarks and reward lots", "Rules", new()
+        {
+            "Landmarks are free and unlock as the city grows. Reward lots unlock with population and approval, or come from deals. You can build one of each. Most draw visitors (attraction) and brighten the land around them like a park; some deal buildings pay the city every month and come with a catch.",
+        }, Content.Types.Where(t => t.Category is Category.Landmark or Category.Reward)
+            .Select(t => (t.Name, TypeUnlocked[t.Index] ? (Buildings.Any(b => b != null && b.Type == t.Index) ? "built" : "unlocked") : t.UnlockText)).ToList(),
+            "approval", "events");
+
         // ---- Zones ----
         foreach (var zone in new[] { Zone.Residential, Zone.Commercial, Zone.Industrial })
         {
@@ -234,6 +260,11 @@ public sealed partial class World
             if (t.GarbageCap > 0) { facts.Add(("Takes", $"{t.GarbageCap:N0} garbage a day")); paras.Add("Takes the city's garbage. Needs a road beside it for the trucks."); }
             if (t.Radius > 0) { facts.Add(("Radius", $"{t.Radius} cells at 100% funding")); paras.Add($"Covers {t.Radius} cells around it; more funding reaches further."); }
             if (t.Jobs > 0) facts.Add(("Jobs", t.Jobs.ToString()));
+            if (t.Income > 0) { facts.Add(("Pays the city", $"{Money(t.Income)} a month")); paras.Add($"Pays the city {Money(t.Income)} a month while it runs."); }
+            if (t.Pollution > 0 && t.Category == Category.Reward) paras.Add("Pollutes the land around it.");
+            if (paras.Count == 0) paras.Add($"A {t.Category.ToString().ToLowerInvariant()} building.");
+            if (t.Unlock != null) facts.Add(("Unlock", TypeUnlocked[t.Index] ? "unlocked" : t.UnlockText));
+            if (t.Unique) facts.Add(("Limit", "one per city"));
             if (t.PowerKw > 0) facts.Add(("Power use", $"{t.PowerKw} kW"));
             if (t.Pollution > 0) facts.Add(("Pollution", t.Pollution.ToString()));
             if (t.Noise > 0) facts.Add(("Noise", t.Noise.ToString()));
@@ -242,7 +273,8 @@ public sealed partial class World
             string cat = t.Category.ToString();
             string rule = t.Category switch
             {
-                Category.Power => "power", Category.Water => "water", Category.Garbage => "garbage", _ => "services",
+                Category.Power => "power", Category.Water => "water", Category.Garbage => "garbage",
+                Category.Landmark or Category.Reward => "landmarks", _ => "services",
             };
             Add(t.Id, t.Name, cat, paras, facts, rule);
         }

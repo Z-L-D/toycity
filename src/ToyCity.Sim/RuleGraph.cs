@@ -70,6 +70,7 @@ public sealed class RuleGraph
     static readonly HashSet<string> Ops = new()
     {
         "const", "select.buildings", "measure.count", "measure.sum", "measure.avg", "measure.stat",
+        "measure.here", "measure.ordinance", "measure.type", "act.grant", "act.mood", "act.unlock",
         "math.add", "math.sub", "math.mul", "math.div", "math.min", "math.max", "math.percent", "math.neg",
         "test.gt", "test.ge", "test.lt", "test.le", "test.eq", "test.and", "test.or", "test.not",
         "act.modifier", "act.income", "act.expense",
@@ -79,6 +80,7 @@ public sealed class RuleGraph
     {
         "population", "jobs", "workers", "laborForce", "unemployed", "funds", "education", "attraction", "month", "year",
         "powerCapacity", "powerDemand", "waterCapacity", "waterDemand", "garbageProduced", "garbageCapacity", "edgeCapacity", "buildings",
+        "taxR", "taxC", "taxI", "approval",
     };
 
     public static readonly HashSet<string> Fields = new() { "residents", "jobs", "workers", "powerKw", "waterUse", "garbage", "cells" };
@@ -138,9 +140,9 @@ public sealed class RuleGraph
         node.InputIsConst = isConst.ToArray();
         int need = node.Op switch
         {
-            "const" or "select.buildings" or "measure.stat" => 0,
+            "const" or "select.buildings" or "measure.stat" or "measure.here" or "measure.ordinance" or "measure.type" => 0,
             "measure.count" or "measure.sum" or "measure.avg" or "math.neg" or "test.not" => 1,
-            "act.modifier" or "act.income" or "act.expense" => 1,
+            "act.modifier" or "act.income" or "act.expense" or "act.grant" or "act.mood" or "act.unlock" => 1,
             _ => 2,
         };
         if (node.Inputs.Length < need) throw new InvalidDataException($"{owner}: {node.Op} needs {need} input(s)");
@@ -153,6 +155,10 @@ public sealed class RuleGraph
             throw new InvalidDataException($"{owner}: unknown stat '{node.Params.GetValueOrDefault("stat")}'");
         if (node.Op == "measure.sum" && !Fields.Contains(node.Params.GetValueOrDefault("field", "")))
             throw new InvalidDataException($"{owner}: unknown field '{node.Params.GetValueOrDefault("field")}'");
+        if (node.Op == "measure.here" && !Layers.Contains(node.Params.GetValueOrDefault("layer", "")))
+            throw new InvalidDataException($"{owner}: unknown layer '{node.Params.GetValueOrDefault("layer")}'");
+        if (node.Op == "measure.ordinance" && !node.Params.ContainsKey("ordinance")) throw new InvalidDataException($"{owner}: measure.ordinance needs an ordinance");
+        if (node.Op is "measure.type" or "act.unlock" && !node.Params.ContainsKey("type")) throw new InvalidDataException($"{owner}: {node.Op} needs a type");
         if (node.Op == "measure.avg" && !Layers.Contains(node.Params.GetValueOrDefault("layer", "")))
             throw new InvalidDataException($"{owner}: unknown layer '{node.Params.GetValueOrDefault("layer")}'");
         if (node.Op == "const" && !node.Params.ContainsKey("value")) throw new InvalidDataException($"{owner}: const needs a value");
@@ -179,7 +185,17 @@ public sealed class RuleOutcome
     public readonly long[] Mods = new long[Enum.GetValues<ModKey>().Length];
     public readonly List<(string Label, long Amount)> Money = new();
     public readonly List<(string Label, string Value)> Trace = new();
+    /// <summary>One-off actions (grants, approval, unlocks), carried out only when an event resolves.</summary>
+    public readonly List<(string Label, long Amount)> Grants = new();
+    public long Mood;
+    public readonly List<string> Unlocks = new();
     public RuleValue Last;
+}
+
+/// <summary>Where a graph is being run: the cell an event is about, if any.</summary>
+public readonly record struct RuleContext(int X, int Y)
+{
+    public static readonly RuleContext None = new(-1, -1);
 }
 
 public sealed partial class World
@@ -188,7 +204,9 @@ public sealed partial class World
     /// Runs a rule graph against the city. Pure: it reads the state and returns what the graph would do, so the
     /// same call serves the monthly update, previews and the guide.
     /// </summary>
-    public RuleOutcome EvaluateRules(RuleGraph g, bool trace = false)
+    public RuleOutcome EvaluateRules(RuleGraph g, bool trace = false) => EvaluateRules(g, RuleContext.None, trace);
+
+    public RuleOutcome EvaluateRules(RuleGraph g, RuleContext ctx, bool trace = false)
     {
         var o = new RuleOutcome();
         var vals = new RuleValue[g.Nodes.Count];
@@ -212,6 +230,37 @@ public sealed partial class World
                     break;
                 }
                 case "measure.stat": v = new RuleValue(StatOf(n.Params["stat"]), null); break;
+                case "measure.here": v = new RuleValue(InBounds(ctx.X, ctx.Y) ? LayerAt(n.Params["layer"], Idx(ctx.X, ctx.Y)) : 0, null); break;
+                case "measure.ordinance":
+                {
+                    int oi = Content.Ordinances.FindIndex(d => d.Id == n.Params["ordinance"]);
+                    v = new RuleValue(oi >= 0 && Ordinances[oi].Enacted ? 1 : 0, null);
+                    break;
+                }
+                case "measure.type":
+                {
+                    int ti = Content.TypeIndex(n.Params["type"]);
+                    v = new RuleValue(Buildings.Count(b => b != null && b.Type == ti), null);
+                    break;
+                }
+                case "act.grant":
+                {
+                    long amount = In(0);
+                    string label = n.Label.Length > 0 ? n.Label : "Grant";
+                    if (When(1) && amount != 0) o.Grants.Add((label, amount));
+                    if (trace) o.Trace.Add(("Once", $"{label}: {(amount < 0 ? "-" : "+")}${Math.Abs(amount):N0}"));
+                    v = new RuleValue(amount, null);
+                    break;
+                }
+                case "act.mood":
+                    if (When(1)) o.Mood += In(0);
+                    if (trace) o.Trace.Add(("Once", $"{(In(0) >= 0 ? "+" : "")}{In(0)} mayor approval"));
+                    v = new RuleValue(In(0), null);
+                    break;
+                case "act.unlock":
+                    if (In(0) != 0) o.Unlocks.Add(n.Params["type"]);
+                    if (trace) o.Trace.Add(("Once", $"Unlocks {Content.Types[Content.TypeIndex(n.Params["type"])].Name}"));
+                    break;
                 case "math.add": v = new RuleValue(In(0) + In(1), null); break;
                 case "math.sub": v = new RuleValue(In(0) - In(1), null); break;
                 case "math.mul": v = new RuleValue(In(0) * In(1), null); break;
@@ -303,6 +352,7 @@ public sealed partial class World
         "attraction" => Attraction, "month" => Month, "year" => Year, "powerCapacity" => PowerCapacity,
         "powerDemand" => PowerDemand, "waterCapacity" => WaterCapacity, "waterDemand" => WaterDemand,
         "garbageProduced" => GarbageProduced, "garbageCapacity" => GarbageCapacity, "edgeCapacity" => EdgeCapacity,
-        "buildings" => Buildings.Count(b => b != null), _ => 0,
+        "buildings" => Buildings.Count(b => b != null), "taxR" => TaxTenths.Take(3).Sum() / 3,
+        "taxC" => TaxTenths.Skip(3).Take(3).Sum() / 3, "taxI" => TaxTenths.Skip(6).Sum() / 3, "approval" => Approval, _ => 0,
     };
 }

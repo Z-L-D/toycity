@@ -7,7 +7,7 @@ public enum Zone : byte { None = 0, Residential = 1, Commercial = 2, Industrial 
 
 public enum Level : byte { Low = 0, Medium = 1, High = 2 }
 
-public enum Category : byte { Zoned, Power, Water, Garbage, Police, Fire, Health, Education, Park }
+public enum Category : byte { Zoned, Power, Water, Garbage, Police, Fire, Health, Education, Park, Landmark, Reward }
 
 /// <summary>A path cross-section, loaded from content/profiles.json.</summary>
 public sealed class PathProfile
@@ -58,6 +58,13 @@ public sealed class BuildingType
     public int Noise { get; set; }
     /// <summary>Draws visitors: feeds tourist shopping demand and people who move here for the sights.</summary>
     public int Attraction { get; set; }
+    /// <summary>Money paid to the city each month while it operates (deal buildings).</summary>
+    public int Income { get; set; }
+    /// <summary>Only one may exist in a city.</summary>
+    public bool Unique { get; set; }
+    /// <summary>Rule graph that must turn non-zero before the mayor may place it; null when always available.</summary>
+    [JsonIgnore] public RuleGraph? Unlock { get; set; }
+    public string UnlockText { get; set; } = "";
     public int BuildDays { get; set; }
     public string Color { get; set; } = "#888888";
 
@@ -71,6 +78,9 @@ public sealed class ContentDb
     public List<PathProfile> Profiles { get; } = new();
     public List<BuildingType> Types { get; } = new();
     public List<OrdinanceDef> Ordinances { get; private set; } = new();
+    public List<EventDef> Events { get; private set; } = new();
+    public DirectorSettings Director { get; private set; } = new();
+    public Voice Voice { get; private set; } = new();
     public int StartingFunds { get; private set; } = 100_000;
     public int ZoneCostPerCell { get; private set; } = 5;
     public int BulldozeCostPerCell { get; private set; } = 5;
@@ -143,6 +153,10 @@ public sealed class ContentDb
         public int WaterPollution { get; set; }
         public int Noise { get; set; }
         public int Attraction { get; set; }
+        public int Income { get; set; }
+        public bool Unique { get; set; }
+        public JsonElement? Unlock { get; set; }
+        public string UnlockText { get; set; } = "";
         public string Color { get; set; } = "#888888";
     }
 
@@ -170,6 +184,8 @@ public sealed class ContentDb
         "health" => Category.Health,
         "education" => Category.Education,
         "park" => Category.Park,
+        "landmark" => Category.Landmark,
+        "reward" => Category.Reward,
         _ => throw new InvalidDataException($"bad category {s}"),
     };
 
@@ -180,7 +196,8 @@ public sealed class ContentDb
         var buildingsText = File.ReadAllText(Path.Combine(dir, "buildings.json"));
         var ordinancesPath = Path.Combine(dir, "ordinances.json");
         var ordinancesText = File.Exists(ordinancesPath) ? File.ReadAllText(ordinancesPath) : null;
-        return Parse(profilesText, buildingsText, ordinancesText);
+        string? Optional(string name) => File.Exists(Path.Combine(dir, name)) ? File.ReadAllText(Path.Combine(dir, name)) : null;
+        return Parse(profilesText, buildingsText, ordinancesText, Optional("events.json"), Optional("voice.json"));
     }
 
     /// <summary>Finds the content directory by walking up from a start directory.</summary>
@@ -198,7 +215,7 @@ public sealed class ContentDb
 
     public static ContentDb LoadDefault() => Load(FindContentDir());
 
-    public static ContentDb Parse(string profilesJson, string buildingsJson, string? ordinancesJson = null)
+    public static ContentDb Parse(string profilesJson, string buildingsJson, string? ordinancesJson = null, string? eventsJson = null, string? voiceJson = null)
     {
         var db = new ContentDb();
         var pf = JsonSerializer.Deserialize<ProfilesFile>(profilesJson, Json) ?? throw new InvalidDataException("profiles.json");
@@ -250,14 +267,29 @@ public sealed class ContentDb
                 Maintenance = c.Maintenance, Jobs = c.Jobs, PowerKw = c.PowerKw, WaterUse = c.WaterUse, Garbage = c.Garbage,
                 PowerOutKw = c.PowerOutKw, WaterOut = c.WaterOut, GarbageCap = c.GarbageCap, Radius = c.Radius,
                 Pollution = c.Pollution, WaterPollution = c.WaterPollution, Noise = c.Noise, Attraction = c.Attraction, BuildDays = 1, Color = c.Color,
+                Income = c.Income, Unique = c.Unique, UnlockText = c.UnlockText,
+                Unlock = c.Unlock is { } u ? RuleGraph.Compile(u, c.Id + " unlock") : null,
             });
         }
         if (ordinancesJson != null) db.Ordinances = OrdinanceDef.Parse(ordinancesJson);
-        foreach (var o in db.Ordinances)
-            foreach (var n in o.Graph.Nodes.Concat(o.Unlock?.Nodes ?? new()))
+        if (eventsJson != null) (db.Events, db.Director) = EventDef.Parse(eventsJson);
+        if (voiceJson != null) db.Voice = Voice.Parse(voiceJson);
+        // Every graph's references must name real things.
+        var graphs = db.Ordinances.SelectMany(o => new[] { (o.Id, o.Graph), (o.Id, o.Unlock) })
+            .Concat(db.Types.Select(t => (t.Id, t.Unlock)))
+            .Concat(db.Events.SelectMany(e => e.Graphs.Select(g => (e.Id, (RuleGraph?)g))));
+        foreach (var (owner, g) in graphs)
+        {
+            if (g == null) continue;
+            foreach (var n in g.Nodes)
+            {
                 if (n.Params.TryGetValue("type", out var tid) && db.TypeIndex(tid) < 0)
-                    throw new InvalidDataException($"{o.Id}: unknown building type '{tid}'");
-        var bytes = System.Text.Encoding.UTF8.GetBytes(profilesJson + "\n" + buildingsJson + "\n" + ordinancesJson);
+                    throw new InvalidDataException($"{owner}: unknown building type '{tid}'");
+                if (n.Params.TryGetValue("ordinance", out var oid) && db.Ordinances.All(o => o.Id != oid))
+                    throw new InvalidDataException($"{owner}: unknown ordinance '{oid}'");
+            }
+        }
+        var bytes = System.Text.Encoding.UTF8.GetBytes(profilesJson + "\n" + buildingsJson + "\n" + ordinancesJson + "\n" + eventsJson + "\n" + voiceJson);
         db.Fingerprint = System.IO.Hashing.XxHash64.HashToUInt64(bytes);
         return db;
     }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Building types. Zoned templates grow on their own (one per zone x density x wealth; Alpha 1 lots are 1x1). Industrial wealth reads as dirty / manufacturing / high-tech. Civic types are placed by the mayor. Power in kW, water and garbage in units per day per building, money in dollars, maintenance per month, radius in cells.",
+  "notes": "Building types. Zoned templates grow on their own (one per zone x density x wealth, per cell of lot). Industrial wealth reads as dirty / manufacturing / high-tech. Civic types are placed by the mayor. Power in kW, water and garbage in units per day per building, money in dollars, maintenance per month, radius in cells. Landmarks are free and unique; reward lots unlock from the city's progress or from deals. 'unlock' is a rule graph (as in ordinances.json) whose last value must be non-zero; 'income' is paid to the city each month while the building operates.",
   "startingFunds": 100000,
   "zoneCostPerCell": 5,
   "bulldozeCostPerCell": 5,
@@ -841,6 +841,386 @@
       "waterPollution": 0,
       "noise": 0,
       "attraction": 4
+    },
+    {
+      "jobs": 0,
+      "powerKw": 0,
+      "waterUse": 0,
+      "garbage": 0,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 0,
+      "waterPollution": 0,
+      "noise": 0,
+      "id": "toy-soldier-statue",
+      "name": "Toy Soldier Statue",
+      "category": "landmark",
+      "w": 1,
+      "h": 1,
+      "cost": 0,
+      "maintenance": 5,
+      "radius": 6,
+      "color": "#c0392b",
+      "attraction": 3,
+      "unique": true,
+      "unlock": [
+        {
+          "op": "measure.stat",
+          "stat": "population",
+          "id": "pop"
+        },
+        {
+          "op": "test.ge",
+          "in": [
+            "pop",
+            400
+          ]
+        }
+      ],
+      "unlockText": "Reach 400 people."
+    },
+    {
+      "jobs": 0,
+      "powerKw": 0,
+      "waterUse": 20,
+      "garbage": 0,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 0,
+      "waterPollution": 0,
+      "noise": 0,
+      "id": "rubber-duck-fountain",
+      "name": "Giant Rubber Duck Fountain",
+      "category": "landmark",
+      "w": 2,
+      "h": 2,
+      "cost": 0,
+      "maintenance": 20,
+      "radius": 8,
+      "color": "#f4d03f",
+      "attraction": 6,
+      "unique": true,
+      "unlock": [
+        {
+          "op": "measure.stat",
+          "stat": "population",
+          "id": "pop"
+        },
+        {
+          "op": "test.ge",
+          "in": [
+            "pop",
+            1200
+          ]
+        }
+      ],
+      "unlockText": "Reach 1,200 people."
+    },
+    {
+      "jobs": 0,
+      "powerKw": 10,
+      "waterUse": 0,
+      "garbage": 0,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 0,
+      "waterPollution": 0,
+      "noise": 0,
+      "id": "clocktower",
+      "name": "Wind-Up Clocktower",
+      "category": "landmark",
+      "w": 2,
+      "h": 2,
+      "cost": 0,
+      "maintenance": 30,
+      "radius": 10,
+      "color": "#b9770e",
+      "attraction": 8,
+      "unique": true,
+      "unlock": [
+        {
+          "op": "measure.stat",
+          "stat": "population",
+          "id": "pop"
+        },
+        {
+          "op": "test.ge",
+          "in": [
+            "pop",
+            2500
+          ]
+        }
+      ],
+      "unlockText": "Reach 2,500 people."
+    },
+    {
+      "jobs": 10,
+      "powerKw": 80,
+      "waterUse": 0,
+      "garbage": 0,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 0,
+      "waterPollution": 0,
+      "noise": 20,
+      "id": "observation-wheel",
+      "name": "Observation Wheel",
+      "category": "landmark",
+      "w": 3,
+      "h": 3,
+      "cost": 0,
+      "maintenance": 60,
+      "radius": 12,
+      "color": "#5dade2",
+      "attraction": 14,
+      "unique": true,
+      "unlock": [
+        {
+          "op": "measure.stat",
+          "stat": "population",
+          "id": "pop"
+        },
+        {
+          "op": "test.ge",
+          "in": [
+            "pop",
+            5000
+          ]
+        }
+      ],
+      "unlockText": "Reach 5,000 people."
+    },
+    {
+      "jobs": 0,
+      "powerKw": 0,
+      "waterUse": 0,
+      "garbage": 0,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 0,
+      "waterPollution": 0,
+      "noise": 0,
+      "id": "mayors-house",
+      "name": "Mayor's House",
+      "category": "reward",
+      "w": 2,
+      "h": 2,
+      "cost": 0,
+      "maintenance": 25,
+      "radius": 6,
+      "color": "#a569bd",
+      "attraction": 1,
+      "unique": true,
+      "unlock": [
+        {
+          "op": "measure.stat",
+          "stat": "approval",
+          "id": "a"
+        },
+        {
+          "op": "test.ge",
+          "in": [
+            "a",
+            60
+          ],
+          "id": "ok"
+        }
+      ],
+      "unlockText": "Reach 60% mayor approval."
+    },
+    {
+      "jobs": 40,
+      "powerKw": 60,
+      "waterUse": 30,
+      "garbage": 0,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 0,
+      "waterPollution": 0,
+      "noise": 0,
+      "id": "city-hall",
+      "name": "City Hall",
+      "category": "reward",
+      "w": 3,
+      "h": 3,
+      "cost": 5000,
+      "maintenance": 150,
+      "radius": 10,
+      "color": "#7f8c8d",
+      "attraction": 3,
+      "unique": true,
+      "unlock": [
+        {
+          "op": "measure.stat",
+          "stat": "approval",
+          "id": "a"
+        },
+        {
+          "op": "test.ge",
+          "in": [
+            "a",
+            55
+          ],
+          "id": "ok"
+        },
+        {
+          "op": "measure.stat",
+          "stat": "population",
+          "id": "pop"
+        },
+        {
+          "op": "test.ge",
+          "in": [
+            "pop",
+            2000
+          ],
+          "id": "big"
+        },
+        {
+          "op": "test.and",
+          "in": [
+            "ok",
+            "big"
+          ]
+        }
+      ],
+      "unlockText": "Reach 2,000 people and 55% approval."
+    },
+    {
+      "jobs": 0,
+      "powerKw": 0,
+      "waterUse": 0,
+      "garbage": 0,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 0,
+      "waterPollution": 0,
+      "noise": 0,
+      "id": "mayor-statue",
+      "name": "Statue of the Mayor",
+      "category": "reward",
+      "w": 1,
+      "h": 1,
+      "cost": 0,
+      "maintenance": 5,
+      "radius": 4,
+      "color": "#d4ac0d",
+      "attraction": 2,
+      "unique": true,
+      "unlock": [
+        {
+          "op": "measure.stat",
+          "stat": "approval",
+          "id": "a"
+        },
+        {
+          "op": "test.ge",
+          "in": [
+            "a",
+            80
+          ],
+          "id": "ok"
+        }
+      ],
+      "unlockText": "Reach 80% mayor approval."
+    },
+    {
+      "jobs": 60,
+      "powerKw": 120,
+      "waterUse": 40,
+      "garbage": 30,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 0,
+      "waterPollution": 0,
+      "noise": 45,
+      "id": "casino",
+      "name": "Lucky Lug Nut Casino",
+      "category": "reward",
+      "w": 3,
+      "h": 2,
+      "cost": 0,
+      "maintenance": 0,
+      "radius": 0,
+      "color": "#e74c3c",
+      "attraction": 5,
+      "income": 900,
+      "unique": true,
+      "unlockText": "Comes from a deal.",
+      "unlock": [
+        {
+          "op": "const",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "jobs": 15,
+      "powerKw": 0,
+      "waterUse": 0,
+      "garbage": 0,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 120,
+      "waterPollution": 60,
+      "noise": 0,
+      "id": "toxic-dump",
+      "name": "Toxic Waste Dump",
+      "category": "reward",
+      "w": 3,
+      "h": 3,
+      "cost": 0,
+      "maintenance": 0,
+      "radius": 0,
+      "color": "#6c7a2b",
+      "income": 1500,
+      "unique": true,
+      "unlockText": "Comes from a deal.",
+      "unlock": [
+        {
+          "op": "const",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "jobs": 180,
+      "powerKw": 200,
+      "waterUse": 80,
+      "garbage": 40,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 40,
+      "waterPollution": 0,
+      "noise": 25,
+      "id": "pickle-plant",
+      "name": "Mega Pickle Plant",
+      "category": "reward",
+      "w": 3,
+      "h": 3,
+      "cost": 0,
+      "maintenance": 0,
+      "radius": 0,
+      "color": "#58d68d",
+      "income": 300,
+      "unique": true,
+      "unlockText": "Comes from a deal.",
+      "unlock": [
+        {
+          "op": "const",
+          "value": 0
+        }
+      ]
     }
   ]
 }

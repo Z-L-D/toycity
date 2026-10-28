@@ -141,6 +141,8 @@ public sealed partial class World
             d[3 + w] += (int)Mod(ModKey.DemandC);
             d[6 + w] += (int)Mod(ModKey.DemandI);
         }
+        // People like living in a well-run city: approval above or below 50 moves residential demand up to 10.
+        for (int w = 0; w < 3; w++) d[w] += (Approval - 50) / 5;
         d[6] += (int)Mod(ModKey.DemandDirty);
         d[8] += (int)Mod(ModKey.DemandHighTech);
         return d;
@@ -221,7 +223,8 @@ public sealed partial class World
             adjustments.Add(new DemandLine("tax", "Taxes", tax, "Each point of tax above 9% costs 6 points of demand; each point below adds 6."));
             var ord = OrdinanceDemand();
             if (ord[z * 3] != 0 || ord[z * 3 + 1] != 0 || ord[z * 3 + 2] != 0)
-                adjustments.Add(new DemandLine("ordinances", "Ordinances", new[] { ord[z * 3], ord[z * 3 + 1], ord[z * 3 + 2] }, "Enacted ordinances that change this zone's demand. See Laws."));
+                adjustments.Add(new DemandLine("ordinances", z == 0 ? "Laws and approval" : "Ordinances", new[] { ord[z * 3], ord[z * 3 + 1], ord[z * 3 + 2] },
+                    z == 0 ? $"Enacted ordinances, plus mayor approval ({Approval}%): every 5 points above or below 50 moves demand by 1." : "Enacted ordinances that change this zone's demand. See Laws."));
 
             string powerDetail = PowerCapacity <= 0 ? "There is no power plant. Nothing grows without power."
                 : $"The grid uses {PowerDemand:N0} of {PowerCapacity:N0} kW. Below 25% spare, demand is held down.";

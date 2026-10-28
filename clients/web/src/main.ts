@@ -189,9 +189,20 @@ function buildToolbar() {
     `<button data-tool='${JSON.stringify(t)}' class="${toolEquals(t, tool) ? 'active' : ''}">` +
     `<span>${swatch ? `<i class="swatch" style="background:${swatch}"></i>` : ''}${label}</span><kbd>${key}</kbd></button>`;
   const profiles = city.profiles.map((p) => `<option value="${p.id}" ${p.id === profileId ? 'selected' : ''}>${esc(p.name)} ($${p.costPerCell})</option>`).join('');
-  const civic = city.types
-    .filter((t) => t.placeable)
-    .map((t) => `<option value="${t.id}" ${t.id === buildingTypeId ? 'selected' : ''}>${esc(t.name)} ($${t.cost.toLocaleString('en-US')})</option>`)
+  const option = (t: (typeof city.types)[number]) => {
+    const locked = !city.unlocked.has(t.id) && t.unlockText !== '';
+    const built = t.unique && [...city.buildings.values()].some((b) => b.typeId === t.id);
+    const price = t.cost ? `$${t.cost.toLocaleString('en-US')}` : 'free';
+    const note = locked ? ` 🔒 ${t.unlockText}` : built ? ' (built)' : ` (${price})`;
+    return `<option value="${t.id}" ${t.id === buildingTypeId ? 'selected' : ''} ${locked || built ? 'disabled' : ''}>${esc(t.name)}${esc(note)}</option>`;
+  };
+  const groups: [string, string[]][] = [
+    ['Services', ['power', 'water', 'garbage', 'police', 'fire', 'health', 'education', 'park']],
+    ['Landmarks', ['landmark']],
+    ['Reward lots', ['reward']],
+  ];
+  const civic = groups
+    .map(([label, cats]) => `<optgroup label="${label}">${city.types.filter((t) => t.placeable && cats.includes(t.category)).map(option).join('')}</optgroup>`)
     .join('');
   el.innerHTML = `
     <h4>Look</h4>
@@ -674,7 +685,7 @@ setInterval(() => (dirty = true), 600); // blink power and water warnings
 renderer.resize();
 updateHints();
 renderLayers();
-talk = new TalkBack({ conn, city, jumpTo, showTab });
+talk = new TalkBack({ conn, city, jumpTo, showTab, onUnlocks: () => buildToolbar() });
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.

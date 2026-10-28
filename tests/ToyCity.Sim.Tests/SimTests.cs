@@ -662,3 +662,153 @@ public class OrdinanceTests
         Assert.Contains(b.DemandReport()[2].Adjustments, l => l.Key == "ordinances" && l.Points[0] == -20);
     }
 }
+
+public class DirectorTests
+{
+    /// <summary>Runs month by month until a prompt from the given event is open, or gives up after the limit.</summary>
+    static Prompt? WaitFor(World w, string eventId, int months = 180)
+    {
+        for (int m = 0; m < months; m++)
+        {
+            var p = w.Prompts.FirstOrDefault(p => p.Status == PromptStatus.Open && w.Content.Events[p.Event].Id == eventId);
+            if (p != null) return p;
+            w.Run(World.DaysPerMonth);
+        }
+        return null;
+    }
+
+    [Fact]
+    public void TaxPetitionResolvesWhenTaxesComeDown()
+    {
+        var w = Fixture.Starter();
+        w.Run(90);
+        for (int k = 0; k < 3; k++) w.Enqueue(new SetTaxAction(Zone.Residential, (Level)k, 120));
+        var p = WaitFor(w, "petition-taxes");
+        Assert.NotNull(p);
+        Assert.False(string.IsNullOrEmpty(p!.Text));
+        Assert.DoesNotContain("{", p.Text);
+        Assert.True(w.InBounds(p.X, p.Y));
+        // Fork the city: one copy answers the petition, the other doesn't. Answering leaves people happier.
+        var ignored = World.FromSnapshot(Fixture.Content, w.Snapshot());
+        for (int k = 0; k < 3; k++) w.Enqueue(new SetTaxAction(Zone.Residential, (Level)k, 90));
+        w.Run(World.DaysPerMonth + 1);
+        ignored.Run(World.DaysPerMonth + 1);
+        Assert.Equal(PromptStatus.Fulfilled, p.Status);
+        Assert.Contains(w.Headlines, h => h.Text == p.ResultText);
+        Assert.True(w.Mood > ignored.Mood, $"{w.Mood} vs {ignored.Mood}");
+    }
+
+    [Fact]
+    public void AcceptingADealUnlocksItsBuilding()
+    {
+        var w = Fixture.Starter(2026);
+        Prompt? deal = null;
+        for (int m = 0; m < 240 && deal == null; m++)
+        {
+            w.Run(World.DaysPerMonth);
+            deal = w.Prompts.FirstOrDefault(p => p.Status == PromptStatus.Open && p.Kind == EventKind.Deal
+                && w.Content.Events[p.Event].Yes!.Graph.Nodes.Any(n => n.Op == "act.unlock"));
+        }
+        Assert.NotNull(deal);
+        var ev = w.Content.Events[deal!.Event];
+        string typeId = ev.Yes!.Graph.Nodes.First(n => n.Op == "act.unlock").Params["type"];
+        int t = w.Content.TypeIndex(typeId);
+        Assert.False(w.TypeUnlocked[t]);
+        Assert.NotNull(w.ValidatePlacement(new PlaceBuildingAction(0, 0, typeId), out _));
+        long funds = w.Funds;
+        w.Enqueue(new RespondPromptAction(deal.Id, true));
+        w.ApplyPending();
+        Assert.Equal(PromptStatus.Accepted, deal.Status);
+        Assert.True(w.TypeUnlocked[t]);
+        Assert.True(w.Funds >= funds);
+    }
+
+    [Fact]
+    public void TheDirectorIsRateLimited()
+    {
+        var w = Fixture.Starter(2026);
+        var created = new List<long>();
+        for (int m = 0; m < 120; m++)
+        {
+            w.Run(World.DaysPerMonth);
+            Assert.True(w.Prompts.Count(p => p.Status == PromptStatus.Open) <= w.Content.Director.MaxOpen);
+            // Leave deals unanswered: they lapse as declined.
+        }
+        var times = w.Prompts.Select(p => p.Created).Order().ToList();
+        Assert.NotEmpty(times);
+        for (int i = 1; i < times.Count; i++)
+            Assert.True(times[i] - times[i - 1] >= w.Content.Director.MinMonthsBetween * World.DaysPerMonth);
+        Assert.All(w.Prompts.Where(p => p.Kind == EventKind.Deal), p => Assert.NotEqual(PromptStatus.Accepted, p.Status));
+    }
+
+    [Fact]
+    public void TheVoiceNeverChangesWhatHappens()
+    {
+        var dir = ContentDb.FindContentDir();
+        string R(string f) => File.ReadAllText(Path.Combine(dir, f));
+        var plain = ContentDb.Parse(R("profiles.json"), R("buildings.json"), R("ordinances.json"), R("events.json"),
+            """{ "templates": { "petition-park": "x" }, "firstNames": ["A"], "lastNames": ["B"] }""");
+        var a = World.Create(Fixture.Content, 2026, 128, "Same");
+        var b = World.Create(plain, 2026, 128, "Same");
+        StarterTown.Apply(a);
+        StarterTown.Apply(b);
+        for (int m = 0; m < 48; m++)
+        {
+            a.Run(World.DaysPerMonth);
+            b.Run(World.DaysPerMonth);
+            Assert.Equal(a.Population, b.Population);
+            Assert.Equal(a.Funds, b.Funds);
+            Assert.Equal(a.Approval, b.Approval);
+        }
+        Assert.Equal(a.Prompts.Select(p => (p.Event, p.X, p.Y, p.Status)), b.Prompts.Select(p => (p.Event, p.X, p.Y, p.Status)));
+        Assert.Equal(a.Headlines.Count, b.Headlines.Count);
+    }
+
+    [Fact]
+    public void LandmarksUnlockWithPopulationAndAreUnique()
+    {
+        var w = Fixture.Starter();
+        var site = StarterTown.FindSite(World.Create(Fixture.Content, 42, 128, "x"))!.Value;
+        var statue = new PlaceBuildingAction(site.X + 5, site.Y + StarterTown.Size, "toy-soldier-statue");
+        Assert.Contains("isn't available", w.ValidatePlacement(statue, out _));
+        w.Run(400);
+        Assert.True(w.Population >= 400);
+        Assert.True(w.TypeUnlocked[w.Content.TypeIndex("toy-soldier-statue")]);
+        Assert.Contains(w.Headlines, h => h.Text.Contains("Toy Soldier Statue"));
+        long funds = w.Funds;
+        w.Enqueue(statue);
+        w.ApplyPending();
+        Assert.Contains(w.Buildings, b => b != null && w.TypeOf(b).Id == "toy-soldier-statue");
+        Assert.Equal(funds, w.Funds); // landmarks are free
+        Assert.Contains("already has", w.ValidatePlacement(statue with { X = statue.X + 2 }, out _));
+    }
+
+    [Fact]
+    public void PromptsSurviveSaveAndLoad()
+    {
+        var w = Fixture.Starter(2026);
+        while (w.Prompts.All(p => p.Status != PromptStatus.Open) && w.Tick < 3600) w.Run(World.DaysPerMonth);
+        Assert.Contains(w.Prompts, p => p.Status == PromptStatus.Open);
+        var loaded = World.FromSnapshot(Fixture.Content, w.Snapshot());
+        Assert.Equal(w.Prompts.Select(p => p.Text), loaded.Prompts.Select(p => p.Text));
+        w.Run(300);
+        loaded.Run(300);
+        Assert.Equal(w.StateHash(), loaded.StateHash());
+    }
+
+    [Fact]
+    public void AdvisorsAlwaysHaveSomethingToSay()
+    {
+        var w = Fixture.Starter();
+        w.Run(500);
+        var ids = w.Encyclopedia().Select(a => a.Id).ToHashSet();
+        var advisors = w.Advisors();
+        Assert.Equal(5, advisors.Count);
+        foreach (var a in advisors)
+        {
+            Assert.NotEmpty(a.Messages);
+            Assert.All(a.Messages, m => Assert.DoesNotContain("advisor.", m.Text));
+            Assert.All(a.Messages, m => Assert.Contains(m.Topic, ids));
+        }
+    }
+}

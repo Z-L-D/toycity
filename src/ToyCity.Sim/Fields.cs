@@ -60,7 +60,8 @@ public sealed partial class World
         Category.Fire => Service.Fire,
         Category.Health => Service.Health,
         Category.Education => Service.Education,
-        Category.Park => Service.Parks,
+        // Landmarks and reward lots with a radius brighten their surroundings like a park.
+        Category.Park or Category.Landmark or Category.Reward => Service.Parks,
         _ => null,
     };
 

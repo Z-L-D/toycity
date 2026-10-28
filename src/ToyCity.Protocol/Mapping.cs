@@ -25,6 +25,7 @@ public static class Mapping
         P.Action.KindOneofCase.Loan => new TakeLoanAction(a.Loan.Amount),
         P.Action.KindOneofCase.Utility => new PlaceUtilityAction(a.Utility.X0, a.Utility.Y0, a.Utility.X1, a.Utility.Y1, (UtilityKind)(int)a.Utility.Kind),
         P.Action.KindOneofCase.Ordinance => new SetOrdinanceAction(a.Ordinance.Id, a.Ordinance.Enact),
+        P.Action.KindOneofCase.Respond => new RespondPromptAction(a.Respond.PromptId, a.Respond.Accept),
         _ => null,
     };
 
@@ -40,6 +41,7 @@ public static class Mapping
         TakeLoanAction x => new P.Action { Loan = new P.TakeLoan { Amount = x.Amount } },
         PlaceUtilityAction x => new P.Action { Utility = new P.PlaceUtility { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, Kind = (P.UtilityKind)(int)x.Kind } },
         SetOrdinanceAction x => new P.Action { Ordinance = new P.SetOrdinance { Id = x.Id, Enact = x.Enact } },
+        RespondPromptAction x => new P.Action { Respond = new P.RespondPrompt { PromptId = x.PromptId, Accept = x.Accept } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
     };
 
@@ -59,7 +61,8 @@ public static class Mapping
             {
                 Id = t.Id, Name = t.Name, Category = CategoryName(t.Category), Zone = (P.ZoneKind)(int)t.Zone,
                 Density = (P.Density)(int)t.Density, Wealth = (P.Wealth)(int)t.Wealth, Width = t.W, Height = t.H,
-                Cost = t.Cost, Placeable = t.Placeable, Color = t.Color,
+                Cost = t.Cost, Placeable = t.Placeable, Color = t.Color, UnlockText = t.Unlock != null ? t.UnlockText : "",
+                Unique = t.Unique, Income = t.Income, Attraction = t.Attraction,
             });
         foreach (var sizes in c.LotSizes) cat.LotDepth.Add(sizes.Max(z => Math.Max(z.W, z.D)));
         return cat;
@@ -211,6 +214,42 @@ public static class Mapping
             foreach (var (k, val) in v.Trace) o.Steps.Add(new P.KeyValue { Key = k, Value = val });
             r.Ordinances.Add(o);
         }
+        return r;
+    }
+
+    public static P.CivicState Civic(World w)
+    {
+        var r = new P.CivicState { Approval = w.Approval };
+        foreach (var p in w.Prompts)
+        {
+            var ev = w.Content.Events[p.Event];
+            r.Prompts.Add(new P.Prompt
+            {
+                Id = p.Id, EventId = ev.Id, Kind = p.Kind == EventKind.Deal ? "deal" : "petition", X = p.X, Y = p.Y,
+                Petitioner = p.Petitioner, Text = p.Text, Goal = ev.GoalText, Status = (P.PromptStatus)(int)p.Status,
+                MonthsLeft = p.Status == PromptStatus.Open ? (int)Math.Max(0, (p.Deadline - w.Tick + World.DaysPerMonth - 1) / World.DaysPerMonth) : 0,
+                ResultText = p.ResultText,
+            });
+        }
+        for (int t = 0; t < w.TypeUnlocked.Length; t++)
+            if (w.TypeUnlocked[t] && w.Content.Types[t].Placeable) r.UnlockedTypes.Add(w.Content.Types[t].Id);
+        foreach (var h in w.Headlines)
+            r.Headlines.Add(new P.Headline { Seq = h.Seq, Tick = h.Tick, Text = h.Text, Severity = h.Severity, X = h.X, Y = h.Y });
+        return r;
+    }
+
+    public static P.AdvisorList Advisors(World w)
+    {
+        var r = new P.AdvisorList { Approval = w.Approval };
+        foreach (var a in w.Advisors())
+        {
+            var p = new P.Advisor { Role = a.Role, Name = a.Name, Title = a.Title, Mood = a.Mood };
+            p.Messages.AddRange(Alerts(a.Messages).Alerts);
+            r.Advisors.Add(p);
+        }
+        var factors = new List<Factor>();
+        w.ApprovalOf(factors);
+        foreach (var f in factors) r.ApprovalFactors.Add(new P.Factor { Label = f.Label, Value = f.Value });
         return r;
     }
 

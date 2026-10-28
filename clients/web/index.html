@@ -14,6 +14,7 @@
         <div class="stat" id="date">…</div>
         <div class="stat" id="funds" title="Treasury">$0</div>
         <div class="stat" id="pop" title="Population">👥 0</div>
+        <div class="stat" id="approval" title="Mayor approval: click for what people think">👍 50%</div>
         <div class="speed" id="speed">
           <button data-speed="0" title="Pause (Space)">⏸</button>
           <button data-speed="1" title="Slow (1)">▶</button>
@@ -36,6 +37,7 @@
       <main id="view">
         <canvas id="map"></canvas>
         <div id="cost" class="cost hidden"></div>
+        <div id="ticker" title="City news: click a headline with a place to go there"><span class="tag">NEWS</span><span id="ticker-text"></span></div>
         <div id="hints"></div>
         <div id="toasts"></div>
       </main>
@@ -47,6 +49,7 @@
           <button data-tab="alerts">Alerts</button>
           <button data-tab="forecast">Forecast</button>
           <button data-tab="laws">Laws</button>
+          <button data-tab="people">People</button>
           <button data-tab="budget">Budget</button>
           <button data-tab="layers">Layers</button>
           <button data-tab="guide">Guide</button>
@@ -57,6 +60,7 @@
         <section id="tab-alerts" class="tab"></section>
         <section id="tab-forecast" class="tab"></section>
         <section id="tab-laws" class="tab"><p class="muted">Loading…</p></section>
+        <section id="tab-people" class="tab"><p class="muted">Loading…</p></section>
         <section id="tab-budget" class="tab"></section>
         <section id="tab-guide" class="tab"></section>
         <section id="tab-layers" class="tab"></section>

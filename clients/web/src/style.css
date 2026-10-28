@@ -293,3 +293,34 @@ ol.plan { margin: 4px 0; padding-left: 20px; }
 .chip.s2 { background: var(--accent); color: #000; }
 ul.effects { margin: 2px 0; padding-left: 18px; }
 table.cmp { margin-top: 8px; }
+
+/* Ticker */
+#ticker { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); max-width: min(760px, calc(100% - 24px)); display: flex; gap: 8px; align-items: center;
+  background: rgba(10, 13, 20, 0.85); border: 1px solid var(--line); border-radius: 16px; padding: 4px 12px 4px 4px; overflow: hidden; cursor: default; }
+#ticker.located { cursor: pointer; }
+#ticker .tag { background: var(--accent); color: #000; font-weight: 800; font-size: 10px; padding: 2px 7px; border-radius: 10px; }
+#ticker-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#ticker-text.slide { animation: tickin 0.4s ease-out; }
+#ticker-text.sev-good { color: #bdf5cf; }
+#ticker-text.sev-warning { color: #ffe0a8; }
+@keyframes tickin { from { opacity: 0; transform: translateY(8px); } }
+#approval { cursor: pointer; }
+#approval.neg { color: var(--bad); }
+
+/* People */
+.approval-meter { height: 8px; background: #0f131b; border-radius: 4px; overflow: hidden; margin: 6px 0; }
+.approval-meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--bad), var(--warn), var(--good)); background-size: 360px 8px; }
+.alert.deal { border-color: var(--accent); }
+.alert.petition { border-color: var(--c); }
+.goal { color: var(--accent); margin-top: 3px; }
+.advisor { border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; margin: 6px 0; background: var(--panel-2); }
+.adv-head { display: flex; gap: 6px; align-items: baseline; }
+.adv-head .face { font-size: 16px; }
+.adv-msg { margin-top: 4px; padding-left: 8px; border-left: 3px solid var(--line); }
+.adv-msg.danger { border-color: var(--bad); }
+.adv-msg.warning { border-color: var(--warn); }
+.adv-msg.good { border-color: var(--good); }
+.adv-msg[data-jump], .news[data-jump] { cursor: pointer; }
+.news { padding: 3px 0; border-bottom: 1px solid #262e3f; font-size: 12px; }
+.news.good { color: #bdf5cf; }
+details summary { cursor: pointer; margin: 4px 0; }

@@ -58,6 +58,7 @@ public sealed partial class World
         while (MilestoneIndex < Milestones.Length && pop >= Milestones[MilestoneIndex])
         {
             Notices.Add(new SimNotice($"{Name} reached a population of {Milestones[MilestoneIndex]:N0}!", "good"));
+            AddHeadline(Say("news.milestone", Tick, MilestoneIndex, new() { ["population"] = Milestones[MilestoneIndex].ToString("N0") }), "good");
             MilestoneIndex++;
         }
     }
@@ -72,6 +73,8 @@ public sealed partial class World
         Category.Health => "Health",
         Category.Education => "Education",
         Category.Park => "Parks",
+        Category.Landmark => "Landmarks",
+        Category.Reward => "Reward lots",
         _ => "Other",
     };
 
@@ -121,6 +124,10 @@ public sealed partial class World
         Line("Path upkeep", -(long)Math.Round(pathCost));
         Line("Power lines and pipes", -(lines + pipes) / 10);
         foreach (var (label, amount) in OrdinanceMoney) Line(label, amount);
+        long dealIncome = 0;
+        foreach (var b in Buildings)
+            if (b != null && b.Operating && TypeOf(b).Income > 0) dealIncome += TypeOf(b).Income;
+        Line("Deals and reward lots", dealIncome);
         foreach (var (cat, amount) in civic) Line(BudgetLabel((Category)cat), -amount);
         if (Debt > 0)
         {
