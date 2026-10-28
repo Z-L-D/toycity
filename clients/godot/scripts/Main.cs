@@ -9,7 +9,8 @@ namespace ToyCity.Godot;
 /// The client's root: connects to the server, keeps the city mirror current and hands each frame's changes to the
 /// 3D view and the minimap. Command line (after "--"): --server ws://host:port/ws; --smoke to connect, check the
 /// city loads and picking works at every rotation, and quit; --shots DIR to also save a screenshot of each view;
-/// --bench FILE to swap in the dense benchmark city and write frame times and memory per zoom level to FILE.
+/// --bench FILE to swap in the dense benchmark city and write frame times and memory per zoom level to FILE;
+/// --gate FILE to found the server's benchmark city and play the Alpha 3 loop on it, measuring as it goes.
 /// </summary>
 public partial class Main : Node
 {
@@ -49,13 +50,17 @@ public partial class Main : Node
             if (args[i] == "--shots" && i + 1 < args.Length) { _shots = args[++i]; _smoke = true; }
             if (args[i] == "--bench" && i + 1 < args.Length) _bench = args[++i];
             if (args[i] == "--company") _company = true;
+            if (args[i] == "--gate" && i + 1 < args.Length) _gateFile = args[++i];
         }
         _client = new CityClient(new Uri(server));
-        if (_bench != null)
+        if (_bench != null || _gateFile != null)
         {
             System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
             DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
             Engine.MaxFps = 0;
+        }
+        if (_bench != null)
+        {
             _client.Message += m =>
             {
                 if (_frozen || m.BodyCase != Protocol.V0.ServerMessage.BodyOneofCase.Full) return;
@@ -84,7 +89,7 @@ public partial class Main : Node
         AddChild(_view);
         _disasters = new DisasterView(_client.City);
         AddChild(_disasters);
-        _camera = new ClassicCamera { EdgePan = !_smoke && _bench == null };
+        _camera = new ClassicCamera { EdgePan = !_smoke && _bench == null && _gateFile == null };
         AddChild(_camera);
 
         var hud = new CanvasLayer();
@@ -136,7 +141,7 @@ public partial class Main : Node
             },
         };
         AddChild(_free);
-        _camera.Free = _free;
+        _camera.FreeCam = _free;
         // The company's view in a window of its own: a second client, as the web client opens a second tab.
         pm.Company.OwnWindow += () => OS.CreateProcess(OS.GetExecutablePath(),
             OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", server, "--company" }).ToArray());
@@ -159,6 +164,7 @@ public partial class Main : Node
             Layers(c, all || cells.Length > 0);
             _view!.Tick(delta, c.TakeRemoved());
             _camera!.Shake = _disasters!.Shake;
+            if (_centred && _camera!.MapWidth != c.Width) _centred = false;  // a new city of another size
             if (!_centred)
             {
                 _camera!.MapWidth = c.Width;
@@ -189,7 +195,12 @@ public partial class Main : Node
                 _sun!.DirectionalShadowMaxDistance = _camera.View.Distance + _camera.View.Size * 1.5f;
             }
         }
-        if (_bench != null) Bench(c, delta);
+        if (_gateFile != null)
+        {
+            if (_gate == null) GateStart();
+            Gate(delta);
+        }
+        else if (_bench != null) Bench(c, delta);
         else if (_smoke) Smoke(c, delta);
     }
 

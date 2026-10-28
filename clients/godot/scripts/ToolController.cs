@@ -342,6 +342,14 @@ public partial class ToolController : Node
     Preview? Plan((int X, int Y, float Fx, float Fy) at) =>
         Planner.Plan(_client.City, State, new Pointer(at.X, at.Y, at.Fx, at.Fy, _drag, Input.IsKeyPressed(Key.Alt), Input.IsKeyPressed(Key.Shift)));
 
+    /// <summary>Uses a tool at a pointer as a click there would, for the gate run: plans it, sends it, returns the plan.</summary>
+    public Preview? Use(ToolState tool, Pointer at)
+    {
+        var p = Planner.Plan(_client.City, tool, at);
+        Commit(p);
+        return p;
+    }
+
     void Commit(Preview? p)
     {
         if (p == null) return;

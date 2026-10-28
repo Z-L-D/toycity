@@ -13,7 +13,7 @@ roadmap live outside the repo (see README).
 | `src/ToyCity.Sim` | The simulation core. No I/O, no threads, no clocks. Deterministic. |
 | `src/ToyCity.Protocol` | Generated protobuf types plus mapping between the sim and the wire/save format. |
 | `src/ToyCity.Server` | Host: fixed-tick loop, WebSocket endpoint, static file hosting for the web client. |
-| `clients/web` | The 2D web client (SimCity 1 style). Doubles as the debug and admin client. |
+| `clients/web` | The 2D web client (SimCity 1 style): the debug and admin client. The Godot client (`clients/godot`) is the way to play from Beta 1. |
 | `tests/ToyCity.Sim.Tests` | Unit and gate tests (determinism, save/load, growth, why-queries). |
 | `tools/ToyCity.Bench` | Headless benchmark harness. |
 

@@ -78,9 +78,21 @@ jobs:
           grep -q "BENCH wrote" bench.log
           ! grep -n "SHADER ERROR" -A3 bench.log
           { echo '### Dense-city benchmark (CI runner, software OpenGL)'; echo '```'; grep '^BENCH' bench.log; echo '```'; echo '```json'; cat bench.json; echo; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      - name: Contact sheet of the views (base64 JPEG, for reviewers who can't download artifacts)
+      - name: Gate run, the Alpha 3 loop on the benchmark city (software OpenGL, so times are not the target hardware's)
+        run: |
+          xvfb-run -a -s "-screen 0 1600x900x24" timeout 900 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
+            --path clients/godot -- --gate "$PWD/gate.json" --shots "$PWD/gate-shots" 2>&1 | tee gate.log
+          { echo '### Gate run (CI runner, software OpenGL)'; echo; grep '^GATE ' gate.log | sed 's/^GATE //'; } >> "$GITHUB_STEP_SUMMARY"
+          grep -q "GATE OK" gate.log
+          ! grep -n "SHADER ERROR" -A3 gate.log
+      - name: Contact sheets of the views (base64 JPEG, for reviewers who can't download artifacts)
+        if: always()
         run: |
           sudo apt-get install -y -qq imagemagick > /dev/null
+          if ls gate-shots/*.png > /dev/null 2>&1; then
+            montage gate-shots/*.png -tile 4x -geometry 400x225+1+1 -quality 45 gate-sheet.jpg
+            echo "::group::gate-sheet.jpg base64"; echo "GATE-SHEET-BEGIN"; base64 -w 0 gate-sheet.jpg; echo; echo "GATE-SHEET-END"; echo "::endgroup::"
+          fi
           montage shots/*.png -tile 4x -geometry 320x180+1+1 -quality 45 sheet.jpg
           echo "::group::sheet.jpg base64"; echo "SHEET-BEGIN"; base64 -w 0 sheet.jpg; echo; echo "SHEET-END"; echo "::endgroup::"
       - uses: actions/upload-artifact@v4
@@ -91,4 +103,8 @@ jobs:
             shots/
             sheet.jpg
             bench.json
+            gate-shots/
+            gate-sheet.jpg
+            gate.json
+            gate.log
             server.log

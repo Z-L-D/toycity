@@ -18,6 +18,7 @@ Command-line options go after `--`, for example
 | `--smoke` | connect, check the city loads and picking works at all 4 rotations, then quit (CI) |
 | `--shots DIR` | with `--smoke`, also save a screenshot of each camera view |
 | `--bench FILE` | draw the dense benchmark city and write frame times, triangles, draw calls and memory per zoom level to FILE |
+| `--gate FILE` | found the server's benchmark city and play the Alpha 3 loop on it, measuring every frame; writes the checks and frame times to FILE (see [the gate run](GATE-BETA1.md)) |
 
 ## Code layout
 

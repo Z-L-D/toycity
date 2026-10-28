@@ -372,6 +372,7 @@ message NewCityRequest {
   uint64 seed = 2;
   int32 size = 3;  // 64, 128 or 256 cells per side
   bool starter_town = 4;  // lay out a small working town to explore
+  bool benchmark = 5;  // the benchmark city: 256 cells a side with every dry block built up (ignores size and starter_town)
 }
 
 message SetSpeed {

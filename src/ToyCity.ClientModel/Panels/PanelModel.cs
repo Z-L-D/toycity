@@ -297,7 +297,7 @@ public sealed partial class PanelModel
         Dialog = name;
         if (name == "seat" && Mayor is { } m) _seatDraft = (m.Level, m.Style, m.SpendCap);
         if (name == "load") _send(new ClientMessage { Save = new SaveRequest { Name = "" } });  // refresh the list
-        if (name == "new") { Input = "New City"; _newSize = 128; _newStarter = false; }
+        if (name == "new") { Input = "New City"; _newSize = 128; _newStarter = _newBench = false; }
         if (name == "save")
         {
             var safe = new string((_city.Stats.CityName ?? "city").Where(ch => char.IsLetterOrDigit(ch) || ch is ' ' or '_' or '-').ToArray());
@@ -314,7 +314,7 @@ public sealed partial class PanelModel
 
     (SeatLevel Level, AutopilotStyle Style, long Cap) _seatDraft;
     int _newSize = 128;
-    bool _newStarter;
+    bool _newStarter, _newBench;
     // The lease terms dialog: what it's for, the terms being edited, and what OK does with them.
     (string Title, string Ok, string Note, LeaseTerms Terms, Action<LeaseTerms> Done)? _terms;
     (string Text, System.Action Yes)? _confirm;
@@ -522,8 +522,9 @@ public sealed partial class PanelModel
             // New, save and load
             case "size": _newSize = I(1); Changed(); return;
             case "starter": _newStarter = !_newStarter; Changed(); return;
+            case "bench": _newBench = !_newBench; Changed(); return;
             case "new-ok":
-                _send(new ClientMessage { NewCity = new NewCityRequest { Name = Input.Trim() is { Length: > 0 } n ? n : "New City", Size = _newSize, StarterTown = _newStarter } });
+                _send(new ClientMessage { NewCity = new NewCityRequest { Name = Input.Trim() is { Length: > 0 } n ? n : "New City", Size = _newSize, StarterTown = _newStarter, Benchmark = _newBench } });
                 CloseDialog();
                 return;
             case "save-ok":

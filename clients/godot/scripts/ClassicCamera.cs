@@ -20,20 +20,20 @@ public partial class ClassicCamera : Camera3D
     /// <summary>The player moved the view, so anything that steers it (following a commuter) lets go.</summary>
     public event Action? Panned;
     /// <summary>The free camera, which Tab switches to; picking goes through whichever camera is on.</summary>
-    public FreeCamera? Free;
-    public bool IsFree => Free is { Current: true };
+    public FreeCamera? FreeCam;
+    public bool IsFree => FreeCam is { Current: true };
 
     /// <summary>Switches between this camera and the free one, keeping the view on the same spot.</summary>
     public void ToggleFree()
     {
-        if (Free == null) return;
+        if (FreeCam == null) return;
         if (IsFree)
         {
-            View.Target = new System.Numerics.Vector2(Free.Target.X, Free.Target.Z);
+            View.Target = new System.Numerics.Vector2(FreeCam.Target.X, FreeCam.Target.Z);
             MakeCurrent();
             Apply();
         }
-        else Free.TakeOver(new Vector3(View.Target.X, View.TargetHeight, View.Target.Y), View.Yaw, View.Size);
+        else FreeCam.TakeOver(new Vector3(View.Target.X, View.TargetHeight, View.Target.Y), View.Yaw, View.Size);
     }
     const float KeyPanPixels = 900, EdgePanPixels = 700, Edge = 6;
     bool _dragging;
@@ -137,7 +137,7 @@ public partial class ClassicCamera : Camera3D
     /// <summary>The ray through a screen point, from whichever camera is on.</summary>
     (System.Numerics.Vector3 O, System.Numerics.Vector3 D) Ray(Vector2 screen)
     {
-        if (IsFree) return Free!.Ray(screen);
+        if (IsFree) return FreeCam!.Ray(screen);
         var size = GetViewport().GetVisibleRect().Size;
         return View.Ray(screen.X, screen.Y, size.X, size.Y);
     }

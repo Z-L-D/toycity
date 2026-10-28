@@ -701,6 +701,7 @@ public sealed partial class PanelModel
         foreach (var (size, label) in new[] { (64, "Small (64 × 64, 1 km)"), (128, "Medium (128 × 128, 2 km)"), (256, "Large (256 × 256, 4 km)") })
             sb.Append(_newSize == size ? $"◉ [b]{label}[/b]" : $"○ {Link($"size:{size}", label)}").Append('\n');
         sb.Append('\n').Append(Link("starter", $"{(_newStarter ? "☑" : "☐")} Start with a small working town")).Append('\n');
+        sb.Append(Link("bench", $"{(_newBench ? "☑" : "☐")} Benchmark city: 256 × 256, every block built")).Append('\n');
         return sb.Append(Footer(Link("close", "Cancel"), $"[b]{Link("new-ok", "Found city")}[/b]")).ToString();
     }
 
