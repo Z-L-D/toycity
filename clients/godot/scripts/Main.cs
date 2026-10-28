@@ -99,7 +99,10 @@ public partial class Main : Node
                 _camera!.MapWidth = c.Width;
                 _camera.MapHeight = c.Height;
                 _camera.GroundAt = (x, y) => c.InBounds((int)x, (int)y) ? _view!.Ground(c.Idx((int)x, (int)y)) : 0;
-                _camera.CentreOn(c.Width / 2f, c.Height / 2f);
+                // Start over the town, not the middle of the map.
+                var built = c.Buildings.Values.Where(b => !c.IsRoadside(b)).ToList();
+                if (built.Count > 0) _camera.CentreOn(built.Average(b => b.X + b.Width / 2f), built.Average(b => b.Y + b.Height / 2f));
+                else _camera.CentreOn(c.Width / 2f, c.Height / 2f);
                 _centred = true;
             }
             SetStatus($"{c.Stats.CityName}  ·  {c.Stats.Year}-{c.Stats.Month:00}-{c.Stats.Day:00}  ·  pop {c.Stats.Population:N0}  ·  ${c.Stats.Funds:N0}");
@@ -144,7 +147,8 @@ public partial class Main : Node
             for (int r = 0; r < 4; r++)
             {
                 v.Rotation = r;
-                if (_camera.Pick(centre, _view!) is not { } p || Math.Abs(p.X - c.Width / 2) > 8 || Math.Abs(p.Y - c.Height / 2) > 8)
+                var t = v.Target;
+                if (_camera.Pick(centre, _view!) is not { } p || Math.Abs(p.X - t.X) > 8 || Math.Abs(p.Y - t.Y) > 8)
                 {
                     GD.PrintErr($"SMOKE FAILED: rotation {r} picked {_camera.Pick(centre, _view!)?.ToString() ?? "nothing"} at the centre");
                     GetTree().Quit(1);
