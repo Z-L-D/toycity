@@ -37,3 +37,29 @@ jobs:
           cache-dependency-path: clients/web/package-lock.json
       - run: npm ci
       - run: npm run build
+
+  godot:
+    runs-on: ubuntu-latest
+    env:
+      GODOT: Godot_v4.7.2-stable_mono_linux_x86_64
+      GODOT_SHA512: 1855960b27ee3ef5e66e5e228cced69d55637b24334a7411162687dcd077d8f9f645348cdb8eae984bec8135d49ed855a1e3a16476786b8bce60774fd8402d13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Download Godot 4.7.2 .NET and check it
+        run: |
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/4.7.2-stable/$GODOT.zip"
+          echo "$GODOT_SHA512  godot.zip" | sha512sum -c -
+          unzip -q godot.zip -d "$RUNNER_TEMP"
+          echo "GODOT_BIN=$RUNNER_TEMP/$GODOT/${GODOT/_x86_64/}.x86_64" >> "$GITHUB_ENV"
+      - run: dotnet build src/ToyCity.Server -c Release
+      - run: dotnet build clients/godot
+      - name: Smoke test against a live server
+        run: |
+          dotnet run --project src/ToyCity.Server -c Release --no-build > server.log 2>&1 &
+          for i in $(seq 60); do curl -sf localhost:5180/health && break; sleep 1; done
+          "$GODOT_BIN" --headless --path clients/godot --import
+          timeout 90 "$GODOT_BIN" --headless --path clients/godot -- --smoke | tee smoke.log
+          grep -q "SMOKE OK" smoke.log

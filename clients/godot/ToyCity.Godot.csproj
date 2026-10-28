@@ -1,0 +1,14 @@
+<Project Sdk="Godot.NET.Sdk/4.7.2">
+  <!-- Godot runs .NET 8 by default; it rolls forward to the .NET 10 runtime the server already needs, so the
+       client can share the server's protocol and model code as they are. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <RootNamespace>ToyCity.Godot</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/ToyCity.ClientModel/ToyCity.ClientModel.csproj" />
+  </ItemGroup>
+</Project>

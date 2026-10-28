@@ -7,10 +7,10 @@
     <PackageReference Include="Grpc.Tools" Version="2.67.0" PrivateAssets="All" />
   </ItemGroup>
   <ItemGroup>
-    <Protobuf Include="../../protocol/toycity.proto" GrpcServices="None" Link="toycity.proto" />
     <Protobuf Include="../../protocol/contract.proto" GrpcServices="None" Link="contract.proto" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../ToyCity.Sim/ToyCity.Sim.csproj" />
+    <ProjectReference Include="../ToyCity.Wire/ToyCity.Wire.csproj" />
   </ItemGroup>
 </Project>

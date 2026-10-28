@@ -5,9 +5,12 @@
     <Project Path="src/ToyCity.Server/ToyCity.Server.csproj" />
     <Project Path="src/ToyCity.Sim/ToyCity.Sim.csproj" />
     <Project Path="src/ToyCity.Transport/ToyCity.Transport.csproj" />
+    <Project Path="src/ToyCity.Wire/ToyCity.Wire.csproj" />
+    <Project Path="src/ToyCity.ClientModel/ToyCity.ClientModel.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ToyCity.Sim.Tests/ToyCity.Sim.Tests.csproj" />
+    <Project Path="tests/ToyCity.ClientModel.Tests/ToyCity.ClientModel.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/ToyCity.Bench/ToyCity.Bench.csproj" />

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- What a C# client knows about the city: its mirror of the state, the connection, and naming rules shared
+       with the server. No engine types, so the Godot client and tests both use it. -->
+  <PropertyGroup>
+    <RootNamespace>ToyCity.ClientModel</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ToyCity.Wire/ToyCity.Wire.csproj" />
+  </ItemGroup>
+</Project>
