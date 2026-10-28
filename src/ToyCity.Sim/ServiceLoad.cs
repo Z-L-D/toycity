@@ -51,7 +51,9 @@ public sealed partial class World
             Category.Fire => "residents protected",
             _ => "residents patrolled",
         };
-        if (!Serving(b)) return new Load(0, t.Serves, unit);
+        // Funding scales capacity as it does running cost, as in SC4: half the budget, half the seats (and a smaller reach).
+        int capacity = t.Serves * b.Funding / 100;
+        if (!Serving(b)) return new Load(0, capacity, unit);
         long served = 0;
         foreach (var home in Buildings)
         {
@@ -65,7 +67,7 @@ public sealed partial class World
                 _ => home.Residents * 1000L,
             };
         }
-        return new Load((int)((served + 500) / 1000), t.Serves, unit);
+        return new Load((int)((served + 500) / 1000), capacity, unit);
     }
 
     /// <summary>Distance from a service building to a home's cell, as coverage measures it.</summary>

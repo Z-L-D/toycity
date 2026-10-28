@@ -718,7 +718,7 @@ function renderFunding(b: Msg) {
   const slot = document.getElementById('funding-slot');
   if (!slot) return;
   slot.innerHTML = `<h4>Funding</h4><div class="slider"><span>Budget</span><input type="range" min="0" max="200" step="10" value="${b.fundingPercent}" id="funding"><span id="funding-val">${b.fundingPercent}%</span></div>
-    <p class="muted">Funding scales running cost and output. Coverage radius grows with the square root of funding.</p>`;
+    <p class="muted">Funding scales running cost, output and how many people it can serve. Coverage radius grows with the square root of funding.</p>`;
   const input = $<HTMLInputElement>('#funding');
   input.addEventListener('input', () => ($('#funding-val').textContent = `${input.value}%`));
   input.addEventListener('change', () => {

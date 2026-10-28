@@ -238,7 +238,8 @@ mechanic.
   Police stations count 2,500 residents patrolled and fire stations 3,000 protected. Parks count
   visitors a day (a quarter of the residents in reach): 100 for a pocket park, 300 small, 500 for a
   plaza, 1,200 large. Plants, pumps and the landfill count their share of the city's demand against
-  their output, and stops count riders. Patients are 2% of the residents in reach each month. Being
+  their output, and stops count riders. Capacity scales with the building's budget, as in SC4: at 50% funding a
+  school has half the seats (and its reach shrinks with the square root of funding, as before). Patients are 2% of the residents in reach each month. Being
   over capacity is shown but has no effect yet.
 - **Gauges.** A public building's Why panel opens with its gauge: served of capacity, with a bar that
   turns amber at 85% ("Nearly full: plan another one") and red past 100% ("Over capacity by N:

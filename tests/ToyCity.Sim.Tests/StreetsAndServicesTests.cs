@@ -128,6 +128,17 @@ public class StreetsAndServicesTests
         Assert.NotEqual(gauges[1].Label, w.Gauges(school)[1].Label);
         Assert.Empty(w.Gauges(homes[0]!));
 
+        // Cutting the budget cuts the seats and the reach; raising it adds both.
+        w.Enqueue(new SetFundingAction(school.Id, 50));
+        w.Step();
+        Assert.Equal(200, w.ServiceLoad(school)!.Capacity);
+        Assert.True(w.EffectiveRadius(school) < 16);
+        w.Enqueue(new SetFundingAction(school.Id, 150));
+        w.Step();
+        Assert.Equal(600, w.ServiceLoad(school)!.Capacity);
+        w.Enqueue(new SetFundingAction(school.Id, 100));
+        w.Step();
+
         // A second school shares the pupils; nobody is counted twice.
         var second = PlaceNear("elementary-school", 6);
         w.Run(2);
