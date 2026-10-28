@@ -466,6 +466,7 @@ message BuildingTypeInfo {
   int32 maintenance = 21;  // a month
   int64 lease_rent = 22;   // standard lease rent a month
   repeated UpgradeInfo upgrades = 23;
+  int32 build_days = 24;   // days from groundbreaking to opening
 }
 
 // An upgrade a type offers: what it becomes, what it costs and what the building must earn first.

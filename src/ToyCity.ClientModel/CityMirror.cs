@@ -33,6 +33,15 @@ public sealed class CityMirror
     public int Version { get; private set; }
     /// <summary>Cells changed since the last <see cref="TakeDirtyCells"/>, for renderers that update in chunks.</summary>
     readonly HashSet<int> _dirtyCells = new();
+    readonly List<BuildingState> _removed = new();
+
+    /// <summary>The buildings knocked down, burnt out or demolished since the last call, as they last stood.</summary>
+    public List<BuildingState> TakeRemoved()
+    {
+        var r = _removed.ToList();
+        _removed.Clear();
+        return r;
+    }
     readonly HashSet<int> _dirtyBuildings = new();
 
     public int N => Width * Height;
@@ -67,6 +76,7 @@ public sealed class CityMirror
         Version++;
         _dirtyCells.Clear();
         _dirtyBuildings.Clear();
+        _removed.Clear();
         AllDirty = true;
         Loaded = true;
     }
@@ -85,7 +95,11 @@ public sealed class CityMirror
             WaterPipes[i] = (byte)(c.WaterPipe ? 1 : 0);
             _dirtyCells.Add(i);
         }
-        foreach (int id in d.RemovedBuildings) RemoveBuilding(id);
+        foreach (int id in d.RemovedBuildings)
+        {
+            if (Buildings.TryGetValue(id, out var gone)) _removed.Add(gone);
+            RemoveBuilding(id);
+        }
         foreach (var b in d.Buildings)
         {
             // Most updates are a building's numbers changing; only a new footprint touches the cells.

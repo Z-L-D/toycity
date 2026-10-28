@@ -16,6 +16,7 @@ public partial class Main : Node
     ClassicCamera? _camera;
     MapView? _map;
     DirectionalLight3D? _sun;
+    DisasterView? _disasters;
     Label? _status, _hover;
     bool _smoke, _centred;
     string? _shots, _bench;
@@ -68,6 +69,8 @@ public partial class Main : Node
 
         _view = new CityView(_client.City);
         AddChild(_view);
+        _disasters = new DisasterView(_client.City);
+        AddChild(_disasters);
         _camera = new ClassicCamera { EdgePan = !_smoke && _bench == null };
         AddChild(_camera);
 
@@ -111,6 +114,8 @@ public partial class Main : Node
                 _view!.Refresh(all, cells, buildings);
                 _map!.Refresh(all, cells);
             }
+            _view!.Tick(delta, c.TakeRemoved());
+            _camera!.Shake = _disasters!.Shake;
             if (!_centred)
             {
                 _camera!.MapWidth = c.Width;

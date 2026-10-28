@@ -6,8 +6,8 @@ namespace ToyCity.ClientModel;
 /// <summary>
 /// The benchmark city for the frame budget: a server's map with every dry block built up. Roads run every fifth
 /// row and column, and each 4 × 4 block between them holds zoned buildings, tallest in the middle of the map and
-/// thinning out to houses at the edges, as a city fully grown would. Only the client draws it; the server's city
-/// is untouched.
+/// thinning out to houses at the edges, as a city fully grown would, with a share of them going up, worn,
+/// abandoned or burning. Only the client draws it; the server's city is untouched.
 /// </summary>
 public static class DenseCity
 {
@@ -49,15 +49,27 @@ public static class DenseCity
                     for (int lx = bx; lx < bx + 4; lx += lot)
                     {
                         var t = Pick(zone, density, k + lx + ly);
-                        f.Buildings.Add(new BuildingState
+                        var b = new BuildingState
                         {
                             Id = id++, TypeId = t.Id, X = lx, Y = ly, Width = lot, Height = lot, Zone = zone, Density = density, Wealth = t.Wealth,
                             Name = t.Name, Powered = true, Watered = true, Condition = 100, FundingPercent = 100,
-                        });
+                        };
+                        // A city's life on show: some going up, some worn and tagged, a few abandoned or on fire.
+                        uint roll = (uint)b.Id * 2654435761u >> 24;
+                        if (roll < 20) { b.ConstructionDaysLeft = 1 + (int)(roll % 12); b.Look = BuildingLook.LookUnderConstruction; }
+                        else if (roll < 45) { b.Condition = 20 + (int)(roll % 40); b.Graffiti = (int)(roll % 4); }
+                        else if (roll < 52) { b.Abandoned = true; b.Condition = 15; b.Graffiti = 3; b.Look = BuildingLook.LookAbandoned; }
+                        else if (roll < 55) { b.BurningDays = 3; b.Look = BuildingLook.LookBurning; }
+                        f.Buildings.Add(b);
                         for (int y = ly; y < ly + lot; y++)
                             for (int x = lx; x < lx + lot; x++) zones[y * w + x] = (byte)((int)zone * 3 + (int)density);
                     }
             }
+        // The Colossus strides down an avenue near the middle, and a tornado spins beside it.
+        f.Stats ??= new CityStats();
+        f.Stats.Disasters.Clear();
+        f.Stats.Disasters.Add(new Disaster { Id = 1, Kind = DisasterKind.DisasterRobot, X = w / 2 / 5 * 5 * 256 + 128, Y = h / 2 * 256, DaysLeft = 30 });
+        f.Stats.Disasters.Add(new Disaster { Id = 2, Kind = DisasterKind.DisasterTornado, X = (w / 2 + 4) * 256, Y = (h / 2 + 3) * 256, DaysLeft = 30 });
         f.Zones = ByteString.CopyFrom(zones);
         f.Paths = ByteString.CopyFrom(paths);
         return f;

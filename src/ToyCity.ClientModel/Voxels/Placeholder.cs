@@ -139,6 +139,48 @@ public static class Placeholder
         m.Fill(cx - 2, cy - 2, top, cx + 2, cy + 2, Math.Min(m.SizeZ - 1, top + 10), Stack);
     }
 
+    /// <summary>The Clockwork Colossus: a brass walker two cells across and three tall, facing +y (south).</summary>
+    public static VoxModel Colossus()
+    {
+        var m = new VoxModel(64, 64, 100);
+        const byte Brass = 1, Dark = 2, Eye = 3, Steam = 4;
+        m.Palette[Brass] = VoxModel.Rgba(181, 140, 62);
+        m.Palette[Dark] = VoxModel.Rgba(92, 70, 40);
+        m.Palette[Eye] = VoxModel.Rgba(255, 70, 40);
+        m.Palette[Steam] = VoxModel.Rgba(225, 225, 225);
+        m.Fill(14, 26, 0, 24, 38, 44, Dark);          // legs
+        m.Fill(40, 26, 0, 50, 38, 44, Dark);
+        m.Fill(10, 22, 0, 26, 42, 4, Brass);          // feet
+        m.Fill(38, 22, 0, 54, 42, 4, Brass);
+        m.Fill(8, 18, 44, 56, 46, 80, Brass);         // body
+        for (int z = 50; z < 78; z += 8) m.Fill(8, 46, z, 56, 47, z + 2, Dark);  // rivet bands on the front
+        m.Fill(0, 26, 52, 7, 36, 76, Dark);           // arms
+        m.Fill(57, 26, 52, 63, 36, 76, Dark);
+        m.Fill(20, 22, 80, 44, 42, 96, Brass);        // head
+        m.Fill(24, 43, 86, 40, 43, 90, Eye);          // the eye, on the face
+        m.Fill(28, 28, 96, 34, 34, 99, Steam);        // a puff from the funnel
+        return m;
+    }
+
+    /// <summary>A tornado: a funnel of grey-brown debris rings, narrow at the ground, four cells tall.</summary>
+    public static VoxModel Tornado()
+    {
+        var m = new VoxModel(96, 96, 128);
+        m.Palette[1] = VoxModel.Rgba(150, 145, 135);
+        m.Palette[2] = VoxModel.Rgba(110, 100, 85);
+        for (int z = 0; z < 128; z++)
+        {
+            float r = 4 + z * 0.33f;
+            for (int a = 0; a < 360; a += 3)
+            {
+                float t = a * MathF.PI / 180 + z * 0.15f;
+                int x = 48 + (int)(MathF.Cos(t) * r), y = 48 + (int)(MathF.Sin(t) * r);
+                if (m.In(x, y, z) && (a / 3 + z) % 4 != 0) m[x, y, z] = (byte)(z % 9 < 2 ? 2 : 1);
+            }
+        }
+        return m;
+    }
+
     static void Tree(VoxModel m, int x, int y, int h)
     {
         m.Fill(x, y, 1, x + 1, y + 1, h - 4, Trunk);

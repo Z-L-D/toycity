@@ -7,7 +7,9 @@ namespace ToyCity.Godot;
 /// <summary>
 /// The city in 3D, one world unit to a cell: terrain as stepped blocks in chunks rebuilt where cells change, a
 /// water plane, and buildings as voxel models, one instanced batch per type and lot size, with a coarser mesh at
-/// far zoom levels. It also answers how tall each cell stands, which picking needs.
+/// far zoom levels. Buildings rise layer by layer as they're built and crumble when they go, and show their
+/// wear, graffiti, fire and abandonment (shaders/building.gdshader). It also answers how tall each cell stands,
+/// which picking needs.
 /// </summary>
 public partial class CityView : Node3D
 {
@@ -21,7 +23,10 @@ public partial class CityView : Node3D
     // One batch per model and 32-cell region of the map, so the camera skips regions off screen.
     readonly Dictionary<(string, int, int, int), MultiMeshInstance3D> _batches = new();
     const int Region = 32;
-    StandardMaterial3D? _voxelMaterial;
+    readonly Dictionary<(string, int, int, int), List<(BuildingState B, float Left)>> _members = new();  // Left < 0: standing
+    readonly BuildingLife _life = new();
+    bool _wasAnimating;
+    ShaderMaterial? _voxelMaterial;
     bool _far;
     MeshInstance3D? _cursor;
     float[] _top = System.Array.Empty<float>();
@@ -43,7 +48,7 @@ public partial class CityView : Node3D
             MaterialOverride = new StandardMaterial3D { VertexColorUseAsAlbedo = true, VertexColorIsSrgb = true, Roughness = 0.9f },
         };
         AddChild(_blocks);
-        _voxelMaterial = new StandardMaterial3D { VertexColorUseAsAlbedo = true, VertexColorIsSrgb = true, Roughness = 0.95f };
+        _voxelMaterial = new ShaderMaterial { Shader = GD.Load<Shader>("res://shaders/building.gdshader") };
         _cursor = new MeshInstance3D
         {
             Mesh = new BoxMesh { Size = new Vector3(1.04f, 0.04f, 1.04f) },
@@ -63,6 +68,7 @@ public partial class CityView : Node3D
             _chunks = new MeshInstance3D[cw * ch];
             for (int k = 0; k < _chunks.Length; k++) { _chunks[k] = new MeshInstance3D { MaterialOverride = _ground }; AddChild(_chunks[k]); }
             for (int k = 0; k < _chunks.Length; k++) BuildChunk(k % cw, k / cw);
+            _life.Reset();
             BuildWater();
             BuildBlocks();
             return;
@@ -161,16 +167,18 @@ public partial class CityView : Node3D
         MaxTop = 0;
         for (int i = 0; i < n; i++) { _top[i] = Mathf.Max(Ground(i), water); MaxTop = Mathf.Max(MaxTop, _top[i]); }
 
-        var groups = new Dictionary<(string, int, int, int), List<BuildingState>>();
+        var groups = new Dictionary<(string, int, int, int), List<(BuildingState B, float Left)>>();
         var stops = new List<BuildingState>();
-        foreach (var b in _city.Buildings.Values)
+        void Add(BuildingState b, float left)
         {
-            if (!_city.TypeById.TryGetValue(b.TypeId, out var t) || t.Roadside) { stops.Add(b); continue; }
+            if (!_city.TypeById.TryGetValue(b.TypeId, out var t) || t.Roadside) { if (left < 0) stops.Add(b); return; }
             var key = (b.TypeId, b.Width, b.Height, b.Y / Region * 1024 + b.X / Region);
             if (!groups.TryGetValue(key, out var list)) groups[key] = list = new();
-            list.Add(b);
+            list.Add((b, left));
         }
-        foreach (var key in _batches.Keys.Where(k => !groups.ContainsKey(k)).ToList()) { _batches[key].QueueFree(); _batches.Remove(key); }
+        foreach (var b in _city.Buildings.Values) Add(b, -1);
+        foreach (var (b, left) in _life.Crumbling) Add(b, left);
+        foreach (var key in _batches.Keys.Where(k => !groups.ContainsKey(k)).ToList()) { _batches[key].QueueFree(); _batches.Remove(key); _members.Remove(key); }
         foreach (var (key, list) in groups)
         {
             var model = _models.Get(_city.TypeById[key.Item1], key.Item2, key.Item3);
@@ -178,29 +186,27 @@ public partial class CityView : Node3D
             {
                 mmi = new MultiMeshInstance3D
                 {
-                    Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, Mesh = MeshOf(model) },
+                    Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseCustomData = true, Mesh = MeshOf(model) },
                     MaterialOverride = _voxelMaterial,
                 };
                 AddChild(mmi);
                 _batches[key] = mmi;
             }
+            _members[key] = list;
             var mm = mmi.Multimesh;
             mm.InstanceCount = list.Count;
             for (int k = 0; k < list.Count; k++)
             {
-                var b = list[k];
+                var b = list[k].B;
                 float g = 0;
                 for (int y = b.Y; y < b.Y + b.Height; y++)
                     for (int x = b.X; x < b.X + b.Width; x++)
                         if (_city.InBounds(x, y)) g = Mathf.Max(g, Ground(_city.Idx(x, y)));
-                // Until part 4's layer-by-layer construction: a building going up stands low and pale.
-                float rise = b.ConstructionDaysLeft > 0 ? 0.4f : 1f;
-                var color = Colors.White;
-                if (b.ConstructionDaysLeft > 0) color = new Color(1.25f, 1.25f, 1.25f);
-                if (b.Abandoned) color = new Color(0.5f, 0.48f, 0.45f);
-                mm.SetInstanceTransform(k, new Transform3D(Basis.Identity.Scaled(new Vector3(1, rise, 1)), new Vector3(b.X, g, b.Y)));
-                mm.SetInstanceColor(k, color);
-                float top = g + model.Height * rise;
+                mm.SetInstanceTransform(k, new Transform3D(Basis.Identity, new Vector3(b.X, g, b.Y)));
+                var life = list[k].Left < 0 ? _life.Of(b) : _life.OfCrumbling(b, list[k].Left);
+                mm.SetInstanceCustomData(k, Custom(life, model.Height));
+                if (list[k].Left >= 0) continue;
+                float top = g + model.Height * life.Standing;
                 for (int y = b.Y; y < b.Y + b.Height; y++)
                     for (int x = b.X; x < b.X + b.Width; x++)
                         if (_city.InBounds(x, y)) { _top[_city.Idx(x, y)] = top; MaxTop = Mathf.Max(MaxTop, top); }
@@ -218,6 +224,41 @@ public partial class CityView : Node3D
             var off = b.Side switch { 0 => new Vector3(0, 0, -0.38f), 1 => new Vector3(0.38f, 0, 0), 2 => new Vector3(0, 0, 0.38f), _ => new Vector3(-0.38f, 0, 0) };
             blocks.SetInstanceTransform(k, new Transform3D(Basis.Identity.Scaled(new Vector3(0.18f, 0.18f, 0.18f)), new Vector3(b.X + 0.5f, g + 0.09f, b.Y + 0.5f) + off));
             blocks.SetInstanceColor(k, Colors.Gold);
+        }
+    }
+
+    /// <summary>A building's life as the shader reads it (see building.gdshader).</summary>
+    static Color Custom(Life life, float height) =>
+        new(life.Standing >= 1 && !life.Flags.HasFlag(LifeFlags.Crumbling) ? 99f : height * life.Standing, life.Wear, life.Graffiti, (float)(int)life.Flags);
+
+    /// <summary>
+    /// Moves building life on a frame: buildings just removed start crumbling, and while anything rises or
+    /// crumbles the instances' life data is refreshed.
+    /// </summary>
+    public void Tick(double dt, List<BuildingState> removed)
+    {
+        if (!_city.Loaded || _batches.Count == 0 && removed.Count == 0) return;
+        _life.Advance(_city, dt, removed);
+        int crumbling = _life.Crumbling.Count();
+        if (removed.Count > 0 || crumbling != _lastCrumbling) { _lastCrumbling = crumbling; BuildBlocks(); }
+        else if (_life.Animating || _wasAnimating) UpdateLife();
+        _wasAnimating = _life.Animating;
+    }
+    int _lastCrumbling;
+
+    void UpdateLife()
+    {
+        var crumbling = _life.Crumbling.ToDictionary(c => c.B.Id, c => c.Left);
+        foreach (var (key, list) in _members)
+        {
+            var mm = _batches[key].Multimesh;
+            var model = _models.Get(_city.TypeById[key.Item1], key.Item2, key.Item3);
+            for (int k = 0; k < list.Count && k < mm.InstanceCount; k++)
+            {
+                var (b, left) = list[k];
+                var life = left < 0 ? _life.Of(_city.Buildings.GetValueOrDefault(b.Id, b)) : _life.OfCrumbling(b, crumbling.GetValueOrDefault(b.Id, 0));
+                mm.SetInstanceCustomData(k, Custom(life, model.Height));
+            }
         }
     }
 

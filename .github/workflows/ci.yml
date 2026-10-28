@@ -67,14 +67,16 @@ jobs:
         run: |
           sudo apt-get install -y -qq xvfb libgl1-mesa-dri > /dev/null
           xvfb-run -a -s "-screen 0 1600x900x24" timeout 120 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
-            --path clients/godot -- --shots "$PWD/shots" | tee shots.log
+            --path clients/godot -- --shots "$PWD/shots" 2>&1 | tee shots.log
           grep -q "SMOKE OK" shots.log
+          ! grep -n "SHADER ERROR" -A3 shots.log
           ls shots/*.png
       - name: Dense-city benchmark (software OpenGL, so times are not the target hardware's)
         run: |
           xvfb-run -a -s "-screen 0 1600x900x24" timeout 300 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
-            --path clients/godot -- --bench "$PWD/bench.json" --shots "$PWD/shots" | tee bench.log
+            --path clients/godot -- --bench "$PWD/bench.json" --shots "$PWD/shots" 2>&1 | tee bench.log
           grep -q "BENCH wrote" bench.log
+          ! grep -n "SHADER ERROR" -A3 bench.log
           { echo '### Dense-city benchmark (CI runner, software OpenGL)'; echo '```'; grep '^BENCH' bench.log; echo '```'; echo '```json'; cat bench.json; echo; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Contact sheet of the views (base64 JPEG, for reviewers who can't download artifacts)
         run: |

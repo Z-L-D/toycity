@@ -15,6 +15,8 @@ public partial class ClassicCamera : Camera3D
     public int MapWidth, MapHeight;
     public Func<float, float, float>? GroundAt;  // ground height under a map point, so the view centres on hills
     public bool EdgePan = true;
+    /// <summary>How hard an earthquake shakes the view, in cells; the view itself (and picking) stays put.</summary>
+    public float Shake;
     const float KeyPanPixels = 900, EdgePanPixels = 700, Edge = 6;
     bool _dragging;
 
@@ -92,6 +94,7 @@ public partial class ClassicCamera : Camera3D
         if (GroundAt != null) View.TargetHeight = GroundAt(View.Target.X, View.Target.Y);
         Size = View.Size;
         var r = View.Right; var u = View.Up; var f = View.Forward; var p = View.Position;
+        if (Shake > 0) p += (r * (float)GD.RandRange(-1.0, 1.0) + u * (float)GD.RandRange(-1.0, 1.0)) * Shake;
         Transform = new Transform3D(new Basis(new Vector3(r.X, r.Y, r.Z), new Vector3(u.X, u.Y, u.Z), new Vector3(-f.X, -f.Y, -f.Z)), new Vector3(p.X, p.Y, p.Z));
     }
 
