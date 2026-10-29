@@ -241,3 +241,55 @@ as `ActionRecord.rename`, so a replay of a shared city reaches the same state.
 `RolesTests` (a deputy acting only in their portfolio; the council off until the mayor seats it; passing, ties to the
 mayor, deadlines, dissolving; save and replay) and `MultiplayerTests` (the public and operator views on a real server,
 standings hidden from a rival, a deputy's proposal passed by vote over the wire).
+
+## Part 5: side games in another process
+
+### The host
+
+`src/ToyCity.SideGameHost` runs side games for cities elsewhere: `--port 5190` (default) and `--listen 0.0.0.0` to
+take connections from other machines (loopback by default). It references the contract and the games, and no city
+code. The wire protocol is `protocol/sidegamehost.proto`, carrying contract v1's own messages (`contract.proto`),
+each framed as a 4-byte little-endian length and the message. Its two ends are in `src/ToyCity.Contract.Wire`:
+`RemoteSideGame` (the city's end, an `ISideGame` like any other) and `SideGameServer` (the host's end). The contract
+messages and their conversions (`ContractWire`) moved there from ToyCity.Protocol, so a host needs nothing else.
+
+A city server puts a game on a host from `host.json`:
+
+```json
+"sideGames": [ { "id": "transport", "address": "127.0.0.1:5190", "deadlineMs": 2000 } ]
+```
+
+One connection is one game. Each city opens its own, and so does every copy of a city (a forecast opens one for the
+forecast and closes it after; `World` is now `IDisposable` for this).
+
+### Calls and questions
+
+The city makes one call at a time (open, new game, tick, command, view, save, load) and waits for the answer. During a
+tick or a command the game can ask the city its read-only questions (a street route, a cell's district, a hash);
+each goes back over the connection and the host waits for the answer before going on. City width and height travel
+with each call.
+
+### Deadlines
+
+A tick or a command that isn't answered within `deadlineMs` is aborted: the city sends `abort` with the call's
+number and the host puts the game back as it was before the call (it keeps a saved copy before every call that
+changes the game), whether the call was still running, waiting on a question, or had finished late. Both sides then
+agree the call never happened, and the city logs that it didn't:
+
+- **A missed day** (`SideGameMissedAction`, "day"): the game sits the day out. Yesterday's lines and jobs carry on,
+  the status says so, and nothing is paid or asked for that day, so a missed first of the month leaves the bills
+  unpaid as for any operator who didn't pay.
+- **A missed command** ("command"): logged in the command's place, and the player is told to try again.
+
+Both are saved as `ActionRecord.missed`, and a replay skips exactly the same day and command, so a replay with the
+game in-process reaches the same state as the live city with the game elsewhere. Opening, saving and loading aren't
+held to the deadline (15 seconds). A host that won't undo a late call, or whose connection drops, is cut off: from
+then on its game misses every day until the server loads the city again. A view that comes late falls back to the
+last one the host sent.
+
+### Tests
+
+`RemoteSideGameTests`: the bus company played the same way in-process and on a host ends in the identical state
+(and view), carries on in step after a save and load through the host, and survives a forecast; a probe that runs
+late on one day and one command is undone on the host, logged, and a replay with the probe in-process matches.
+`SideGameHostTests` runs the real host process and a dedicated server whose bus company lives on it.

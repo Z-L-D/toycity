@@ -37,6 +37,7 @@ public sealed partial class World
             case TriggerDisasterAction a: StartDisaster(a.Kind, a.X, a.Y); break;
             case AttachSideGameAction a: ApplyAttach(a); break;
             case SideGameAction a: ApplySideGameAction(a); break;
+            case SideGameMissedAction a: ApplyMissed(a); break;
             case SetSeatAction a: ApplySetSeat(a); break;
             case SetAwayLevelAction a: ApplySetAwayLevel(a); break;
             case SeatAwayAction a: ApplySeatAway(a); break;

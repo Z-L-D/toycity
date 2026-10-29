@@ -27,7 +27,7 @@ dotnet run --project src/ToyCity.Server
 
 See [docs/BETA1.md](docs/BETA1.md) for the Godot client's controls, command-line options and frame budget.
 
-To host a city for several players, run `dotnet run --project src/ToyCity.Server -c Release -- --dedicated`; players sign in and `host.json` beside the saves sets who may join. See [docs/BETA2.md](docs/BETA2.md).
+To host a city for several players, run `dotnet run --project src/ToyCity.Server -c Release -- --dedicated`; players sign in and `host.json` beside the saves sets who may join. A side game can run in its own process or on another machine with `dotnet run --project src/ToyCity.SideGameHost -c Release -- --port 5190`, listed under `sideGames` in `host.json`. See [docs/BETA2.md](docs/BETA2.md).
 
 The server starts a 128 × 128 map called Toyville with a small working town so there is
 something to look at. Use **New city** for a blank map.

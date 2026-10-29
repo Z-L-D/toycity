@@ -164,3 +164,10 @@ public interface ISideGame
     void Save(BinaryWriter w);
     void Load(BinaryReader r);
 }
+
+/// <summary>
+/// Thrown by a side game hosted in another process when it doesn't answer a tick or a command by the city's deadline.
+/// The call never happened on either side: the host puts the game back as it was. The city logs the miss, so replays
+/// skip the same call.
+/// </summary>
+public sealed class SideGameMissedException(string message) : Exception(message);

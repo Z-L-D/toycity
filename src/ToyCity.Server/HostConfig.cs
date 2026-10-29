@@ -7,6 +7,14 @@ namespace ToyCity.Server;
 [JsonConverter(typeof(JsonStringEnumConverter<JoinPolicy>))]
 public enum JoinPolicy { Open, Invite, List }
 
+/// <summary>A side game hosted elsewhere: its id, where its host listens, and how long a day or a command may take it.</summary>
+public sealed class RemoteGame
+{
+    public string Id { get; set; } = "";
+    public string Address { get; set; } = "127.0.0.1:5190";
+    public int DeadlineMs { get; set; } = 2000;
+}
+
 /// <summary>
 /// How a dedicated server is run, from host.json beside its saves (written with the defaults on first start, for the
 /// host to edit). Solo play doesn't use it: the one local player is signed in automatically and is the admin.
@@ -27,6 +35,9 @@ public sealed class HostConfig
 
     /// <summary>How long after a seat owner's last connection drops the computer takes their seats, at the level they chose. 0 never.</summary>
     public int AwayAfterSeconds { get; set; } = 120;
+
+    /// <summary>Side games run on another process or machine (see ToyCity.SideGameHost) instead of in this one.</summary>
+    public List<RemoteGame> SideGames { get; set; } = new();
 
     [JsonIgnore] public bool Dedicated { get; set; }
     [JsonIgnore] public string? Path { get; set; }

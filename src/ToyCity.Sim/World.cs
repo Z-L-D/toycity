@@ -213,11 +213,15 @@ public sealed partial class World
     /// Applies queued actions now, logged at the current tick. Step does this first; a paused host calls it directly
     /// so building works while paused. Either way the log replays to the same state.
     /// </summary>
+    /// <summary>Where in the log the action being applied is.</summary>
+    int _logging;
+
     public void ApplyPending()
     {
         if (_pending.Count == 0) return;
         foreach (var a in _pending)
         {
+            _logging = Log.Count;
             Log.Add(new LoggedAction(Tick, a));
             _actor = a.By;
             if (Forbidden(a) is { } why) Reject(why);

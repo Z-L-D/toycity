@@ -55,6 +55,8 @@ public sealed partial class World
                 return "Only the server sets its host's rules.";
             case RenameOwnerAction:
                 return "Only the server hands a player's seats to another.";
+            case SideGameMissedAction:
+                return "Only the city records a side game's missed deadline.";
             case SideGameAction g:
             {
                 var seat = SeatOf(g.GameId);

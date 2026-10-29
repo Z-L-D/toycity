@@ -119,4 +119,22 @@ public static class ContractWire
         foreach (var a in m.AuthorityActions) g.AuthorityActions.Add(new C.AuthorityAction(a.Kind, a.DistrictId));
         return g;
     }
+
+    public static W.Manifest ToWire(C.Manifest m)
+    {
+        var w = new W.Manifest { Id = m.Id, Name = m.Name, ContractVersion = m.ContractVersion, Description = m.Description };
+        w.LotKinds.AddRange(m.LotKinds);
+        return w;
+    }
+
+    public static C.Manifest FromWire(W.Manifest m) => new(m.Id, m.Name, m.ContractVersion, m.LotKinds.ToArray(), m.Description);
+
+    public static W.StreetRoute ToWire(C.StreetRoute r)
+    {
+        var w = new W.StreetRoute { Minutes = r.Minutes };
+        w.Cells.AddRange(r.Cells);
+        return w;
+    }
+
+    public static C.StreetRoute FromWire(W.StreetRoute r) => new(r.Cells.ToArray(), r.Minutes);
 }

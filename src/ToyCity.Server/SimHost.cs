@@ -49,6 +49,7 @@ public sealed partial class SimHost : IDisposable
         _host = host ?? HostConfig.Solo();
         _accounts = accounts ?? (_host.Dedicated ? new AccountStore(Path.Combine(saveDir, "accounts.json")) : null);
         Directory.CreateDirectory(saveDir);
+        UseRemoteSideGames();
         _world = NewWorld("Toyville", 2026, 128, starter: true);
         EnsureMayor();
         ApplyHostRules();
@@ -344,7 +345,9 @@ public sealed partial class SimHost : IDisposable
                     try
                     {
                         if (!ValidName(msg.Load.Name)) throw new InvalidDataException("bad save name");
-                        _world = Mapping.Load(_content, File.ReadAllBytes(SavePath(msg.Load.Name)));
+                        var loaded = Mapping.Load(_content, File.ReadAllBytes(SavePath(msg.Load.Name)));
+                        _world.Dispose();
+                        _world = loaded;
                         AttachSideGames(_world);
                         Arrived(c.Player);
                         broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).Concat(BuildDeltas(forceAlerts: true)).ToList();
@@ -359,6 +362,7 @@ public sealed partial class SimHost : IDisposable
                     var n = msg.NewCity;
                     int size = n.Benchmark ? BenchmarkCity.Size : n.Size is 64 or 128 or 256 ? n.Size : 128;
                     ulong seed = n.Seed != 0 ? n.Seed : (ulong)Random.Shared.NextInt64(1, long.MaxValue);
+                    _world.Dispose();
                     _world = NewWorld(string.IsNullOrWhiteSpace(n.Name) ? "New City" : n.Name.Trim(), seed, size, n.StarterTown, n.Benchmark);
                     Arrived(c.Player);
                     broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).Concat(BuildDeltas(forceAlerts: true)).ToList();
@@ -387,7 +391,7 @@ public sealed partial class SimHost : IDisposable
                         P.ServerMessage m;
                         try
                         {
-                            var copy = World.FromSnapshot(_content, snapshot);
+                            using var copy = World.FromSnapshot(_content, snapshot);
                             m = new P.ServerMessage { Forecast = Mapping.Forecast(copy.RunForecast(months, plan), plan.Count > 0) };
                         }
                         catch (Exception e) { _log.LogWarning(e, "forecast failed"); m = Error(0, "The forecast failed."); }

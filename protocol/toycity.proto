@@ -1098,6 +1098,12 @@ message ActionRecord {
   SeatAway away = 4;   // set instead of action: the server handed a seat to the computer, or back, as its owner left or returned
   HostRules host_rules = 5;  // set instead of action: the server's minimums when the city arrived
   RenameOwner rename = 6;    // set instead of action: the server gave one player's seats to another
+  SideGameMissed missed = 7; // set instead of action: a side game hosted elsewhere missed its deadline
+}
+
+message SideGameMissed {
+  string game = 1;
+  string what = 2;  // "day" or "command"
 }
 
 message RenameOwner {

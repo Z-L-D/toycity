@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Runs side games for cities elsewhere, over protocol/sidegamehost.proto. Needs no city code: only the contract and the games. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ToyCity.SideGameHost</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ToyCity.Contract.Wire/ToyCity.Contract.Wire.csproj" />
+    <ProjectReference Include="../ToyCity.Transport/ToyCity.Transport.csproj" />
+  </ItemGroup>
+</Project>

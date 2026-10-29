@@ -9,26 +9,51 @@ public sealed record AttachSideGameAction(string GameId) : SimAction;
 public sealed record SideGameAction(string GameId, string Seat, byte[] Payload) : SimAction;
 
 /// <summary>
+/// A side game hosted elsewhere missed its deadline: for its "day" (it sits the day out and yesterday's service
+/// repeats) or for a "command" (logged in the command's place, which never happened). Only the city logs these, so
+/// a replay skips exactly what the live city skipped.
+/// </summary>
+public sealed record SideGameMissedAction(string GameId, string What) : SimAction;
+
+/// <summary>
 /// The side games this build can host, by id. A host registers them at startup; loading a city that names one not
 /// registered fails rather than silently dropping it.
 /// </summary>
 public static class SideGameCatalog
 {
     static readonly Dictionary<string, Func<ISideGame>> Factories = new();
+    static readonly AsyncLocal<Func<string, ISideGame?>?> Scoped = new();
+
+    /// <summary>
+    /// Until disposed, cities made on this thread (and the tasks it starts) get their side games from here first, so
+    /// one process can run the same game in-process and hosted elsewhere side by side.
+    /// </summary>
+    public static IDisposable Scope(Func<string, ISideGame?> make)
+    {
+        var old = Scoped.Value;
+        Scoped.Value = make;
+        return new Restore(() => Scoped.Value = old);
+    }
+
+    sealed class Restore(Action undo) : IDisposable { public void Dispose() => undo(); }
 
     public static void Register(string id, Func<ISideGame> factory)
     {
         lock (Factories) Factories[id] = factory;
     }
 
-    public static bool Has(string id) { lock (Factories) return Factories.ContainsKey(id); }
+    public static bool Has(string id) { lock (Factories) return Factories.ContainsKey(id) || Scoped.Value != null; }
 
     public static ISideGame Create(string id)
     {
-        Func<ISideGame>? f;
-        lock (Factories) Factories.TryGetValue(id, out f);
-        if (f == null) throw new InvalidDataException($"side game '{id}' isn't available in this build");
-        var g = f();
+        var g = Scoped.Value?.Invoke(id);
+        if (g == null)
+        {
+            Func<ISideGame>? f;
+            lock (Factories) Factories.TryGetValue(id, out f);
+            if (f == null) throw new InvalidDataException($"side game '{id}' isn't available in this build");
+            g = f();
+        }
         if (g.Manifest.Id != id) throw new InvalidDataException($"side game registered as '{id}' calls itself '{g.Manifest.Id}'");
         if (g.Manifest.ContractVersion != ContractInfo.Version)
             throw new InvalidDataException($"{g.Manifest.Name} speaks contract v{g.Manifest.ContractVersion}; this city speaks v{ContractInfo.Version}");
@@ -45,10 +70,18 @@ public sealed class HostedGame
     public GameToCity Last = new();
     /// <summary>Riders per line from the last commute count, sent with the next tick.</summary>
     public readonly Dictionary<int, (int Riders, int[] Boardings)> Ridership = new();
+    /// <summary>The tick this game sits out, from a logged miss; -1 when none.</summary>
+    internal long MissedTick = -1;
 }
 
-public sealed partial class World
+public sealed partial class World : IDisposable
 {
+    /// <summary>Lets go of side games hosted elsewhere (their connections). An in-process city needs no disposing.</summary>
+    public void Dispose()
+    {
+        foreach (var hg in SideGames) (hg.Game as IDisposable)?.Dispose();
+    }
+
     public readonly List<HostedGame> SideGames = new();
 
     /// <summary>Incidents raised since the last side-game tick, by the city or a side game; handed on at the next one.</summary>
@@ -72,8 +105,17 @@ public sealed partial class World
     {
         if (SideGame(a.GameId) != null) return;
         if (!SideGameCatalog.Has(a.GameId)) { Reject($"There is no side game called '{a.GameId}' in this build."); return; }
-        var g = SideGameCatalog.Create(a.GameId);
-        g.NewGame(Seed ^ (ulong)XxHashOf(a.GameId));
+        ISideGame g;
+        try
+        {
+            g = SideGameCatalog.Create(a.GameId);
+            g.NewGame(Seed ^ (ulong)XxHashOf(a.GameId));
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or System.Net.Sockets.SocketException or SideGameMissedException)
+        {
+            Reject($"'{a.GameId}' couldn't be reached: {e.Message}");
+            return;
+        }
         SideGames.Add(new HostedGame { Game = g });
         AddSideGameSeat(a.GameId);
         Notices.Add(new SimNotice($"{g.Manifest.Name} has set up in town.", "info"));
@@ -85,7 +127,15 @@ public sealed partial class World
     {
         var hg = SideGame(a.GameId);
         if (hg == null) { Reject($"There is no side game called '{a.GameId}' in this city."); return; }
-        var result = hg.Game.Command(a.Seat, a.Payload, Queries);
+        CommandResult result;
+        try { result = hg.Game.Command(a.Seat, a.Payload, Queries); }
+        catch (SideGameMissedException e)
+        {
+            // The command never happened, here or on the host: log that in its place.
+            Log[_logging] = new LoggedAction(Tick, new SideGameMissedAction(a.GameId, "command"));
+            Reject($"{e.Message} Try again.");
+            return;
+        }
         if (!result.Ok) Reject(result.Message);
         else if (result.Message.Length > 0) Notices.Add(new SimNotice(result.Message, "info"));
     }
@@ -120,12 +170,37 @@ public sealed partial class World
             if (newMonth && !InStasis) BillLeases(hg, input);
             FillOffers(hg, input, results);
             var output = new GameToCity();
-            hg.Game.Tick(input, Queries, output);
+            if (hg.MissedTick == Tick) output = Held(hg, "");
+            else
+                try { hg.Game.Tick(input, Queries, output); }
+                catch (SideGameMissedException e)
+                {
+                    Log.Add(new LoggedAction(Tick, new SideGameMissedAction(hg.Id, "day")));
+                    output = Held(hg, e.Message);
+                }
             hg.Last = output;
             foreach (var inc in output.Incidents) TakeIncident(hg, inc);
             SettleLeases(hg, input, output);
             TakeAuthorityActions(hg, output);
         }
+    }
+
+    /// <summary>
+    /// A missed day: yesterday's lines and jobs carry on, nothing is paid or asked for, and the city says so. Bills
+    /// due that day go unpaid, as they would for any operator who didn't pay.
+    /// </summary>
+    GameToCity Held(HostedGame hg, string why)
+    {
+        var o = new GameToCity { ServiceQuality = hg.Last.ServiceQuality, Status = $"{hg.Game.Manifest.Name} missed its day; yesterday's service runs again" };
+        o.Lines.AddRange(hg.Last.Lines);
+        foreach (var (k, v) in hg.Last.JobsByLease) o.JobsByLease[k] = v;
+        Notices.Add(new SimNotice(why.Length > 0 ? $"{why} Yesterday's service runs again today." : o.Status + ".", "warning"));
+        return o;
+    }
+
+    void ApplyMissed(SideGameMissedAction a)
+    {
+        if (a.What == "day" && SideGame(a.GameId) is { } hg) hg.MissedTick = Tick;
     }
 
     /// <summary>A side game's incident: renumbered by the city, told to the other games next tick, and in the news.</summary>

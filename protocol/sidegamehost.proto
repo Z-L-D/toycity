@@ -1,0 +1,94 @@
+// A side game hosted in another process, perhaps on another machine: the city calls it over a socket with the
+// messages of contract v1 (contract.proto). Each message is framed as a 4-byte little-endian length and the message.
+//
+// One connection is one game. The city opens it with Open and the host answers with the game's manifest. After
+// that the city makes one call at a time and the host answers it with the same seq. While answering a tick or a
+// command the game may ask the city questions (Query, with the call's seq); the city answers each with QueryAnswer
+// before the host goes on. A call the host doesn't answer by the city's deadline is aborted: the city sends Abort
+// with that call's seq, and the host puts the game back as it was before the call and answers aborted, so both
+// sides agree the call never happened.
+syntax = "proto3";
+
+package toycity.contract.v1;
+
+import "contract.proto";
+
+option csharp_namespace = "ToyCity.Protocol.Contract";
+
+// From the city to the host.
+message CityCall {
+  uint64 seq = 1;
+  oneof kind {
+    Open open = 2;
+    uint64 new_game = 3;      // the seed
+    TickCall tick = 4;
+    CommandCall command = 5;
+    string view = 6;          // the seat
+    bool save = 7;
+    bytes load = 8;           // a state from save
+    bool abort = 9;           // undo the call with this seq
+    QueryAnswer answer = 10;  // to the host's query for the call with this seq
+  }
+}
+
+message Open {
+  string game = 1;
+  int32 contract_version = 2;
+}
+
+message CityShape {
+  int32 width = 1;
+  int32 height = 2;
+}
+
+message TickCall {
+  CityToGame input = 1;
+  CityShape city = 2;
+}
+
+message CommandCall {
+  string seat = 1;
+  bytes payload = 2;
+  CityShape city = 3;
+}
+
+message QueryAnswer {
+  StreetRoute route = 1;  // unset when there is no route
+  int32 district = 2;
+  uint64 hash = 3;
+}
+
+// From the host to the city.
+message HostReply {
+  uint64 seq = 1;
+  oneof kind {
+    Manifest manifest = 2;       // to open
+    GameToCity output = 3;       // to a tick
+    CommandResult result = 4;    // to a command
+    bytes data = 5;              // to a view or a save
+    bool done = 6;               // to new_game or load
+    Query query = 7;             // the game asks the city something
+    bool aborted = 8;            // to abort
+    string error = 9;            // the call failed; the game is as it was before it
+  }
+}
+
+message Query {
+  oneof kind {
+    RouteQuery route = 1;
+    int32 district_of = 2;
+    HashQuery hash = 3;
+  }
+}
+
+message RouteQuery {
+  int32 from_cell = 1;
+  int32 to_cell = 2;
+}
+
+message HashQuery {
+  int32 a = 1;
+  int32 b = 2;
+  int32 c = 3;
+  int32 d = 4;
+}

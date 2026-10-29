@@ -1,4 +1,6 @@
 using Google.Protobuf;
+using Microsoft.Extensions.Logging;
+using ToyCity.Protocol;
 using ToyCity.Sim;
 using ToyCity.Transport;
 using P = ToyCity.Protocol.V0;
@@ -14,6 +16,24 @@ public sealed partial class SimHost
     static SimHost() => SideGameCatalog.Register(TransportGame.Id, () => new TransportGame());
     readonly Dictionary<string, byte[]> _sentViews = new();
     string _viewOwners = "";
+
+    /// <summary>
+    /// Side games the host config puts on another process: registered in place of the in-process ones, so every city
+    /// here (and every forecast copy) opens its own game on that host.
+    /// </summary>
+    void UseRemoteSideGames()
+    {
+        foreach (var r in _host.SideGames)
+        {
+            int colon = r.Address.LastIndexOf(':');
+            if (colon <= 0 || !int.TryParse(r.Address[(colon + 1)..], out int port)) { _log.LogWarning("side game {Id}: address {Address} isn't host:port", r.Id, r.Address); continue; }
+            string host = r.Address[..colon], id = r.Id;
+            var deadline = TimeSpan.FromMilliseconds(Math.Clamp(r.DeadlineMs, 50, 60_000));
+            SideGameCatalog.Register(id, () => new RemoteSideGame(host, port, id, deadline));
+            if (!_sideGameIds.Contains(id)) _sideGameIds.Add(id);
+            _log.LogInformation("side game {Id} runs on {Address}, deadline {Ms} ms", id, r.Address, deadline.TotalMilliseconds);
+        }
+    }
 
     /// <summary>Adds the side games this server hosts to a city that doesn't have them yet. Caller holds the gate.</summary>
     void AttachSideGames(World w)

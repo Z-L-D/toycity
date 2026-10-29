@@ -437,6 +437,7 @@ public static class Mapping
             s.Log.Add(l.Action switch
             {
                 SeatAwayAction sa => new P.ActionRecord { Tick = l.Tick, By = sa.By, Away = new P.SeatAway { Seat = sa.SeatId, Away = sa.Away } },
+                SideGameMissedAction ms => new P.ActionRecord { Tick = l.Tick, By = ms.By, Missed = new P.SideGameMissed { Game = ms.GameId, What = ms.What } },
                 RenameOwnerAction rn => new P.ActionRecord { Tick = l.Tick, By = rn.By, Rename = new P.RenameOwner { From = rn.From, To = rn.To } },
                 SetHostRulesAction hr => new P.ActionRecord { Tick = l.Tick, By = hr.By, HostRules = new P.HostRules { Forbidden = { hr.Forbidden.Select(m => (P.Mechanic)(int)m) } } },
                 _ => new P.ActionRecord { Tick = l.Tick, By = l.Action.By, Action = ToProto(l.Action) },
@@ -452,6 +453,7 @@ public static class Mapping
         foreach (var r in s.Log)
         {
             SimAction? a = r.Away != null ? new SeatAwayAction(r.Away.Seat, r.Away.Away)
+                : r.Missed != null ? new SideGameMissedAction(r.Missed.Game, r.Missed.What)
                 : r.Rename != null ? new RenameOwnerAction(r.Rename.From, r.Rename.To)
                 : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
                 : r.Action == null ? null : ToSim(r.Action);

@@ -14,5 +14,7 @@
     <ProjectReference Include="../../src/ToyCity.ClientModel/ToyCity.ClientModel.csproj" />
     <!-- The real server, run as a process on a spare port; also gives the tests the sim's naming rules to compare. -->
     <ProjectReference Include="../../src/ToyCity.Server/ToyCity.Server.csproj" />
+    <!-- The side-game host, run as a process for the server to put its bus company on. -->
+    <ProjectReference Include="../../src/ToyCity.SideGameHost/ToyCity.SideGameHost.csproj" />
   </ItemGroup>
 </Project>
