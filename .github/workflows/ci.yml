@@ -74,14 +74,21 @@ jobs:
       - name: Dense-city benchmark (software OpenGL, so times are not the target hardware's)
         run: |
           xvfb-run -a -s "-screen 0 1600x900x24" timeout 300 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
-            --path clients/godot -- --bench "$PWD/bench.json" --shots "$PWD/shots" 2>&1 | tee bench.log
+            --path clients/godot -- --bench "$PWD/bench.json" --graphics High --shots "$PWD/shots" 2>&1 | tee bench.log
           grep -q "BENCH wrote" bench.log
           ! grep -n "SHADER ERROR" -A3 bench.log
-          { echo '### Dense-city benchmark (CI runner, software OpenGL)'; echo '```'; grep '^BENCH' bench.log; echo '```'; echo '```json'; cat bench.json; echo; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '### Dense-city benchmark, High (CI runner, software OpenGL)'; echo '```'; grep '^BENCH' bench.log; echo '```'; echo '```json'; cat bench.json; echo; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Dense-city benchmark on the Low preset
+        run: |
+          xvfb-run -a -s "-screen 0 1600x900x24" timeout 300 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
+            --path clients/godot -- --bench "$PWD/bench-low.json" --graphics Low 2>&1 | tee bench-low.log
+          grep -q "BENCH wrote" bench-low.log
+          ! grep -n "SHADER ERROR" -A3 bench-low.log
+          { echo '### Dense-city benchmark, Low'; echo '```'; grep '^BENCH' bench-low.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Gate run, the Alpha 3 loop on the benchmark city (software OpenGL, so times are not the target hardware's)
         run: |
           xvfb-run -a -s "-screen 0 1600x900x24" timeout 900 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
-            --path clients/godot -- --gate "$PWD/gate.json" --shots "$PWD/gate-shots" 2>&1 | tee gate.log
+            --path clients/godot -- --gate "$PWD/gate.json" --graphics High --shots "$PWD/gate-shots" 2>&1 | tee gate.log
           { echo '### Gate run (CI runner, software OpenGL)'; echo; grep '^GATE ' gate.log | sed 's/^GATE //'; } >> "$GITHUB_STEP_SUMMARY"
           grep -q "GATE OK" gate.log
           ! grep -n "SHADER ERROR" -A3 gate.log
@@ -103,6 +110,7 @@ jobs:
             shots/
             sheet.jpg
             bench.json
+            bench-low.json
             gate-shots/
             gate-sheet.jpg
             gate.json

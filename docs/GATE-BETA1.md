@@ -85,3 +85,31 @@ Against the budget:
 
 The run's own JSON is in the CI artifact `godot-views` as `gate.json`, with each frame's phase, average,
 95th percentile and worst frame time.
+
+## Real hardware (2026-10-29)
+
+Run by hand on two laptops of about the same age, with Vulkan (Forward+), before the graphics options existed
+(so at what is now the High preset, without MSAA).
+
+**Quadro P4200 with Max-Q Design** (discrete), `--bench`, 128 × 128 dense city: 207 to 290 fps at every zoom
+level, 95% of frames under 10.3 ms, worst frames 23 to 62 ms; 914 MB.
+
+**Intel HD Graphics 620** (integrated, the target class), "playable but not smooth":
+
+| What was on screen | Avg fps | p95 ms | Triangles |
+| --- | --- | --- | --- |
+| bench, classic zoom 0 (128 × 128) | 39.5 | 27.6 | 1,146,061 |
+| bench, classic zoom 3 | 26.3 | 39.3 | 2,872,945 |
+| gate, classic zoom 0 (256 × 256) | 27.1 | 38.1 | 1,390,251 |
+| gate, classic zoom 2 | 55.8 | 18.1 | 309,719 |
+| gate, classic zoom 3 | 20.5 | 54.8 | 4,576,143 |
+| gate, free camera 160 cells off | 29.0 | 34.7 | 1,373,739 |
+| gate, free camera 60 cells off | 10.2 | 109.9 | 10,571,781 |
+| gate, free camera 18 cells off (smoothed) | 9.0 | 117.7 | 19,060,701 |
+| gate, riding a bus | 9.8 | 114.2 | 16,558,213 |
+
+The gate passed every check there too, with memory peaking at 795 MB. Frame time follows the triangle count:
+the full-detail models when zoomed in, and the smoothed ones in the free camera. That led to the graphics options
+above. Medium (picked on integrated graphics) draws the half-resolution models up close, keeps the far models past
+80 cells in the free camera, has no smoothing and uses smaller hard shadows. Low also drops shadows and draws at 75%
+resolution. To measure a preset: `--bench bench.json --graphics Low` or `--gate gate.json --graphics Medium`.

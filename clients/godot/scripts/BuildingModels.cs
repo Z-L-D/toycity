@@ -5,14 +5,14 @@ using ToyCity.Protocol.V0;
 namespace ToyCity.Godot;
 
 /// <summary>
-/// One voxel model per building type and lot size, meshed three ways: full detail for close zoom levels, a
-/// quarter of the resolution for far ones, and smoothed (surface nets, at half the resolution) for the free
-/// camera up close, made the first time it's needed. A file at res://vox/{type}-{w}x{d}.vox or res://vox/{type}.vox
+/// One voxel model per building type and lot size, meshed four ways: full detail for close zoom levels, a
+/// quarter of the resolution for far ones, half for close ones at lower detail settings, and smoothed (surface
+/// nets, at half the resolution) for the free camera up close; the last two made the first time they're needed. A file at res://vox/{type}-{w}x{d}.vox or res://vox/{type}.vox
 /// replaces the generated placeholder; artists drop files there and nothing else changes.
 /// </summary>
 public sealed class BuildingModels
 {
-    public sealed record Model(ArrayMesh Near, ArrayMesh Far, Lazy<ArrayMesh> Smooth, float Height, bool FromFile);
+    public sealed record Model(ArrayMesh Near, ArrayMesh Far, Lazy<ArrayMesh> Mid, Lazy<ArrayMesh> Smooth, float Height, bool FromFile);
     readonly Dictionary<(string, int, int), Model> _cache = new();
 
     public int Count => _cache.Count;
@@ -29,7 +29,7 @@ public sealed class BuildingModels
         var near = VoxMesher.Mesh(vox, scale);
         var far = VoxMesher.Mesh(vox.Downsample(4), 4 * scale);
         var model = vox;
-        m = new Model(ToMesh(near), ToMesh(far), new Lazy<ArrayMesh>(() => ToMesh(SurfaceNets.Mesh(model.Downsample(2), 2 * scale))),
+        m = new Model(ToMesh(near), ToMesh(far), new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model.Downsample(2), 2 * scale))), new Lazy<ArrayMesh>(() => ToMesh(SurfaceNets.Mesh(model.Downsample(2), 2 * scale))),
             near.Positions.Count > 0 ? near.Positions.Max(p => p.Y) : 0, fromFile);
         _cache[(t.Id, w, d)] = m;
         return m;

@@ -18,6 +18,7 @@ Command-line options go after `--`, for example
 | `--smoke` | connect, check the city loads and picking works at all 4 rotations, then quit (CI) |
 | `--shots DIR` | with `--smoke`, also save a screenshot of each camera view |
 | `--bench FILE` | draw the dense benchmark city and write frame times, triangles, draw calls and memory per zoom level to FILE |
+| `--graphics PRESET` | use the Low, Medium, High or Ultra preset for this run instead of the saved options (with `--bench` or `--gate`, to measure a preset) |
 | `--gate FILE` | found the server's benchmark city and play the Alpha 3 loop on it, measuring every frame; writes the checks and frame times to FILE (see [the gate run](GATE-BETA1.md)) |
 
 ## Code layout
@@ -124,6 +125,33 @@ and colour. To replace one, put a .vox file in `clients/godot/vox/`: `{type}-{w}
 type on a w × d lot, or `{type}.vox` for any size (scaled down to fit the lot if it's bigger). To start from
 the placeholders, `dotnet run --project tools/ToyCity.VoxGen -- vox-placeholders` writes them all as .vox
 files to open in MagicaVoxel.
+
+## Graphics options
+
+The Graphics button in the top bar opens the options. Each applies at once, shows the frame rate as you
+change it, and is saved in Godot's user folder (`graphics.cfg`). The first run picks Medium on integrated
+graphics and High otherwise.
+
+| Option | Choices | What it costs |
+| --- | --- | --- |
+| Preset | Low, Medium, High, Ultra (Custom once anything below is changed) | sets everything down to detail distance |
+| 3D resolution | 50 to 100% | the city drawn smaller and scaled up (FSR on Forward+); the panels stay sharp |
+| Shadows | Off, Low, High | shadows draw the city a second time |
+| Building detail | Low, Medium, High | a quarter, half or all of the voxel detail when zoomed in |
+| Smoothed buildings | Off, nearest blocks, wide | rounded buildings around the free camera's focus, up close: the heaviest option |
+| Anti-aliasing | Off, FXAA, MSAA 2×, MSAA 4× | |
+| Detail distance | 40 to 200 cells | how far the free camera draws buildings in detail |
+| V-sync, frame cap | on/off; none, 30, 60, 120 fps | |
+| Street names, city life | on/off | labels; commuters and buses |
+
+| Preset | 3D resolution | Shadows | Detail | Smoothing | Anti-aliasing | Detail distance |
+| --- | --- | --- | --- | --- | --- | --- |
+| Low | 75% | Off | Low | Off | Off | 40 |
+| Medium | 100% | Low | Medium | Off | FXAA | 80 |
+| High | 100% | High | High | Nearest blocks | MSAA 2× | 120 |
+| Ultra | 100% | High | High | Wide | MSAA 4× | 200 |
+
+The settings and presets live in `ClientModel/Graphics/GraphicsSettings` (tested); `GraphicsPanel` draws them.
 
 ## The frame budget
 

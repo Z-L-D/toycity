@@ -1,4 +1,5 @@
 using Godot;
+using ToyCity.ClientModel.Graphics;
 using ToyCity.ClientModel;
 using ToyCity.Protocol.V0;
 
@@ -27,9 +28,9 @@ public partial class CityView : Node3D
     readonly BuildingLife _life = new();
     bool _wasAnimating;
     ShaderMaterial? _voxelMaterial;
-    public enum Detail { Far, Near, Smooth }
-    Detail _detail = Detail.Near;
+    ModelDetail _detail = ModelDetail.Near, _rest = ModelDetail.Near;
     (int X, int Y) _focus = (-99, -99);  // the region the smooth detail is centred on
+    int _radius;
     MeshInstance3D? _cursor;
     float[] _top = System.Array.Empty<float>();
     ShaderMaterial? _ground;
@@ -178,24 +179,24 @@ public partial class CityView : Node3D
     }
 
     /// <summary>
-    /// How much detail the buildings get: far zoom levels draw every building with its quarter-resolution mesh;
-    /// the free camera up close draws the regions around where it looks smoothed, and the rest in full detail.
+    /// Which models the buildings are drawn with (<see cref="GraphicsSettings.ClassicDetail"/> and FreeDetail pick
+    /// them). Smooth applies to the regions within <paramref name="radius"/> of the one around the focus; the rest
+    /// use <paramref name="rest"/>.
     /// </summary>
-    public void SetDetail(Detail detail, float focusX, float focusY)
+    public void SetDetail(ModelDetail detail, ModelDetail rest, float focusX, float focusY, int radius)
     {
         var focus = ((int)focusX / Region, (int)focusY / Region);
-        if (detail == _detail && (detail != Detail.Smooth || focus == _focus)) return;
-        (_detail, _focus) = (detail, focus);
+        if (detail == _detail && (detail != ModelDetail.Smooth || focus == _focus && rest == _rest && radius == _radius)) return;
+        (_detail, _rest, _focus, _radius) = (detail, rest, focus, radius);
         foreach (var (key, mmi) in _batches)
             if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3), key.Item4);
     }
 
-    Mesh MeshOf(BuildingModels.Model m, int region) => _detail switch
+    Mesh MeshOf(BuildingModels.Model m, int region)
     {
-        Detail.Far => m.Far,
-        Detail.Smooth when Math.Abs(region % 1024 - _focus.X) <= 1 && Math.Abs(region / 1024 - _focus.Y) <= 1 => m.Smooth.Value,
-        _ => m.Near,
-    };
+        var d = _detail == ModelDetail.Smooth && (Math.Abs(region % 1024 - _focus.X) > _radius || Math.Abs(region / 1024 - _focus.Y) > _radius) ? _rest : _detail;
+        return d switch { ModelDetail.Far => m.Far, ModelDetail.Mid => m.Mid.Value, ModelDetail.Smooth => m.Smooth.Value, _ => m.Near };
+    }
 
     public int Batches => _batches.Count;
     public int Models => _models.Count;

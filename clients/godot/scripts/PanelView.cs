@@ -64,6 +64,9 @@ public partial class PanelView : CanvasLayer
         c.AddThemeConstantOverride("outline_size", 4);
     }
 
+    /// <summary>The Graphics button: Main opens the options.</summary>
+    public event System.Action? GraphicsPressed;
+
     Button Btn(string text, System.Action pressed, Container parent)
     {
         var b = new Button { Text = text, FocusMode = Control.FocusModeEnum.None };
@@ -107,6 +110,7 @@ public partial class PanelView : CanvasLayer
         Btn("New", () => Model.OpenDialog("new"), row);
         Btn("Save", () => Model.OpenDialog("save"), row);
         Btn("Load", () => Model.OpenDialog("load"), row);
+        Btn("Graphics", () => GraphicsPressed?.Invoke(), row);
         Btn("Panel (P)", () => _side!.Visible = !_side.Visible, row);
 
         // The bus company's top bar, in its place while the company's view is up.
