@@ -140,7 +140,7 @@ public sealed partial class SimHost : IDisposable
             }
         }
         // Petitions, deals, unlocks and headlines change at most monthly or on an action, so a cheap signature will do.
-        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}/{string.Join(",", _world.Seats.Select(s => $"{s.Owner}:{(int)s.Level}:{(int)s.Style}:{s.SpendCap}:{s.Report?.ToTick}:{(int)s.AwayLevel}:{(int)s.AwayStyle}:{s.AutoAway}"))}/{string.Join(",", _world.Leases.Select(l => $"{l.Id}:{l.Terms.GetHashCode()}:{l.PendingMonths}:{l.Arrears}:{l.BadStanding}:{l.CureMonthsLeft}:{l.Jobs}:{l.LastRevenue}:{l.EvictMonths}"))}/{_world.SideGames.Count}/{_world.ConsentSig()}/{string.Join(",", _world.Standings.Select(s => $"{s.Rating}:{s.Statue}:{s.ExclusiveUntil > _world.Tick}"))}/{_world.RolesSig()}/{string.Join(",", _world.Offers.Select(o => o.Id * 8 + (int)o.Status))}";
+        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}/{string.Join(",", _world.Seats.Select(s => $"{s.Owner}:{(int)s.Level}:{(int)s.Style}:{s.SpendCap}:{s.Report?.ToTick}:{(int)s.AwayLevel}:{(int)s.AwayStyle}:{s.AutoAway}"))}/{string.Join(",", _world.Leases.Select(l => $"{l.Id}:{l.Terms.GetHashCode()}:{l.PendingMonths}:{l.Arrears}:{l.BadStanding}:{l.CureMonthsLeft}:{l.Jobs}:{l.LastRevenue}:{l.EvictMonths}"))}/{_world.SideGames.Count}/{_world.ConsentSig()}/{string.Join(",", _world.Standings.Select(s => $"{s.Rating}:{s.Statue}:{s.ExclusiveUntil > _world.Tick}"))}/{_world.RolesSig()}/{string.Join(",", _world.Offers.Select(o => o.Id * 8 + (int)o.Status))}/{_world.Delinks.Count}";
         if (forceAlerts || civicSig != _civicSig)
         {
             _civicSig = civicSig;
@@ -343,11 +343,13 @@ public sealed partial class SimHost : IDisposable
                     {
                         // Applied now, not at the next tick: at a slow speed a day is many seconds. It is logged at the
                         // current tick, before that tick's step, which is where a replay applies it too.
+                        _world.MakeCopies = true;
                         _world.Enqueue(a with { By = c.Player });
                         _world.ApplyPending();
                         if (a is SetConsentAction) KeepConsent(c.Player);
                         // A side game's commands can come several a second (a scene running): they don't resend the civic state.
                         broadcast = BuildDeltas(forceAlerts: a is not SideGameAction);
+                        broadcast.AddRange(TakeCopies());
                     }
                     else reply = Error(msg.Seq, "Unknown action.");
                     break;
@@ -452,6 +454,40 @@ public sealed partial class SimHost : IDisposable
         }
         if (broadcast != null)
             foreach (var (cl, m) in broadcast) await SendAsync(cl, m);
+    }
+
+    /// <summary>
+    /// Copies of the city made by de-links: each is kept in the saves, under a name that says whose copy it is, and
+    /// sent to its player on every connection they have open. Caller holds the gate.
+    /// </summary>
+    List<(Client, P.ServerMessage)> TakeCopies()
+    {
+        var list = new List<(Client, P.ServerMessage)>();
+        foreach (var (player, copy) in _world.Copies)
+        {
+            using (copy)
+            {
+                string name = CopyName(player);
+                byte[] save = Mapping.Save(copy);
+                try { File.WriteAllBytes(SavePath(name), save); }
+                catch (IOException e) { _log.LogWarning(e, "couldn't keep {Player}'s copy", player); }
+                var msg = new P.ServerMessage { DelinkCopy = new P.DelinkCopy { Name = name, Save = ByteString.CopyFrom(save) } };
+                foreach (var c in _clients.Where(c => c.Player == player)) list.Add((c, msg));
+            }
+        }
+        _world.Copies.Clear();
+        return list;
+    }
+
+    /// <summary>A save name for a player's copy: the city, the player and the day, cut to what save names allow.</summary>
+    string CopyName(string player)
+    {
+        string clean(string t) => new string(t.Where(ch => char.IsAsciiLetterOrDigit(ch) || ch is ' ' or '-' or '_').ToArray()).Trim();
+        string tail = $" {clean(player)} copy {_world.Tick}";
+        string city = clean(_world.Name);
+        if (city.Length + tail.Length > 40) city = city[..Math.Max(0, 40 - tail.Length)].TrimEnd();
+        string name = (city + tail).Trim();
+        return name.Length > 40 ? name[..40] : name;
     }
 
     [GeneratedRegex("^[A-Za-z0-9 _-]{1,40}$")]

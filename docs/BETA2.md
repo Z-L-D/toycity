@@ -450,3 +450,49 @@ panel shows a ladder, gentlest first, with whether each rung is open now and the
   keeps the lease and its jobs; the ladder's rungs and their rules, and offers lapse; offers save, load and replay.
 - `DisputeClientTests`: against the real server, the mayor leases a stop from its panel, the computer turns down a
   buyout for nothing and takes a paid move.
+
+## Part 9: de-linking
+
+When two players can't settle a dispute, they part ways for good. The player who goes takes a copy of the city as it
+is at that moment; the city they leave keeps its name, its log and everyone else.
+
+### Who may de-link whom
+
+- `DelinkAction(player)`. A player may always leave. The mayor may cut a player loose on the same grounds as an
+  eviction: one of their leases is past its cure period, or hostile evictions are on between the two. A player who
+  holds no lots (a deputy, a spectator with settings) may be cut loose at any time. The mayor can't de-link from
+  their own city.
+- The dispute ladder gains a last rung, De-link, and the civic state lists every player with a part in the city with
+  whether the mayor may cut them loose and the rule behind it.
+
+### The city left behind
+
+- Every lease of the player's side games ends. What they owed is written off; compensation already owed for a
+  hostile eviction under way is paid. Open offers on those leases are withdrawn.
+- Their seats go to nobody, on caretaker, so the companies keep running for the computer. Their consent settings,
+  portfolios and pacts are dropped.
+- The de-link is recorded (who, who did it, leases ended, written off, paid) and starts a 90-day cooldown: the player
+  can't claim a seat or be made a deputy while the same mayor runs the city.
+
+### The copy
+
+- Built from the snapshot just before the de-link is settled, with the log up to that moment and one more record,
+  `Fork`, that makes it the player's: they are its mayor, their seats and leases are as they were, everyone else's
+  seats go to the computer, other players' settings and the council go, and it's named "City (player)".
+- The copy replays from its own log (the home city's actions, then the fork), so both cities replay exactly.
+- The server keeps the copy in its saves ("City player copy tick") and sends it to the player as `DelinkCopy`. The
+  web client downloads it as a file; Godot writes it to `user://copies/`.
+
+### Clients
+
+- The seat dialog has a "Parting ways" section: for the mayor, each player with De-link (or why not); for anyone
+  else, "Leave with a copy…"; and the past de-links with their settlement and cooldown. The lease panel has the same
+  button under the ladder. Both ask for confirmation and say what happens.
+
+### Tests
+
+- `DelinkTests` (sim): a player who leaves takes a copy and the city keeps its own, and both run, save and load; both
+  cities replay from their logs; the mayor cuts a player loose only on an eviction's grounds, writing off what's owed;
+  the cooldown blocks claims and portfolios until it's over.
+- `DelinkClientTests`: on a dedicated server a player claims the bus company, leaves from the seat dialog, gets a
+  copy they are mayor of over the wire, and can't take the company back during the cooldown.

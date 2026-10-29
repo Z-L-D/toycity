@@ -248,6 +248,12 @@ public sealed partial class PanelModel
             sb.Append(Link($"offer-make:{lease.Id}:1", SpeaksForOperator(lease) ? "Ask for a buyout…" : "Offer a buyout…")).Append("   ");
             sb.Append(lease.MoveTo.Count > 0 ? Link($"offer-make:{lease.Id}:2", "Propose a move…") : Dim("Propose a move")).Append('\n');
         }
+        if (Civic?.Seats.FirstOrDefault(s => s.Id == lease.Game)?.Owner is { Length: > 0 } op)
+        {
+            if (op == Me()) sb.Append(Link($"delink:{Uri.EscapeDataString(op)}", "Leave with a copy…")).Append('\n');
+            else if (Mayor?.Owner == Me() && Civic.DelinkOptions.FirstOrDefault(o => o.Player == op) is { Open: true })
+                sb.Append(Link($"delink:{Uri.EscapeDataString(op)}", $"De-link {Esc(op)}…")).Append('\n');
+        }
         foreach (var o in lease.Offers.Where(o => o.Status != "open").Take(4))
             sb.Append(Small(Dim($"{Esc(who(o))}: {Esc(o.Text)} — [b]{o.Status}[/b]{(o.Note != "" ? $". {Esc(o.Note)}" : "")}"))).Append('\n');
         return sb.ToString();
@@ -664,7 +670,29 @@ public sealed partial class PanelModel
                 sb.Append($"[b]{Esc(s.Name)}[/b] {Small(Dim($"{(string.IsNullOrEmpty(s.Owner) ? "nobody runs it" : $"run by {Esc(s.Owner)}")} · {Levels[(int)s.Level].ToLowerInvariant()}"))}  "
                     + (s.Owner == Me() && s.Level == SeatLevel.SeatManual ? Link($"leave:{s.Id}", "Hand to the computer") : Link($"claim:{s.Id}", "Run it yourself")) + "\n");
         }
+        sb.Append(PartingText());
         return sb.Append(Footer(Link("dialog:consent", "House rules…"), Link("dialog:council", "Deputies and council…"), Link("close", "Cancel"), $"[b]{Link("seat-apply", "Apply")}[/b]")).ToString();
+    }
+
+    /// <summary>Parting ways: the mayor may cut players loose on the rules' grounds; anyone else may leave with a copy.</summary>
+    string PartingText()
+    {
+        if (Civic == null) return "";
+        bool mayor = Mayor?.Owner == Me();
+        var mine = Civic.DelinkOptions.FirstOrDefault(o => o.Player == Me());
+        if (!mayor && mine == null && Civic.Delinks.Count == 0) return "";
+        var sb = new StringBuilder(H4("Parting ways"));
+        if (mayor)
+            foreach (var o in Civic.DelinkOptions)
+                sb.Append($"[b]{Esc(o.Player)}[/b]  {(o.Open ? Link($"delink:{Uri.EscapeDataString(o.Player)}", "De-link…") : Dim("De-link"))}\n   {Small(Dim(Esc(o.Rule)))}\n");
+        else if (mine != null)
+            sb.Append(Link($"delink:{Uri.EscapeDataString(Me())}", "Leave with a copy…")).Append("  ")
+                .Append(Small(Dim("You take a copy of the city as it is now, with your seats and lots, and become its mayor. This city carries on without you."))).Append('\n');
+        foreach (var d in Civic.Delinks.Take(4))
+            sb.Append(Small(Dim($"Day {d.Day}: {Esc(d.Player)} {(d.By == d.Player ? "left" : $"was de-linked by {Esc(d.By)}")}"
+                + (d.LeasesEnded > 0 ? $", {Plural(d.LeasesEnded, "lease")} ended" : "") + (d.WrittenOff > 0 ? $", {Money(d.WrittenOff)} written off" : "")
+                + (d.Paid > 0 ? $", {Money(d.Paid)} paid" : "") + "." + (d.CooldownDays > 0 ? $" They can share a city with {Esc(d.Mayor)} again in {Plural(d.CooldownDays, "day")}." : "")))).Append('\n');
+        return sb.ToString();
     }
 
     /// <summary>

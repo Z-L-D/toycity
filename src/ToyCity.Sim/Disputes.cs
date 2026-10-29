@@ -308,6 +308,11 @@ public sealed partial class World
         else steps.Add(new("Evict", false, lease.BadStanding
             ? $"In bad standing: the mayor may end it if it isn't put right in {lease.CureMonthsLeft} month{(lease.CureMonthsLeft == 1 ? "" : "s")}."
             : $"Only a lease in bad standing past its cure period. {WhyOff(Mechanic.HostileEvictions, MayorSeat.Owner, op)}".TrimEnd()));
+        // The last rung: the two part ways for good, each with their own copy of the city.
+        string copy = $"takes a copy of the city as it is and leaves; the city keeps its name and everyone else, and the two can't share a city for {RelinkCooldownDays} days.";
+        if (op.Length == 0) steps.Add(new("De-link", false, $"Nobody runs {GameName(lease.GameId)}, so there's nobody to de-link."));
+        else if (DelinkGrounds(op) == null) steps.Add(new("De-link", true, $"The mayor may cut {op} loose, or {op} may leave: {op} {copy}"));
+        else steps.Add(new("De-link", true, $"{op} may leave at any time: {op} {copy} The mayor may cut them loose only on the same grounds as an eviction."));
         return steps;
     }
 

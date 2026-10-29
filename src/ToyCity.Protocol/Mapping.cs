@@ -38,6 +38,7 @@ public static class Mapping
         P.Action.KindOneofCase.Offer => new OfferLeaseAction(a.Offer.LeaseId, a.Offer.FromOperator, (OfferKind)(int)a.Offer.Kind,
             a.Offer.Terms == null ? null : Terms(a.Offer.Terms), a.Offer.Amount, a.Offer.ToBuildingId, a.Offer.CounterOf),
         P.Action.KindOneofCase.AnswerOffer => new AnswerOfferAction(a.AnswerOffer.OfferId, a.AnswerOffer.Accept),
+        P.Action.KindOneofCase.Delink => new DelinkAction(a.Delink.Player),
         P.Action.KindOneofCase.Consent => new SetConsentAction(a.Consent.Owner, (Mechanic)(int)a.Consent.Mechanic, a.Consent.Allowed),
         P.Action.KindOneofCase.Seat => new SetSeatAction(a.Seat.Seat, a.Seat.Owner, (ToyCity.Contract.OperatorLevel)(int)a.Seat.Level, (AutopilotStyle)(int)a.Seat.Style, a.Seat.SpendCap),
         P.Action.KindOneofCase.CityRule => new SetCityRuleAction((Mechanic)(int)a.CityRule.Mechanic, a.CityRule.Forbid),
@@ -82,6 +83,7 @@ public static class Mapping
             Amount = x.Amount, ToBuildingId = x.ToBuildingId, CounterOf = x.CounterOf,
         } },
         AnswerOfferAction x => new P.Action { AnswerOffer = new P.AnswerOffer { OfferId = x.OfferId, Accept = x.Accept } },
+        DelinkAction x => new P.Action { Delink = new P.Delink { Player = x.Player } },
         SetConsentAction x => new P.Action { Consent = new P.SetConsent { Owner = x.Owner, Mechanic = (P.Mechanic)(int)x.Mechanic, Allowed = x.Allowed } },
         SetSeatAction x => new P.Action { Seat = new P.SetSeat { Seat = x.SeatId, Owner = x.Owner, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style, SpendCap = x.SpendCap } },
         SetCityRuleAction x => new P.Action { CityRule = new P.SetCityRule { Mechanic = (P.Mechanic)(int)x.Mechanic, Forbid = x.Forbid } },
@@ -370,6 +372,17 @@ public static class Mapping
         foreach (var (player, p) in w.Deputies) r.Deputies.Add(new P.Deputy { Player = player, Portfolios = (uint)p });
         r.CouncilOn = w.CouncilOn;
         r.Council.AddRange(w.CouncilMembers());
+        foreach (var d in Enumerable.Reverse(w.Delinks))
+        {
+            var ds = new P.DelinkState
+            {
+                Day = (int)d.Tick, Player = d.Player, Mayor = d.Mayor, By = d.By, LeasesEnded = d.LeasesEnded, WrittenOff = d.WrittenOff, Paid = d.Paid,
+                CooldownDays = (int)Math.Max(0, d.CooldownUntil - w.Tick),
+            };
+            ds.Games.AddRange(d.Games);
+            r.Delinks.Add(ds);
+        }
+        foreach (var (player, why) in w.DelinkOptions()) r.DelinkOptions.Add(new P.DelinkOption { Player = player, Open = why == null, Rule = why ?? w.DelinkRule(player) });
         foreach (var p in w.Proposals.OrderBy(p => p.Status != ProposalStatus.Open).ThenByDescending(p => p.Id).Take(12))
         {
             var pp = new P.Proposal
@@ -461,6 +474,7 @@ public static class Mapping
                 SeatAwayAction sa => new P.ActionRecord { Tick = l.Tick, By = sa.By, Away = new P.SeatAway { Seat = sa.SeatId, Away = sa.Away } },
                 SideGameMissedAction ms => new P.ActionRecord { Tick = l.Tick, By = ms.By, Missed = new P.SideGameMissed { Game = ms.GameId, What = ms.What } },
                 RenameOwnerAction rn => new P.ActionRecord { Tick = l.Tick, By = rn.By, Rename = new P.RenameOwner { From = rn.From, To = rn.To } },
+                ForkAction fk => new P.ActionRecord { Tick = l.Tick, By = fk.By, Fork = new P.Fork { Player = fk.Player, HomeName = fk.HomeName } },
                 SetHostRulesAction hr => new P.ActionRecord { Tick = l.Tick, By = hr.By, HostRules = new P.HostRules { Forbidden = { hr.Forbidden.Select(m => (P.Mechanic)(int)m) } } },
                 _ => new P.ActionRecord { Tick = l.Tick, By = l.Action.By, Action = ToProto(l.Action) },
             });
@@ -477,6 +491,7 @@ public static class Mapping
             SimAction? a = r.Away != null ? new SeatAwayAction(r.Away.Seat, r.Away.Away)
                 : r.Missed != null ? new SideGameMissedAction(r.Missed.Game, r.Missed.What)
                 : r.Rename != null ? new RenameOwnerAction(r.Rename.From, r.Rename.To)
+                : r.Fork != null ? new ForkAction(r.Fork.Player, r.Fork.HomeName)
                 : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
                 : r.Action == null ? null : ToSim(r.Action);
             if (a != null) w.Log.Add(new LoggedAction(r.Tick, a with { By = r.By }));

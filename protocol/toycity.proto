@@ -85,6 +85,7 @@ message Action {
     Vote vote = 28;
     OfferLease offer = 29;
     AnswerOffer answer_offer = 30;
+    Delink delink = 31;
   }
 }
 
@@ -104,6 +105,11 @@ message OfferLease {
   int64 amount = 5;
   int32 to_building_id = 6;
   int32 counter_of = 7;
+}
+
+// A player leaves the city for good, taking a copy of it; or the mayor cuts them loose when the rules allow.
+message Delink {
+  string player = 1;
 }
 
 // The other side accepts or declines an offer; its maker declining it withdraws it.
@@ -503,7 +509,14 @@ message ServerMessage {
     SideGameView side_game = 19;  // sent when a side game's view changes
     SignedIn signed_in = 20;
     Presence presence = 21;  // who is here; sent when someone joins or leaves
+    DelinkCopy delink_copy = 22;  // to a player who just de-linked: their copy of the city, as a save
   }
+}
+
+// The copy a de-linked player takes with them. The server also keeps it in its saves under this name.
+message DelinkCopy {
+  string name = 1;
+  bytes save = 2;  // a SaveGame
 }
 
 // The players on this server: everyone online, and everyone who owns a seat here even while they're away.
@@ -966,6 +979,26 @@ message CivicState {
   bool council_on = 10;
   repeated Proposal proposals = 11;  // open ones first, then the last few decided
   repeated string council = 12;      // who votes: every seat owner and deputy
+  repeated DelinkState delinks = 13; // de-links, newest first
+  repeated DelinkOption delink_options = 14;  // each player with a part here besides the mayor: whether the mayor may cut them loose
+}
+
+message DelinkOption {
+  string player = 1;
+  bool open = 2;
+  string rule = 3;
+}
+
+message DelinkState {
+  int32 day = 1;
+  string player = 2;
+  string mayor = 3;
+  string by = 4;  // the player themselves, or the mayor who cut them loose
+  repeated string games = 5;
+  int32 leases_ended = 6;
+  int64 written_off = 7;
+  int64 paid = 8;
+  int32 cooldown_days = 9;  // days left before the two may share a city again; 0 when over
 }
 
 message Deputy {
@@ -1158,6 +1191,12 @@ message ActionRecord {
   HostRules host_rules = 5;  // set instead of action: the server's minimums when the city arrived
   RenameOwner rename = 6;    // set instead of action: the server gave one player's seats to another
   SideGameMissed missed = 7; // set instead of action: a side game hosted elsewhere missed its deadline
+  Fork fork = 8;             // set instead of action: this city is a copy a player took when they de-linked
+}
+
+message Fork {
+  string player = 1;
+  string home_name = 2;
 }
 
 message SideGameMissed {

@@ -32,6 +32,9 @@ public sealed partial class World
     {
         string by = a.By;
         if (by.Length == 0) return null;
+        // A player who de-linked from the mayor can't take a seat or a portfolio here until the cooldown is over.
+        if (a is SetSeatAction { Owner.Length: > 0 } ss && Cooldown(ss.Owner) is { } cs) return cs;
+        if (a is SetDeputyAction { Portfolios: not Portfolio.None } sd && Cooldown(sd.Player) is { } cd) return cd;
         switch (a)
         {
             case SetSeatAction s:
@@ -55,6 +58,10 @@ public sealed partial class World
                 return "Only the server sets its host's rules.";
             case RenameOwnerAction:
                 return "Only the server hands a player's seats to another.";
+            case ForkAction:
+                return "Only a de-link makes a copy of the city.";
+            case DelinkAction d:
+                return ForbiddenDelink(d, by);
             case SideGameMissedAction:
                 return "Only the city records a side game's missed deadline.";
             case SideGameAction g:

@@ -62,6 +62,8 @@ public sealed partial class PanelModel
     /// <summary>Choose a building for the place tool; centre on x, y unless x is -1.</summary>
     public event Action<string, int, int>? PickBuilding;
     public event Action<string, string>? Toast;
+    /// <summary>The copy of the city this player took when they de-linked: its save name and the save itself.</summary>
+    public event Action<string, byte[]>? CopyArrived;
     /// <summary>The unlocked buildings changed, so the place tool's list should be rebuilt.</summary>
     public event System.Action? UnlocksChanged;
 
@@ -131,6 +133,10 @@ public sealed partial class PanelModel
             case ServerMessage.BodyOneofCase.Ordinances: Ordinances = m.Ordinances.Ordinances; break;
             case ServerMessage.BodyOneofCase.Advisors: Advisors = m.Advisors; break;
             case ServerMessage.BodyOneofCase.Civic: OnCivic(m.Civic); break;
+            case ServerMessage.BodyOneofCase.DelinkCopy:
+                CopyArrived?.Invoke(m.DelinkCopy.Name, m.DelinkCopy.Save.ToByteArray());
+                Toast?.Invoke($"Your copy of the city is saved as \"{m.DelinkCopy.Name}\". Load it on your own server to play it.", "good");
+                break;
             case ServerMessage.BodyOneofCase.Agents:
                 Roster = m.Agents;
                 if (Followed is { } f && Roster.Trips.All(t => t.Id != f)) Followed = null;
@@ -569,6 +575,17 @@ public sealed partial class PanelModel
                 }
                 Changed();
                 return;
+            case "delink":
+            {
+                string player = Uri.UnescapeDataString(a[1]);
+                _confirm = (player == Me()
+                    ? "Leave this city for good? You get a copy of it as it is now, with your seats and lots, to play on your own. Your leases here end and you can't rejoin for 90 days."
+                    : $"De-link {player}? They take a copy of the city as it is now and leave. Their leases here end, what they owe is written off, and they can't come back for 90 days.",
+                    () => Send(new PAction { Delink = new Delink { Player = player } }));
+                Dialog = "confirm";
+                Changed();
+                return;
+            }
             case "offer-answer":
                 Send(new PAction { AnswerOffer = new AnswerOffer { OfferId = I(1), Accept = I(2) == 1 } });
                 return;

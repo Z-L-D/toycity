@@ -143,6 +143,7 @@ export class Seats {
           ${s.owner === this.me && s.level === 0
             ? `<button value="leave:${esc(s.id)}">Hand to the computer</button>`
             : `<button value="claim:${esc(s.id)}">Run it yourself</button>`}</div>`).join('')}` : ''}
+      ${this.partingHtml(m)}
       <div class="actions"><button value="consent">House rules…</button><button value="council" style="margin-right:auto">Deputies and council…</button><button value="cancel">Cancel</button><button value="ok" class="active">Apply</button></div>`;
     const sync = () => {
       const level = Number(new FormData(form).get('level'));
@@ -156,6 +157,7 @@ export class Seats {
       const v = dlg.returnValue;
       if (v === 'consent') { this.openConsent(); return; }
       if (v === 'council') { this.openCouncil(); return; }
+      if (v.startsWith('delink:')) { this.delink(v.slice(7)); return; }
       if (v.startsWith('claim:') || v.startsWith('leave:')) {
         const claim = v.startsWith('claim:');
         this.host.conn.action({ seat: { seat: v.slice(6), owner: claim ? this.me : '', level: claim ? 0 : 2, style: 0, spendCap: 25000 } });
@@ -168,6 +170,31 @@ export class Seats {
       this.host.conn.action({ seat: { seat: 'mayor', owner: m.owner || this.me, level: Number(fd.get('level')), style: Number(fd.get('style')), spendCap: Number(fd.get('cap') || 0) } });
     };
     dlg.showModal();
+  }
+
+  /** Parting ways: the mayor may cut players loose on the rules' grounds; anyone else may leave with a copy. */
+  private partingHtml(m: Msg) {
+    const options = (this.civic.delinkOptions ?? []) as Msg[];
+    const past = (this.civic.delinks ?? []) as Msg[];
+    const isMayor = m.owner === this.me;
+    const mine = options.find((o) => o.player === this.me);
+    if (!isMayor && !mine && !past.length) return '';
+    const rows = isMayor
+      ? options.map((o) => `<div class="seat-row"><b>${esc(o.player)}</b> <span class="muted small">${esc(o.rule)}</span>
+          <button value="delink:${esc(o.player)}" ${o.open ? '' : 'disabled'}>De-link…</button></div>`).join('')
+      : mine ? `<div class="seat-row"><span class="muted small">Leave for good: you take a copy of the city as it is now, with your seats and lots, and become its mayor. This city carries on without you.</span>
+          <button value="delink:${esc(this.me)}">Leave with a copy…</button></div>` : '';
+    const history = past.slice(0, 4).map((d) => `<p class="small muted">Day ${d.day}: ${esc(d.player)} ${d.by === d.player ? 'left' : `was de-linked by ${esc(d.by)}`}${d.leasesEnded ? `, ${d.leasesEnded} lease${d.leasesEnded === 1 ? '' : 's'} ended` : ''}${d.writtenOff ? `, ${money(d.writtenOff)} written off` : ''}${d.paid ? `, ${money(d.paid)} paid` : ''}.${d.cooldownDays ? ` They can share a city with ${esc(d.mayor)} again in ${d.cooldownDays} days.` : ''}</p>`).join('');
+    return `<h4>Parting ways</h4>${rows}${history}`;
+  }
+
+  /** De-links a player (or this one) after saying what happens. */
+  delink(player: string) {
+    const self = player === this.me;
+    if (!confirm(self
+      ? 'Leave this city for good? You get a copy of it as it is now, with your seats and lots, to play on your own. Your leases here end and you can\'t rejoin for 90 days.'
+      : `De-link ${player}? They take a copy of the city as it is now and leave. Their leases here end, what they owe is written off, and they can't come back for 90 days.`)) return;
+    this.host.conn.action({ delink: { player } });
   }
 
   private councilOpen = false;
@@ -389,6 +416,7 @@ export class Seats {
     const who = (o: Msg) => (o.fromOperator ? lease.gameName : 'The city') + (o.by ? ` (${o.by})` : '');
     return `<h4>Dispute ladder</h4>
       ${ladder.map((r) => `<div class="req ${r.open ? 'met' : 'unmet'}"><span class="mark">${r.open ? '✓' : '✗'}</span><span class="label">${esc(r.step)}</span><span class="detail">${esc(r.rule)}</span></div>`).join('')}
+      ${this.delinkButton(lease)}
       ${open
         ? `<div class="offer"><p><b>On the table:</b> ${esc(who(open))} offers ${esc(open.text)} <span class="muted small">(${open.daysLeft} day${open.daysLeft === 1 ? '' : 's'} left)</span></p>
           <div class="row-flex">${mine
@@ -403,7 +431,18 @@ export class Seats {
         `<p class="small muted">${esc(who(o))}: ${esc(o.text)} — <b>${esc(o.status)}</b>${o.note ? `. ${esc(o.note)}` : ''}</p>`).join('')}`;
   }
 
+  /** The last rung as a button: the operator may leave, the mayor may cut them loose when the rules allow. */
+  private delinkButton(lease: Msg) {
+    const op = this.seats.find((s) => s.id === lease.game)?.owner as string | undefined;
+    if (!op) return '';
+    if (op === this.me) return `<button data-delink="${esc(op)}">Leave with a copy…</button>`;
+    if (this.mayor?.owner !== this.me) return '';
+    const o = ((this.civic.delinkOptions ?? []) as Msg[]).find((x) => x.player === op);
+    return `<button data-delink="${esc(op)}" ${o?.open ? '' : `disabled title="${esc(o?.rule ?? '')}"`}>De-link ${esc(op)}…</button>`;
+  }
+
   private wireDispute(lease: Msg, slot: HTMLElement) {
+    slot.querySelector<HTMLButtonElement>('button[data-delink]')?.addEventListener('click', (e) => this.delink((e.target as HTMLElement).dataset.delink!));
     const open = ((lease.offers ?? []) as Msg[]).find((o) => o.status === 'open');
     const fromOperator = this.operatorOf(lease);
     const send = (kind: number, extra: Msg) =>

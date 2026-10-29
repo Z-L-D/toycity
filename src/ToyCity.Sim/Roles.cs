@@ -184,6 +184,7 @@ public sealed partial class World
             w.Write(p.Votes.Count);
             foreach (var (n, v) in p.Votes) { w.Write(n); w.Write(v); }
         }
+        WriteDelinks(w);
     }
 
     void ReadRoles(BinaryReader r)
@@ -203,6 +204,7 @@ public sealed partial class World
             for (int k = 0; k < nv; k++) p.Votes[r.ReadString()] = r.ReadBoolean();
             Proposals.Add(p);
         }
+        ReadDelinks(r);
     }
 
     static void WriteCouncilAction(BinaryWriter w, SimAction a)

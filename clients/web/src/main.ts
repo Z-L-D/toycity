@@ -113,6 +113,17 @@ const conn = new Connection({
       case 'presence':
         renderPresence(body);
         break;
+      case 'delinkCopy': {
+        // The copy this player took when they de-linked: offered as a file, and kept in the server's saves too.
+        const url = URL.createObjectURL(new Blob([body.save], { type: 'application/octet-stream' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${body.name}.toycity`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        toast(`Your copy of the city is saved as "${body.name}". Load it on your own server to play it.`, 'good');
+        break;
+      }
       case 'full': {
         const first = !city.loaded || city.width !== body.width;
         city.applyFull(body);

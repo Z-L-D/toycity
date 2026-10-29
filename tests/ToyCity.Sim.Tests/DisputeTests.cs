@@ -122,7 +122,7 @@ public class DisputeTests
     {
         var (w, lease) = Town(805);
         var ladder = w.DisputeLadder(lease);
-        Assert.Equal(new[] { "Negotiate", "Buy out", "Relocate", "Impose terms", "Evict" }, ladder.Select(s => s.Step));
+        Assert.Equal(new[] { "Negotiate", "Buy out", "Relocate", "Impose terms", "Evict", "De-link" }, ladder.Select(s => s.Step));
         var evict = ladder.Single(s => s.Step == "Evict");
         Assert.False(evict.Open);
         Assert.Contains("bad standing", evict.Rule);

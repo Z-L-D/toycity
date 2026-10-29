@@ -143,6 +143,13 @@ public partial class Main : Node
         pm.Flash += r => _view.Flash(r.X0, r.Y0, r.X1, r.Y1);
         pm.PickBuilding += (id, x, y) => { _tools.Pick(id); if (x >= 0) _camera.CentreOn(x + 0.5f, y + 0.5f); };
         pm.Toast += _tools.Toast;
+        pm.CopyArrived += (name, save) =>
+        {
+            // A de-linked player's copy goes beside the game's other files, to load on a server of their own.
+            global::Godot.DirAccess.MakeDirRecursiveAbsolute("user://copies");
+            using var f = global::Godot.FileAccess.Open($"user://copies/{name}.toycity", global::Godot.FileAccess.ModeFlags.Write);
+            f?.StoreBuffer(save);
+        };
         pm.UnlocksChanged += _tools.RebuildOptions;
         _tools.Queried += (x, y) => pm.Query(x, y);
         _tools.Act = pm.Act;

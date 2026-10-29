@@ -58,7 +58,7 @@ public class DisputeClientTests : IClassFixture<ServerFixture>
         leaseId = Lease().Id;
         PollUntil(client, () => panel.Render().Contains("Dispute ladder"));
         var text = panel.Render();
-        foreach (var step in new[] { "Negotiate", "Buy out", "Relocate", "Impose terms", "Evict" }) Assert.Contains(step, text);
+        foreach (var step in new[] { "Negotiate", "Buy out", "Relocate", "Impose terms", "Evict", "De-link" }) Assert.Contains(step, text);
 
         // A buyout for nothing: too little for the computer, which says so the next day.
         client.Connection.Send(new ClientMessage { Speed = new SetSpeed { Speed = 3 } });
