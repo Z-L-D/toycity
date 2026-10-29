@@ -40,6 +40,7 @@ public partial class Main : Node
     DisasterView? _disasters;
     Label? _status, _hover;
     bool _smoke, _centred;
+    string? _user;  // --user, the name signed in with
     string? _shots, _bench;
     bool _frozen;  // the bench city is drawn from a fixed state; the server's deltas would undo it
     double _smokeTime;
@@ -66,6 +67,7 @@ public partial class Main : Node
             if (args[i] == "--new-account") newAccount = true;
         }
         if (!Uri.TryCreate(server, UriKind.Absolute, out var uri)) uri = new Uri(server = "ws://localhost:5180/ws");
+        _user = user;
         var credentials = user != null && password != null ? new Protocol.V0.SignIn { Name = user, Password = password, Create = newAccount } : SignInPanel.StoredCredentials(server);
         _client = new CityClient(uri, credentials: credentials);
         if (_bench != null || _gateFile != null || _togetherFile != null)

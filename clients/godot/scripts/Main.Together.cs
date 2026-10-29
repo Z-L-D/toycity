@@ -20,7 +20,7 @@ public partial class Main
 
     void TogetherStart()
     {
-        _together = new TogetherRun(_client!.Connection.Uri, _client.Connection.Credentials?.Name ?? "Mayor May", _client, _panels!.Model, _tools!.Use)
+        _together = new TogetherRun(_client!.Connection.Uri, _user ?? "Mayor May", _client, _panels!.Model, _tools!.Use)
         {
             Moment = TogetherMoment,
         };

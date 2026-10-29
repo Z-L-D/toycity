@@ -109,7 +109,7 @@ jobs:
             --path clients/godot -- --together "$PWD/together.json" --server ws://localhost:5182/ws --user "Mayor May" --password secret1 --new-account \
             --graphics High --shots "$PWD/together-shots" 2>&1 | tee together.log
           { echo '### Together: the Beta 2 gate (CI runner, software OpenGL)'; echo; grep '^TOGETHER ' together.log | sed 's/^TOGETHER /- /'; } >> "$GITHUB_STEP_SUMMARY"
-          grep -q "TOGETHER OK" together.log
+          grep -q "TOGETHER OK" together.log || { tail -40 together-server.log; false; }
           ! grep -n "SHADER ERROR" -A3 together.log
       - name: Contact sheets of the views (base64 JPEG, for reviewers who can't download artifacts)
         if: always()
