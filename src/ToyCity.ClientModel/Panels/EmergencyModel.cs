@@ -142,8 +142,9 @@ public sealed class EmergencyModel
 
     HashSet<int> Picks(int call)
     {
-        if (_picks.TryGetValue(call, out var set)) return set;
         var c = View?.Calls.FirstOrDefault(x => x.Id == call);
+        // An empty pick made while the call waited gives way to the computer's proposal when it comes.
+        if (_picks.TryGetValue(call, out var set) && (set.Count > 0 || c?.Status != "proposed")) return set;
         return _picks[call] = c?.Status == "proposed" ? c.UnitIds.ToHashSet() : new HashSet<int>();
     }
 

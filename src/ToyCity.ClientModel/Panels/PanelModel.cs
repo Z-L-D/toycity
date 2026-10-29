@@ -351,12 +351,18 @@ public sealed partial class PanelModel
         Send(new PAction { Offer = new OfferLease { LeaseId = l.Id, FromOperator = SpeaksForOperator(l), Kind = kind, Terms = terms, Amount = amount, ToBuildingId = to, CounterOf = counterOf } });
 
     /// <summary>The city's standard offer, as the sim defines it: a business lease, rent by size, a 10% fare tax, three months' notice.</summary>
-    static LeaseTerms StandardTerms(string kind) =>
-        new()
+    /// <summary>The terms the city offers anyone who asks, as the sim's <c>World.StandardTerms</c>: stations are public services.</summary>
+    internal static LeaseTerms StandardTerms(string kind) => kind switch
+    {
+        "fire-station" or "police-station" => new() { Mode = LeaseMode.LeasePublicService, SubsidyPerMonth = 400, NoticeMonths = 3 },
+        "clinic" => new() { Mode = LeaseMode.LeasePublicService, SubsidyPerMonth = 300, NoticeMonths = 3 },
+        "hospital" => new() { Mode = LeaseMode.LeasePublicService, SubsidyPerMonth = 800, NoticeMonths = 3 },
+        _ => new()
         {
             Mode = LeaseMode.LeaseBusiness, TaxTenths = 100, NoticeMonths = 3,
             RentPerMonth = kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "tram-stop" => 60, "rail-station" => 150, "freight-depot" => 400, _ => 40 },
-        };
+        },
+    };
 
     bool Allowed(Mechanic m) => Civic?.Consent?.Rows.FirstOrDefault(r => r.Mechanic == m)?.Effective ?? false;
 

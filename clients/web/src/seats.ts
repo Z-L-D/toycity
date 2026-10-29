@@ -31,7 +31,11 @@ const fare = (cents: number) => (cents === 0 ? 'free' : `$${(cents / 100).toFixe
 
 /** The city's standard offer, as the sim defines it: a business lease, rent by size, a 10% fare tax, three months' notice. */
 const STANDARD_RENT: Record<string, number> = { 'bus-depot': 300, 'tram-depot': 500, 'rail-depot': 1200, 'tram-stop': 60, 'rail-station': 150, 'freight-depot': 400 };
-const standardTerms = (kind: string) => ({ mode: 0, rentPerMonth: STANDARD_RENT[kind] ?? 40, taxTenths: 100, subsidyPerMonth: 0, fareCapCents: 0, noticeMonths: 3 });
+// As the sim's World.StandardTerms: stations are public services, the city paying toward the crews.
+const STATION_SUBSIDY: Record<string, number> = { 'fire-station': 400, 'police-station': 400, clinic: 300, hospital: 800 };
+const standardTerms = (kind: string) => kind in STATION_SUBSIDY
+  ? { mode: 1, rentPerMonth: 0, taxTenths: 0, subsidyPerMonth: STATION_SUBSIDY[kind], fareCapCents: 0, noticeMonths: 3 }
+  : { mode: 0, rentPerMonth: STANDARD_RENT[kind] ?? 40, taxTenths: 100, subsidyPerMonth: 0, fareCapCents: 0, noticeMonths: 3 };
 
 export function termsText(t: Msg) {
   return t.mode === 0

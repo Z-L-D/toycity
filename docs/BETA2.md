@@ -723,5 +723,10 @@ The steps and results are in [GATE-BETA2.md](GATE-BETA2.md).
   company's view, because leasing was the mayor's alone; the computer playing the same company had its requests
   granted. Now a side game's seat owner may lease a free lot for it on the city's standard terms. Setting other
   terms is still the city's.
-- Tests: `TogetherRunTests` (the whole session against a real dedicated server, then loading Tess's copy) and
-  `RolesTests.WhoeverRunsACompanyLeasesFreeLotsForItOnTheStandardTermsOnly`.
+- Fixed on the way: the "Lease to…" dialog (Godot and web) offered a fire or police station on the $40 business
+  lease the stops get. It now offers what the sim's standard terms say: a public service with the city paying $400
+  a month toward the crews ($300 for a clinic, $800 for a hospital).
+- Fixed on the way: with Pick responders on, opening the dispatch board while a call waited left its picks empty, so
+  the computer's proposal then showed unticked and Send did nothing.
+- Tests: `TogetherRunTests` (the whole session against a real dedicated server, then loading Tess's copy) `RolesTests.WhoeverRunsACompanyLeasesFreeLotsForItOnTheStandardTermsOnly` and
+  `EmergencyClientTests.TheComputersPickShowsTickedEvenIfTheBoardWasOpenWhileTheCallWaited`.

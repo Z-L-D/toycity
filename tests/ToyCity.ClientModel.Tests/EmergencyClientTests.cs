@@ -115,4 +115,26 @@ public class EmergencyClientTests : IClassFixture<ServerFixture>
         em.Tick(0.6);
         Assert.Equal(before + 1, sent.Count);
     }
+
+    [Fact]
+    public void TheComputersPickShowsTickedEvenIfTheBoardWasOpenWhileTheCallWaited()
+    {
+        var sent = new List<Command>();
+        var em = new EmergencyModel(m => { sent.Add(Command.Parser.ParseFrom(m.Action.SideGame.Payload)); return 0; }, () => { });
+        SideGameView Board(string status, params int[] units)
+        {
+            var v = new View { Name = "Rescue", Operator = "manual", Owner = "player", Style = CommandStyle.SceneCommand, PickResponders = true };
+            v.Units.Add(new UnitView { Id = 3, Name = "Patrol 1", Kind = UnitKind.Patrol, State = units.Length > 0 ? "proposed" : "ready", CallId = units.Length > 0 ? 9 : 0 });
+            var call = new CallView { Id = 9, Kind = "crime", Text = "A mugging", Status = status };
+            call.UnitIds.AddRange(units);
+            v.Calls.Add(call);
+            return new SideGameView { Game = EmergencyModel.Game, Seat = "operator", Payload = v.ToByteString() };
+        }
+        em.Handle(Board("waiting"));
+        Assert.Contains("☐", em.Render());
+        em.Handle(Board("proposed", 3));
+        Assert.Contains("☑", em.Render());
+        em.Click("em-send:9");
+        Assert.Equal(new[] { 3 }, sent.Single().Dispatch.UnitIds);
+    }
 }

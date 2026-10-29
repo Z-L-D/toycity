@@ -89,12 +89,12 @@ public sealed class TogetherRun : IDisposable
     // Dan's hands: confirm the computer's picks for each call, run each scene for a while, then hand it to the crews.
     bool _danPlays;
     readonly HashSet<int> _sent = new(), _handed = new();
-    int _sceneOpen;
+    int _sceneOpen, _firstCall;
     double _sceneClock;
     public int CallsSent => _sent.Count;
     public int ScenesRun => _handed.Count;
     /// <summary>How long Dan runs a scene before handing it to the crews, in seconds.</summary>
-    public const double SceneSeconds = 6;
+    public const double SceneSeconds = 1.5;
 
     /// <summary>Polls the other three players' clients and runs Dan's hands; the host polls the mayor's.</summary>
     public void Poll(double dt)
@@ -107,11 +107,14 @@ public sealed class TogetherRun : IDisposable
         if (!_danPlays || Dan.Em.View is not { } v || !Dan.Em.Mine) return;
         foreach (var c in v.Calls.Where(c => c.Status == "proposed" && _sent.Add(c.Id)))
             Dan.Panel.Click($"em-send:{c.Id}");
-        if (Dan.Em.Scene is { } s)
+        // One scene at a time: the one open on his board, or the next one waiting for him.
+        if ((Dan.Em.Scene is not { } s || _handed.Contains(s.Id)) && v.Scenes.FirstOrDefault(x => !_handed.Contains(x.Id)) is { } next)
+            Dan.Panel.Click($"em-watch:{next.Id}");
+        if (Dan.Em.Scene is { } run && !_handed.Contains(run.Id))
         {
-            if (_sceneOpen != s.Id) (_sceneOpen, _sceneClock) = (s.Id, 0);
+            if (_sceneOpen != run.Id) (_sceneOpen, _sceneClock) = (run.Id, 0);
             _sceneClock += dt;
-            if (_sceneClock > SceneSeconds && _handed.Add(s.Id)) Dan.Panel.Click("em-leave");
+            if (_sceneClock > SceneSeconds && _handed.Add(run.Id)) Dan.Panel.Click("em-leave");
         }
     }
 
@@ -192,6 +195,9 @@ public sealed class TogetherRun : IDisposable
             May.Panel.Click("terms:ok");
         }
         yield return new GateWait("the stations leased", () => _stations.All(b => May.Panel.Civic!.Leases.Any(l => l.BuildingId == b.Id && l.Game == EmergencyModel.Game)), 30);
+        var terms = May.Panel.Civic!.Leases.Where(l => l.Game == EmergencyModel.Game).Select(l => l.Terms).ToList();
+        Check("the stations are leased as public services", terms.All(t => t.Mode == LeaseMode.LeasePublicService),
+            string.Join("; ", terms.Select(PanelModel.TermsText)));
         Speed(3);  // a side game's view comes with each day
         yield return new GateWait("Dan's units", () => Dan.Em.View is { } v && Dan.Em.Mine && v.Stations.Count == _stations.Count && v.Units.Count >= 4, 30);
         Check("the stations come with units", true, $"{Dan.Em.View!.Stations.Count} stations, {Dan.Em.View.Units.Count} units");
@@ -206,7 +212,15 @@ public sealed class TogetherRun : IDisposable
         yield return new GateWait("scene command", () => Dan.Em.View!.Style == Emergency.Wire.CommandStyle.SceneCommand, 30);
         if (!Dan.Em.View!.PickResponders) Dan.Panel.Click("em-switch:pick");
         yield return new GateWait("Dan picks responders", () => Dan.Em.View!.PickResponders, 30);
+        // Two patrols won't keep up with the town's crime: Dan buys two more from the Units tab.
+        Dan.Panel.Click("em-tab:units");
+        var police = Dan.Em.View!.Stations.First(st => st.Kind == "police-station");
+        int patrols = Dan.Em.View.Units.Count(u => u.Kind == Emergency.Wire.UnitKind.Patrol);
+        for (int k = 0; k < 2; k++) Dan.Panel.Click($"em-buy:{police.LeaseId}:{(int)Emergency.Wire.UnitKind.Patrol}");
+        yield return new GateWait("Dan's new patrols", () => Dan.Em.View!.Units.Count(u => u.Kind == Emergency.Wire.UnitKind.Patrol) == patrols + 2, 30);
+        Check("Dan buys two more patrols", true, $"{patrols + 2} patrols, ${Dan.Em.View!.Cash:N0} left");
         Dan.Panel.Click("em-tab:calls");
+        _firstCall = Dan.Em.View!.Calls.Select(c => c.Id).DefaultIfEmpty(0).Max() + 1;
         _danPlays = true;
 
         // Tess: lease the stops and the depot, draw a line through the stops, buy buses.
@@ -228,6 +242,10 @@ public sealed class TogetherRun : IDisposable
         yield return new GateWait("riders on Tess's line", () => Tess.Co.View!.Lines.First(l => l.Id == _lineId).Riders > 0, 120);
         var line = Tess.Co.View!.Lines.First(l => l.Id == _lineId);
         Check("commuters ride Tess's line", true, $"{line.Riders:N0} riders yesterday, {line.LoadPercent}% of seats at the peak");
+        // Since Dan took the calls; the board keeps the last few dozen.
+        var calls = Dan.Em.View!.Calls.Where(c => c.Id >= _firstCall).ToList();
+        Check("the city's calls since Dan took them", ScenesRun > 0, $"{calls.Count(c => c.Status == "done" && c.UnitIds.Count > 0)} answered, "
+            + $"{calls.Count(c => c.Status == "done" && c.UnitIds.Count == 0)} let go, {calls.Count(c => c.Status != "done")} open; {ScenesRun} scene(s) run by Dan");
 
         // Sam, watching: the routes but not the books, and no say in the city.
         Phase = "watching";
