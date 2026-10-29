@@ -42,6 +42,7 @@ public sealed partial class PanelModel
         "seat" => RenderSeat(),
         "consent" => RenderConsent(),
         "council" => RenderCouncil(),
+        "dispatch" => Emergency.Render() + Footer($"[b]{Link("close", "Close")}[/b]"),
         "report" => RenderReport(),
         "terms" => RenderTerms(),
         "confirm" => RenderConfirm(),

@@ -152,6 +152,14 @@ public sealed class SideGameServer
 
         public ulong Hash(int a, int b, int c, int d) => Ask(new W.Query { Hash = new W.HashQuery { A = a, B = b, C = c, D = d } }).Hash;
 
+        public C.CellKind[] Area(int x0, int y0, int w, int h)
+        {
+            var bytes = Ask(new W.Query { Area = new W.AreaQuery { X0 = x0, Y0 = y0, W = w, H = h } }).Area.Span;
+            var cells = new C.CellKind[Math.Max(0, w) * Math.Max(0, h)];
+            for (int i = 0; i < cells.Length && i < bytes.Length; i++) cells[i] = (C.CellKind)bytes[i];
+            return cells;
+        }
+
         W.QueryAnswer Ask(W.Query q)
         {
             Framing.Write(s, new W.HostReply { Seq = seq, Query = q });

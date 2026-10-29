@@ -73,6 +73,8 @@ public sealed class RemoteSideGame : C.ISideGame, IDisposable
         output.LeaseRequests.AddRange(o.LeaseRequests);
         output.LeaseReleases.AddRange(o.LeaseReleases);
         output.AuthorityActions.AddRange(o.AuthorityActions);
+        output.Responses.AddRange(o.Responses);
+        output.Holding.AddRange(o.Holding);
         output.ServiceQuality = o.ServiceQuality;
         output.Status = o.Status;
     }
@@ -157,6 +159,10 @@ public sealed class RemoteSideGame : C.ISideGame, IDisposable
                 break;
             case W.Query.KindOneofCase.DistrictOf: a.District = city.DistrictOf(q.DistrictOf); break;
             case W.Query.KindOneofCase.Hash: a.Hash = city.Hash(q.Hash.A, q.Hash.B, q.Hash.C, q.Hash.D); break;
+            case W.Query.KindOneofCase.Area:
+                int w = Math.Clamp(q.Area.W, 0, 256), h = Math.Clamp(q.Area.H, 0, 256);
+                a.Area = ByteString.CopyFrom(city.Area(q.Area.X0, q.Area.Y0, w, h).Select(k => (byte)k).ToArray());
+                break;
         }
         return a;
     }

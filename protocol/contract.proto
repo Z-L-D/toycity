@@ -1,6 +1,7 @@
 // The side-game contract, version 1, on the wire. In solo play side games run in the city's process and trade the
 // same messages as C# objects (src/ToyCity.Contract); this file is what a side game in another process or language
-// speaks. Frozen at the Alpha 3 gate: additive changes keep the version; anything else is v2.
+// speaks. Frozen at the Alpha 3 gate: additive changes keep the version; anything else is v2. v1.1 (Beta 2) added
+// incident responses, holds and the area query.
 syntax = "proto3";
 
 package toycity.contract.v1;
@@ -173,6 +174,24 @@ message GameToCity {
   repeated int32 lease_requests = 8;  // building ids to lease on the city's standard terms
   repeated int32 lease_releases = 9;  // lease ids given up
   repeated AuthorityAction authority_actions = 10;  // answered in tomorrow's authority_results
+  repeated IncidentResponse responses = 11;  // v1.1: how incidents the game answered turned out
+  repeated int64 holding = 12;               // v1.1: incidents a player is handling at the scene now
+}
+
+// v1.1. outcome: "out" or "spread" for a fire, "arrest" or "escaped" for a crime, "treated" or "died" for an injury.
+message IncidentResponse {
+  int64 incident_id = 1;
+  string outcome = 2;
+  string text = 3;
+}
+
+// v1.1: what is on a cell.
+enum CellKind {
+  GROUND = 0;
+  ROAD = 1;
+  BUILDING = 2;
+  WATER = 3;
+  PARK = 4;
 }
 
 message StreetRoute {

@@ -26,7 +26,7 @@ public class SideGameHostTests
             using var server = new ServerProcess($$"""{ "name": "Remote buses", "join": "open", "sideGames": [ { "id": "transport", "address": "127.0.0.1:{{port}}", "deadlineMs": 5000 } ] }""");
             using var client = new CityClient(server.Ws, "test");
             SideGameView? view = null;
-            client.Message += m => { if (m.BodyCase == ServerMessage.BodyOneofCase.SideGame) view = m.SideGame; };
+            client.Message += m => { if (m.BodyCase == ServerMessage.BodyOneofCase.SideGame && m.SideGame.Game == "transport") view = m.SideGame; };
             var deadline = DateTime.UtcNow.AddSeconds(30);
             while (!client.Connection.SignInNeeded && DateTime.UtcNow < deadline) { client.Poll(); Thread.Sleep(10); }
             client.Connection.SignIn("Remy", "secret1", create: true);

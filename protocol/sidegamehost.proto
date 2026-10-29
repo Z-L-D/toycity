@@ -56,6 +56,7 @@ message QueryAnswer {
   StreetRoute route = 1;  // unset when there is no route
   int32 district = 2;
   uint64 hash = 3;
+  bytes area = 4;         // one CellKind per cell, row by row
 }
 
 // From the host to the city.
@@ -78,7 +79,15 @@ message Query {
     RouteQuery route = 1;
     int32 district_of = 2;
     HashQuery hash = 3;
+    AreaQuery area = 4;
   }
+}
+
+message AreaQuery {
+  int32 x0 = 1;
+  int32 y0 = 2;
+  int32 w = 3;
+  int32 h = 4;
 }
 
 message RouteQuery {

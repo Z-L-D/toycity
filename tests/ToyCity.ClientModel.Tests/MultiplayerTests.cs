@@ -31,7 +31,7 @@ public class MultiplayerTests : IClassFixture<MultiplayerTests.Fixture>
                 if (m.BodyCase == ServerMessage.BodyOneofCase.Delta) Notices.AddRange(m.Delta.Notices.Select(n => n.Text));
                 if (m.BodyCase == ServerMessage.BodyOneofCase.Presence) Presence = m.Presence;
                 if (m.BodyCase == ServerMessage.BodyOneofCase.Civic) Civic = m.Civic;
-                if (m.BodyCase == ServerMessage.BodyOneofCase.SideGame) View = m.SideGame;
+                if (m.BodyCase == ServerMessage.BodyOneofCase.SideGame && m.SideGame.Game == "transport") View = m.SideGame;
             };
             if (token != null) { WaitFor(() => Client.City.Loaded, "the city"); return; }
             WaitFor(() => Client.Connection.SignInNeeded, "the welcome");

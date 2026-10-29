@@ -7,7 +7,7 @@ life sim) to lots in the city for live joined play.
 
 This repository is at **Beta 1: the Godot client.** A city grows from paths, zones and services, every
 lot can tell you why it is the way it is, the city seat can be left to the computer, and a bus company
-runs as a side game on leased lots. The Godot client in `clients/godot` is the way to play; the web
+and the emergency services run as side games on leased lots. The Godot client in `clients/godot` is the way to play; the web
 client stays as the debug and admin client.
 
 ## Quick start

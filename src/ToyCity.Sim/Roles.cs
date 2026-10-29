@@ -44,7 +44,7 @@ public sealed partial class World
     {
         Portfolio.Planning => "planning (roads, zones, utilities, terraforming, bulldozing)",
         Portfolio.Budget => "the budget (taxes, funding, loans)",
-        Portfolio.Services => "services (civic buildings and their upgrades)",
+        Portfolio.Services => "services (civic buildings, their upgrades and station leases)",
         Portfolio.Transit => "transit (stops, depots and their leases)",
         _ => "nothing",
     };
@@ -54,11 +54,18 @@ public sealed partial class World
     {
         PlacePathAction or PaintZoneAction or ZoneBlockAction or BulldozeAction or TerraformAction or PlaceUtilityAction => Portfolio.Planning,
         SetTaxAction or SetFundingAction or TakeLoanAction => Portfolio.Budget,
-        PlaceBuildingAction p => Content.TypeIndex(p.TypeId) is >= 0 and var t && Content.Types[t].LotKind.Length > 0 ? Portfolio.Transit : Portfolio.Services,
-        UpgradeBuildingAction u => u.BuildingId >= 0 && u.BuildingId < Buildings.Count && Buildings[u.BuildingId] is { } b && LotKindOf(b).Length > 0 ? Portfolio.Transit : Portfolio.Services,
-        LeaseLotAction or SetLeaseTermsAction or EndLeaseAction => Portfolio.Transit,
+        PlaceBuildingAction p => Content.TypeIndex(p.TypeId) is >= 0 and var t && IsTransitLot(Content.Types[t].LotKind) ? Portfolio.Transit : Portfolio.Services,
+        UpgradeBuildingAction u => u.BuildingId >= 0 && u.BuildingId < Buildings.Count && Buildings[u.BuildingId] is { } b && IsTransitLot(LotKindOf(b)) ? Portfolio.Transit : Portfolio.Services,
+        LeaseLotAction l => l.BuildingId >= 0 && l.BuildingId < Buildings.Count && Buildings[l.BuildingId] is { } lb && !IsTransitLot(LotKindOf(lb)) ? Portfolio.Services : Portfolio.Transit,
+        SetLeaseTermsAction or EndLeaseAction => LeaseKindPortfolio(a),
         _ => Portfolio.None,
     };
+
+    Portfolio LeaseKindPortfolio(SimAction a)
+    {
+        int id = a is SetLeaseTermsAction t ? t.LeaseId : ((EndLeaseAction)a).LeaseId;
+        return LeaseById(id) is { } l && !IsTransitLot(l.Kind) ? Portfolio.Services : Portfolio.Transit;
+    }
 
     /// <summary>The players who vote on the council: everyone who owns a seat, and the deputies.</summary>
     public List<string> CouncilMembers() => Owners().Concat(_deputies.Keys).Distinct().OrderBy(n => n, StringComparer.Ordinal).ToList();

@@ -1,6 +1,7 @@
 import protobuf from 'protobufjs';
 import protoText from '../../../protocol/toycity.proto?raw';
 import transportText from '../../../protocol/transport.proto?raw';
+import emergencyText from '../../../protocol/emergency.proto?raw';
 
 // The .proto file is the single source of truth; the client parses it at startup.
 const root = protobuf.parse(protoText, { keepCase: false }).root;
@@ -20,6 +21,19 @@ export function decodeTransportView(bytes: Uint8Array): Msg {
 
 export function encodeTransportCommand(cmd: Msg): Uint8Array {
   return TransportCommand.encode(TransportCommand.fromObject(cmd)).finish();
+}
+
+// The emergency services' messages, the same way.
+const emergencyRoot = protobuf.parse(emergencyText, { keepCase: false }).root;
+const EmergencyView = emergencyRoot.lookupType('toycity.emergency.v1.View');
+const EmergencyCommand = emergencyRoot.lookupType('toycity.emergency.v1.Command');
+
+export function decodeEmergencyView(bytes: Uint8Array): Msg {
+  return EmergencyView.toObject(EmergencyView.decode(bytes), { longs: Number, enums: Number, defaults: true, arrays: true }) as Msg;
+}
+
+export function encodeEmergencyCommand(cmd: Msg): Uint8Array {
+  return EmergencyCommand.encode(EmergencyCommand.fromObject(cmd)).finish();
 }
 
 export interface ServerEvents {

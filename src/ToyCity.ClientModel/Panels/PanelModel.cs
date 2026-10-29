@@ -35,17 +35,23 @@ public sealed partial class PanelModel
         Company = new CompanyModel(city, send, Changed) { Me = () => Me() };
         Company.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Company.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
+        Emergency = new EmergencyModel(send, Changed) { Me = () => Me() };
+        Emergency.Toast += (t, sev) => Toast?.Invoke(t, sev);
+        Emergency.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
+        Emergency.SceneOpened += () => { if (Dialog == null) OpenDialog("dispatch"); };
     }
 
     /// <summary>The bus company's own view, which can take the panel's place.</summary>
     public readonly CompanyModel Company;
+    /// <summary>The emergency services' dispatch board, shown in the "dispatch" dialog.</summary>
+    public readonly EmergencyModel Emergency;
 
     /// <summary>Goes up whenever the panel would read differently, so the view knows to redraw it.</summary>
     public int Version { get; private set; }
     void Changed() => Version++;
 
     public string Tab { get; private set; } = "why";
-    /// <summary>The dialog over the map: "seat", "consent", "council", "report", "terms", "confirm", "new", "save" or "load"; null when none.</summary>
+    /// <summary>The dialog over the map: "seat", "consent", "council", "dispatch", "report", "terms", "confirm", "new", "save" or "load"; null when none.</summary>
     public string? Dialog { get; private set; }
     /// <summary>Everyone the server knows of in this city, from its presence list, for picking deputies.</summary>
     public List<string> Players { get; set; } = new();
@@ -133,7 +139,7 @@ public sealed partial class PanelModel
                 if (m.Overlay.Kind == (OverlayKind)ActiveOverlay) { Overlay = m.Overlay; OverlayVersion++; }
                 break;
             case ServerMessage.BodyOneofCase.Saves: Saves = m.Saves.Names; break;
-            case ServerMessage.BodyOneofCase.SideGame: Company.Handle(m.SideGame); return;
+            case ServerMessage.BodyOneofCase.SideGame: Company.Handle(m.SideGame); Emergency.Handle(m.SideGame); return;
             default: return;
         }
         Changed();
@@ -346,6 +352,7 @@ public sealed partial class PanelModel
     public void Click(string meta)
     {
         if (meta.StartsWith("co-")) { Company.Click(meta); return; }
+        if (meta.StartsWith("em-")) { Emergency.Click(meta); return; }
         var a = meta.Split(':');
         int I(int k) => k < a.Length && int.TryParse(a[k], out var v) ? v : -1;
         long L(int k) => k < a.Length && long.TryParse(a[k], out var v) ? v : 0;
@@ -568,6 +575,7 @@ public sealed partial class PanelModel
     /// <summary>Runs the panel's timers. Call once a frame.</summary>
     public void Tick(double dt)
     {
+        Emergency.Tick(dt);
         if (_requeryIn < 0) return;
         _requeryIn -= dt;
         if (_requeryIn < 0 && Selected is { } s) Query(s.X, s.Y, false);

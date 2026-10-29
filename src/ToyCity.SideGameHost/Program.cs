@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using ToyCity.Contract;
+using ToyCity.Emergency;
 using ToyCity.Protocol;
 using ToyCity.Transport;
 
@@ -16,7 +17,11 @@ for (int i = 0; i < args.Length - 1; i++)
     if (args[i] == "--listen") bind = IPAddress.Parse(args[i + 1]);
 }
 
-var games = new Dictionary<string, Func<ISideGame>> { [TransportGame.Id] = () => new TransportGame() };
+var games = new Dictionary<string, Func<ISideGame>>
+{
+    [TransportGame.Id] = () => new TransportGame(),
+    [EmergencyGame.Id] = () => new EmergencyGame(),
+};
 var server = new SideGameServer(id => games.TryGetValue(id, out var f) ? f() : null, Console.WriteLine);
 using var stop = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };

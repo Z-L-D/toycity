@@ -652,6 +652,7 @@
     },
     {
       "id": "police-station",
+      "lotKind": "police-station",
       "name": "Police Station",
       "category": "police",
       "w": 2,
@@ -674,6 +675,7 @@
     },
     {
       "id": "fire-station",
+      "lotKind": "fire-station",
       "name": "Fire Station",
       "category": "fire",
       "w": 2,
@@ -696,6 +698,7 @@
     },
     {
       "id": "clinic",
+      "lotKind": "clinic",
       "name": "Clinic",
       "category": "health",
       "w": 2,
@@ -718,6 +721,7 @@
     },
     {
       "id": "hospital",
+      "lotKind": "hospital",
       "name": "Hospital",
       "category": "health",
       "w": 3,

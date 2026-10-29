@@ -18,7 +18,9 @@ public partial class PanelView : CanvasLayer
     static readonly string[] MonthNames = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
     Label? _name, _date, _funds, _pop;
-    Button? _approval, _alerts, _seat;
+    Button? _approval, _alerts, _seat, _dispatch;
+    SceneCanvas? _scene;
+    int _sceneShown = -1;
     readonly Button[] _speeds = new Button[4];
     DemandBars? _rci;
     PanelContainer? _side;
@@ -107,6 +109,8 @@ public partial class PanelView : CanvasLayer
             _speeds[k].ToggleMode = true;
         }
         _seat = Btn("Mayor", () => Model.OpenDialog("seat"), row);
+        _dispatch = Btn("🚒 Dispatch", () => Model.OpenDialog("dispatch"), row);
+        _dispatch.Visible = false;
         Btn("New", () => Model.OpenDialog("new"), row);
         Btn("Save", () => Model.OpenDialog("save"), row);
         Btn("Load", () => Model.OpenDialog("load"), row);
@@ -185,9 +189,14 @@ public partial class PanelView : CanvasLayer
         _dialogInput = new LineEdit { Visible = false, MaxLength = 40 };
         _dialogInput.TextChanged += t => Model.SetInput(t);
         dcol.AddChild(_dialogInput);
+        var drow = new HBoxContainer();
+        dcol.AddChild(drow);
         _dialogText = Text();
         _dialogText.CustomMinimumSize = new Vector2(560, 440);
-        dcol.AddChild(_dialogText);
+        drow.AddChild(_dialogText);
+        // An emergency scene the player runs or watches, beside the dispatch board.
+        _scene = new SceneCanvas(Model.Emergency) { Visible = false };
+        drow.AddChild(_scene);
 
         // Banners under the toolbar.
         (_away, _awayText) = Banner(124);
@@ -269,6 +278,9 @@ public partial class PanelView : CanvasLayer
         if (c.Loaded) TopBar(c);
         if (company) CompanyBar(c);
         Redraw();
+        bool scene = Model.Dialog == "dispatch" && Model.Emergency.Scene != null;
+        _scene!.Visible = scene;
+        if (scene && Model.Emergency.SceneVersion != _sceneShown) { _sceneShown = Model.Emergency.SceneVersion; _scene.QueueRedraw(); }
         // Banners.
         _away!.Visible = Model.AwayText != null;
         if (Model.AwayText is { } away) _awayText!.Text = away;
@@ -296,6 +308,8 @@ public partial class PanelView : CanvasLayer
         _alerts!.Text = $"Alerts {count}";
         _alerts.Modulate = worst switch { "danger" => new Color(1, 0.5f, 0.45f), "warning" => new Color(1, 0.85f, 0.45f), _ => Colors.White };
         _seat!.Text = Model.SeatLabel;
+        _dispatch!.Visible = Model.Emergency.View != null;
+        _dispatch.Text = Model.Emergency.Waiting > 0 ? $"🚒 Dispatch ({Model.Emergency.Waiting})" : "🚒 Dispatch";
         _rci!.QueueRedraw();
     }
 

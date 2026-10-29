@@ -5,6 +5,7 @@ import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
 import { Seats } from './seats';
 import { Transport } from './transport';
+import { Emergency } from './emergency';
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -84,6 +85,7 @@ let activeTab = 'why';
 let talk: TalkBack | null = null;
 let seats: Seats | null = null;
 let transport: Transport | null = null;
+let emergency: Emergency | null = null;
 /** The followed commuters and this machine's tiers, as the server last sent them. */
 let roster: Msg | null = null;
 
@@ -166,6 +168,7 @@ const conn = new Connection({
         break;
       case 'sideGame':
         transport?.onView(body);
+        emergency?.onView(body);
         dirty = true;
         break;
     }
@@ -1126,7 +1129,8 @@ transport = new Transport({
     dirty = true;
   },
 });
+emergency = new Emergency({ conn, jumpTo, toast });
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.
-(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport };
+(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport, emergency };

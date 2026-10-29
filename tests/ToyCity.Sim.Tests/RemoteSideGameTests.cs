@@ -13,7 +13,7 @@ namespace ToyCity.Sim.Tests;
 public class RemoteSideGameTests
 {
     /// <summary>A side-game host on a free local port, serving until disposed.</summary>
-    sealed class Host : IDisposable
+    internal sealed class Host : IDisposable
     {
         readonly CancellationTokenSource _stop = new();
         public readonly int Port;

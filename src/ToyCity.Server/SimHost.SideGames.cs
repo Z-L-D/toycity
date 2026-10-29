@@ -1,5 +1,6 @@
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
+using ToyCity.Emergency;
 using ToyCity.Protocol;
 using ToyCity.Sim;
 using ToyCity.Transport;
@@ -11,9 +12,13 @@ namespace ToyCity.Server;
 public sealed partial class SimHost
 {
     /// <summary>The side games every city on this server runs, by catalogue id.</summary>
-    readonly List<string> _sideGameIds = new() { TransportGame.Id };
+    readonly List<string> _sideGameIds = new() { TransportGame.Id, EmergencyGame.Id };
 
-    static SimHost() => SideGameCatalog.Register(TransportGame.Id, () => new TransportGame());
+    static SimHost()
+    {
+        SideGameCatalog.Register(TransportGame.Id, () => new TransportGame());
+        SideGameCatalog.Register(EmergencyGame.Id, () => new EmergencyGame());
+    }
     readonly Dictionary<string, byte[]> _sentViews = new();
     string _viewOwners = "";
 

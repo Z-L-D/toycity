@@ -57,9 +57,20 @@ public sealed partial class World
     /// <summary>What kind of lot a building is, for leasing: its type id when side games may lease it, else empty.</summary>
     public string LotKindOf(Building b) => TypeOf(b).LotKind;
 
-    /// <summary>The terms the city offers anyone who asks: a business lease, rent by size, a 10% fare tax, three months' notice.</summary>
-    public static LeaseTerms StandardTerms(string kind) =>
-        new(LeaseMode.Business, kind == "bus-depot" ? 300 : 40, 100, 0, 0, 3);
+    /// <summary>
+    /// The terms the city offers anyone who asks. Transit: a business lease, rent by size, a 10% fare tax, three
+    /// months' notice. Emergency stations: a public service, the city paying a subsidy toward the crews.
+    /// </summary>
+    public static LeaseTerms StandardTerms(string kind) => kind switch
+    {
+        "fire-station" or "police-station" => new(LeaseMode.PublicService, 0, 0, 400, 0, 3),
+        "clinic" => new(LeaseMode.PublicService, 0, 0, 300, 0, 3),
+        "hospital" => new(LeaseMode.PublicService, 0, 0, 800, 0, 3),
+        _ => new(LeaseMode.Business, kind == "bus-depot" ? 300 : 40, 100, 0, 0, 3),
+    };
+
+    /// <summary>Lots that run the city's transit rather than its services.</summary>
+    public static bool IsTransitLot(string kind) => kind.StartsWith("bus-", StringComparison.Ordinal);
 
     /// <summary>The standard terms for a particular building: rent by its size (a bus bay costs more than a stop).</summary>
     public LeaseTerms StandardTermsFor(Building b) =>
@@ -79,8 +90,9 @@ public sealed partial class World
     }
 
     /// <summary>Whether terms are at least as good for the city as its standard ones (what the computer may grant).</summary>
-    static bool AtLeastStandard(LeaseTerms t, LeaseTerms std) =>
-        t.Mode == LeaseMode.Business && t.RentPerMonth >= std.RentPerMonth && t.TaxTenths >= std.TaxTenths;
+    static bool AtLeastStandard(LeaseTerms t, LeaseTerms std) => std.Mode == LeaseMode.PublicService
+        ? t.Mode == LeaseMode.Business || t.SubsidyPerMonth <= std.SubsidyPerMonth
+        : t.Mode == LeaseMode.Business && t.RentPerMonth >= std.RentPerMonth && t.TaxTenths >= std.TaxTenths;
 
     string LotName(Building b) => $"the {TypeOf(b).Name.ToLowerInvariant()} on {StreetNear(b.X, b.Y)}";
 

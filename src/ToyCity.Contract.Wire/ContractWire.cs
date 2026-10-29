@@ -103,6 +103,8 @@ public static class ContractWire
         m.LeaseRequests.AddRange(g.LeaseRequests);
         m.LeaseReleases.AddRange(g.LeaseReleases);
         foreach (var a in g.AuthorityActions) m.AuthorityActions.Add(new W.AuthorityAction { Kind = a.Kind, DistrictId = a.DistrictId });
+        foreach (var r in g.Responses) m.Responses.Add(new W.IncidentResponse { IncidentId = r.IncidentId, Outcome = r.Outcome, Text = r.Text });
+        m.Holding.AddRange(g.Holding);
         return m;
     }
 
@@ -117,6 +119,8 @@ public static class ContractWire
         g.LeaseRequests.AddRange(m.LeaseRequests);
         g.LeaseReleases.AddRange(m.LeaseReleases);
         foreach (var a in m.AuthorityActions) g.AuthorityActions.Add(new C.AuthorityAction(a.Kind, a.DistrictId));
+        foreach (var r in m.Responses) g.Responses.Add(new C.IncidentResponse(r.IncidentId, r.Outcome, r.Text));
+        g.Holding.AddRange(m.Holding);
         return g;
     }
 

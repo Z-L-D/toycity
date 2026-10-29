@@ -331,3 +331,81 @@ digits and `-`, and sizes, costs, radii and outputs outside what the sim is buil
 - `FuzzTests` (against the real server): 900 well-formed nonsense messages never drop their sender or stop the city;
   garbage, a 3 MB message and a flood each drop only their sender while another player keeps playing.
 - `ContentCheckTests`: unknown fields, a bad id and an out-of-range radius are refused at load.
+
+## Part 7: emergency services alpha
+
+A second side game, `emergency` (src/ToyCity.Emergency, messages in protocol/emergency.proto), on every city the
+server runs, beside the bus company. It leases fire stations, police stations, clinics and hospitals as public
+services (subsidy $400 a month for fire and police, $300 for a clinic, $800 for a hospital). The city's own fire,
+police and health coverage stays as it was: the service adds crews on top.
+
+### What the city sends it (contract v1.1)
+
+The contract stays at version 1; `ContractInfo.Minor` is now 1, and everything added is optional for a side game.
+
+- The city raises crime calls where policing is thin (a district with no police at all gets about one every four
+  days, sooner while it's "hot"), crashes on its busiest roads, and an injury when people are inside a building
+  that catches fire. At most four a day, and only when a side game is attached.
+- `GameToCity.Responses`: how each call ended. Fire `out` puts the building's fire out; `spread` sets a neighbour
+  alight. Crime `escaped` heats the district up (+15) and `arrest` cools it (−10). Text goes in the news. The city
+  applies each answer once.
+- `GameToCity.Holding`: calls a player is handling at the scene. The city holds those still (a held fire neither
+  spreads nor goes out by itself) until the answer comes back.
+- `ICityQueries.Area`: what is on each cell of a rectangle, for laying a scene out. Remote side games get it over
+  the wire like the other queries.
+
+### The service
+
+- A new station comes with units: two engines (four crew each) at a fire station, two patrol cars (two each) at a
+  police station, an ambulance at a clinic and two at a hospital. More can be bought, up to what a station holds.
+- Wages ($450 a crew member a month) and upkeep come out on the first of the month, the subsidy comes in.
+- The computer dispatches the nearest free units of the kind a call needs, plus an ambulance for a serious fire or
+  crime. Response time is the street route from the station plus two minutes. A call nobody can answer waits; each
+  day it waits it gets worse, and after three days it is lost.
+- A call the computer handles comes back the next day, decided by who went, how fast and how bad it was.
+- Caretaker keeps the money right; autopilot also leases a station of each kind it lacks and buys units when calls
+  found nobody to send.
+
+### A player running it
+
+Three command styles: **Full command** (every call waits for the player, who picks who goes and runs every scene),
+**Scene command** (the computer dispatches, the player runs every scene), and **Focus** (the computer handles
+everything, the player takes the scenes they want). Three switches: **Pick responders** (the computer proposes,
+the player has a day to change it), **Crews use their heads** (on: crews with no orders do the obvious job nearest
+them) and **Drivers watch out** (on by default; off, vehicles drive into people in their way).
+
+A scene is the call's patch of the city, 9 × 9 cells at four tiles a cell, run in quarter-second steps only when the
+player's client asks (two steps every half second while it's open), so it stays as deterministic as the city: every
+step and order is a logged command and all chance comes from the scene's own seeded generator. The player selects
+crews and vehicles, sends them somewhere (they find their way) or draws a path they follow exactly, and orders hose,
+treat, warn, arrest, taser or shoot. Nothing aims for the player: a shot hits the first person on the line, crew and
+bystanders included, and buildings block it. A scene left alone for three days, or still going after ten minutes, is
+finished by the crews; so are open scenes when the player hands the seat to the computer.
+
+Each scene gets a report card: 60, plus 15 for each life saved and 20 for a good outcome, less 25 for each life lost,
+40 for each person the crews hurt, 30 for each friendly-fire hit and each use of unauthorised force (shooting an
+unarmed or unwarned suspect, tasing one without a warning), half the property lost in percent, and 3 a minute over
+eight minutes' response. Cards move the service's respect, and respect and outcomes make the service quality the
+city's authority rating reads. A vehicle that hit someone is off the road for 30 days and the city hears about it.
+
+The alpha supports the plain bad choices: ignoring calls, sending the wrong crews, driving into people, shooting the
+wrong person. The consent-gated crooked ones (slow-walking a district, rackets, looking the other way, overtime
+arson, strikes) and SWAT teams, breaching and hostage scenes come in the emergency services beta.
+
+### Clients
+
+- Web: a 🚒 Dispatch button opens the board over the map (calls with tick-and-send dispatch, units, report cards,
+  settings, log) and the scene canvas; a scene of the player's opens by itself.
+- Godot: the same board as the "dispatch" dialog (`EmergencyModel` in ToyCity.ClientModel), with `SceneCanvas` beside
+  it.
+- A side game's commands no longer resend the civic state to every client, since a scene sends several a second.
+
+### Tests
+
+- `EmergencyTests` (sim): new stations come with units and the computer answers the city's calls; escapes and arrests
+  move a district's heat, once each; an unanswered call in full command gets worse and is lost; a player's scene holds
+  the fire until it ends; a driver told not to watch out hits someone and the unit is suspended; a shot hits the
+  first person on the line and force is judged; a scene played through commands saves, loads and replays exactly;
+  the service on another process ends in the same state.
+- `EmergencyClientTests`: against the real server, a player takes the service and changes the style and switches; a
+  scene opens by itself and the pointer selects, moves, hoses and draws a path.

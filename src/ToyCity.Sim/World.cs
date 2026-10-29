@@ -260,6 +260,7 @@ public sealed partial class World
         }
         RunCommutes();
         UpdateStats();
+        if (!stasis) RaiseCityIncidents();
         RunSideGames();
         Tick++;
     }

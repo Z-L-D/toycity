@@ -9,6 +9,11 @@ public static class ContractInfo
 {
     /// <summary>Bumped only by a breaking change. Additive fields keep the version. v1 was frozen at the Alpha 3 gate.</summary>
     public const int Version = 1;
+    /// <summary>
+    /// Additions since v1 froze, each optional for a side game to use: 1 added incident responses and holds
+    /// (<see cref="GameToCity.Responses"/>, <see cref="GameToCity.Holding"/>) and <see cref="ICityQueries.Area"/>.
+    /// </summary>
+    public const int Minor = 1;
 }
 
 /// <summary>What a side game tells the city when it registers.</summary>
@@ -50,6 +55,16 @@ public sealed record LineRidership(int LineId, int Riders, IReadOnlyList<int> Bo
 /// Severity 1 (minor) to 3 (serious). Source is "city" or the side game's id.
 /// </summary>
 public sealed record Incident(long Id, string Kind, int X, int Y, string Source, string Cause, int Severity, string Text);
+
+/// <summary>
+/// What a side game did about one of the city's incidents (v1.1), and how it ended: for a fire "out" (put out before
+/// it spread) or "spread"; for a crime "arrest" or "escaped"; for an injury "treated" or "died". Text, if any, goes
+/// in the city's news.
+/// </summary>
+public sealed record IncidentResponse(long IncidentId, string Outcome, string Text);
+
+/// <summary>What is on a cell, as a side game may see it for laying out a scene (v1.1).</summary>
+public enum CellKind : byte { Ground = 0, Road = 1, Building = 2, Water = 3, Park = 4 }
 
 /// <summary>Money between the city and the side game. Positive: the side game pays the city; negative: the city pays it.</summary>
 public sealed record Bill(int LeaseId, string Label, long Amount);
@@ -116,6 +131,13 @@ public sealed class GameToCity
     public int ServiceQuality = 50;
     /// <summary>One line for the city's why-traces and the news ("Buses running on 3 lines").</summary>
     public string Status = "";
+    /// <summary>v1.1: how incidents the side game answered turned out. The city applies each once.</summary>
+    public readonly List<IncidentResponse> Responses = new();
+    /// <summary>
+    /// v1.1: incidents a player is handling at the scene right now. The city holds each still (a fire neither spreads
+    /// nor goes out by itself) until a response for it comes back.
+    /// </summary>
+    public readonly List<long> Holding = new();
 }
 
 /// <summary>A route along the city's streets between two cells, at today's travel times.</summary>
@@ -132,6 +154,8 @@ public interface ICityQueries
     int DistrictOf(int cell);
     /// <summary>A stable hash of the city's seed and some numbers, for the side game's own deterministic randomness.</summary>
     ulong Hash(int a, int b, int c, int d);
+    /// <summary>v1.1: what is on each cell of a rectangle, row by row; cells off the map read as water.</summary>
+    CellKind[] Area(int x0, int y0, int w, int h) => new CellKind[Math.Max(0, w) * Math.Max(0, h)];
 }
 
 /// <summary>What became of a player's command.</summary>

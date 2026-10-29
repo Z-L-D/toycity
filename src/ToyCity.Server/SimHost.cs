@@ -346,7 +346,8 @@ public sealed partial class SimHost : IDisposable
                         _world.Enqueue(a with { By = c.Player });
                         _world.ApplyPending();
                         if (a is SetConsentAction) KeepConsent(c.Player);
-                        broadcast = BuildDeltas(forceAlerts: true);
+                        // A side game's commands can come several a second (a scene running): they don't resend the civic state.
+                        broadcast = BuildDeltas(forceAlerts: a is not SideGameAction);
                     }
                     else reply = Error(msg.Seq, "Unknown action.");
                     break;

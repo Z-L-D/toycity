@@ -13,5 +13,6 @@
   <ItemGroup>
     <ProjectReference Include="../../src/ToyCity.Protocol/ToyCity.Protocol.csproj" />
     <ProjectReference Include="../../src/ToyCity.Transport/ToyCity.Transport.csproj" />
+    <ProjectReference Include="../../src/ToyCity.Emergency/ToyCity.Emergency.csproj" />
   </ItemGroup>
 </Project>

@@ -98,6 +98,7 @@ public sealed partial class World : IDisposable
         var inc = new Incident(++_incidentSeq, kind, x, y, source, cause, Math.Clamp(severity, 1, 3), text);
         _incidents.Add(inc);
         _recentIncidents.Add(inc);
+        Remember(inc);
         if (_recentIncidents.Count > 50) _recentIncidents.RemoveAt(0);
     }
 
@@ -182,6 +183,7 @@ public sealed partial class World : IDisposable
             foreach (var inc in output.Incidents) TakeIncident(hg, inc);
             SettleLeases(hg, input, output);
             TakeAuthorityActions(hg, output);
+            TakeResponses(hg, output);
         }
     }
 
@@ -225,6 +227,7 @@ public sealed partial class World : IDisposable
         public int DistrictOf(int cell) => w.DistrictOf(cell);
         public ulong Hash(int a, int b, int c, int d) => w.Hash(a, b, c, d);
         public StreetRoute? Route(int fromCell, int toCell) => w.StreetRouteBetween(fromCell, toCell);
+        public CellKind[] Area(int x0, int y0, int width, int height) => w.AreaKinds(x0, y0, width, height);
     }
 
     // Scratch for street routing on behalf of side games; never saved.
@@ -294,6 +297,7 @@ public sealed partial class World : IDisposable
                 foreach (var b in boardings) w.Write(b);
             }
         }
+        WriteIncidents(w);
     }
 
     void ReadSideGames(BinaryReader r)
@@ -321,6 +325,7 @@ public sealed partial class World : IDisposable
             }
             SideGames.Add(hg);
         }
+        ReadIncidents(r);
     }
 
     static void WriteIncident(BinaryWriter w, Incident i)
@@ -346,6 +351,8 @@ public sealed partial class World : IDisposable
         w.Write(o.RevenueByLease.Count);
         foreach (var (lease, v) in o.RevenueByLease.OrderBy(j => j.Key)) { w.Write(lease); w.Write(v); }
         w.Write(o.Status);
+        w.Write(o.Holding.Count);
+        foreach (var h in o.Holding) w.Write(h);
     }
 
     static GameToCity ReadGameOutput(BinaryReader r)
@@ -367,6 +374,8 @@ public sealed partial class World : IDisposable
         int nr = r.ReadInt32();
         for (int i = 0; i < nr; i++) o.RevenueByLease[r.ReadInt32()] = r.ReadInt64();
         o.Status = r.ReadString();
+        int nh = r.ReadInt32();
+        for (int i = 0; i < nh; i++) o.Holding.Add(r.ReadInt64());
         return o;
     }
 }

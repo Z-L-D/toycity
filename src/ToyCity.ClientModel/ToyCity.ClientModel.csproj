@@ -7,5 +7,6 @@
   <ItemGroup>
     <ProjectReference Include="../ToyCity.Wire/ToyCity.Wire.csproj" />
     <ProjectReference Include="../ToyCity.Transport.Wire/ToyCity.Transport.Wire.csproj" />
+    <ProjectReference Include="../ToyCity.Emergency.Wire/ToyCity.Emergency.Wire.csproj" />
   </ItemGroup>
 </Project>
