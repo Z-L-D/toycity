@@ -34,6 +34,9 @@ public sealed class PathProfile
     /// <summary>A rail line: trains only, no cars, bikes, people or frontage.</summary>
     public bool Rail { get; set; }
 
+    /// <summary>How the clients draw the cross-section; the sim doesn't read it.</summary>
+    public System.Text.Json.JsonElement? Strips { get; set; }
+
     /// <summary>Free-flow travel time across one 16 m cell, in deciseconds of commute time.</summary>
     [JsonIgnore] public int CellTime { get; set; }
 }
@@ -120,7 +123,7 @@ public sealed class BuildingType
 }
 
 /// <summary>All data the simulation reads from content files. Order of lists is part of determinism.</summary>
-public sealed class ContentDb
+public sealed partial class ContentDb
 {
     public List<PathProfile> Profiles { get; } = new();
     public List<BuildingType> Types { get; } = new();
@@ -156,9 +159,16 @@ public sealed class ContentDb
         PropertyNameCaseInsensitive = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
+        // A misspelt or unknown field is an error, not silently ignored.
+        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
     };
 
-    sealed class ProfilesFile { public List<PathProfile> Profiles { get; set; } = new(); }
+    sealed class ProfilesFile
+    {
+        public int Version { get; set; }
+        public System.Text.Json.JsonElement? Notes { get; set; }
+        public List<PathProfile> Profiles { get; set; } = new();
+    }
 
     sealed class ZonedEntry
     {
@@ -220,6 +230,9 @@ public sealed class ContentDb
 
     sealed class BuildingsFile
     {
+        public int Version { get; set; }
+        public System.Text.Json.JsonElement? Notes { get; set; }
+        public System.Text.Json.JsonElement? LotSizesNote { get; set; }
         public int StartingFunds { get; set; } = 100_000;
         public int ZoneCostPerCell { get; set; } = 5;
         public int BulldozeCostPerCell { get; set; } = 5;
@@ -361,9 +374,49 @@ public sealed class ContentDb
                     throw new InvalidDataException($"{owner}: unknown ordinance '{oid}'");
             }
         }
+        db.CheckRanges();
         var bytes = System.Text.Encoding.UTF8.GetBytes(profilesJson + "\n" + buildingsJson + "\n" + ordinancesJson + "\n" + eventsJson + "\n" + voiceJson);
         db.Fingerprint = System.IO.Hashing.XxHash64.HashToUInt64(bytes);
         return db;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex("^[a-z0-9][a-z0-9-]{0,47}$")]
+    private static partial System.Text.RegularExpressions.Regex IdRule();
+
+    /// <summary>
+    /// Content is data only, and checked as such: ids are plain, sizes, costs and outputs stay within what the sim is
+    /// built for, so a content pack can't crash or stall a city however it's written.
+    /// </summary>
+    void CheckRanges()
+    {
+        static void In(string owner, string what, double v, double lo, double hi)
+        {
+            if (double.IsNaN(v) || v < lo || v > hi) throw new InvalidDataException($"{owner}: {what} is {v}, outside {lo}..{hi}");
+        }
+        const double Money = 100_000_000;
+        foreach (var p in Profiles)
+        {
+            if (!IdRule().IsMatch(p.Id)) throw new InvalidDataException($"profile id '{p.Id}' must be lowercase letters, digits and -");
+            In(p.Id, "speedKmh", p.SpeedKmh, 1, 400);
+            In(p.Id, "capacityPerHour", p.CapacityPerHour, 0, 100_000);
+            In(p.Id, "costPerCell", p.CostPerCell, 0, Money);
+            In(p.Id, "maintenancePerCell", p.MaintenancePerCell, 0, Money);
+            In(p.Id, "widthM", p.WidthM, 0, 200);
+        }
+        foreach (var t in Types)
+        {
+            if (!IdRule().IsMatch(t.Id)) throw new InvalidDataException($"building id '{t.Id}' must be lowercase letters, digits and -");
+            if (t.Name.Length > 64) throw new InvalidDataException($"{t.Id}: name too long");
+            In(t.Id, "w", t.W, 1, 16);
+            In(t.Id, "h", t.H, 1, 16);
+            In(t.Id, "cost", t.Cost, 0, Money);
+            In(t.Id, "maintenance", t.Maintenance, 0, Money);
+            In(t.Id, "residents", t.Residents, 0, 100_000);
+            In(t.Id, "jobs", t.Jobs, 0, 100_000);
+            In(t.Id, "radius", t.Radius, 0, 128);
+            In(t.Id, "powerOutKw", t.PowerOutKw, 0, 10_000_000);
+            In(t.Id, "waterOut", t.WaterOut, 0, 10_000_000);
+        }
     }
 
     void AddType(BuildingType t)

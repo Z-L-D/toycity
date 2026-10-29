@@ -293,3 +293,41 @@ last one the host sent.
 (and view), carries on in step after a save and load through the host, and survives a forecast; a probe that runs
 late on one day and one command is undone on the host, logged, and a replay with the probe in-process matches.
 `SideGameHostTests` runs the real host process and a dedicated server whose bus company lives on it.
+
+## Part 6: security hardening
+
+### Bounds on every action
+
+`World.OutOfBounds` runs before the permission check on every action, whoever sent it, and refuses the action whole
+when it is outside what any player could do from a client:
+
+- cells on the map (a drag may run up to a map's width past the edge, since the city clips it, but a rectangle must
+  touch the map; single cells such as a building's corner or a disaster must be on it);
+- enums that exist (zones, densities, modes, mechanics, seat levels and styles, portfolios);
+- ids that point at a building;
+- taxes 0–20%, funding 0–200%, loans and spending caps up to $1,000,000,000, lease terms in range;
+- names up to 40 characters, ids up to 64, side-game commands up to 64 KB.
+
+### Connections
+
+- A message over 1 MB closes the connection (`MessageTooBig`).
+- Each connection has a token bucket of 200 messages, refilled at 60 a second; running dry closes it.
+- Three unreadable messages close it.
+- A message the server fails to handle closes the connection that sent it and is logged; the city and everyone else
+  carry on.
+- One forecast at a time per connection, with at most 200 planned actions.
+
+### Content is data
+
+Content packs are only ever read from the server's own content folder; nothing a client sends is loaded as content or
+code. Loading now refuses unknown fields (a misspelling is an error, not ignored), ids that aren't lowercase letters,
+digits and `-`, and sizes, costs, radii and outputs outside what the sim is built for.
+
+### Tests
+
+- `ActionFuzzTests`: 3,000 nonsense actions (every field random, from the mayor, a stranger or nobody) over 120 days
+  never throw, and the city replays and reloads to the same state. Without the bounds check the same run runs out
+  of memory.
+- `FuzzTests` (against the real server): 900 well-formed nonsense messages never drop their sender or stop the city;
+  garbage, a 3 MB message and a flood each drop only their sender while another player keeps playing.
+- `ContentCheckTests`: unknown fields, a bad id and an out-of-range radius are refused at load.

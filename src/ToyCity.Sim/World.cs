@@ -224,7 +224,7 @@ public sealed partial class World
             _logging = Log.Count;
             Log.Add(new LoggedAction(Tick, a));
             _actor = a.By;
-            if (Forbidden(a) is { } why) Reject(why);
+            if ((OutOfBounds(a) ?? Forbidden(a)) is { } why) Reject(why);
             else if (!SendToCouncil(a)) Apply(a);
             _actor = "";
             if (a is PlacePathAction or BulldozeAction) _edgeDirty = true;

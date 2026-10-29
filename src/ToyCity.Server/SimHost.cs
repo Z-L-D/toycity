@@ -78,8 +78,17 @@ public sealed partial class SimHost : IDisposable
         public string Player = "";
         public bool Admin;
         public int SignInFailures;
+        public int Malformed;
+        public readonly RateLimiter Limiter = new(burst: 200, perSecond: 60);
+        /// <summary>Set while a forecast runs for this client: one at a time.</summary>
+        public int Forecasting;
         public bool SignedIn => Player.Length > 0;
     }
+
+    /// <summary>The largest message a client may send; anything bigger is hostile or broken.</summary>
+    const int MaxMessageBytes = 1 << 20;
+    /// <summary>Unreadable messages a connection may send before it is dropped.</summary>
+    const int MaxMalformed = 3;
 
     void Loop()
     {
@@ -184,6 +193,7 @@ public sealed partial class SimHost : IDisposable
 
         var buffer = new byte[64 * 1024];
         using var ms = new MemoryStream();
+        string? drop = null;
         try
         {
             while (socket.State == WebSocketState.Open && !ct.IsCancellationRequested)
@@ -191,27 +201,54 @@ public sealed partial class SimHost : IDisposable
                 var r = await socket.ReceiveAsync(buffer, ct);
                 if (r.MessageType == WebSocketMessageType.Close) break;
                 ms.Write(buffer, 0, r.Count);
+                if (ms.Length > MaxMessageBytes) { drop = "message too large"; break; }
                 if (!r.EndOfMessage) continue;
                 var data = ms.ToArray();
                 ms.SetLength(0);
+                if (!client.Limiter.Take()) { drop = "too many messages"; break; }
                 P.ClientMessage msg;
                 try { msg = P.ClientMessage.Parser.ParseFrom(data); }
-                catch (InvalidProtocolBufferException) { await SendAsync(client, Error(0, "Could not read that message.")); continue; }
-                if (msg.BodyCase == P.ClientMessage.BodyOneofCase.SignIn)
+                catch (InvalidProtocolBufferException)
                 {
-                    if (!await SignInAsync(client, msg)) break;
+                    if (++client.Malformed >= MaxMalformed) { drop = "unreadable messages"; break; }
+                    await SendAsync(client, Error(0, "Could not read that message."));
+                    continue;
                 }
-                else if (!client.SignedIn)
+                try
                 {
-                    if (msg.BodyCase != P.ClientMessage.BodyOneofCase.Hello) await SendAsync(client, Error(msg.Seq, "Sign in first."));
+                    if (msg.BodyCase == P.ClientMessage.BodyOneofCase.SignIn)
+                    {
+                        if (!await SignInAsync(client, msg)) break;
+                    }
+                    else if (!client.SignedIn)
+                    {
+                        if (msg.BodyCase != P.ClientMessage.BodyOneofCase.Hello) await SendAsync(client, Error(msg.Seq, "Sign in first."));
+                    }
+                    else await HandleAsync(client, msg);
                 }
-                else await HandleAsync(client, msg);
+                catch (Exception e) when (e is not OperationCanceledException and not WebSocketException)
+                {
+                    // A message the server can't handle drops the client that sent it, never the server.
+                    _log.LogWarning(e, "dropping {Player}: a {Kind} message failed", client.Player, msg.BodyCase);
+                    drop = "a message the server couldn't handle";
+                    break;
+                }
             }
         }
         catch (OperationCanceledException) { }
         catch (WebSocketException) { }
         finally
         {
+            if (drop != null)
+            {
+                _log.LogWarning("dropped a connection ({Player}): {Why}", client.Player.Length > 0 ? client.Player : "not signed in", drop);
+                try
+                {
+                    var status = drop == "message too large" ? WebSocketCloseStatus.MessageTooBig : WebSocketCloseStatus.PolicyViolation;
+                    await socket.CloseOutputAsync(status, drop, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2));
+                }
+                catch { }
+            }
             List<(Client, P.ServerMessage)> outbox;
             lock (_gate)
             {
@@ -382,9 +419,11 @@ public sealed partial class SimHost : IDisposable
                     break;
                 case P.ClientMessage.BodyOneofCase.Forecast:
                 {
+                    // One at a time per client: each copies the whole city.
+                    if (Interlocked.Exchange(ref c.Forecasting, 1) == 1) { reply = Error(msg.Seq, "A forecast is already running."); break; }
                     // Copy the city under the gate, then run the copy on a worker so the live city keeps ticking.
                     var snapshot = _world.Snapshot();
-                    var plan = msg.Forecast.Plan.Select(Mapping.ToSim).Where(a => a != null).Select(a => a!).ToList();
+                    var plan = msg.Forecast.Plan.Take(200).Select(Mapping.ToSim).Where(a => a != null).Select(a => a!).ToList();
                     int months = msg.Forecast.Months is > 0 and <= 120 ? msg.Forecast.Months : 12;
                     _ = Task.Run(async () =>
                     {
@@ -395,6 +434,7 @@ public sealed partial class SimHost : IDisposable
                             m = new P.ServerMessage { Forecast = Mapping.Forecast(copy.RunForecast(months, plan), plan.Count > 0) };
                         }
                         catch (Exception e) { _log.LogWarning(e, "forecast failed"); m = Error(0, "The forecast failed."); }
+                        finally { Volatile.Write(ref c.Forecasting, 0); }
                         m.ReplyTo = msg.Seq;
                         await SendAsync(c, m);
                     });
