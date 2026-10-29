@@ -130,17 +130,18 @@ public sealed partial class SimHost : IDisposable
             }
         }
         // Petitions, deals, unlocks and headlines change at most monthly or on an action, so a cheap signature will do.
-        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}/{string.Join(",", _world.Seats.Select(s => $"{s.Owner}:{(int)s.Level}:{(int)s.Style}:{s.SpendCap}:{s.Report?.ToTick}:{(int)s.AwayLevel}:{(int)s.AwayStyle}:{s.AutoAway}"))}/{string.Join(",", _world.Leases.Select(l => $"{l.Id}:{l.Terms.GetHashCode()}:{l.PendingMonths}:{l.Arrears}:{l.BadStanding}:{l.CureMonthsLeft}:{l.Jobs}:{l.LastRevenue}:{l.EvictMonths}"))}/{_world.SideGames.Count}/{_world.ConsentSig()}/{string.Join(",", _world.Standings.Select(s => $"{s.Rating}:{s.Statue}:{s.ExclusiveUntil > _world.Tick}"))}";
+        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}/{string.Join(",", _world.Seats.Select(s => $"{s.Owner}:{(int)s.Level}:{(int)s.Style}:{s.SpendCap}:{s.Report?.ToTick}:{(int)s.AwayLevel}:{(int)s.AwayStyle}:{s.AutoAway}"))}/{string.Join(",", _world.Leases.Select(l => $"{l.Id}:{l.Terms.GetHashCode()}:{l.PendingMonths}:{l.Arrears}:{l.BadStanding}:{l.CureMonthsLeft}:{l.Jobs}:{l.LastRevenue}:{l.EvictMonths}"))}/{_world.SideGames.Count}/{_world.ConsentSig()}/{string.Join(",", _world.Standings.Select(s => $"{s.Rating}:{s.Statue}:{s.ExclusiveUntil > _world.Tick}"))}/{_world.RolesSig()}";
         if (forceAlerts || civicSig != _civicSig)
         {
             _civicSig = civicSig;
             var civic = Mapping.Civic(_world);
-            foreach (var c in _clients) list.Add((c, new P.ServerMessage { Civic = civic }));
+            foreach (var c in _clients) list.Add((c, new P.ServerMessage { Civic = CivicFor(civic, c.Player) }));
         }
         if (RosterIfChanged() is { } roster)
             foreach (var c in _clients) list.Add((c, new P.ServerMessage { Agents = roster }));
-        foreach (var view in ChangedViews(all: false))
-            foreach (var c in _clients) list.Add((c, view));
+        var views = ChangedViews(all: false);
+        foreach (var c in _clients)
+            foreach (var view in ViewsFor(views, c.Player)) list.Add((c, view));
         list.AddRange(PresenceIfChanged());
         return list;
     }
@@ -245,11 +246,11 @@ public sealed partial class SimHost : IDisposable
         lock (_gate) alerts = Mapping.Alerts(_world, _world.Alerts());
         await SendAsync(client, new P.ServerMessage { Alerts = alerts });
         P.CivicState civicNow;
-        lock (_gate) civicNow = Mapping.Civic(_world);
+        lock (_gate) civicNow = CivicFor(Mapping.Civic(_world), client.Player);
         await SendAsync(client, new P.ServerMessage { Civic = civicNow });
         P.AgentRoster rosterNow;
         List<P.ServerMessage> viewsNow;
-        lock (_gate) { rosterNow = Roster(Agents()); viewsNow = ChangedViews(all: true); }
+        lock (_gate) { rosterNow = Roster(Agents()); viewsNow = ViewsFor(ChangedViews(all: true), client.Player).ToList(); }
         await SendAsync(client, new P.ServerMessage { Agents = rosterNow });
         foreach (var v in viewsNow) await SendAsync(client, v);
     }

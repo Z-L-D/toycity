@@ -1031,11 +1031,13 @@ function showSignIn(welcome: Msg, error: string) {
 /** Who's here, in the top bar: each player online (dimmed while away), what they run, and who only watches. */
 function renderPresence(p: Msg) {
   const players = p.players as Msg[];
+  if (seats) seats.players = players.map((pl) => pl.name as string);
   const el = $('#players');
   el.classList.toggle('hidden', players.length < 2 && !conn.player.length);
   const seatName = (id: string) => (id === 'mayor' ? 'mayor' : seats?.seatName(id) ?? id);
   el.innerHTML = players.map((pl) => {
-    const role = pl.spectator ? 'watching' : (pl.seats as string[]).map(seatName).join(', ');
+    const deputy = (pl.deputyFor as string[]).length ? [`deputy for ${(pl.deputyFor as string[]).join('/')}`] : [];
+    const role = pl.spectator ? 'watching' : [...(pl.seats as string[]).map(seatName), ...deputy].join(', ');
     const me = pl.name === conn.player ? ' (you)' : '';
     return `<span class="player${pl.online ? '' : ' away'}" title="${pl.online ? 'Online' : 'Away: the computer has their seats'}${pl.admin ? ' · admin' : ''}">${esc(pl.name)}${me}<small>${esc(role)}</small></span>`;
   }).join('');

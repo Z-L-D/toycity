@@ -92,6 +92,7 @@ export class Transport {
   onView(body: Msg) {
     if (body.game !== GAME) return;
     this.view = decodeTransportView(body.payload as Uint8Array);
+    this.public = body.seat === 'public';
     $('#btn-company').classList.remove('hidden');
     $('#btn-company').textContent = `🚌 ${this.view.name}`;
     this.host.setLines((this.view.lines as Msg[]).filter((l) => l.routeCells.length > 1).map((l) => ({
@@ -111,7 +112,9 @@ export class Transport {
     this.host.conn.action({ sideGame: { game: GAME, seat: 'operator', payload: encodeTransportCommand(cmd) } });
   }
 
-  private get mine() { return this.view?.operator === 'manual'; }
+  private get mine() { return this.view?.operator === 'manual' && this.view.owner === (this.host.conn.player || 'player'); }
+  /** Another player runs the company: this is the public view, without its books, standing or log. */
+  private public = false;
 
   private lot(leaseId: number): Msg | undefined {
     return (this.view?.lots as Msg[] | undefined)?.find((l) => l.leaseId === leaseId);
@@ -229,13 +232,14 @@ export class Transport {
     if (!v) { $('#co-name').textContent = 'No bus company'; return; }
     $('#co-name').textContent = v.name;
     const cash = $('#co-cash');
-    cash.textContent = money(v.cash);
-    cash.classList.toggle('neg', v.cash < 0);
+    cash.textContent = this.public ? 'books private' : money(v.cash);
+    cash.classList.toggle('neg', !this.public && v.cash < 0);
     $('#co-buses').textContent = `${v.buses} of ${v.busCapacity} buses`;
     $('#co-quality').textContent = `service ${v.serviceQuality}/100`;
     const seat = $('#co-seat');
     seat.innerHTML = this.mine
       ? `<span class="note">You run it</span><button class="mini" id="co-handoff">Hand to the computer</button>`
+      : this.public ? `<span class="note">${esc(v.owner)} runs it</span>`
       : `<span class="note">The computer runs it (${esc(v.operator)})</span><button class="mini active" id="co-claim">Run it yourself</button>`;
     seat.querySelector('#co-claim')?.addEventListener('click', () => this.host.conn.action({ seat: { seat: GAME, owner: this.host.conn.player || 'player', level: 0, style: 0, spendCap: 25000 } }));
     seat.querySelector('#co-handoff')?.addEventListener('click', () => this.host.conn.action({ seat: { seat: GAME, owner: '', level: 3, style: 0, spendCap: 25000 } }));
@@ -278,6 +282,10 @@ export class Transport {
     }
     const v = this.view;
     if (!v) { el.innerHTML = '<p class="muted">No bus company in this city.</p>'; return; }
+    if (this.public && ['money', 'standing', 'log'].includes(this.tab)) {
+      el.innerHTML = `<p class="muted">${esc(v.owner)} runs this company. Its books, its standing with the city and its log are theirs to see.</p>`;
+      return;
+    }
     const paused = this.host.city.stats.speed === 0 ? '<div class="co-hint">Paused: the company hears about new lots, lines and purchases when the day turns.</div>' : '';
     el.innerHTML = paused + ({ lines: () => this.linesHtml(v), lots: () => this.lotsHtml(v), money: () => this.moneyHtml(v), standing: () => this.standingHtml(v), log: () => this.logHtml(v) })[this.tab]();
     this.wirePanel(el, v);

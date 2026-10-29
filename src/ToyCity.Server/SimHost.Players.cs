@@ -70,20 +70,24 @@ public sealed partial class SimHost
         string owner = _world.MayorSeat.Owner;
         if (_accounts.Exists(owner)) return;
         string? to = admin ?? _host.Admins.Select(a => _accounts.Canonical(a)).FirstOrDefault(a => a != null);
-        if (to != null) _world.RenameOwner(owner, to);
+        if (to == null) return;
+        _world.Enqueue(new RenameOwnerAction(owner, to));
+        _world.ApplyPending();
     }
 
     P.Presence Presence()
     {
         var p = new P.Presence();
         var names = _clients.Where(c => c.SignedIn).Select(c => c.Player)
-            .Concat(_world.Seats.Select(s => s.Owner).Where(o => o.Length > 0))
+            .Concat(_world.Seats.Select(s => s.Owner).Where(o => o.Length > 0)).Concat(_world.Deputies.Keys)
             .Distinct().OrderBy(n => n, StringComparer.OrdinalIgnoreCase);
         foreach (var n in names)
         {
             var player = new P.Presence.Types.Player { Name = n, Online = Online(n), Admin = _host.Dedicated ? _host.IsAdmin(n) : n == LocalPlayer };
             player.Seats.AddRange(_world.Seats.Where(s => s.Owner == n).Select(s => s.Id));
-            player.Spectator = player.Online && player.Seats.Count == 0;
+            if (_world.Deputies.TryGetValue(n, out var dp))
+                player.DeputyFor.AddRange(Enum.GetValues<Portfolio>().Where(x => x != Portfolio.None && (dp & x) != 0).Select(x => x.ToString().ToLowerInvariant()));
+            player.Spectator = player.Online && player.Seats.Count == 0 && player.DeputyFor.Count == 0;
             p.Players.Add(player);
         }
         return p;

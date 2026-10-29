@@ -40,11 +40,15 @@ public sealed partial class World
             case SetSeatAction a: ApplySetSeat(a); break;
             case SetAwayLevelAction a: ApplySetAwayLevel(a); break;
             case SeatAwayAction a: ApplySeatAway(a); break;
+            case RenameOwnerAction a: RenameOwner(a.From, a.To); break;
             case LeaseLotAction a: ApplyLeaseLot(a); break;
             case SetLeaseTermsAction a: ApplySetLeaseTerms(a); break;
             case EndLeaseAction a: ApplyEndLease(a); break;
             case SetConsentAction a: ApplySetConsent(a); break;
             case SetCityRuleAction a: ApplySetCityRule(a); break;
+            case SetDeputyAction a: ApplySetDeputy(a); break;
+            case SetCouncilAction a: ApplySetCouncil(a); break;
+            case VoteAction a: ApplyVote(a); break;
             case SetHostRulesAction a: ApplySetHostRules(a); break;
             case OfferPactAction a: ApplyOfferPact(a); break;
             case AcceptPactAction a: ApplyAcceptPact(a); break;

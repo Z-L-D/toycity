@@ -44,6 +44,9 @@ public static class Mapping
             P.Pact.Types.Step.PactAccept => new AcceptPactAction(a.Pact.With, (Mechanic)(int)a.Pact.Mechanic),
             _ => new EndPactAction(a.Pact.With, (Mechanic)(int)a.Pact.Mechanic),
         },
+        P.Action.KindOneofCase.Deputy => new SetDeputyAction(a.Deputy.Player, (Portfolio)(byte)a.Deputy.Portfolios),
+        P.Action.KindOneofCase.Council => new SetCouncilAction(a.Council.On),
+        P.Action.KindOneofCase.Vote => new VoteAction(a.Vote.Proposal, a.Vote.Yes),
         P.Action.KindOneofCase.AwayLevel => new SetAwayLevelAction(a.AwayLevel.Seat, (ToyCity.Contract.OperatorLevel)(int)a.AwayLevel.Level, (AutopilotStyle)(int)a.AwayLevel.Style),
         _ => null,
     };
@@ -76,6 +79,9 @@ public static class Mapping
         OfferPactAction x => new P.Action { Pact = new P.Pact { Step = P.Pact.Types.Step.PactOffer, With = x.With, Mechanic = (P.Mechanic)(int)x.Mechanic } },
         AcceptPactAction x => new P.Action { Pact = new P.Pact { Step = P.Pact.Types.Step.PactAccept, With = x.From, Mechanic = (P.Mechanic)(int)x.Mechanic } },
         EndPactAction x => new P.Action { Pact = new P.Pact { Step = P.Pact.Types.Step.PactEnd, With = x.With, Mechanic = (P.Mechanic)(int)x.Mechanic } },
+        SetDeputyAction x => new P.Action { Deputy = new P.SetDeputy { Player = x.Player, Portfolios = (uint)x.Portfolios } },
+        SetCouncilAction x => new P.Action { Council = new P.SetCouncil { On = x.On } },
+        VoteAction x => new P.Action { Vote = new P.Vote { Proposal = x.ProposalId, Yes = x.Yes } },
         SetAwayLevelAction x => new P.Action { AwayLevel = new P.SetAwayLevel { Seat = x.SeatId, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
     };
@@ -352,6 +358,20 @@ public static class Mapping
         foreach (var p in w.Pacts) table.Pacts.Add(new P.PactState { A = p.A, B = p.B, Mechanic = (P.Mechanic)(int)p.Mechanic });
         foreach (var o in w.PactOffers) table.Pacts.Add(new P.PactState { A = o.From, B = o.To, Mechanic = (P.Mechanic)(int)o.Mechanic, Offer = true });
         r.Consent = table;
+        foreach (var (player, p) in w.Deputies) r.Deputies.Add(new P.Deputy { Player = player, Portfolios = (uint)p });
+        r.CouncilOn = w.CouncilOn;
+        r.Council.AddRange(w.CouncilMembers());
+        foreach (var p in w.Proposals.OrderBy(p => p.Status != ProposalStatus.Open).ThenByDescending(p => p.Id).Take(12))
+        {
+            var pp = new P.Proposal
+            {
+                Id = p.Id, Text = w.Describe(p.Action), Proposer = p.Proposer, DaysLeft = (int)Math.Max(0, p.Deadline - w.Tick),
+                Status = p.Status switch { ProposalStatus.Open => "open", ProposalStatus.Passed => "passed", _ => "failed" },
+            };
+            pp.Yes.AddRange(p.Votes.Where(v => v.Value).Select(v => v.Key));
+            pp.No.AddRange(p.Votes.Where(v => !v.Value).Select(v => v.Key));
+            r.Proposals.Add(pp);
+        }
         foreach (var l in w.Leases)
         {
             var b = w.Buildings[l.BuildingId];
@@ -417,6 +437,7 @@ public static class Mapping
             s.Log.Add(l.Action switch
             {
                 SeatAwayAction sa => new P.ActionRecord { Tick = l.Tick, By = sa.By, Away = new P.SeatAway { Seat = sa.SeatId, Away = sa.Away } },
+                RenameOwnerAction rn => new P.ActionRecord { Tick = l.Tick, By = rn.By, Rename = new P.RenameOwner { From = rn.From, To = rn.To } },
                 SetHostRulesAction hr => new P.ActionRecord { Tick = l.Tick, By = hr.By, HostRules = new P.HostRules { Forbidden = { hr.Forbidden.Select(m => (P.Mechanic)(int)m) } } },
                 _ => new P.ActionRecord { Tick = l.Tick, By = l.Action.By, Action = ToProto(l.Action) },
             });
@@ -431,6 +452,7 @@ public static class Mapping
         foreach (var r in s.Log)
         {
             SimAction? a = r.Away != null ? new SeatAwayAction(r.Away.Seat, r.Away.Away)
+                : r.Rename != null ? new RenameOwnerAction(r.Rename.From, r.Rename.To)
                 : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
                 : r.Action == null ? null : ToSim(r.Action);
             if (a != null) w.Log.Add(new LoggedAction(r.Tick, a with { By = r.By }));

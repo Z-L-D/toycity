@@ -194,3 +194,50 @@ or Forbidden by the host or by the city.
 reaches everyone needing everyone; a pact allowing an eviction and surviving a save; the host's and the city's rules
 beating everyone, a pact included) and `MultiplayerTests` (a forbidden mechanic on a real server, and a player's
 setting following them into a new city).
+
+## Part 4: roles and council
+
+### Deputies
+
+The mayor can make any other player a deputy mayor with one or more portfolios (`SetDeputyAction`); a deputy with
+none is stood down. The city's actions fall under these portfolios (`World.PortfolioFor`):
+
+| Portfolio | Actions |
+| --- | --- |
+| Planning | roads and paths, zoning, utilities, terraforming, bulldozing |
+| Budget | taxes, service funding, loans |
+| Services | civic buildings and their upgrades |
+| Transit | stops and depots, and leasing lots to side games |
+
+Everything else (ordinances, house rules for the city, handing out portfolios, the council) stays with the mayor.
+A refusal names who may do it: "Only the mayor (zac) or a deputy for the budget can do that." Deputies are shown in
+the presence bar ("deputy for budget/transit") and are not counted as spectators.
+
+### The council
+
+Off by default. When the mayor seats it (`SetCouncilAction`), tax changes, ordinances and loans become proposals
+instead of happening at once. Every seat owner and every deputy is a member. The proposer votes yes; members vote
+with `VoteAction`. A proposal is decided as soon as every member has voted, or after `World.VoteDays` (7) on the
+votes cast. More yes than no passes; a tie goes the way the mayor voted, and fails if the mayor didn't vote. A passed
+proposal is applied as its proposer. If the proposer is the only member, nothing goes to a vote. Dissolving the
+council fails whatever is still open. Deputies, the council and proposals are saved, and the server resends them
+whenever a vote or a role changes.
+
+### Who sees what
+
+- A side game sends two views: `operator` for its seat's owner (or for everyone while nobody holds the seat) and
+  `public` for everyone else. The bus company's public view keeps the lines and lots for the map but drops the cash,
+  the books, the standing, the offers and the log. Both clients say "Olu runs this company" in place of those tabs.
+- Standing with the city goes only to the side game's operator. The mayor sees each district's rating but not a
+  bribe ban (who has been caught); other players see none of it.
+
+### Server renames are logged
+
+When a dedicated server gives the solo "player" seats to an admin, it now does so with `RenameOwnerAction`, logged
+as `ActionRecord.rename`, so a replay of a shared city reaches the same state.
+
+### Tests
+
+`RolesTests` (a deputy acting only in their portfolio; the council off until the mayor seats it; passing, ties to the
+mayor, deadlines, dissolving; save and replay) and `MultiplayerTests` (the public and operator views on a real server,
+standings hidden from a rival, a deputy's proposal passed by vote over the wire).

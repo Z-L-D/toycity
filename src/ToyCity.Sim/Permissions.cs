@@ -12,6 +12,12 @@ public sealed record SetAwayLevelAction(string SeatId, OperatorLevel Level, Auto
 /// </summary>
 public sealed record SeatAwayAction(string SeatId, bool Away) : SimAction;
 
+/// <summary>
+/// The server gives one player's seats and settings to another: on a dedicated server, the solo "player" of a save
+/// or a new city becomes the admin who loaded or founded it. Logged, so a replay arrives the same way.
+/// </summary>
+public sealed record RenameOwnerAction(string From, string To) : SimAction;
+
 public sealed partial class World
 {
     /// <summary>The player whose action is being applied, so a refusal goes to them alone. Empty outside an action.</summary>
@@ -47,6 +53,8 @@ public sealed partial class World
                 return null;  // always about the sender and one other player
             case SetHostRulesAction:
                 return "Only the server sets its host's rules.";
+            case RenameOwnerAction:
+                return "Only the server hands a player's seats to another.";
             case SideGameAction g:
             {
                 var seat = SeatOf(g.GameId);
@@ -60,8 +68,10 @@ public sealed partial class World
                 if (lease == null || SeatOf(lease.GameId)?.Owner == by) return null;
                 return $"Only whoever runs {GameName(lease.GameId)} can give up its lease.";
             }
+            case VoteAction:
+                return null;  // membership is checked when the vote is counted
             default:
-                return MayorSeat.Owner == by ? null : $"Only the mayor ({MayorSeat.Owner}) can do that.";
+                return CityRole(a, by);
         }
     }
 
@@ -96,7 +106,7 @@ public sealed partial class World
 
     /// <summary>
     /// Gives every seat and consent setting of one player to another: on a dedicated server, the solo "player" of a
-    /// save or a new city becomes the admin who loaded or founded it. Not an action: it is how the city arrives.
+    /// save or a new city becomes the admin who loaded or founded it. The server does it with <see cref="RenameOwnerAction"/>.
     /// </summary>
     public void RenameOwner(string from, string to)
     {
@@ -104,6 +114,12 @@ public sealed partial class World
         foreach (var s in Seats) if (s.Owner == from) s.Owner = to;
         if (_consent.Remove(from, out var set)) _consent[to] = set;
         string R(string n) => n == from ? to : n;
+        if (_deputies.Remove(from, out var portfolio)) _deputies[to] = portfolio;
+        foreach (var p in Proposals)
+        {
+            if (p.Proposer == from) { p.Proposer = to; p.Action = p.Action with { By = to }; }
+            if (p.Votes.Remove(from, out var v)) p.Votes[to] = v;
+        }
         for (int i = 0; i < _pacts.Count; i++) _pacts[i] = Pact.Of(R(_pacts[i].A), R(_pacts[i].B), _pacts[i].Mechanic);
         for (int i = 0; i < _offers.Count; i++) _offers[i] = new PactOffer(R(_offers[i].From), R(_offers[i].To), _offers[i].Mechanic);
     }

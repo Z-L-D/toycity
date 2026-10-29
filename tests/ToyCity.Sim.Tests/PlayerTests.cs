@@ -13,7 +13,7 @@ public class PlayerTests
         var w = Fixture.Starter(seed);
         w.Enqueue(new AttachSideGameAction(ProbeGame.Id));
         w.Run(20);
-        w.RenameOwner("player", "zac");
+        w.Enqueue(new RenameOwnerAction("player", "zac")); w.ApplyPending();
         return w;
     }
 
@@ -130,23 +130,9 @@ public class PlayerTests
         Assert.Equal(OperatorLevel.Autopilot, file.SeatOf(ProbeGame.Id)!.AwayLevel);
         Assert.True(file.SeatOf(ProbeGame.Id)!.AutoAway);
 
-        // The rename isn't an action, so a replay makes the same city only if it is done at the same point.
-        var replay = World.Replay(Fixture.Content, w.Seed, w.Width, w.Name, file.Log.Where(l => l.Tick < 20).ToList(), 20);
-        replay.RenameOwner("player", "zac");
-        replay = Continue(replay, file.Log.Where(l => l.Tick >= 20).ToList(), w.Tick);
+        // The server's rename is logged too, so a replay arrives at the same city.
+        Assert.Contains(file.Log, l => l.Action is RenameOwnerAction { From: "player", To: "zac" });
+        var replay = World.Replay(Fixture.Content, w.Seed, w.Width, w.Name, file.Log, w.Tick);
         Assert.Equal(w.StateHash(), replay.StateHash());
-    }
-
-    /// <summary>Applies logged actions at their ticks, as Replay does, from a world part-way through.</summary>
-    static World Continue(World w, List<LoggedAction> log, long until)
-    {
-        int next = 0;
-        while (true)
-        {
-            while (next < log.Count && log[next].Tick == w.Tick) w.Enqueue(log[next++].Action);
-            if (w.Tick >= until) { w.ApplyPending(); break; }
-            w.Step();
-        }
-        return w;
     }
 }

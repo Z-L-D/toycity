@@ -45,8 +45,10 @@ public sealed partial class PanelModel
     void Changed() => Version++;
 
     public string Tab { get; private set; } = "why";
-    /// <summary>The dialog over the map: "seat", "consent", "report", "terms", "confirm", "new", "save" or "load"; null when none.</summary>
+    /// <summary>The dialog over the map: "seat", "consent", "council", "report", "terms", "confirm", "new", "save" or "load"; null when none.</summary>
     public string? Dialog { get; private set; }
+    /// <summary>Everyone the server knows of in this city, from its presence list, for picking deputies.</summary>
+    public List<string> Players { get; set; } = new();
 
     // What the panel asks of the view around it.
     public event Action<int, int>? JumpTo;
@@ -459,6 +461,15 @@ public sealed partial class PanelModel
                 return;
             case "rule":
                 Send(new PAction { CityRule = new SetCityRule { Mechanic = (Mechanic)I(1), Forbid = I(2) == 1 } });
+                return;
+            case "deputy":  // deputy:portfolios:player
+                Send(new PAction { Deputy = new SetDeputy { Portfolios = (uint)I(1), Player = Uri.UnescapeDataString(a[2]) } });
+                return;
+            case "council":
+                Send(new PAction { Council = new SetCouncil { On = I(1) == 1 } });
+                return;
+            case "vote":
+                Send(new PAction { Vote = new Vote { Proposal = I(1), Yes = I(2) == 1 } });
                 return;
             case "pact":  // pact:step:mechanic:with
                 Send(new PAction { Pact = new Pact { Step = (Pact.Types.Step)I(1), Mechanic = (Mechanic)I(2), With = Uri.UnescapeDataString(a[3]) } });

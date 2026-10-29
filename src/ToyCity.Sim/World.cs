@@ -221,7 +221,7 @@ public sealed partial class World
             Log.Add(new LoggedAction(Tick, a));
             _actor = a.By;
             if (Forbidden(a) is { } why) Reject(why);
-            else Apply(a);
+            else if (!SendToCouncil(a)) Apply(a);
             _actor = "";
             if (a is PlacePathAction or BulldozeAction) _edgeDirty = true;
         }
@@ -239,6 +239,7 @@ public sealed partial class World
         OneOffs = 0;
         BudgetRan = false;
         ApplyPending();
+        RunCouncil();
         bool stasis = InStasis;
         if (stasis) HoldPrompts();
         else RunDisasters();
@@ -363,6 +364,7 @@ public sealed partial class World
             WriteSeats(w);
             WriteLeases(w);
             WriteAuthority(w);
+            WriteRoles(w);
         }
         return ms.ToArray();
     }
@@ -438,6 +440,7 @@ public sealed partial class World
         w.ReadSeats(r);
         w.ReadLeases(r);
         w.ReadAuthority(r);
+        w.ReadRoles(r);
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

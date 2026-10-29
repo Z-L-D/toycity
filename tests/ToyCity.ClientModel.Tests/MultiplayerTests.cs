@@ -21,6 +21,7 @@ public class MultiplayerTests : IClassFixture<MultiplayerTests.Fixture>
         public readonly List<string> Notices = new();
         public Presence? Presence;
         public CivicState? Civic;
+        public SideGameView? View;
 
         public Player(Uri ws, string name, SignIn? token = null)
         {
@@ -30,6 +31,7 @@ public class MultiplayerTests : IClassFixture<MultiplayerTests.Fixture>
                 if (m.BodyCase == ServerMessage.BodyOneofCase.Delta) Notices.AddRange(m.Delta.Notices.Select(n => n.Text));
                 if (m.BodyCase == ServerMessage.BodyOneofCase.Presence) Presence = m.Presence;
                 if (m.BodyCase == ServerMessage.BodyOneofCase.Civic) Civic = m.Civic;
+                if (m.BodyCase == ServerMessage.BodyOneofCase.SideGame) View = m.SideGame;
             };
             if (token != null) { WaitFor(() => Client.City.Loaded, "the city"); return; }
             WaitFor(() => Client.Connection.SignInNeeded, "the welcome");
@@ -125,5 +127,38 @@ public class MultiplayerTests : IClassFixture<MultiplayerTests.Fixture>
             int i = c.Owners.IndexOf("Mayor May");
             return i >= 0 && c.Rows.Single(r => r.Mechanic == Mechanic.MechBribery).ByOwner[i];
         }
+    }
+
+    [Fact]
+    public void ARivalSeesTheRoutesNotTheBooksAndDeputiesAndTheCouncilWorkOverTheWire()
+    {
+        using var server = new ServerProcess("""{ "name": "Council town", "join": "open" }""");
+        using var may = new Player(server.Ws, "Mayor May");
+        using var olu = new Player(server.Ws, "Olu");
+        using var jo = new Player(server.Ws, "Jo");
+
+        olu.Client.Connection.Act(new Protocol.V0.Action { Seat = new SetSeat { Seat = "transport", Owner = "Olu", Level = SeatLevel.SeatManual, SpendCap = 25000 } });
+        olu.WaitFor(() => olu.View is { Seat: "operator" } && olu.Seat("transport").Owner == "Olu", "Olu's own view");
+        jo.WaitFor(() => jo.View is { Seat: "public" }, "the public view for Jo");
+        may.WaitFor(() => may.View is { Seat: "public" }, "the public view for the mayor");
+        var pub = Transport.Wire.View.Parser.ParseFrom(jo.View!.Payload);
+        Assert.Equal(0, pub.Cash);
+        Assert.Empty(pub.Offers);
+        Assert.Empty(pub.Log);
+        Assert.Empty(jo.Civic!.SideGames.Single(g => g.Id == "transport").Standings);
+        Assert.All(may.Civic!.SideGames.Single(g => g.Id == "transport").Standings, st => Assert.Equal(0, st.BribeBanDays));
+
+        // May makes Jo deputy for the budget and seats the council: Jo's tax change goes to a vote.
+        may.Client.Connection.Act(new Protocol.V0.Action { Deputy = new SetDeputy { Player = "Jo", Portfolios = 2 } });
+        may.Client.Connection.Act(new Protocol.V0.Action { Council = new SetCouncil { On = true } });
+        jo.WaitFor(() => jo.Civic!.CouncilOn && jo.Civic.Deputies.Any(d => d.Player == "Jo"), "the council and Jo's portfolio");
+        jo.WaitFor(() => jo.Presence!.Players.First(p => p.Name == "Jo").DeputyFor.Contains("budget"), "Jo's role in the presence");
+        Assert.Equal(new[] { "Jo", "Mayor May", "Olu" }, jo.Civic!.Council.OrderBy(n => n, StringComparer.Ordinal));
+        jo.Client.Connection.Act(new Protocol.V0.Action { Tax = new SetTax { Zone = ZoneKind.ZoneResidential, Wealth = Wealth.Low, PercentTenths = 120 } });
+        may.WaitFor(() => may.Civic!.Proposals.Any(p => p.Status == "open" && p.Proposer == "Jo"), "Jo's proposal");
+        int id = may.Civic!.Proposals.First(p => p.Status == "open").Id;
+        may.Client.Connection.Act(new Protocol.V0.Action { Vote = new Vote { Proposal = id, Yes = true } });
+        olu.Client.Connection.Act(new Protocol.V0.Action { Vote = new Vote { Proposal = id, Yes = false } });
+        jo.WaitFor(() => jo.Civic!.Proposals.FirstOrDefault(p => p.Id == id)?.Status == "passed", "the vote");
     }
 }

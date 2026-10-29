@@ -564,6 +564,13 @@ public sealed class TransportGame : ISideGame
         }
         foreach (var o in _offers) v.Offers.Add(new W.OfferView { Kind = o.Kind, Name = o.Name, Cost = o.Cost, Allowed = o.Allowed, WhyNot = o.WhyNot });
         v.Log.AddRange(_log);
+        if (seat == "public")
+        {
+            // What a rival or a spectator sees: the routes and lots on the map, not the books, the standing or the dealings.
+            v.Cash = 0; v.ThisMonth = null; v.LastMonth = null;
+            v.Districts.Clear(); v.Offers.Clear(); v.Log.Clear();
+            foreach (var l in v.Lines) { l.ThisMonth = null; l.LastMonth = null; }
+        }
         return v.ToByteArray();
     }
 

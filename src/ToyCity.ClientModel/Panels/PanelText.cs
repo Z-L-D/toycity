@@ -41,6 +41,7 @@ public sealed partial class PanelModel
     {
         "seat" => RenderSeat(),
         "consent" => RenderConsent(),
+        "council" => RenderCouncil(),
         "report" => RenderReport(),
         "terms" => RenderTerms(),
         "confirm" => RenderConfirm(),
@@ -620,7 +621,7 @@ public sealed partial class PanelModel
                 sb.Append($"[b]{Esc(s.Name)}[/b] {Small(Dim($"{(string.IsNullOrEmpty(s.Owner) ? "nobody runs it" : $"run by {Esc(s.Owner)}")} · {Levels[(int)s.Level].ToLowerInvariant()}"))}  "
                     + (s.Owner == Me() && s.Level == SeatLevel.SeatManual ? Link($"leave:{s.Id}", "Hand to the computer") : Link($"claim:{s.Id}", "Run it yourself")) + "\n");
         }
-        return sb.Append(Footer(Link("dialog:consent", "House rules…"), Link("close", "Cancel"), $"[b]{Link("seat-apply", "Apply")}[/b]")).ToString();
+        return sb.Append(Footer(Link("dialog:consent", "House rules…"), Link("dialog:council", "Deputies and council…"), Link("close", "Cancel"), $"[b]{Link("seat-apply", "Apply")}[/b]")).ToString();
     }
 
     /// <summary>
@@ -676,6 +677,58 @@ public sealed partial class PanelModel
         var offerable = consent.Rows.Where(r => r.Pairwise && !r.HostForbids && !r.CityForbids).ToList();
         foreach (var o in owners.Where(o => o != me))
             sb.Append($"Offer [b]{Esc(o)}[/b] a pact on: {string.Join("  ", offerable.Select(r => Pl(0, r.Mechanic, o, Esc(r.Name.ToLowerInvariant()))))}\n");
+        return sb.Append(Footer($"[b]{Link("close", "Done")}[/b]")).ToString();
+    }
+
+    static readonly string[] Portfolios = { "Planning", "Budget", "Services", "Transit" };
+
+    /// <summary>
+    /// Deputies and the council. The mayor names deputies, each with the portfolios they may act in, and can seat a
+    /// council that votes on taxes, laws and loans. Members vote here; ties go the way the mayor voted.
+    /// </summary>
+    string RenderCouncil()
+    {
+        var sb = new StringBuilder(H3("Deputies and council"));
+        sb.Append(Small(Dim("Deputies act for the mayor in their portfolios: planning (roads, zones, utilities), the budget (taxes, funding, loans), services (civic buildings) and transit (stops, depots and leases)."))).Append('\n');
+        var c = Civic;
+        if (c == null) return sb.Append(Footer($"[b]{Link("close", "Done")}[/b]")).ToString();
+        string me = Me(), mayorName = Mayor?.Owner ?? "";
+        bool mayor = mayorName == me || (mayorName == "" && !OnServer());
+        var people = Players.Concat(c.Deputies.Select(d => d.Player)).Distinct().Where(n => n != mayorName).ToList();
+        if (people.Count == 0) sb.Append(Small(Dim("Nobody else is here to make a deputy."))).Append('\n');
+        else
+        {
+            var cells = new StringBuilder("[cell] [/cell]");
+            foreach (var p in Portfolios) cells.Append($"[cell][b]{p}[/b]  [/cell]");
+            foreach (var n in people)
+            {
+                uint bits = c.Deputies.FirstOrDefault(d => d.Player == n)?.Portfolios ?? 0;
+                cells.Append($"[cell]{Esc(n == me ? "You" : n)}  [/cell]");
+                for (int i = 0; i < Portfolios.Length; i++)
+                {
+                    bool on = (bits & (1u << i)) != 0;
+                    string box = on ? "☑" : "☐";
+                    cells.Append($"[cell]{(mayor ? Link($"deputy:{bits ^ (1u << i)}:{Uri.EscapeDataString(n)}", box) : box)}  [/cell]");
+                }
+            }
+            sb.Append($"[table={Portfolios.Length + 1}]{cells}[/table]\n");
+        }
+        sb.Append(H4("Council"));
+        string toggle = c.CouncilOn ? "☑ The council sits" : "☐ The council sits";
+        sb.Append(mayor ? Link($"council:{(c.CouncilOn ? 0 : 1)}", toggle) : toggle).Append('\n');
+        sb.Append(Small(Dim(c.CouncilOn ? $"Members: {Esc(string.Join(", ", c.Council))}. Tax changes, laws and loans go to a vote for 7 days; ties go to the mayor." : "Off: the mayor decides alone."))).Append('\n');
+        foreach (var p in c.Proposals)
+        {
+            string tally = $"{p.Yes.Count} for, {p.No.Count} against";
+            sb.Append($"\n[b]{Esc(p.Text)}[/b] {Small(Dim($"by {Esc(p.Proposer)} · {(p.Status == "open" ? $"{p.DaysLeft} days left · {tally}" : $"{p.Status} ({tally})")}"))}");
+            if (p.Status == "open" && c.Council.Contains(me))
+            {
+                string mine = p.Yes.Contains(me) ? "yes" : p.No.Contains(me) ? "no" : "";
+                sb.Append("  ").Append(mine == "yes" ? $"[b]{Col(Gold, "Yes")}[/b]" : Link($"vote:{p.Id}:1", "Yes"))
+                    .Append("  ").Append(mine == "no" ? $"[b]{Col(Gold, "No")}[/b]" : Link($"vote:{p.Id}:0", "No"));
+            }
+            sb.Append('\n');
+        }
         return sb.Append(Footer($"[b]{Link("close", "Done")}[/b]")).ToString();
     }
 

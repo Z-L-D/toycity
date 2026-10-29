@@ -17,7 +17,7 @@ public class ConsentTests
     {
         ProbeGame.Register();
         var w = TransportTests.Town(seed);
-        w.RenameOwner("player", "zac");
+        w.Enqueue(new RenameOwnerAction("player", "zac")); w.ApplyPending();
         w.Enqueue(new AttachSideGameAction(ProbeGame.Id) { By = "zac" });
         w.Enqueue(new SetSeatAction(TransportGame.Id, "mo", OperatorLevel.Manual) { By = "mo" });
         w.Enqueue(new SetSeatAction(ProbeGame.Id, "jo", OperatorLevel.Manual) { By = "jo" });

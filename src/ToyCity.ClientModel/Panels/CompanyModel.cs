@@ -47,12 +47,15 @@ public sealed class CompanyModel
     /// <summary>Asks for the company's view in a window of its own.</summary>
     public event System.Action? OwnWindow;
 
-    public bool Mine => View?.Operator == "manual";
+    public bool Mine => View?.Operator == "manual" && View.Owner == Me();
+    /// <summary>Another player runs the company, so this client gets the public view: no books, standing or log.</summary>
+    public bool Public { get; private set; }
 
     public void Handle(SideGameView v)
     {
         if (v.Game != Game) return;
         View = View.Parser.ParseFrom(v.Payload);
+        Public = v.Seat == "public";
         MapVersion++;
         _changed();
     }
@@ -251,7 +254,7 @@ public sealed class CompanyModel
         var sb = new StringBuilder(H3(v == null ? "Buses" : Esc(v.Name)));
         if (v == null) return sb.Append(Dim("No bus company in this city.")).ToString();
         int riders = v.Lines.Sum(l => l.Riders);
-        sb.Append(Small(Dim($"{(Mine ? "You run it." : $"The computer runs it ({Esc(v.Operator)}).")} {Many(v.Lines.Count, "line")}, {v.Buses} buses, {Num(riders)} riders yesterday, {v.Lots.Count} lots leased."))).Append("\n\n");
+        sb.Append(Small(Dim($"{(Mine ? "You run it." : Public ? $"{Esc(v.Owner)} runs it." : $"The computer runs it ({Esc(v.Operator)}).")} {Many(v.Lines.Count, "line")}, {v.Buses} buses, {Num(riders)} riders yesterday, {v.Lots.Count} lots leased."))).Append("\n\n");
         sb.Append($"[b]{Link("co-open", "🚌 Switch to the company")}[/b]     {Link("co-window", "⧉ Own window")}\n\n");
         sb.Append(Small(Dim("The company has its own view: its lots and routes on the map, and tools for leasing lots and drawing lines. You can run it in a second window while this one shows the city."))).Append('\n');
         sb.Append(Small(Dim("Its routes show on the city map under Layers → Bus routes."))).Append('\n');
@@ -282,6 +285,8 @@ public sealed class CompanyModel
         var v = View;
         if (v == null) return Dim("No bus company in this city.");
         string paused = _city.Stats.Speed == 0 ? Small(Col(Warn, "Paused: the company hears about new lots, lines and purchases when the day turns.")) + "\n" : "";
+        if (Public && Tab is "money" or "standing" or "log")
+            return Dim($"{Esc(v.Owner)} runs this company. Its books, its standing with the city and its log are theirs to see.");
         return paused + Tab switch
         {
             "lots" => Lots(v),

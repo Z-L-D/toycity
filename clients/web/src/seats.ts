@@ -43,6 +43,9 @@ export class Seats {
   leases: Msg[] = [];
   sideGames: Msg[] = [];
   consent: Msg = { owners: [], rows: [] };
+  private civic: Msg = {};
+  /** Everyone the server knows of in this city, from its presence list, for picking deputies. */
+  players: string[] = [];
   /** The building whose lease panel is showing, so it can redraw when the lease changes. */
   private leaseView: { b: Msg; slot: HTMLElement } | null = null;
   private shownReport = -1;
@@ -60,6 +63,7 @@ export class Seats {
   constructor(private readonly host: SeatsHost) {
     try { this.shownReport = Number(localStorage.getItem(SEEN_KEY) ?? -1); } catch { /* no storage */ }
     $('#btn-seat').addEventListener('click', () => this.openHandOff());
+    $('#btn-council').addEventListener('click', () => this.openCouncil());
     $('#away-back').addEventListener('click', () => this.takeBack());
   }
 
@@ -73,7 +77,15 @@ export class Seats {
     this.leases = c.leases ?? [];
     this.sideGames = c.sideGames ?? [];
     this.consent = c.consent ?? { owners: [], rows: [] };
+    this.civic = c;
     if (this.consentOpen) this.openConsent();
+    if (this.councilOpen) this.openCouncil();
+    const open = (c.proposals as Msg[] ?? []).filter((p) => p.status === 'open' && !(p.yes as string[]).includes(this.me) && !(p.no as string[]).includes(this.me));
+    const cb = document.querySelector('#btn-council');
+    if (cb) {
+      cb.classList.toggle('hidden', !c.councilOn && !(c.deputies as Msg[] ?? []).length);
+      cb.textContent = open.length && (c.council as string[]).includes(this.me) ? `🏛 Council (${open.length})` : '🏛 Council';
+    }
     if (this.leaseView && this.leaseView.slot.isConnected) this.renderLease(this.leaseView.b, this.leaseView.slot);
     const m = this.mayor;
     if (!m) return;
@@ -131,7 +143,7 @@ export class Seats {
           ${s.owner === this.me && s.level === 0
             ? `<button value="leave:${esc(s.id)}">Hand to the computer</button>`
             : `<button value="claim:${esc(s.id)}">Run it yourself</button>`}</div>`).join('')}` : ''}
-      <div class="actions"><button value="consent" style="margin-right:auto">House rules…</button><button value="cancel">Cancel</button><button value="ok" class="active">Apply</button></div>`;
+      <div class="actions"><button value="consent">House rules…</button><button value="council" style="margin-right:auto">Deputies and council…</button><button value="cancel">Cancel</button><button value="ok" class="active">Apply</button></div>`;
     const sync = () => {
       const level = Number(new FormData(form).get('level'));
       $('#style-opts').style.display = level === 3 ? '' : 'none';
@@ -143,6 +155,7 @@ export class Seats {
     dlg.onclose = () => {
       const v = dlg.returnValue;
       if (v === 'consent') { this.openConsent(); return; }
+      if (v === 'council') { this.openCouncil(); return; }
       if (v.startsWith('claim:') || v.startsWith('leave:')) {
         const claim = v.startsWith('claim:');
         this.host.conn.action({ seat: { seat: v.slice(6), owner: claim ? this.me : '', level: claim ? 0 : 2, style: 0, spendCap: 25000 } });
@@ -155,6 +168,63 @@ export class Seats {
       this.host.conn.action({ seat: { seat: 'mayor', owner: m.owner || this.me, level: Number(fd.get('level')), style: Number(fd.get('style')), spendCap: Number(fd.get('cap') || 0) } });
     };
     dlg.showModal();
+  }
+
+  private councilOpen = false;
+
+  /**
+   * Deputies and the council. The mayor names deputies, each with the portfolios they may act in, and can seat a
+   * council that votes on taxes, laws and loans. Members vote here; ties go the way the mayor voted.
+   */
+  openCouncil() {
+    const c = this.civic;
+    const m = this.mayor;
+    if (!m) return;
+    const dlg = $<HTMLDialogElement>('#dlg');
+    const form = $<HTMLFormElement>('#dlg-form');
+    const isMayor = m.owner === this.me || (!m.owner && !this.host.conn.dedicated);
+    const deputies = (c.deputies as Msg[] ?? []);
+    const bits = (name: string) => deputies.find((d) => d.player === name)?.portfolios ?? 0;
+    const people = [...new Set([...this.players, ...deputies.map((d) => d.player as string)])].filter((n) => n !== m.owner);
+    const PORTFOLIOS = ['Planning', 'Budget', 'Services', 'Transit'];
+    const members = c.council as string[] ?? [];
+    const proposals = c.proposals as Msg[] ?? [];
+    form.innerHTML = `
+      <h3>Deputies and council</h3>
+      <p class="muted small">Deputies act for the mayor in their portfolios: planning (roads, zones, utilities), the budget (taxes, funding, loans), services (civic buildings) and transit (stops, depots and leases).</p>
+      <table class="consent"><tr><th></th>${PORTFOLIOS.map((p) => `<th>${p}</th>`).join('')}</tr>
+        ${people.length ? people.map((n) => `<tr><td>${esc(n)}</td>${PORTFOLIOS.map((_, i) => `<td><input type="checkbox" data-dep="${esc(n)}" data-bit="${1 << i}" ${bits(n) & (1 << i) ? 'checked' : ''} ${isMayor ? '' : 'disabled'}></td>`).join('')}</tr>`).join('')
+          : `<tr><td colspan="5" class="muted small">Nobody else is here to make a deputy.</td></tr>`}
+      </table>
+      <h4>Council</h4>
+      <label><input type="checkbox" id="council-on" ${c.councilOn ? 'checked' : ''} ${isMayor ? '' : 'disabled'}> The council sits</label>
+      <div class="muted small">${c.councilOn ? `Members: ${members.map(esc).join(', ')}. Tax changes, laws and loans go to a vote for ${7} days; ties go to the mayor.` : 'Off: the mayor decides alone.'}</div>
+      ${proposals.length ? `<div class="proposals">${proposals.map((p) => {
+        const voted = (p.yes as string[]).includes(this.me) ? 'yes' : (p.no as string[]).includes(this.me) ? 'no' : '';
+        const tally = `${(p.yes as string[]).length} for, ${(p.no as string[]).length} against`;
+        return `<div class="seat-row"><b>${esc(p.text)}</b> <span class="muted small">by ${esc(p.proposer)} · ${p.status === 'open' ? `${p.daysLeft} days left · ${tally}` : `${p.status} (${tally})`}</span>
+          ${p.status === 'open' && members.includes(this.me) ? `<button value="vote:${p.id}:1" class="${voted === 'yes' ? 'active' : ''}">Yes</button><button value="vote:${p.id}:0" class="${voted === 'no' ? 'active' : ''}">No</button>` : ''}</div>`;
+      }).join('')}</div>` : ''}
+      <div class="actions"><button value="cancel">Close</button>${isMayor ? '<button value="ok" class="active">Apply</button>' : ''}</div>`;
+    this.councilOpen = true;
+    dlg.onclose = () => {
+      this.councilOpen = false;
+      const v = dlg.returnValue;
+      if (v.startsWith('vote:')) {
+        const [, id, yes] = v.split(':');
+        this.host.conn.action({ vote: { proposal: Number(id), yes: yes === '1' } });
+        return;
+      }
+      if (v !== 'ok') return;
+      for (const n of people) {
+        let b = 0;
+        form.querySelectorAll<HTMLInputElement>('input[data-dep]').forEach((i) => { if (i.dataset.dep === n && i.checked) b |= Number(i.dataset.bit); });
+        if (b !== bits(n)) this.host.conn.action({ deputy: { player: n, portfolios: b } });
+      }
+      const on = (form.querySelector('#council-on') as HTMLInputElement).checked;
+      if (on !== !!c.councilOn) this.host.conn.action({ council: { on } });
+    };
+    if (!dlg.open) dlg.showModal();
   }
 
   private consentOpen = false;

@@ -80,7 +80,25 @@ message Action {
     SetAwayLevel away_level = 23;
     SetCityRule city_rule = 24;
     Pact pact = 25;
+    SetDeputy deputy = 26;
+    SetCouncil council = 27;
+    Vote vote = 28;
   }
+}
+
+// The mayor makes a player a deputy (portfolio bits as in Deputy), or stands them down with 0.
+message SetDeputy {
+  string player = 1;
+  uint32 portfolios = 2;
+}
+
+message SetCouncil {
+  bool on = 1;
+}
+
+message Vote {
+  int32 proposal = 1;
+  bool yes = 2;
 }
 
 // The city's owner forbids a mechanic here whatever the players allow, or lifts that.
@@ -469,7 +487,8 @@ message Presence {
     bool online = 2;
     bool admin = 3;
     repeated string seats = 4;  // seat ids they own
-    bool spectator = 5;         // online but owns no seat: watches only
+    bool spectator = 5;         // online but owns no seat and isn't a deputy: watches only
+    repeated string deputy_for = 6;  // portfolios as a deputy mayor: "planning", "budget", "services", "transit"
   }
   repeated Player players = 1;
 }
@@ -917,6 +936,25 @@ message CivicState {
   repeated LeaseState leases = 6;
   repeated SideGameInfo side_games = 7;
   ConsentTable consent = 8;
+  repeated Deputy deputies = 9;
+  bool council_on = 10;
+  repeated Proposal proposals = 11;  // open ones first, then the last few decided
+  repeated string council = 12;      // who votes: every seat owner and deputy
+}
+
+message Deputy {
+  string player = 1;
+  uint32 portfolios = 2;  // bits: 1 planning, 2 budget, 4 services, 8 transit
+}
+
+message Proposal {
+  int32 id = 1;
+  string text = 2;
+  string proposer = 3;
+  int32 days_left = 4;
+  string status = 5;  // "open", "passed" or "failed"
+  repeated string yes = 6;
+  repeated string no = 7;
 }
 
 // Every seat owner against every mechanic: the effective result and who is blocking each one.
@@ -1059,6 +1097,12 @@ message ActionRecord {
   string by = 3;       // the player who sent it; empty for saves from before Beta 2
   SeatAway away = 4;   // set instead of action: the server handed a seat to the computer, or back, as its owner left or returned
   HostRules host_rules = 5;  // set instead of action: the server's minimums when the city arrived
+  RenameOwner rename = 6;    // set instead of action: the server gave one player's seats to another
+}
+
+message RenameOwner {
+  string from = 1;
+  string to = 2;
 }
 
 message HostRules {

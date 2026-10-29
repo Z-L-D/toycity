@@ -108,7 +108,7 @@ public partial class Main : Node
         _status = new Label { Text = $"Connecting to {server}…", Position = new Vector2(12, 84) };
         _hover = new Label { Position = new Vector2(12, 108) };
         var players = new Label { Position = new Vector2(12, 132), Modulate = new Color(1, 1, 1, 0.85f) };
-        _client.Message += m => { if (m.BodyCase == Protocol.V0.ServerMessage.BodyOneofCase.Presence) players.Text = PresenceText(m.Presence); };
+        _client.Message += m => { if (m.BodyCase == Protocol.V0.ServerMessage.BodyOneofCase.Presence) { players.Text = PresenceText(m.Presence); if (_panels != null) _panels.Model.Players = m.Presence.Players.Select(p => p.Name).ToList(); } };
         foreach (var l in new[] { _status, _hover, players })
         {
             l.AddThemeColorOverride("font_outline_color", Colors.Black);
@@ -184,7 +184,7 @@ public partial class Main : Node
         var civic = _panels?.Model.Civic;
         string Seat(string id) => id == "mayor" ? "mayor" : civic?.Seats.FirstOrDefault(s => s.Id == id)?.Name ?? id;
         return "Here: " + string.Join("   ", p.Players.Select(pl =>
-            $"{pl.Name}{(pl.Name == _client!.Connection.Player ? " (you)" : "")} · {(pl.Spectator ? "watching" : string.Join(", ", pl.Seats.Select(Seat)))}{(pl.Online ? "" : " · away")}"));
+            $"{pl.Name}{(pl.Name == _client!.Connection.Player ? " (you)" : "")} · {(pl.Spectator ? "watching" : string.Join(", ", pl.Seats.Select(Seat).Concat(pl.DeputyFor.Count > 0 ? new[] { "deputy for " + string.Join("/", pl.DeputyFor) } : Array.Empty<string>())))}{(pl.Online ? "" : " · away")}"));
     }
 
     public override void _Process(double delta)
