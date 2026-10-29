@@ -59,6 +59,8 @@ public sealed partial class World
             SideGameMissedAction g => !Text(g.GameId) ? "Unknown side game." : null,
             LeaseLotAction l => !Text(l.GameId) || !Building(l.BuildingId) ? "There's no such lot." : l.Terms is { } t ? TermsOutOfBounds(t) : null,
             SetLeaseTermsAction l => TermsOutOfBounds(l.Terms),
+            OfferLeaseAction o => !Def(o.Kind) ? "That isn't an offer." : o.Amount is < 0 or > MaxMoney ? "That amount is out of range."
+                : o.Kind == OfferKind.Relocate && !Building(o.ToBuildingId) ? "There's no such lot." : o.Terms is { } ot ? TermsOutOfBounds(ot) : null,
             RenameOwnerAction r => !Text(r.From, MaxName) || !Text(r.To, MaxName) ? "That player name is too long." : null,
             _ => null,
         };

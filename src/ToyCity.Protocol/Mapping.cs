@@ -35,6 +35,9 @@ public static class Mapping
         P.Action.KindOneofCase.Lease => new LeaseLotAction(a.Lease.Game, a.Lease.BuildingId, a.Lease.Terms == null ? null : Terms(a.Lease.Terms)),
         P.Action.KindOneofCase.LeaseTerms => new SetLeaseTermsAction(a.LeaseTerms.LeaseId, Terms(a.LeaseTerms.Terms ?? new P.LeaseTerms())),
         P.Action.KindOneofCase.EndLease => new EndLeaseAction(a.EndLease.LeaseId, a.EndLease.ByOperator),
+        P.Action.KindOneofCase.Offer => new OfferLeaseAction(a.Offer.LeaseId, a.Offer.FromOperator, (OfferKind)(int)a.Offer.Kind,
+            a.Offer.Terms == null ? null : Terms(a.Offer.Terms), a.Offer.Amount, a.Offer.ToBuildingId, a.Offer.CounterOf),
+        P.Action.KindOneofCase.AnswerOffer => new AnswerOfferAction(a.AnswerOffer.OfferId, a.AnswerOffer.Accept),
         P.Action.KindOneofCase.Consent => new SetConsentAction(a.Consent.Owner, (Mechanic)(int)a.Consent.Mechanic, a.Consent.Allowed),
         P.Action.KindOneofCase.Seat => new SetSeatAction(a.Seat.Seat, a.Seat.Owner, (ToyCity.Contract.OperatorLevel)(int)a.Seat.Level, (AutopilotStyle)(int)a.Seat.Style, a.Seat.SpendCap),
         P.Action.KindOneofCase.CityRule => new SetCityRuleAction((Mechanic)(int)a.CityRule.Mechanic, a.CityRule.Forbid),
@@ -73,6 +76,12 @@ public static class Mapping
         LeaseLotAction x => new P.Action { Lease = new P.LeaseLot { Game = x.GameId, BuildingId = x.BuildingId, Terms = x.Terms == null ? null : Terms(x.Terms) } },
         SetLeaseTermsAction x => new P.Action { LeaseTerms = new P.SetLeaseTerms { LeaseId = x.LeaseId, Terms = Terms(x.Terms) } },
         EndLeaseAction x => new P.Action { EndLease = new P.EndLease { LeaseId = x.LeaseId, ByOperator = x.ByOperator } },
+        OfferLeaseAction x => new P.Action { Offer = new P.OfferLease
+        {
+            LeaseId = x.LeaseId, FromOperator = x.FromOperator, Kind = (P.OfferKind)(int)x.Kind, Terms = x.Terms == null ? null : Terms(x.Terms),
+            Amount = x.Amount, ToBuildingId = x.ToBuildingId, CounterOf = x.CounterOf,
+        } },
+        AnswerOfferAction x => new P.Action { AnswerOffer = new P.AnswerOffer { OfferId = x.OfferId, Accept = x.Accept } },
         SetConsentAction x => new P.Action { Consent = new P.SetConsent { Owner = x.Owner, Mechanic = (P.Mechanic)(int)x.Mechanic, Allowed = x.Allowed } },
         SetSeatAction x => new P.Action { Seat = new P.SetSeat { Seat = x.SeatId, Owner = x.Owner, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style, SpendCap = x.SpendCap } },
         SetCityRuleAction x => new P.Action { CityRule = new P.SetCityRule { Mechanic = (P.Mechanic)(int)x.Mechanic, Forbid = x.Forbid } },
@@ -384,6 +393,19 @@ public static class Mapping
                 Rating = b == null ? 0 : w.RatingOf(l.GameId, w.DistrictOf(b.X, b.Y)),
             };
             if (b != null) ls.Targets.AddRange(w.LeaseTargets(l));
+            foreach (var t in w.MoveTargets(l)) ls.MoveTo.Add(new P.MoveTarget { BuildingId = t.Id, X = t.X, Y = t.Y, Name = w.LotName(t) });
+            if (b != null) foreach (var step in w.DisputeLadder(l)) ls.Ladder.Add(new P.LadderStep { Step = step.Step, Open = step.Open, Rule = step.Rule });
+            foreach (var o in w.OffersOn(l.Id).OrderBy(o => o.Status != OfferStatus.Open).ThenByDescending(o => o.Id))
+            {
+                var to = o.ToBuildingId >= 0 && o.ToBuildingId < w.Buildings.Count ? w.Buildings[o.ToBuildingId] : null;
+                ls.Offers.Add(new P.OfferState
+                {
+                    Id = o.Id, Kind = (P.OfferKind)(int)o.Kind, FromOperator = o.FromOperator, By = o.By, Terms = o.Terms == null ? null : Terms(o.Terms),
+                    Amount = o.Amount, ToBuildingId = o.ToBuildingId, ToX = to?.X ?? -1, ToY = to?.Y ?? -1, CounterOf = o.CounterOf,
+                    Status = o.Status.ToString().ToLowerInvariant(), DaysLeft = (int)Math.Max(0, o.Expires - w.Tick),
+                    Text = b == null ? "" : w.DescribeOffer(o, l), Note = o.Note,
+                });
+            }
             r.Leases.Add(ls);
         }
         return r;

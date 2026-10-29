@@ -72,6 +72,8 @@ public sealed partial class World
             }
             case VoteAction:
                 return null;  // membership is checked when the vote is counted
+            case OfferLeaseAction or AnswerOfferAction:
+                return ForbiddenOffer(a, by);
             default:
                 return CityRole(a, by);
         }

@@ -45,6 +45,7 @@ public sealed partial class PanelModel
         "dispatch" => Emergency.Render() + Footer($"[b]{Link("close", "Close")}[/b]"),
         "report" => RenderReport(),
         "terms" => RenderTerms(),
+        "offer" => RenderOffer(),
         "confirm" => RenderConfirm(),
         "new" => RenderNew(),
         "save" => RenderSave(),
@@ -225,7 +226,48 @@ public sealed partial class PanelModel
         if (evict) sb.Append(Link($"lease-end:{lease.Id}:evict", "Evict…"));
         else if (lease.Terminable) sb.Append(Link($"lease-end:{lease.Id}", "End lease"));
         else sb.Append(Dim("End lease")).Append(Small(Dim($"  (only a lease in bad standing past its cure period can be ended by the city{(Allowed(Mechanic.MechHostileEvictions) ? "" : ", unless every player allows hostile evictions")})")));
-        return sb.Append('\n').ToString();
+        return sb.Append('\n').Append(DisputeText(lease)).ToString();
+    }
+
+    /// <summary>The dispute ladder: each rung with the rule behind it, the offer on the table, and the last few decided.</summary>
+    string DisputeText(LeaseState lease)
+    {
+        var sb = new StringBuilder(H4("Dispute ladder"));
+        foreach (var r in lease.Ladder)
+            sb.Append($"{Col(r.Open ? Pos : Neg, r.Open ? "✓" : "✗")} [b]{Esc(r.Step)}[/b]  {Small(Dim(Esc(r.Rule)))}\n");
+        string who(OfferState o) => (o.FromOperator ? lease.GameName : "The city") + (o.By != "" ? $" ({o.By})" : "");
+        if (OpenOffer(lease) is { } open)
+        {
+            sb.Append($"\n[b]On the table:[/b] {Esc(who(open))} offers {Esc(open.Text)} {Small(Dim($"({Plural(open.DaysLeft, "day")} left)"))}\n");
+            if (open.By == Me()) sb.Append(Link($"offer-answer:{open.Id}:0", "Withdraw")).Append('\n');
+            else sb.Append($"[b]{Link($"offer-answer:{open.Id}:1", "Accept")}[/b]   {Link($"offer-answer:{open.Id}:0", "Decline")}   {Link($"offer-make:{lease.Id}:{(int)open.Kind}", "Counter…")}\n");
+        }
+        else
+        {
+            sb.Append(Link($"offer-make:{lease.Id}:0", "Offer terms…")).Append("   ");
+            sb.Append(Link($"offer-make:{lease.Id}:1", SpeaksForOperator(lease) ? "Ask for a buyout…" : "Offer a buyout…")).Append("   ");
+            sb.Append(lease.MoveTo.Count > 0 ? Link($"offer-make:{lease.Id}:2", "Propose a move…") : Dim("Propose a move")).Append('\n');
+        }
+        foreach (var o in lease.Offers.Where(o => o.Status != "open").Take(4))
+            sb.Append(Small(Dim($"{Esc(who(o))}: {Esc(o.Text)} — [b]{o.Status}[/b]{(o.Note != "" ? $". {Esc(o.Note)}" : "")}"))).Append('\n');
+        return sb.ToString();
+    }
+
+    string RenderOffer()
+    {
+        if (_offer is not { } o || Civic?.Leases.FirstOrDefault(l => l.Id == o.LeaseId) is not { } lease) return "";
+        bool buy = o.Kind == OfferKind.OfferBuyout;
+        var sb = new StringBuilder(H3(buy ? $"Buy out {Esc(lease.GameName)}" : $"Move {Esc(lease.GameName)}"));
+        string step(string by, string label) => Link($"offer:amount:{by}", label);
+        if (buy) sb.Append(Small(Dim("The lease ends the day the other side accepts, and the city pays the amount."))).Append('\n');
+        else
+        {
+            sb.Append(Small(Dim("The lease moves with its terms and jobs. The city can offer to pay the moving costs."))).Append("\n\n");
+            foreach (var t in lease.MoveTo)
+                sb.Append(t.BuildingId == o.To ? $"◉ [b]{Esc(t.Name)}[/b]" : $"○ {Link($"offer:to:{t.BuildingId}", Esc(t.Name))}").Append('\n');
+        }
+        sb.Append($"\n{(buy ? "Amount" : "Moving costs the city pays")}  {step("-1000", "−1000")} {step("-100", "−100")}  [b]{Money(o.Amount)}[/b]  {step("100", "+100")} {step("1000", "+1000")}\n");
+        return sb.Append(Footer(Link("close", "Cancel"), $"[b]{Link("offer:ok", buy ? "Offer" : "Propose")}[/b]")).ToString();
     }
 
     // ---------------------------------------------------------------------------------------------------------

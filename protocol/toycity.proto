@@ -83,7 +83,33 @@ message Action {
     SetDeputy deputy = 26;
     SetCouncil council = 27;
     Vote vote = 28;
+    OfferLease offer = 29;
+    AnswerOffer answer_offer = 30;
   }
+}
+
+enum OfferKind {
+  OFFER_TERMS = 0;     // new lease terms, starting as soon as they're accepted
+  OFFER_BUYOUT = 1;    // the city pays the operator amount to end the lease
+  OFFER_RELOCATE = 2;  // the lease moves to to_building_id, the city paying amount toward the move
+}
+
+// One side of a lease offers the other a deal. from_operator says which side the sender speaks for. A counter-offer
+// names the open offer it answers.
+message OfferLease {
+  int32 lease_id = 1;
+  bool from_operator = 2;
+  OfferKind kind = 3;
+  LeaseTerms terms = 4;
+  int64 amount = 5;
+  int32 to_building_id = 6;
+  int32 counter_of = 7;
+}
+
+// The other side accepts or declines an offer; its maker declining it withdraws it.
+message AnswerOffer {
+  int32 offer_id = 1;
+  bool accept = 2;
 }
 
 // The mayor makes a player a deputy (portfolio bits as in Deputy), or stands them down with 0.
@@ -1022,6 +1048,39 @@ message LeaseState {
   repeated string targets = 17;  // what it takes to get back into good standing
   int32 evict_months = 18;       // months until a hostile eviction ends it; 0 when none
   int32 rating = 19;             // the side game's rating in the lot's district
+  repeated LadderStep ladder = 20;  // the dispute ladder, gentlest first
+  repeated OfferState offers = 21;  // the open offer, if any, then the last few decided
+  repeated MoveTarget move_to = 22;  // free lots of the same kind it could move to
+}
+
+message MoveTarget {
+  int32 building_id = 1;
+  int32 x = 2;
+  int32 y = 3;
+  string name = 4;
+}
+
+message LadderStep {
+  string step = 1;  // "Negotiate", "Buy out", "Relocate", "Impose terms", "Evict"
+  bool open = 2;    // whether it can be taken now
+  string rule = 3;  // the rule that allows it, or what stands in the way
+}
+
+message OfferState {
+  int32 id = 1;
+  OfferKind kind = 2;
+  bool from_operator = 3;
+  string by = 4;  // the player who made it; empty for the computer
+  LeaseTerms terms = 5;
+  int64 amount = 6;
+  int32 to_building_id = 7;
+  int32 to_x = 8;
+  int32 to_y = 9;
+  string status = 10;  // "open", "accepted", "declined", "countered", "withdrawn", "expired", "failed"
+  int32 days_left = 11;
+  string text = 12;    // what it proposes, in words
+  string note = 13;    // how it ended
+  int32 counter_of = 14;
 }
 
 message SeatState {

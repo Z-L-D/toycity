@@ -103,6 +103,9 @@ public sealed class TransportGame : ISideGame
         _year = input.Year;
         _operator = input.Operator;
         _owner = input.OwnerName ?? "";
+        // A stop the city moved to another lot keeps its lease: the lines through it need routing again.
+        var moved = input.Lots.Where(n => Lot(n.LeaseId) is { } was && was.BuildingId != n.BuildingId).Select(n => n.LeaseId).ToHashSet();
+        foreach (var line in _lines) if (line.Stops.Any(moved.Contains)) line.RouteDirty = true;
         _lots.Clear(); _lots.AddRange(input.Lots);
         _open.Clear(); _open.AddRange(input.OpenLots);
         if (input.NewMonth) { _districts.Clear(); _districts.AddRange(input.Districts); }

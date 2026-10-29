@@ -94,7 +94,7 @@ public sealed partial class World
         ? t.Mode == LeaseMode.Business || t.SubsidyPerMonth <= std.SubsidyPerMonth
         : t.Mode == LeaseMode.Business && t.RentPerMonth >= std.RentPerMonth && t.TaxTenths >= std.TaxTenths;
 
-    string LotName(Building b) => $"the {TypeOf(b).Name.ToLowerInvariant()} on {StreetNear(b.X, b.Y)}";
+    public string LotName(Building b) => $"the {TypeOf(b).Name.ToLowerInvariant()} on {StreetNear(b.X, b.Y)}";
 
     string GameName(string id) => SideGame(id)?.Game.Manifest.Name ?? id;
 
@@ -259,7 +259,7 @@ public sealed partial class World
     }
 
     /// <summary>What the city pays a side game it evicts: six months of the lot's standard rent, or of its rent if higher.</summary>
-    static long Compensation(Lease l) => 6 * Math.Max(l.Terms.Mode == LeaseMode.Business ? l.Terms.RentPerMonth : 0, StandardTerms(l.Kind).RentPerMonth);
+    internal static long Compensation(Lease l) => 6 * Math.Max(l.Terms.Mode == LeaseMode.Business ? l.Terms.RentPerMonth : 0, StandardTerms(l.Kind).RentPerMonth);
 
     /// <summary>One-off money for side games, handed over with their next month's bills.</summary>
     readonly List<(string GameId, Bill Bill)> _oneOffBills = new();
@@ -365,6 +365,7 @@ public sealed partial class World
         }
         w.Write(_oneOffBills.Count);
         foreach (var (id, b) in _oneOffBills) { w.Write(id); w.Write(b.LeaseId); w.Write(b.Label); w.Write(b.Amount); }
+        WriteOffers(w);
     }
 
     void ReadLeases(BinaryReader r)
@@ -381,6 +382,7 @@ public sealed partial class World
         }
         int nb = r.ReadInt32();
         for (int i = 0; i < nb; i++) _oneOffBills.Add((r.ReadString(), new Bill(r.ReadInt32(), r.ReadString(), r.ReadInt64())));
+        ReadOffers(r);
         ApplyLeaseJobs();
     }
 }

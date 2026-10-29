@@ -51,7 +51,7 @@ public sealed partial class PanelModel
     void Changed() => Version++;
 
     public string Tab { get; private set; } = "why";
-    /// <summary>The dialog over the map: "seat", "consent", "council", "dispatch", "report", "terms", "confirm", "new", "save" or "load"; null when none.</summary>
+    /// <summary>The dialog over the map: "seat", "consent", "council", "dispatch", "report", "terms", "offer", "confirm", "new", "save" or "load"; null when none.</summary>
     public string? Dialog { get; private set; }
     /// <summary>Everyone the server knows of in this city, from its presence list, for picking deputies.</summary>
     public List<string> Players { get; set; } = new();
@@ -331,6 +331,16 @@ public sealed partial class PanelModel
     // The lease terms dialog: what it's for, the terms being edited, and what OK does with them.
     (string Title, string Ok, string Note, LeaseTerms Terms, Action<LeaseTerms> Done)? _terms;
     (string Text, System.Action Yes)? _confirm;
+    // The buyout or move being offered on a lease.
+    (int LeaseId, OfferKind Kind, long Amount, int To, int CounterOf)? _offer;
+
+    /// <summary>Whether this player speaks for the side game on a lease (its seat's owner); otherwise they speak for the city.</summary>
+    bool SpeaksForOperator(LeaseState l) => Civic?.Seats.FirstOrDefault(s => s.Id == l.Game)?.Owner == Me();
+
+    static OfferState? OpenOffer(LeaseState l) => l.Offers.FirstOrDefault(o => o.Status == "open");
+
+    void SendOffer(LeaseState l, OfferKind kind, LeaseTerms? terms, long amount, int to, int counterOf) =>
+        Send(new PAction { Offer = new OfferLease { LeaseId = l.Id, FromOperator = SpeaksForOperator(l), Kind = kind, Terms = terms, Amount = amount, ToBuildingId = to, CounterOf = counterOf } });
 
     /// <summary>The city's standard offer, as the sim defines it: a business lease, rent by size, a 10% fare tax, three months' notice.</summary>
     static LeaseTerms StandardTerms(string kind) =>
@@ -522,6 +532,46 @@ public sealed partial class PanelModel
                 else End();
                 return;
             }
+            case "offer-make":  // offer-make:lease:kind, countering the open offer if there is one
+            {
+                var l = Civic?.Leases.FirstOrDefault(x => x.Id == I(1));
+                if (l == null) return;
+                var open = OpenOffer(l);
+                var kind = (OfferKind)I(2);
+                int counter = open?.Id ?? 0;
+                if (kind == OfferKind.OfferTerms)
+                {
+                    _terms = ($"Offer terms to {(SpeaksForOperator(l) ? "the city" : l.GameName)}", "Offer", "If the other side accepts, the new terms start at once.",
+                        (open?.Terms ?? l.Terms).Clone(), t => SendOffer(l, OfferKind.OfferTerms, t, 0, -1, counter));
+                    Dialog = "terms";
+                }
+                else
+                {
+                    if (kind == OfferKind.OfferRelocate && l.MoveTo.Count == 0) return;
+                    long amount = open?.Kind == kind ? open.Amount : kind == OfferKind.OfferRelocate ? 1000 : 0;
+                    int to = open?.Kind == kind && open.ToBuildingId >= 0 ? open.ToBuildingId : l.MoveTo.FirstOrDefault()?.BuildingId ?? -1;
+                    _offer = (l.Id, kind, amount, to, counter);
+                    Dialog = "offer";
+                }
+                Changed();
+                return;
+            }
+            case "offer" when _offer is { } of:
+                switch (a[1])
+                {
+                    case "amount": _offer = of with { Amount = Math.Max(0, of.Amount + L(2)) }; break;
+                    case "to": _offer = of with { To = I(2) }; break;
+                    case "ok":
+                        if (Civic?.Leases.FirstOrDefault(x => x.Id == of.LeaseId) is { } l)
+                            SendOffer(l, of.Kind, null, of.Amount, of.Kind == OfferKind.OfferRelocate ? of.To : -1, of.CounterOf);
+                        CloseDialog();
+                        return;
+                }
+                Changed();
+                return;
+            case "offer-answer":
+                Send(new PAction { AnswerOffer = new AnswerOffer { OfferId = I(1), Accept = I(2) == 1 } });
+                return;
             case "yes":
                 _confirm?.Yes();
                 CloseDialog();

@@ -363,7 +363,9 @@ export class Seats {
         ${evict
           ? `<button id="lease-end" title="Hostile evictions are on: the lease ends after notice and the city pays six months' rent">Evict…</button>`
           : `<button id="lease-end" ${lease.terminable ? '' : `disabled title="Only a lease in bad standing past its cure period can be ended by the city${this.allowed(3) ? '' : ', unless every player allows hostile evictions'}"`}>End lease</button>`}
-      </div>`;
+      </div>
+      ${this.disputeHtml(lease)}`;
+    this.wireDispute(lease, slot);
     slot.querySelector('#lease-change')!.addEventListener('click', () =>
       this.termsDialog(`New terms for ${lease.gameName}`, lease.pendingTerms ?? lease.terms, 'Give notice', (terms) =>
         this.host.conn.action({ leaseTerms: { leaseId: lease.id, terms } }),
@@ -372,6 +374,74 @@ export class Seats {
       if (evict && !confirm(`Evict ${lease.gameName}? It gets ${lease.terms.noticeMonths} months' notice, and the city pays it compensation when it goes.`)) return;
       this.host.conn.action({ endLease: { leaseId: lease.id, byOperator: false } });
     });
+  }
+
+  /** Whether this player speaks for the side game on a lease (its seat's owner); otherwise they speak for the city. */
+  private operatorOf(lease: Msg) { return this.seats.find((s) => s.id === lease.game)?.owner === this.me; }
+
+  /** The dispute ladder: each rung with the rule behind it, the offer on the table, and the last few decided. */
+  private disputeHtml(lease: Msg) {
+    const ladder = (lease.ladder ?? []) as Msg[];
+    const offers = (lease.offers ?? []) as Msg[];
+    const open = offers.find((o) => o.status === 'open');
+    const mine = open && open.by === this.me;
+    const side = this.operatorOf(lease);
+    const who = (o: Msg) => (o.fromOperator ? lease.gameName : 'The city') + (o.by ? ` (${o.by})` : '');
+    return `<h4>Dispute ladder</h4>
+      ${ladder.map((r) => `<div class="req ${r.open ? 'met' : 'unmet'}"><span class="mark">${r.open ? '✓' : '✗'}</span><span class="label">${esc(r.step)}</span><span class="detail">${esc(r.rule)}</span></div>`).join('')}
+      ${open
+        ? `<div class="offer"><p><b>On the table:</b> ${esc(who(open))} offers ${esc(open.text)} <span class="muted small">(${open.daysLeft} day${open.daysLeft === 1 ? '' : 's'} left)</span></p>
+          <div class="row-flex">${mine
+            ? `<button data-answer="0">Withdraw</button>`
+            : `<button data-answer="1" class="active">Accept</button> <button data-answer="0">Decline</button> <button data-counter="1">Counter…</button>`}</div></div>`
+        : `<div class="row-flex" style="margin-top:6px">
+            <button data-offer="0">Offer terms…</button>
+            <button data-offer="1">${side ? 'Ask for a buyout…' : 'Offer a buyout…'}</button>
+            <button data-offer="2" ${(lease.moveTo ?? []).length ? '' : 'disabled title="There\'s no free lot of the same kind to move to."'}>Propose a move…</button>
+          </div>`}
+      ${offers.filter((o) => o.status !== 'open').slice(0, 4).map((o) =>
+        `<p class="small muted">${esc(who(o))}: ${esc(o.text)} — <b>${esc(o.status)}</b>${o.note ? `. ${esc(o.note)}` : ''}</p>`).join('')}`;
+  }
+
+  private wireDispute(lease: Msg, slot: HTMLElement) {
+    const open = ((lease.offers ?? []) as Msg[]).find((o) => o.status === 'open');
+    const fromOperator = this.operatorOf(lease);
+    const send = (kind: number, extra: Msg) =>
+      this.host.conn.action({ offer: { leaseId: lease.id, fromOperator, kind, terms: null, amount: 0, toBuildingId: -1, counterOf: open?.id ?? 0, ...extra } });
+    const make = (kind: number) => {
+      if (kind === 0)
+        this.termsDialog(`Offer terms to ${fromOperator ? 'the city' : lease.gameName}`, open?.terms ?? lease.terms, 'Offer', (terms) => send(0, { terms }),
+          'If the other side accepts, the new terms start at once.');
+      else if (kind === 1) {
+        const v = prompt(fromOperator ? 'How much should the city pay to end the lease? (it ends the day it\'s accepted)'
+          : `Offer ${lease.gameName} how much to give up the lot? (the lease ends the day it's accepted)`, String(open?.kind === 1 ? open.amount : 0));
+        if (v !== null && Number(v) >= 0) send(1, { amount: Math.round(Number(v)) });
+      } else this.moveDialog(lease, open, (to, amount) => send(2, { toBuildingId: to, amount }));
+    };
+    slot.querySelectorAll<HTMLButtonElement>('button[data-offer]').forEach((b) => b.addEventListener('click', () => make(Number(b.dataset.offer))));
+    slot.querySelectorAll<HTMLButtonElement>('button[data-answer]').forEach((b) =>
+      b.addEventListener('click', () => this.host.conn.action({ answerOffer: { offerId: open!.id, accept: b.dataset.answer === '1' } })));
+    // A counter is the same kind of offer, from the other side.
+    slot.querySelector('button[data-counter]')?.addEventListener('click', () => make(open!.kind));
+  }
+
+  private moveDialog(lease: Msg, open: Msg | undefined, done: (to: number, amount: number) => void) {
+    const dlg = $<HTMLDialogElement>('#dlg');
+    const form = $<HTMLFormElement>('#dlg-form');
+    const lots = (lease.moveTo ?? []) as Msg[];
+    form.innerHTML = `
+      <h3>Move ${esc(lease.gameName)}</h3>
+      <p class="muted small">The lease moves with its terms and jobs. The city can offer to pay the moving costs.</p>
+      ${lots.map((l, i) => `<label><input type="radio" name="to" value="${l.buildingId}" ${(open?.toBuildingId ?? lots[0].buildingId) === l.buildingId || (!open && i === 0) ? 'checked' : ''}> ${esc(l.name)}</label>`).join('')}
+      <label>Moving costs the city pays ($)</label><input type="number" name="amount" min="0" step="100" value="${open?.amount ?? 1000}">
+      <div class="actions"><button value="cancel">Cancel</button><button value="ok" class="active">Propose</button></div>`;
+    form.onchange = null;
+    dlg.onclose = () => {
+      if (dlg.returnValue !== 'ok') return;
+      const fd = new FormData(form);
+      done(Number(fd.get('to')), Math.round(Number(fd.get('amount') || 0)));
+    };
+    dlg.showModal();
   }
 
   private termsDialog(title: string, t: Msg, okLabel: string, done: (terms: Msg) => void, note = '') {

@@ -244,6 +244,7 @@ public sealed partial class World
         BudgetRan = false;
         ApplyPending();
         RunCouncil();
+        RunDisputes();
         bool stasis = InStasis;
         if (stasis) HoldPrompts();
         else RunDisasters();

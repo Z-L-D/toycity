@@ -409,3 +409,44 @@ arson, strikes) and SWAT teams, breaching and hostage scenes come in the emergen
   the service on another process ends in the same state.
 - `EmergencyClientTests`: against the real server, a player takes the service and changes the style and switches; a
   scene opens by itself and the pointer selects, moves, hoses and draws a path.
+
+## Part 8: the dispute ladder
+
+A lease that one side wants changed no longer has only two moves (new terms after notice, or eviction). Each lease
+panel shows a ladder, gentlest first, with whether each rung is open now and the rule behind it:
+
+| Rung | Who | Rule |
+| --- | --- | --- |
+| Negotiate | either side | New terms start the day the other side accepts. |
+| Buy out | either side asks, the city pays | The lease ends the day it's accepted; the city pays the amount, which reaches the game with its next bills. |
+| Relocate | either side | The lease moves to a free lot of the same kind with its terms and jobs; the city may offer moving costs. Lines through the old stop are redrawn. |
+| Impose terms | the mayor | The old way: new terms after the lease's notice. Open while the mayor plays the city. |
+| Evict | the mayor | Open once the lease has been in bad standing past its cure period, or with hostile evictions allowed by every player (notice and compensation). Otherwise closed, with what stands in the way. |
+
+### Offers
+
+- `OfferLeaseAction(lease, fromOperator, kind, terms, amount, toBuildingId, counterOf)` and
+  `AnswerOfferAction(offer, accept)`. The operator side is the side game seat's owner; the city side is the mayor, or a
+  deputy holding Transit (stops and depots) or Services (stations). Anyone else is refused.
+- One offer is open on a lease at a time. A counter comes from the other side and closes the offer it answers. The
+  maker can withdraw an offer but not accept it. Offers lapse after 30 days.
+- A side the computer plays answers the next day. The city on automation takes terms no worse for it, pays a buyout of
+  at most what an eviction would cost, and doesn't pay for moves. A side game on automation takes terms no dearer, a
+  buyout of at least an eviction's compensation plus three months' revenue, and a move with $1,000 moving costs paid.
+- An accepted buyout or move the city can't afford fails, and says so.
+- Offers are part of the save (inside the lease section; the format version is unchanged), the state hash and the
+  replay log.
+
+### Clients
+
+- Web and Godot lease panels show the ladder, the offer on the table with Accept / Decline / Counter (or Withdraw for
+  its maker), the last few decided offers with how they ended, and buttons to offer terms, a buyout or a move. The
+  server sends the free lots a lease could move to.
+
+### Tests
+
+- `DisputeTests` (sim): agreed terms start at once and a counter replaces the offer; only the two sides deal, a transit
+  deputy counts, one offer at a time, the maker withdraws; the computer takes a buyout worth more than staying; a move
+  keeps the lease and its jobs; the ladder's rungs and their rules, and offers lapse; offers save, load and replay.
+- `DisputeClientTests`: against the real server, the mayor leases a stop from its panel, the computer turns down a
+  buyout for nothing and takes a paid move.
