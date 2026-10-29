@@ -728,5 +728,6 @@ The steps and results are in [GATE-BETA2.md](GATE-BETA2.md).
   a month toward the crews ($300 for a clinic, $800 for a hospital).
 - Fixed on the way: with Pick responders on, opening the dispatch board while a call waited left its picks empty, so
   the computer's proposal then showed unticked and Send did nothing.
-- Tests: `TogetherRunTests` (the whole session against a real dedicated server, then loading Tess's copy) `RolesTests.WhoeverRunsACompanyLeasesFreeLotsForItOnTheStandardTermsOnly` and
+- Tests: `TogetherRunTests` (the whole session against a real dedicated server, then loading Tess's copy),
+  `RolesTests.WhoeverRunsACompanyLeasesFreeLotsForItOnTheStandardTermsOnly` and
   `EmergencyClientTests.TheComputersPickShowsTickedEvenIfTheBoardWasOpenWhileTheCallWaited`.
