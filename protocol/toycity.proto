@@ -78,7 +78,27 @@ message Action {
     SetConsent consent = 21;
     UpgradeBuilding upgrade = 22;
     SetAwayLevel away_level = 23;
+    SetCityRule city_rule = 24;
+    Pact pact = 25;
   }
+}
+
+// The city's owner forbids a mechanic here whatever the players allow, or lifts that.
+message SetCityRule {
+  Mechanic mechanic = 1;
+  bool forbid = 2;
+}
+
+// A pact between the sender and one other player on a mechanic between the two of them.
+message Pact {
+  enum Step {
+    PACT_OFFER = 0;
+    PACT_ACCEPT = 1;
+    PACT_END = 2;   // ends a pact, or withdraws or turns down an offer
+  }
+  Step step = 1;
+  string with = 2;  // the other player
+  Mechanic mechanic = 3;
 }
 
 // How the computer plays a seat while its owner is away from a dedicated server (not manual).
@@ -903,6 +923,7 @@ message CivicState {
 message ConsentTable {
   repeated string owners = 1;
   repeated ConsentRow rows = 2;
+  repeated PactState pacts = 3;
 }
 
 message ConsentRow {
@@ -912,6 +933,16 @@ message ConsentRow {
   repeated bool by_owner = 4;  // in the order of owners
   bool effective = 5;
   repeated string blockers = 6;
+  bool pairwise = 7;       // needs only the two players it happens between (or a pact), not everyone
+  bool host_forbids = 8;   // the server's host forbids it
+  bool city_forbids = 9;   // the city's rules forbid it
+}
+
+message PactState {
+  string a = 1;
+  string b = 2;
+  Mechanic mechanic = 3;
+  bool offer = 4;  // offered by a to b, not yet accepted
 }
 
 // A side game's standing in a district.
@@ -1027,6 +1058,11 @@ message ActionRecord {
   Action action = 2;
   string by = 3;       // the player who sent it; empty for saves from before Beta 2
   SeatAway away = 4;   // set instead of action: the server handed a seat to the computer, or back, as its owner left or returned
+  HostRules host_rules = 5;  // set instead of action: the server's minimums when the city arrived
+}
+
+message HostRules {
+  repeated Mechanic forbidden = 1;
 }
 
 message SeatAway {

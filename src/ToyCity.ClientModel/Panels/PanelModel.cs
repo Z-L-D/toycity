@@ -457,6 +457,12 @@ public sealed partial class PanelModel
             case "consent":
                 Send(new PAction { Consent = new SetConsent { Owner = Me(), Mechanic = (Mechanic)I(1), Allowed = I(2) == 1 } });
                 return;
+            case "rule":
+                Send(new PAction { CityRule = new SetCityRule { Mechanic = (Mechanic)I(1), Forbid = I(2) == 1 } });
+                return;
+            case "pact":  // pact:step:mechanic:with
+                Send(new PAction { Pact = new Pact { Step = (Pact.Types.Step)I(1), Mechanic = (Mechanic)I(2), With = Uri.UnescapeDataString(a[3]) } });
+                return;
 
             // Leases
             case "lease-to":

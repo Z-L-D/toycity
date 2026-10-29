@@ -630,14 +630,16 @@ public sealed partial class PanelModel
     string RenderConsent()
     {
         var sb = new StringBuilder(H3("House rules"));
-        sb.Append(Small(Dim("Each player switches these on or off for themselves. One is on in this city only while every player who owns a seat allows it."))).Append('\n');
+        sb.Append(Small(Dim("Each player switches these on or off for themselves. One that reaches everyone is on only while every player who owns a seat allows it. One between two players needs only those two to allow it, or a pact between them. The host and the city can forbid any of them outright."))).Append('\n');
         var consent = Civic?.Consent;
         if (consent == null) return sb.Append(Footer($"[b]{Link("close", "Done")}[/b]")).ToString();
         string me = Me();
+        bool mayor = Mayor?.Owner == me;
         var owners = consent.Owners.ToList();
         var cols = owners.Contains(me) ? owners : owners.Append(me).ToList();
         var cells = new StringBuilder("[cell] [/cell]");
         foreach (var o in cols) cells.Append($"[cell][b]{Esc(o == me ? "You" : o)}[/b]  [/cell]");
+        if (mayor) cells.Append("[cell][b]City forbids[/b]  [/cell]");
         cells.Append("[cell][b]In this city[/b][/cell]");
         foreach (var r in consent.Rows)
         {
@@ -648,10 +650,32 @@ public sealed partial class PanelModel
                 bool on = i >= 0 && i < r.ByOwner.Count ? r.ByOwner[i] : r.Mechanic == Mechanic.MechAbsurdDisasters;
                 cells.Append(o == me ? $"[cell]{Link($"consent:{(int)r.Mechanic}:{(on ? 0 : 1)}", on ? "☑" : "☐")}  [/cell]" : $"[cell]{(on ? "✓" : "✗")}  [/cell]");
             }
-            string blockers = r.Blockers.Count > 0 ? Small(Dim($" ({Esc(string.Join(", ", r.Blockers.Select(b => b == me ? "you" : b)))})")) : "";
-            cells.Append($"[cell]{(r.Effective ? Col(Pos, "On") : Col(Neg, "Off") + blockers)}[/cell]");
+            if (mayor) cells.Append($"[cell]{Link($"rule:{(int)r.Mechanic}:{(r.CityForbids ? 0 : 1)}", r.CityForbids ? "☑" : "☐")}  [/cell]");
+            string who = string.Join(", ", r.Blockers.Select(b => b == me ? "you" : b));
+            string result = r.HostForbids ? Col(Neg, "Forbidden") + Small(Dim(" by the host"))
+                : r.CityForbids ? Col(Neg, "Forbidden") + Small(Dim(" by the city"))
+                : r.Pairwise ? "Between two" + Small(Dim(who.Length > 0 ? $" (not with {Esc(who)})" : " (everyone allows it)"))
+                : r.Effective ? Col(Pos, "On") : Col(Neg, "Off") + (who.Length > 0 ? Small(Dim($" ({Esc(who)})")) : "");
+            cells.Append($"[cell]{result}[/cell]");
         }
-        sb.Append($"[table={cols.Count + 2}]{cells}[/table]\n");
+        sb.Append($"[table={cols.Count + (mayor ? 3 : 2)}]{cells}[/table]\n");
+
+        sb.Append(H4("Pacts"));
+        string MechName(Mechanic m) => consent.Rows.FirstOrDefault(r => r.Mechanic == m)?.Name.ToLowerInvariant() ?? "";
+        string Pl(int step, Mechanic m, string with, string text) => Link($"pact:{step}:{(int)m}:{Uri.EscapeDataString(with)}", text);
+        bool any = false;
+        foreach (var p in consent.Pacts.Where(p => p.A == me || p.B == me))
+        {
+            any = true;
+            string other = p.A == me ? p.B : p.A;
+            if (!p.Offer) sb.Append($"Pact with [b]{Esc(other)}[/b]: {MechName(p.Mechanic)}  {Pl(2, p.Mechanic, other, "End it")}\n");
+            else if (p.B == me) sb.Append($"[b]{Esc(other)}[/b] offers a pact: {MechName(p.Mechanic)}  {Pl(1, p.Mechanic, other, "Accept")}  {Pl(2, p.Mechanic, other, "Turn down")}\n");
+            else sb.Append($"Offered [b]{Esc(other)}[/b]: {MechName(p.Mechanic)}  {Pl(2, p.Mechanic, other, "Withdraw")}\n");
+        }
+        if (!any) sb.Append(Small(Dim("None yet. A pact lets something between two players happen between just you two, whatever either of you allows in general."))).Append('\n');
+        var offerable = consent.Rows.Where(r => r.Pairwise && !r.HostForbids && !r.CityForbids).ToList();
+        foreach (var o in owners.Where(o => o != me))
+            sb.Append($"Offer [b]{Esc(o)}[/b] a pact on: {string.Join("  ", offerable.Select(r => Pl(0, r.Mechanic, o, Esc(r.Name.ToLowerInvariant()))))}\n");
         return sb.Append(Footer($"[b]{Link("close", "Done")}[/b]")).ToString();
     }
 

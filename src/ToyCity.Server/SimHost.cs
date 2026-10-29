@@ -51,6 +51,7 @@ public sealed partial class SimHost : IDisposable
         Directory.CreateDirectory(saveDir);
         _world = NewWorld("Toyville", 2026, 128, starter: true);
         EnsureMayor();
+        ApplyHostRules();
         LoadAgentTiers();
         StartAwayTimer();
         _thread = new Thread(Loop) { IsBackground = true, Name = "sim" };
@@ -227,7 +228,7 @@ public sealed partial class SimHost : IDisposable
         List<(Client, P.ServerMessage)> others;
         lock (_gate)
         {
-            if (_host.Dedicated) Returned(client.Player);
+            if (_host.Dedicated) { Returned(client.Player); BringConsent(client.Player); }
             _clients.Add(client);
             full = FullStateMessage(client);
             // Everyone else hears of the newcomer (and of any seats they took back); the newcomer gets it all below.
@@ -305,6 +306,7 @@ public sealed partial class SimHost : IDisposable
                         // current tick, before that tick's step, which is where a replay applies it too.
                         _world.Enqueue(a with { By = c.Player });
                         _world.ApplyPending();
+                        if (a is SetConsentAction) KeepConsent(c.Player);
                         broadcast = BuildDeltas(forceAlerts: true);
                     }
                     else reply = Error(msg.Seq, "Unknown action.");
@@ -343,7 +345,7 @@ public sealed partial class SimHost : IDisposable
                         if (!ValidName(msg.Load.Name)) throw new InvalidDataException("bad save name");
                         _world = Mapping.Load(_content, File.ReadAllBytes(SavePath(msg.Load.Name)));
                         AttachSideGames(_world);
-                        EnsureMayor(c.Player);
+                        Arrived(c.Player);
                         broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).Concat(BuildDeltas(forceAlerts: true)).ToList();
                     }
                     catch (Exception e) when (e is IOException or InvalidDataException or InvalidProtocolBufferException)
@@ -357,7 +359,7 @@ public sealed partial class SimHost : IDisposable
                     int size = n.Benchmark ? BenchmarkCity.Size : n.Size is 64 or 128 or 256 ? n.Size : 128;
                     ulong seed = n.Seed != 0 ? n.Seed : (ulong)Random.Shared.NextInt64(1, long.MaxValue);
                     _world = NewWorld(string.IsNullOrWhiteSpace(n.Name) ? "New City" : n.Name.Trim(), seed, size, n.StarterTown, n.Benchmark);
-                    EnsureMayor(c.Player);
+                    Arrived(c.Player);
                     broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).Concat(BuildDeltas(forceAlerts: true)).ToList();
                     break;
                 }

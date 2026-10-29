@@ -43,6 +43,10 @@ public sealed partial class World
             }
             case SetConsentAction c:
                 return c.Owner == by ? null : "You can only change your own consent settings.";
+            case OfferPactAction or AcceptPactAction or EndPactAction:
+                return null;  // always about the sender and one other player
+            case SetHostRulesAction:
+                return "Only the server sets its host's rules.";
             case SideGameAction g:
             {
                 var seat = SeatOf(g.GameId);
@@ -99,5 +103,8 @@ public sealed partial class World
         if (from == to) return;
         foreach (var s in Seats) if (s.Owner == from) s.Owner = to;
         if (_consent.Remove(from, out var set)) _consent[to] = set;
+        string R(string n) => n == from ? to : n;
+        for (int i = 0; i < _pacts.Count; i++) _pacts[i] = Pact.Of(R(_pacts[i].A), R(_pacts[i].B), _pacts[i].Mechanic);
+        for (int i = 0; i < _offers.Count; i++) _offers[i] = new PactOffer(R(_offers[i].From), R(_offers[i].To), _offers[i].Mechanic);
     }
 }

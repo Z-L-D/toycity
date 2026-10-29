@@ -44,6 +44,11 @@ public sealed partial class World
             case SetLeaseTermsAction a: ApplySetLeaseTerms(a); break;
             case EndLeaseAction a: ApplyEndLease(a); break;
             case SetConsentAction a: ApplySetConsent(a); break;
+            case SetCityRuleAction a: ApplySetCityRule(a); break;
+            case SetHostRulesAction a: ApplySetHostRules(a); break;
+            case OfferPactAction a: ApplyOfferPact(a); break;
+            case AcceptPactAction a: ApplyAcceptPact(a); break;
+            case EndPactAction a: ApplyEndPact(a); break;
             case UpgradeBuildingAction a: ApplyUpgrade(a); break;
             case SetDisasterSettingAction a:
                 DisasterSetting = a.Setting;

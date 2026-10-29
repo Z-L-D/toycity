@@ -74,7 +74,7 @@ public sealed partial class World
     {
         foreach (var (kind, name, cost, gate) in PaidActions)
         {
-            string why = gate is { } m && !Allowed(m) ? $"{MechanicName(m)} is switched off: {string.Join(", ", Blockers(m))} won't allow it." : "";
+            string why = gate is { } m ? WhyOff(m, SeatOf(hg.Id)?.Owner ?? "", MayorSeat.Owner) ?? "" : "";
             input.Offers.Add(new PaidActionOffer(kind, name, cost, why.Length == 0, why));
         }
         foreach (var (id, r) in results) if (id == hg.Id) input.AuthorityResults.Add(r);
@@ -103,7 +103,7 @@ public sealed partial class World
         if (i < 0) return No($"The city doesn't sell '{kind}'.");
         var (_, _, cost, gate) = PaidActions[i];
         if (district < 0 || district >= DistrictCount) return No("There is no such district.");
-        if (gate is { } m && !Allowed(m)) return No($"{MechanicName(m)} is switched off: {string.Join(", ", Blockers(m))} won't allow it.");
+        if (gate is { } m && WhyOff(m, SeatOf(gameId)?.Owner ?? "", MayorSeat.Owner) is { } off) return No(off);
         if (InStasis) return No("The city is in stasis: the councils aren't sitting.");
         string game = GameName(gameId), where = DistrictName(district);
         var s = StandingFor(gameId, district);

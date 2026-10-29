@@ -37,6 +37,13 @@ public static class Mapping
         P.Action.KindOneofCase.EndLease => new EndLeaseAction(a.EndLease.LeaseId, a.EndLease.ByOperator),
         P.Action.KindOneofCase.Consent => new SetConsentAction(a.Consent.Owner, (Mechanic)(int)a.Consent.Mechanic, a.Consent.Allowed),
         P.Action.KindOneofCase.Seat => new SetSeatAction(a.Seat.Seat, a.Seat.Owner, (ToyCity.Contract.OperatorLevel)(int)a.Seat.Level, (AutopilotStyle)(int)a.Seat.Style, a.Seat.SpendCap),
+        P.Action.KindOneofCase.CityRule => new SetCityRuleAction((Mechanic)(int)a.CityRule.Mechanic, a.CityRule.Forbid),
+        P.Action.KindOneofCase.Pact => a.Pact.Step switch
+        {
+            P.Pact.Types.Step.PactOffer => new OfferPactAction(a.Pact.With, (Mechanic)(int)a.Pact.Mechanic),
+            P.Pact.Types.Step.PactAccept => new AcceptPactAction(a.Pact.With, (Mechanic)(int)a.Pact.Mechanic),
+            _ => new EndPactAction(a.Pact.With, (Mechanic)(int)a.Pact.Mechanic),
+        },
         P.Action.KindOneofCase.AwayLevel => new SetAwayLevelAction(a.AwayLevel.Seat, (ToyCity.Contract.OperatorLevel)(int)a.AwayLevel.Level, (AutopilotStyle)(int)a.AwayLevel.Style),
         _ => null,
     };
@@ -65,6 +72,10 @@ public static class Mapping
         EndLeaseAction x => new P.Action { EndLease = new P.EndLease { LeaseId = x.LeaseId, ByOperator = x.ByOperator } },
         SetConsentAction x => new P.Action { Consent = new P.SetConsent { Owner = x.Owner, Mechanic = (P.Mechanic)(int)x.Mechanic, Allowed = x.Allowed } },
         SetSeatAction x => new P.Action { Seat = new P.SetSeat { Seat = x.SeatId, Owner = x.Owner, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style, SpendCap = x.SpendCap } },
+        SetCityRuleAction x => new P.Action { CityRule = new P.SetCityRule { Mechanic = (P.Mechanic)(int)x.Mechanic, Forbid = x.Forbid } },
+        OfferPactAction x => new P.Action { Pact = new P.Pact { Step = P.Pact.Types.Step.PactOffer, With = x.With, Mechanic = (P.Mechanic)(int)x.Mechanic } },
+        AcceptPactAction x => new P.Action { Pact = new P.Pact { Step = P.Pact.Types.Step.PactAccept, With = x.From, Mechanic = (P.Mechanic)(int)x.Mechanic } },
+        EndPactAction x => new P.Action { Pact = new P.Pact { Step = P.Pact.Types.Step.PactEnd, With = x.With, Mechanic = (P.Mechanic)(int)x.Mechanic } },
         SetAwayLevelAction x => new P.Action { AwayLevel = new P.SetAwayLevel { Seat = x.SeatId, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
     };
@@ -329,11 +340,17 @@ public static class Mapping
         table.Owners.AddRange(w.Owners());
         foreach (var row in w.ConsentTable())
         {
-            var pr = new P.ConsentRow { Mechanic = (P.Mechanic)(int)row.Mechanic, Name = row.Name, Note = row.Note, Effective = row.Effective };
+            var pr = new P.ConsentRow
+            {
+                Mechanic = (P.Mechanic)(int)row.Mechanic, Name = row.Name, Note = row.Note, Effective = row.Effective,
+                Pairwise = row.Scope == ConsentScope.Pair, HostForbids = row.HostForbids, CityForbids = row.CityForbids,
+            };
             pr.ByOwner.AddRange(row.ByOwner);
             pr.Blockers.AddRange(row.Blockers);
             table.Rows.Add(pr);
         }
+        foreach (var p in w.Pacts) table.Pacts.Add(new P.PactState { A = p.A, B = p.B, Mechanic = (P.Mechanic)(int)p.Mechanic });
+        foreach (var o in w.PactOffers) table.Pacts.Add(new P.PactState { A = o.From, B = o.To, Mechanic = (P.Mechanic)(int)o.Mechanic, Offer = true });
         r.Consent = table;
         foreach (var l in w.Leases)
         {
@@ -397,9 +414,12 @@ public static class Mapping
             Tick = w.Tick, World = ByteString.CopyFrom(w.Snapshot()),
         };
         foreach (var l in w.Log)
-            s.Log.Add(l.Action is SeatAwayAction sa
-                ? new P.ActionRecord { Tick = l.Tick, By = sa.By, Away = new P.SeatAway { Seat = sa.SeatId, Away = sa.Away } }
-                : new P.ActionRecord { Tick = l.Tick, By = l.Action.By, Action = ToProto(l.Action) });
+            s.Log.Add(l.Action switch
+            {
+                SeatAwayAction sa => new P.ActionRecord { Tick = l.Tick, By = sa.By, Away = new P.SeatAway { Seat = sa.SeatId, Away = sa.Away } },
+                SetHostRulesAction hr => new P.ActionRecord { Tick = l.Tick, By = hr.By, HostRules = new P.HostRules { Forbidden = { hr.Forbidden.Select(m => (P.Mechanic)(int)m) } } },
+                _ => new P.ActionRecord { Tick = l.Tick, By = l.Action.By, Action = ToProto(l.Action) },
+            });
         return s.ToByteArray();
     }
 
@@ -410,7 +430,9 @@ public static class Mapping
         var w = World.FromSnapshot(content, s.World.ToByteArray());
         foreach (var r in s.Log)
         {
-            SimAction? a = r.Away != null ? new SeatAwayAction(r.Away.Seat, r.Away.Away) : r.Action == null ? null : ToSim(r.Action);
+            SimAction? a = r.Away != null ? new SeatAwayAction(r.Away.Seat, r.Away.Away)
+                : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
+                : r.Action == null ? null : ToSim(r.Action);
             if (a != null) w.Log.Add(new LoggedAction(r.Tick, a with { By = r.By }));
         }
         return w;

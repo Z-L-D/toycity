@@ -169,12 +169,32 @@ export class Seats {
     const owners = this.consent.owners as string[];
     const me = this.me;
     const cols = owners.includes(me) ? owners : [...owners, me];
+    const mayor = this.mayor?.owner === me;
+    const rows = this.consent.rows as Msg[];
+    const pacts = (this.consent.pacts ?? []) as Msg[];
+    const mechName = (m: number) => rows.find((r) => r.mechanic === m)?.name ?? '';
+    const others = owners.filter((o) => o !== me);
+    const result = (r: Msg) => {
+      if (r.hostForbids) return '<td class="neg">Forbidden <span class="muted small">by the host</span></td>';
+      if (r.cityForbids) return '<td class="neg">Forbidden <span class="muted small">by the city</span></td>';
+      const who = (r.blockers as string[]).map((b) => (b === me ? 'you' : b)).join(', ');
+      if (r.pairwise) return `<td>Between two <span class="muted small">${who ? `(not with ${esc(who)})` : '(everyone allows it)'}</span></td>`;
+      return `<td class="${r.effective ? 'pos' : 'neg'}">${r.effective ? 'On' : `Off${who ? ` <span class="muted small">(${esc(who)})</span>` : ''}`}</td>`;
+    };
+    const pactRows = pacts.filter((p) => p.a === me || p.b === me).map((p) => {
+      const other = p.a === me ? p.b : p.a;
+      const name = esc(mechName(p.mechanic).toLowerCase());
+      if (!p.offer) return `<div class="seat-row">Pact with <b>${esc(other)}</b>: ${name} <button value="pact:2:${esc(other)}:${p.mechanic}">End it</button></div>`;
+      if (p.b === me) return `<div class="seat-row"><b>${esc(other)}</b> offers a pact: ${name} <button value="pact:1:${esc(other)}:${p.mechanic}">Accept</button><button value="pact:2:${esc(other)}:${p.mechanic}">Turn down</button></div>`;
+      return `<div class="seat-row">Offered <b>${esc(other)}</b>: ${name} <button value="pact:2:${esc(other)}:${p.mechanic}">Withdraw</button></div>`;
+    }).join('');
+    const offerable = rows.filter((r) => r.pairwise && !r.hostForbids && !r.cityForbids);
     form.innerHTML = `
       <h3>House rules</h3>
-      <p class="muted small">Each player switches these on or off for themselves. One is on in this city only while every player who owns a seat allows it.</p>
+      <p class="muted small">Each player switches these on or off for themselves. One that reaches everyone is on only while every player who owns a seat allows it. One <i>between two</i> players needs only those two to allow it, or a pact between them. The host and the city can forbid any of them outright.</p>
       <table class="consent">
-        <tr><th></th>${cols.map((o) => `<th>${esc(o === me ? 'You' : o)}</th>`).join('')}<th>In this city</th></tr>
-        ${(this.consent.rows as Msg[]).map((r) => `
+        <tr><th></th>${cols.map((o) => `<th>${esc(o === me ? 'You' : o)}</th>`).join('')}${mayor ? '<th>City forbids</th>' : ''}<th>In this city</th></tr>
+        ${rows.map((r) => `
           <tr><td><b>${esc(r.name)}</b><div class="muted small">${esc(r.note)}</div></td>
             ${cols.map((o) => {
               const i = owners.indexOf(o);
@@ -183,16 +203,36 @@ export class Seats {
                 ? `<td><input type="checkbox" data-mech="${r.mechanic}" ${on ? 'checked' : ''}></td>`
                 : `<td>${on ? '✓' : '✗'}</td>`;
             }).join('')}
-            <td class="${r.effective ? 'pos' : 'neg'}">${r.effective ? 'On' : `Off${r.blockers.length ? ` <span class="muted small">(${esc((r.blockers as string[]).map((b) => (b === me ? 'you' : b)).join(', '))})</span>` : ''}`}</td></tr>`).join('')}
+            ${mayor ? `<td><input type="checkbox" data-rule="${r.mechanic}" ${r.cityForbids ? 'checked' : ''}></td>` : ''}
+            ${result(r)}</tr>`).join('')}
       </table>
+      <h4>Pacts</h4>
+      ${pactRows || '<p class="muted small">None yet. A pact lets something between two players happen between just you two, whatever either of you allows in general.</p>'}
+      ${others.length && offerable.length ? `<div class="seat-row">Offer
+        <select name="pact-with">${others.map((o) => `<option>${esc(o)}</option>`).join('')}</select>
+        a pact on <select name="pact-mech">${offerable.map((r) => `<option value="${r.mechanic}">${esc(r.name.toLowerCase())}</option>`).join('')}</select>
+        <button value="offer">Offer</button></div>` : ''}
       <div class="actions"><button value="ok" class="active">Done</button></div>`;
     form.querySelectorAll<HTMLInputElement>('input[data-mech]').forEach((box) =>
       box.addEventListener('change', () => this.host.conn.action({ consent: { owner: me, mechanic: Number(box.dataset.mech), allowed: box.checked } })));
+    form.querySelectorAll<HTMLInputElement>('input[data-rule]').forEach((box) =>
+      box.addEventListener('change', () => this.host.conn.action({ cityRule: { mechanic: Number(box.dataset.rule), forbid: box.checked } })));
     form.onchange = null;
     this.consentOpen = true;
-    dlg.onclose = () => { this.consentOpen = false; };
+    dlg.onclose = () => {
+      this.consentOpen = false;
+      const v = dlg.returnValue;
+      if (v.startsWith('pact:')) {
+        const [, step, withName, mech] = v.split(':');
+        this.host.conn.action({ pact: { step: Number(step), with: withName, mechanic: Number(mech) } });
+      } else if (v === 'offer') {
+        const fd = new FormData(form);
+        this.host.conn.action({ pact: { step: 0, with: String(fd.get('pact-with')), mechanic: Number(fd.get('pact-mech')) } });
+      }
+    };
     if (!dlg.open) dlg.showModal();
   }
+
 
   private showReport(r: Msg) {
     const dlg = $<HTMLDialogElement>('#dlg');

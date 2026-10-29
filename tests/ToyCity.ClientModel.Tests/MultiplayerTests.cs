@@ -7,7 +7,7 @@ public class MultiplayerTests : IClassFixture<MultiplayerTests.Fixture>
 {
     public sealed class Fixture : IDisposable
     {
-        public readonly ServerProcess Server = new("""{ "name": "Shared town", "join": "open", "awayAfterSeconds": 2 }""");
+        public readonly ServerProcess Server = new("""{ "name": "Shared town", "join": "open", "awayAfterSeconds": 2, "forbid": ["Sabotage"] }""");
         public void Dispose() => Server.Dispose();
     }
 
@@ -102,5 +102,28 @@ public class MultiplayerTests : IClassFixture<MultiplayerTests.Fixture>
         using var back = new Player(_server.Ws, "Jo", token);
         mayor.WaitFor(() => mayor.Seat("transport").Level == SeatLevel.SeatManual, "Jo's seat back");
         mayor.WaitFor(() => mayor.Presence!.Players.First(p => p.Name == "Jo").Online, "Jo online again");
+    }
+
+    [Fact]
+    public void ConsentFollowsAPlayerToTheNextCityAndTheHostForbidsWhatItForbids()
+    {
+        using var mayor = new Player(_server.Ws, "Mayor May");
+        var sabotage = mayor.Civic!.Consent.Rows.Single(r => r.Mechanic == Mechanic.MechSabotage);
+        Assert.True(sabotage.HostForbids);
+        Assert.False(sabotage.Effective);
+        mayor.Client.Connection.Act(new Protocol.V0.Action { Consent = new SetConsent { Owner = "Mayor May", Mechanic = Mechanic.MechBribery, Allowed = true } });
+        mayor.WaitFor(() => Bribery(mayor), "the setting");
+
+        mayor.Client.Connection.Send(new ClientMessage { NewCity = new NewCityRequest { Name = "Second city", Size = 64 } });
+        mayor.WaitFor(() => mayor.Client.City.Width == 64 && mayor.Civic!.Seats[0].Owner == "Mayor May", "the new city with May as mayor");
+        mayor.WaitFor(() => Bribery(mayor), "her setting to follow her");
+        Assert.True(mayor.Civic!.Consent.Rows.Single(r => r.Mechanic == Mechanic.MechSabotage).HostForbids);
+
+        static bool Bribery(Player p)
+        {
+            var c = p.Civic!.Consent;
+            int i = c.Owners.IndexOf("Mayor May");
+            return i >= 0 && c.Rows.Single(r => r.Mechanic == Mechanic.MechBribery).ByOwner[i];
+        }
     }
 }

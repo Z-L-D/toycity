@@ -99,3 +99,48 @@ public sealed partial class SimHost
         foreach (var c in _clients) yield return (c, new P.ServerMessage { Presence = p });
     }
 }
+
+public sealed partial class SimHost
+{
+    /// <summary>
+    /// A city has just been loaded or founded by an admin: it gets a real mayor, the host's minimums, and the consent
+    /// settings of everyone here. Caller holds the gate.
+    /// </summary>
+    void Arrived(string admin)
+    {
+        EnsureMayor(admin);
+        ApplyHostRules();
+        if (_host.Dedicated) foreach (var p in _clients.Select(c => c.Player).Distinct().ToList()) BringConsent(p);
+    }
+
+    /// <summary>The host's minimums, for the city that has just arrived (logged, so replays agree). Caller holds the gate.</summary>
+    void ApplyHostRules()
+    {
+        var forbid = _host.Forbid.Select(n => Enum.TryParse<Mechanic>(n, ignoreCase: true, out var m) ? m : (Mechanic?)null)
+            .Where(m => m != null).Select(m => m!.Value).Distinct().OrderBy(m => m).ToList();
+        if (World.AllMechanics.All(m => _world.HostForbids(m) == forbid.Contains(m))) return;
+        _world.Enqueue(new SetHostRulesAction(forbid));
+        _world.ApplyPending();
+    }
+
+    /// <summary>
+    /// A player's consent settings follow them between cities on this server: one who hasn't set anything in this city
+    /// brings what they last set anywhere here. Caller holds the gate.
+    /// </summary>
+    void BringConsent(string player)
+    {
+        if (_accounts?.ConsentOf(player) is not { } saved || _world.ConsentOf(player) != null) return;
+        foreach (var m in World.AllMechanics)
+        {
+            bool allow = saved.Contains(m.ToString());
+            if (allow != _world.Allows(player, m)) _world.Enqueue(new SetConsentAction(player, m, allow) { By = player });
+        }
+        if (_world.PendingCount > 0) _world.ApplyPending();
+    }
+
+    /// <summary>Remembers what a player allows, after they change it, for the next city they join. Caller holds the gate.</summary>
+    void KeepConsent(string player)
+    {
+        if (_accounts != null && _world.ConsentOf(player) is { } set) _accounts.SetConsent(player, set.Select(m => m.ToString()));
+    }
+}

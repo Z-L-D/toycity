@@ -12,6 +12,8 @@ public sealed class Account
     public string Salt { get; set; } = "";
     public string Hash { get; set; } = "";
     public DateTime Created { get; set; }
+    /// <summary>The mechanics this player allows, carried into every city they join here; null until they first set one.</summary>
+    public List<string>? Consent { get; set; }
     /// <summary>Sign-in tokens, as SHA-256 hashes, with when each stops working.</summary>
     public List<AccountToken> Tokens { get; set; } = new();
 }
@@ -108,6 +110,21 @@ public sealed partial class AccountStore
     }
 
     public bool Exists(string name) { lock (_lock) return _byName.ContainsKey(name); }
+
+    /// <summary>The mechanics a player allows, as they last set them in any city here, or null if they never have.</summary>
+    public List<string>? ConsentOf(string name) { lock (_lock) return _byName.TryGetValue(name, out var a) ? a.Consent?.ToList() : null; }
+
+    public void SetConsent(string name, IEnumerable<string> allowed)
+    {
+        lock (_lock)
+        {
+            if (!_byName.TryGetValue(name, out var a)) return;
+            var list = allowed.OrderBy(x => x, StringComparer.Ordinal).ToList();
+            if (a.Consent != null && a.Consent.SequenceEqual(list)) return;
+            a.Consent = list;
+            Save();
+        }
+    }
 
     /// <summary>The account's name as first spelled, for a name in any case.</summary>
     public string? Canonical(string name) { lock (_lock) return _byName.TryGetValue(name, out var a) ? a.Name : null; }

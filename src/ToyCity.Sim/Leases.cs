@@ -151,7 +151,7 @@ public sealed partial class World
     {
         var lease = LeaseById(a.LeaseId);
         if (lease == null) { Reject("That lease has already ended."); return; }
-        if (!a.ByOperator && !lease.Terminable && Allowed(Mechanic.HostileEvictions) && !lease.BadStanding)
+        if (!a.ByOperator && !lease.Terminable && AllowedBetween(Mechanic.HostileEvictions, MayorSeat.Owner, SeatOf(lease.GameId)?.Owner ?? "") && !lease.BadStanding)
         {
             if (MayorSeat.Level != OperatorLevel.Manual) { Reject("Take the city back before evicting anyone."); return; }
             if (lease.EvictMonths > 0) { Reject($"{GameName(lease.GameId)} is already leaving, in {lease.EvictMonths} month{(lease.EvictMonths == 1 ? "" : "s")}."); return; }
@@ -165,7 +165,7 @@ public sealed partial class World
         {
             Reject(lease.BadStanding
                 ? $"{GameName(lease.GameId)} has {lease.CureMonthsLeft} more month{(lease.CureMonthsLeft == 1 ? "" : "s")} to put things right before the lease can end."
-                : $"{GameName(lease.GameId)}'s lease is in good standing, so the city can't end it: hostile evictions are switched off ({string.Join(", ", Blockers(Mechanic.HostileEvictions))} won't allow them).");
+                : $"{GameName(lease.GameId)}'s lease is in good standing, so the city can't end it. {WhyOff(Mechanic.HostileEvictions, MayorSeat.Owner, SeatOf(lease.GameId)?.Owner ?? "")}");
             return;
         }
         EndLease(lease, a.ByOperator ? $"{GameName(lease.GameId)} gave up its lease on {{0}}." : $"The city ended {GameName(lease.GameId)}'s lease on {{0}}.");

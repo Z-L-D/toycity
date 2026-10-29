@@ -136,3 +136,61 @@ saves, format 4, don't load).
 `MultiplayerTests` (two players on a real dedicated server: the first account is mayor, a spectator's refusal reaches
 only them, claiming and giving up a seat, the seat going to the computer two seconds after its owner leaves and coming
 back when they sign in with their token).
+
+## Part 3: consent, the full version
+
+### Everyone, or the two involved
+
+Each mechanic now has a scope (`World.ScopeOf`):
+
+| Mechanic | Scope | Between |
+| --- | --- | --- |
+| Bribery | the two involved | the side game's operator and the mayor |
+| Exclusive rights | everyone | it shuts out every rival |
+| Sabotage of other players | the two involved | the saboteur and the target |
+| Hostile evictions | the two involved | the mayor and the lease's operator |
+| Absurd disasters | everyone | the Colossus walks over everyone's lots |
+| Crime aimed at players' lots | the two involved | the instigator and the target |
+
+A mechanic that reaches everyone is on only while every seat owner allows it, as before (`Allowed`). One between two
+players needs only those two (`AllowedBetween`): a third player saying no doesn't stop a bribe between an operator
+and the mayor. A computer-run seat with no owner never objects. `WhyOff` gives the reason in words wherever a
+mechanic is refused: the host, the city, or the players who won't allow it.
+
+### Pacts
+
+Two players can agree on a mechanic between just them, whatever either allows in general: one offers
+(`OfferPactAction`), the other accepts (`AcceptPactAction`), and either can end it or withdraw or turn down an offer
+(`EndPactAction`). Offering what the other side has already offered makes the pact at once. Pacts are only for
+mechanics between two; one that reaches everyone can't be agreed privately. Pacts and open offers are saved, and
+both clients list them under House rules with Accept, Turn down, Withdraw and End buttons, plus a way to offer one to
+any other seat owner.
+
+### Minimums
+
+- **The host:** `forbid` in host.json (mechanic names, such as `["Sabotage"]`) forbids them in every city on the
+  server. The server applies it with `SetHostRulesAction` whenever a city arrives (start, load, new city); only the
+  server can send it, and it is logged (`ActionRecord.host_rules`) so replays agree.
+- **The city's owner:** the mayor can forbid any mechanic in their city (`SetCityRuleAction`), shown as a "City
+  forbids" column in House rules that only the mayor sees.
+
+Either beats every player's setting and every pact.
+
+### Settings that follow the player
+
+On a dedicated server each account keeps the mechanics its player last allowed (`accounts.json`, `consent`). A player
+who hasn't set anything in a city brings those settings with them when they sign in, or when an admin loads or
+founds a city while they're online. Changing a setting in any city updates the account.
+
+### The settings table
+
+`ConsentRow` gains `pairwise`, `host_forbids` and `city_forbids`; `ConsentTable` lists `pacts` (with `offer` set for
+an offer not yet taken up). Each row's result reads On, Off (with who is blocking), Between two (with who won't),
+or Forbidden by the host or by the city.
+
+### Tests
+
+`ConsentTests` (a bribe needing only the operator and the mayor while a third player says no; a mechanic that
+reaches everyone needing everyone; a pact allowing an eviction and surviving a save; the host's and the city's rules
+beating everyone, a pact included) and `MultiplayerTests` (a forbidden mechanic on a real server, and a player's
+setting following them into a new city).
