@@ -50,7 +50,9 @@ public sealed partial class SimHost : IDisposable
         _accounts = accounts ?? (_host.Dedicated ? new AccountStore(Path.Combine(saveDir, "accounts.json")) : null);
         Directory.CreateDirectory(saveDir);
         _world = NewWorld("Toyville", 2026, 128, starter: true);
+        EnsureMayor();
         LoadAgentTiers();
+        StartAwayTimer();
         _thread = new Thread(Loop) { IsBackground = true, Name = "sim" };
         _thread.Start();
     }
@@ -113,7 +115,7 @@ public sealed partial class SimHost : IDisposable
         var notices = _world.Notices.ToList();
         _world.Notices.Clear();
         var list = new List<(Client, P.ServerMessage)>();
-        foreach (var c in _clients) list.Add((c, new P.ServerMessage { Delta = c.Tracker.Next(_world, _speed, notices) }));
+        foreach (var c in _clients) list.Add((c, new P.ServerMessage { Delta = c.Tracker.Next(_world, _speed, notices.Where(n => n.To.Length == 0 || n.To == c.Player)) }));
         if (forceAlerts || _clock.ElapsedMilliseconds - _alertsAt >= 500)
         {
             _alertsAt = _clock.ElapsedMilliseconds;
@@ -127,7 +129,7 @@ public sealed partial class SimHost : IDisposable
             }
         }
         // Petitions, deals, unlocks and headlines change at most monthly or on an action, so a cheap signature will do.
-        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}/{string.Join(",", _world.Seats.Select(s => $"{s.Owner}:{(int)s.Level}:{(int)s.Style}:{s.SpendCap}:{s.Report?.ToTick}"))}/{string.Join(",", _world.Leases.Select(l => $"{l.Id}:{l.Terms.GetHashCode()}:{l.PendingMonths}:{l.Arrears}:{l.BadStanding}:{l.CureMonthsLeft}:{l.Jobs}:{l.LastRevenue}:{l.EvictMonths}"))}/{_world.SideGames.Count}/{_world.ConsentSig()}/{string.Join(",", _world.Standings.Select(s => $"{s.Rating}:{s.Statue}:{s.ExclusiveUntil > _world.Tick}"))}";
+        string civicSig = $"{_world.HeadlineSeq}/{_world.Approval}/{_world.TypeUnlocked.Count(u => u)}/{string.Join(",", _world.Prompts.Select(p => p.Id * 8 + (int)p.Status))}/{_world.Tick / World.DaysPerMonth}/{string.Join(",", _world.Seats.Select(s => $"{s.Owner}:{(int)s.Level}:{(int)s.Style}:{s.SpendCap}:{s.Report?.ToTick}:{(int)s.AwayLevel}:{(int)s.AwayStyle}:{s.AutoAway}"))}/{string.Join(",", _world.Leases.Select(l => $"{l.Id}:{l.Terms.GetHashCode()}:{l.PendingMonths}:{l.Arrears}:{l.BadStanding}:{l.CureMonthsLeft}:{l.Jobs}:{l.LastRevenue}:{l.EvictMonths}"))}/{_world.SideGames.Count}/{_world.ConsentSig()}/{string.Join(",", _world.Standings.Select(s => $"{s.Rating}:{s.Statue}:{s.ExclusiveUntil > _world.Tick}"))}";
         if (forceAlerts || civicSig != _civicSig)
         {
             _civicSig = civicSig;
@@ -138,6 +140,7 @@ public sealed partial class SimHost : IDisposable
             foreach (var c in _clients) list.Add((c, new P.ServerMessage { Agents = roster }));
         foreach (var view in ChangedViews(all: false))
             foreach (var c in _clients) list.Add((c, view));
+        list.AddRange(PresenceIfChanged());
         return list;
     }
 
@@ -206,7 +209,14 @@ public sealed partial class SimHost : IDisposable
         catch (WebSocketException) { }
         finally
         {
-            lock (_gate) _clients.Remove(client);
+            List<(Client, P.ServerMessage)> outbox;
+            lock (_gate)
+            {
+                _clients.Remove(client);
+                Left(client);
+                outbox = PresenceIfChanged().ToList();
+            }
+            foreach (var (c, m) in outbox) _ = SendAsync(c, m);
         }
     }
 
@@ -214,12 +224,21 @@ public sealed partial class SimHost : IDisposable
     async Task JoinAsync(Client client)
     {
         P.ServerMessage full;
+        List<(Client, P.ServerMessage)> others;
         lock (_gate)
         {
+            if (_host.Dedicated) Returned(client.Player);
             _clients.Add(client);
             full = FullStateMessage(client);
+            // Everyone else hears of the newcomer (and of any seats they took back); the newcomer gets it all below.
+            _presenceSig = "";
+            others = BuildDeltas(forceAlerts: true).Where(x => x.Item1 != client).ToList();
         }
+        foreach (var (c, m) in others) _ = SendAsync(c, m);
         await SendAsync(client, full);
+        P.Presence presence;
+        lock (_gate) presence = Presence();
+        await SendAsync(client, new P.ServerMessage { Presence = presence });
         await SendAsync(client, new P.ServerMessage { Saves = ListSaves() });
         P.AlertList alerts;
         lock (_gate) alerts = Mapping.Alerts(_world, _world.Alerts());
@@ -246,7 +265,11 @@ public sealed partial class SimHost : IDisposable
         {
             string name = s.Name.Trim();
             r = _host.MayCreate(name, s.InviteCode) is { } no ? new SignInResult(null, null, no) : _accounts.Create(name, s.Password);
-            if (r.Ok) _host.PromoteFirst(r.Name!);
+            if (r.Ok)
+            {
+                _host.PromoteFirst(r.Name!);
+                lock (_gate) EnsureMayor();
+            }
         }
         else r = _accounts.SignIn(s.Name.Trim(), s.Password);
         if (!r.Ok)
@@ -280,7 +303,7 @@ public sealed partial class SimHost : IDisposable
                     {
                         // Applied now, not at the next tick: at a slow speed a day is many seconds. It is logged at the
                         // current tick, before that tick's step, which is where a replay applies it too.
-                        _world.Enqueue(a);
+                        _world.Enqueue(a with { By = c.Player });
                         _world.ApplyPending();
                         broadcast = BuildDeltas(forceAlerts: true);
                     }
@@ -320,6 +343,7 @@ public sealed partial class SimHost : IDisposable
                         if (!ValidName(msg.Load.Name)) throw new InvalidDataException("bad save name");
                         _world = Mapping.Load(_content, File.ReadAllBytes(SavePath(msg.Load.Name)));
                         AttachSideGames(_world);
+                        EnsureMayor(c.Player);
                         broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).Concat(BuildDeltas(forceAlerts: true)).ToList();
                     }
                     catch (Exception e) when (e is IOException or InvalidDataException or InvalidProtocolBufferException)
@@ -333,6 +357,7 @@ public sealed partial class SimHost : IDisposable
                     int size = n.Benchmark ? BenchmarkCity.Size : n.Size is 64 or 128 or 256 ? n.Size : 128;
                     ulong seed = n.Seed != 0 ? n.Seed : (ulong)Random.Shared.NextInt64(1, long.MaxValue);
                     _world = NewWorld(string.IsNullOrWhiteSpace(n.Name) ? "New City" : n.Name.Trim(), seed, size, n.StarterTown, n.Benchmark);
+                    EnsureMayor(c.Player);
                     broadcast = _clients.Select(cl => (cl, FullStateMessage(cl))).Concat(BuildDeltas(forceAlerts: true)).ToList();
                     break;
                 }
@@ -399,6 +424,7 @@ public sealed partial class SimHost : IDisposable
     public void Dispose()
     {
         _running = false;
+        _awayTimer?.Dispose();
         _thread.Join(2000);
     }
 }

@@ -38,6 +38,8 @@ public sealed partial class World
             case AttachSideGameAction a: ApplyAttach(a); break;
             case SideGameAction a: ApplySideGameAction(a); break;
             case SetSeatAction a: ApplySetSeat(a); break;
+            case SetAwayLevelAction a: ApplySetAwayLevel(a); break;
+            case SeatAwayAction a: ApplySeatAway(a); break;
             case LeaseLotAction a: ApplyLeaseLot(a); break;
             case SetLeaseTermsAction a: ApplySetLeaseTerms(a); break;
             case EndLeaseAction a: ApplyEndLease(a); break;
@@ -50,7 +52,7 @@ public sealed partial class World
         }
     }
 
-    void Reject(string text, int x = -1, int y = -1) => Notices.Add(new SimNotice(text, "warning", x, y));
+    void Reject(string text, int x = -1, int y = -1) => Notices.Add(new SimNotice(text, "warning", x, y, _actor));
 
     /// <summary>Cells of an L-shaped run from (x0,y0) to (x1,y1), horizontal leg first.</summary>
     public static List<(int X, int Y)> LCells(int x0, int y0, int x1, int y1)

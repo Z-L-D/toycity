@@ -22,6 +22,9 @@ public sealed class HostConfig
     /// <summary>Players who may save, load, start a new city and set the speed. When empty, the first account made becomes one.</summary>
     public List<string> Admins { get; set; } = new();
 
+    /// <summary>How long after a seat owner's last connection drops the computer takes their seats, at the level they chose. 0 never.</summary>
+    public int AwayAfterSeconds { get; set; } = 120;
+
     [JsonIgnore] public bool Dedicated { get; set; }
     [JsonIgnore] public string? Path { get; set; }
 

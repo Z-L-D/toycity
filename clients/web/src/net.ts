@@ -43,6 +43,8 @@ export class Connection {
   player = '';
   /** May save, load, found a city and change the speed. */
   admin = false;
+  /** A dedicated server: players sign in, and seats go to the computer while their owner is away. */
+  dedicated = false;
 
   constructor(private readonly events: ServerEvents) {
     this.open();
@@ -78,6 +80,7 @@ export class Connection {
       const body = obj[kind];
       if (kind === 'welcome') {
         this.welcome = body;
+        this.dedicated = body.signInRequired;
         this.player = body.player;
         this.admin = body.admin;
         if (body.signInRequired && !body.player) {

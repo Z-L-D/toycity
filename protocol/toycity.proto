@@ -77,7 +77,15 @@ message Action {
     EndLease end_lease = 20;
     SetConsent consent = 21;
     UpgradeBuilding upgrade = 22;
+    SetAwayLevel away_level = 23;
   }
+}
+
+// How the computer plays a seat while its owner is away from a dedicated server (not manual).
+message SetAwayLevel {
+  string seat = 1;
+  SeatLevel level = 2;
+  AutopilotStyle style = 3;
 }
 
 enum Mechanic {
@@ -430,7 +438,20 @@ message ServerMessage {
     AgentRoster agents = 18;  // the followed commuters; sent when they change and monthly
     SideGameView side_game = 19;  // sent when a side game's view changes
     SignedIn signed_in = 20;
+    Presence presence = 21;  // who is here; sent when someone joins or leaves
   }
+}
+
+// The players on this server: everyone online, and everyone who owns a seat here even while they're away.
+message Presence {
+  message Player {
+    string name = 1;
+    bool online = 2;
+    bool admin = 3;
+    repeated string seats = 4;  // seat ids they own
+    bool spectator = 5;         // online but owns no seat: watches only
+  }
+  repeated Player players = 1;
 }
 
 // The first message on every connection. A server that needs no sign-in (solo play) has already signed the
@@ -943,6 +964,9 @@ message SeatState {
   int64 spend_cap = 6;
   int64 away_since_tick = 7;  // -1 when the owner is playing it
   AwayReport report = 8;      // the last "while you were away" report, if any
+  SeatLevel away_level = 9;   // how the computer plays it while the owner is away from a dedicated server
+  AutopilotStyle away_style = 10;
+  bool auto_away = 11;        // the computer has it because the owner left; it goes back when they return
 }
 
 message AwayNote {
@@ -1001,4 +1025,11 @@ message SaveGame {
 message ActionRecord {
   int64 tick = 1;
   Action action = 2;
+  string by = 3;       // the player who sent it; empty for saves from before Beta 2
+  SeatAway away = 4;   // set instead of action: the server handed a seat to the computer, or back, as its owner left or returned
+}
+
+message SeatAway {
+  string seat = 1;
+  bool away = 2;
 }

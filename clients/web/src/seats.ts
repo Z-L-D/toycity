@@ -47,6 +47,16 @@ export class Seats {
   private leaseView: { b: Msg; slot: HTMLElement } | null = null;
   private shownReport = -1;
 
+  /** Who this browser plays as: "player" in solo play, the account name on a dedicated server. */
+  get me(): string {
+    return this.host.conn.player || 'player';
+  }
+
+  /** A seat's display name: the side game's name, or the city for the mayor's seat. */
+  seatName(id: string): string {
+    return this.seats.find((s) => s.id === id)?.name ?? id;
+  }
+
   constructor(private readonly host: SeatsHost) {
     try { this.shownReport = Number(localStorage.getItem(SEEN_KEY) ?? -1); } catch { /* no storage */ }
     $('#btn-seat').addEventListener('click', () => this.openHandOff());
@@ -86,7 +96,7 @@ export class Seats {
 
   private takeBack() {
     const m = this.mayor;
-    this.host.conn.action({ seat: { seat: 'mayor', owner: m?.owner || 'player', level: 0, style: m?.style ?? 0, spendCap: m?.spendCap ?? 25000 } });
+    this.host.conn.action({ seat: { seat: 'mayor', owner: m?.owner || this.me, level: 0, style: m?.style ?? 0, spendCap: m?.spendCap ?? 25000 } });
   }
 
   openHandOff() {
@@ -112,9 +122,13 @@ export class Seats {
         <label>Most the computer may spend in a month</label>
         <input type="number" name="cap" min="0" step="1000" value="${m.spendCap}">
       </div>
+      ${this.host.conn.dedicated && m.owner === this.me ? `
+        <label>While you're away from this server</label>
+        <select name="away">${LEVELS.map((l, i) => (i === 0 ? '' : `<option value="${i}" ${m.awayLevel === i ? 'selected' : ''}>${l}</option>`)).join('')}</select>
+        <div class="muted small">When your last window closes, the computer plays the city this way after a short wait, and hands it back when you return.</div>` : ''}
       ${others.length ? `<h4>Side games</h4>${others.map((s) => `
         <div class="seat-row"><b>${esc(s.name)}</b> <span class="muted small">${s.owner ? `run by ${esc(s.owner)}` : 'nobody runs it'} · ${LEVELS[s.level].toLowerCase()}</span>
-          ${s.owner === 'player' && s.level === 0
+          ${s.owner === this.me && s.level === 0
             ? `<button value="leave:${esc(s.id)}">Hand to the computer</button>`
             : `<button value="claim:${esc(s.id)}">Run it yourself</button>`}</div>`).join('')}` : ''}
       <div class="actions"><button value="consent" style="margin-right:auto">House rules…</button><button value="cancel">Cancel</button><button value="ok" class="active">Apply</button></div>`;
@@ -131,12 +145,14 @@ export class Seats {
       if (v === 'consent') { this.openConsent(); return; }
       if (v.startsWith('claim:') || v.startsWith('leave:')) {
         const claim = v.startsWith('claim:');
-        this.host.conn.action({ seat: { seat: v.slice(6), owner: claim ? 'player' : '', level: claim ? 0 : 2, style: 0, spendCap: 25000 } });
+        this.host.conn.action({ seat: { seat: v.slice(6), owner: claim ? this.me : '', level: claim ? 0 : 2, style: 0, spendCap: 25000 } });
         return;
       }
       if (v !== 'ok') return;
       const fd = new FormData(form);
-      this.host.conn.action({ seat: { seat: 'mayor', owner: m.owner || 'player', level: Number(fd.get('level')), style: Number(fd.get('style')), spendCap: Number(fd.get('cap') || 0) } });
+      if (fd.get('away') && Number(fd.get('away')) !== m.awayLevel)
+        this.host.conn.action({ awayLevel: { seat: 'mayor', level: Number(fd.get('away')), style: Number(fd.get('style')) } });
+      this.host.conn.action({ seat: { seat: 'mayor', owner: m.owner || this.me, level: Number(fd.get('level')), style: Number(fd.get('style')), spendCap: Number(fd.get('cap') || 0) } });
     };
     dlg.showModal();
   }
@@ -151,7 +167,7 @@ export class Seats {
     const dlg = $<HTMLDialogElement>('#dlg');
     const form = $<HTMLFormElement>('#dlg-form');
     const owners = this.consent.owners as string[];
-    const me = 'player';
+    const me = this.me;
     const cols = owners.includes(me) ? owners : [...owners, me];
     form.innerHTML = `
       <h3>House rules</h3>

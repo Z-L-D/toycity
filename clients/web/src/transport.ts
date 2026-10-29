@@ -29,8 +29,11 @@ const money = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLo
 const fare = (c: number) => (c === 0 ? 'free' : `$${(c / 100).toFixed(2)}`);
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-// This client plays as "player": name it as "you" in the city's reasons.
-const yours = (s: string) => s.replace(/\bplayer won't allow it/g, "you haven't allowed it").replace(/\bplayer\b/g, 'you');
+// Name this client's player as "you" in the city's reasons.
+const yours = (s: string, me: string) => {
+  const name = me.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replace(new RegExp(`\\b${name} won't allow it`, 'g'), "you haven't allowed it").replace(new RegExp(`\\b${name}\\b`, 'g'), 'you');
+};
 
 export class Transport {
   view: Msg | null = null;
@@ -234,7 +237,7 @@ export class Transport {
     seat.innerHTML = this.mine
       ? `<span class="note">You run it</span><button class="mini" id="co-handoff">Hand to the computer</button>`
       : `<span class="note">The computer runs it (${esc(v.operator)})</span><button class="mini active" id="co-claim">Run it yourself</button>`;
-    seat.querySelector('#co-claim')?.addEventListener('click', () => this.host.conn.action({ seat: { seat: GAME, owner: 'player', level: 0, style: 0, spendCap: 25000 } }));
+    seat.querySelector('#co-claim')?.addEventListener('click', () => this.host.conn.action({ seat: { seat: GAME, owner: this.host.conn.player || 'player', level: 0, style: 0, spendCap: 25000 } }));
     seat.querySelector('#co-handoff')?.addEventListener('click', () => this.host.conn.action({ seat: { seat: GAME, owner: '', level: 3, style: 0, spendCap: 25000 } }));
   }
 
@@ -369,10 +372,10 @@ export class Transport {
           <span class="small">${dd.statue ? '🗿 statue · ' : ''}${dd.exclusiveDays ? `exclusive rights, ${Math.ceil(dd.exclusiveDays / 30)} months left · ` : ''}rating <b class="${dd.rating < 0 ? 'neg' : 'pos'}">${dd.rating}</b></span></div>
         <div class="rating-bar"><span style="left:50%;width:${Math.abs(dd.rating) / 20}%;${dd.rating < 0 ? 'transform:translateX(-100%);background:var(--bad)' : ''}"></span></div>
         ${this.mine ? `<div class="row-flex" style="flex-wrap:wrap;margin-top:4px">${offers.map((o) => `<button class="mini" data-buy="${esc(o.kind)}" data-district="${dd.id}"
-          ${o.allowed ? `title="${money(o.cost)}"` : `disabled title="${esc(yours(o.whyNot))}"`}>${esc(o.name)} · ${money(o.cost)}</button>`).join('')}</div>` : ''}
+          ${o.allowed ? `title="${money(o.cost)}"` : `disabled title="${esc(yours(o.whyNot, this.host.conn.player || 'player'))}"`}>${esc(o.name)} · ${money(o.cost)}</button>`).join('')}</div>` : ''}
       </div>`).join('');
     return `${standing || '<p class="muted small">No lots yet, so no standing anywhere.</p>'}
-      <p class="muted small">Good service, riders and jobs raise a rating; bad standing and breakdowns lower it. Below -400 the district turns down requests for more lots.${offers.some((o) => !o.allowed) ? ` ${esc(offers.filter((o) => !o.allowed).map((o) => yours(o.whyNot)).join(' '))} Players set these in the city view under Mayor → House rules.` : ''}</p>`;
+      <p class="muted small">Good service, riders and jobs raise a rating; bad standing and breakdowns lower it. Below -400 the district turns down requests for more lots.${offers.some((o) => !o.allowed) ? ` ${esc(offers.filter((o) => !o.allowed).map((o) => yours(o.whyNot, this.host.conn.player || 'player')).join(' '))} Players set these in the city view under Mayor → House rules.` : ''}</p>`;
   }
 
   private logHtml(v: Msg) {

@@ -13,8 +13,14 @@ public enum TerraformMode : byte { Raise = 0, Lower = 1, Level = 2 }
 
 public enum UtilityKind : byte { PowerLine = 0, WaterPipe = 1 }
 
-/// <summary>Everything a player can do to the city. Actions are queued and applied at the start of the next tick.</summary>
-public abstract record SimAction;
+/// <summary>
+/// Everything a player can do to the city. Actions are queued and applied at the start of the next tick. By is the
+/// player who sent it, set by the server from the connection (never from the message), and logged with it.
+/// </summary>
+public abstract record SimAction
+{
+    public string By { get; init; } = "";
+}
 
 /// <summary>
 /// A straight or L-shaped run, horizontal first; or, when <c>Curved</c>, an arc from (X0,Y0) to (X1,Y1) bent toward
@@ -48,5 +54,5 @@ public sealed record PlaceUtilityAction(int X0, int Y0, int X1, int Y1, UtilityK
 
 public readonly record struct LoggedAction(long Tick, SimAction Action);
 
-/// <summary>A message for the player, optionally pinned to a cell.</summary>
-public readonly record struct SimNotice(string Text, string Severity, int X = -1, int Y = -1);
+/// <summary>A message for the players, optionally pinned to a cell; To names the one player it's for, or is empty for all.</summary>
+public readonly record struct SimNotice(string Text, string Severity, int X = -1, int Y = -1, string To = "");

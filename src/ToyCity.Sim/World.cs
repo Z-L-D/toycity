@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 4;
+    public const int FormatVersion = 5;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -219,7 +219,10 @@ public sealed partial class World
         foreach (var a in _pending)
         {
             Log.Add(new LoggedAction(Tick, a));
-            Apply(a);
+            _actor = a.By;
+            if (Forbidden(a) is { } why) Reject(why);
+            else Apply(a);
+            _actor = "";
             if (a is PlacePathAction or BulldozeAction) _edgeDirty = true;
         }
         _pending.Clear();

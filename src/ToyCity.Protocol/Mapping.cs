@@ -37,6 +37,7 @@ public static class Mapping
         P.Action.KindOneofCase.EndLease => new EndLeaseAction(a.EndLease.LeaseId, a.EndLease.ByOperator),
         P.Action.KindOneofCase.Consent => new SetConsentAction(a.Consent.Owner, (Mechanic)(int)a.Consent.Mechanic, a.Consent.Allowed),
         P.Action.KindOneofCase.Seat => new SetSeatAction(a.Seat.Seat, a.Seat.Owner, (ToyCity.Contract.OperatorLevel)(int)a.Seat.Level, (AutopilotStyle)(int)a.Seat.Style, a.Seat.SpendCap),
+        P.Action.KindOneofCase.AwayLevel => new SetAwayLevelAction(a.AwayLevel.Seat, (ToyCity.Contract.OperatorLevel)(int)a.AwayLevel.Level, (AutopilotStyle)(int)a.AwayLevel.Style),
         _ => null,
     };
 
@@ -64,6 +65,7 @@ public static class Mapping
         EndLeaseAction x => new P.Action { EndLease = new P.EndLease { LeaseId = x.LeaseId, ByOperator = x.ByOperator } },
         SetConsentAction x => new P.Action { Consent = new P.SetConsent { Owner = x.Owner, Mechanic = (P.Mechanic)(int)x.Mechanic, Allowed = x.Allowed } },
         SetSeatAction x => new P.Action { Seat = new P.SetSeat { Seat = x.SeatId, Owner = x.Owner, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style, SpendCap = x.SpendCap } },
+        SetAwayLevelAction x => new P.Action { AwayLevel = new P.SetAwayLevel { Seat = x.SeatId, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
     };
 
@@ -299,6 +301,7 @@ public static class Mapping
                 Id = s.Id, Name = s.Id == Seat.Mayor ? "City" : w.SideGame(s.Id)?.Game.Manifest.Name ?? s.Id, Owner = s.Owner,
                 Level = (P.SeatLevel)(int)s.Level, Style = (P.AutopilotStyle)(int)s.Style, SpendCap = s.SpendCap,
                 AwaySinceTick = s.Away?.Tick ?? -1,
+                AwayLevel = (P.SeatLevel)(int)s.AwayLevel, AwayStyle = (P.AutopilotStyle)(int)s.AwayStyle, AutoAway = s.AutoAway,
             };
             if (s.Report is { } rep)
             {
@@ -393,7 +396,10 @@ public static class Mapping
             FormatVersion = World.FormatVersion, CityName = w.Name, Seed = w.Seed, Width = w.Width, Height = w.HeightCells,
             Tick = w.Tick, World = ByteString.CopyFrom(w.Snapshot()),
         };
-        foreach (var l in w.Log) s.Log.Add(new P.ActionRecord { Tick = l.Tick, Action = ToProto(l.Action) });
+        foreach (var l in w.Log)
+            s.Log.Add(l.Action is SeatAwayAction sa
+                ? new P.ActionRecord { Tick = l.Tick, By = sa.By, Away = new P.SeatAway { Seat = sa.SeatId, Away = sa.Away } }
+                : new P.ActionRecord { Tick = l.Tick, By = l.Action.By, Action = ToProto(l.Action) });
         return s.ToByteArray();
     }
 
@@ -403,7 +409,10 @@ public static class Mapping
         if (s.FormatVersion != World.FormatVersion) throw new InvalidDataException($"save format {s.FormatVersion} is not supported");
         var w = World.FromSnapshot(content, s.World.ToByteArray());
         foreach (var r in s.Log)
-            if (ToSim(r.Action) is { } a) w.Log.Add(new LoggedAction(r.Tick, a));
+        {
+            SimAction? a = r.Away != null ? new SeatAwayAction(r.Away.Seat, r.Away.Away) : r.Action == null ? null : ToSim(r.Action);
+            if (a != null) w.Log.Add(new LoggedAction(r.Tick, a with { By = r.By }));
+        }
         return w;
     }
 }

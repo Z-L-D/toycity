@@ -23,11 +23,16 @@ public sealed partial class PanelModel
     readonly CityMirror _city;
     readonly Func<ClientMessage, uint> _send;
 
+    /// <summary>Who this client plays as: "player" in solo play, the account name on a dedicated server.</summary>
+    public Func<string> Me { get; set; } = () => "player";
+    /// <summary>True on a dedicated server, where seats go to the computer while their owner is away.</summary>
+    public Func<bool> OnServer { get; set; } = () => false;
+
     public PanelModel(CityMirror city, Func<ClientMessage, uint> send)
     {
         _city = city;
         _send = send;
-        Company = new CompanyModel(city, send, Changed);
+        Company = new CompanyModel(city, send, Changed) { Me = () => Me() };
         Company.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Company.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
     }
@@ -329,7 +334,7 @@ public sealed partial class PanelModel
     public void TakeBack()
     {
         var m = Mayor;
-        Send(new PAction { Seat = new SetSeat { Seat = "mayor", Owner = string.IsNullOrEmpty(m?.Owner) ? "player" : m.Owner, Level = SeatLevel.SeatManual, Style = m?.Style ?? 0, SpendCap = m?.SpendCap ?? 25000 } });
+        Send(new PAction { Seat = new SetSeat { Seat = "mayor", Owner = string.IsNullOrEmpty(m?.Owner) ? Me() : m.Owner, Level = SeatLevel.SeatManual, Style = m?.Style ?? 0, SpendCap = m?.SpendCap ?? 25000 } });
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -434,22 +439,23 @@ public sealed partial class PanelModel
             case "level": _seatDraft.Level = (SeatLevel)I(1); Changed(); return;
             case "style": _seatDraft.Style = (AutopilotStyle)I(1); Changed(); return;
             case "cap": _seatDraft.Cap = Math.Max(0, _seatDraft.Cap + L(1)); Changed(); return;
+            case "away": Send(new PAction { AwayLevel = new SetAwayLevel { Seat = "mayor", Level = (SeatLevel)I(1), Style = _seatDraft.Style } }); return;
             case "seat-apply":
             {
                 var m = Mayor;
-                Send(new PAction { Seat = new SetSeat { Seat = "mayor", Owner = string.IsNullOrEmpty(m?.Owner) ? "player" : m.Owner, Level = _seatDraft.Level, Style = _seatDraft.Style, SpendCap = _seatDraft.Cap } });
+                Send(new PAction { Seat = new SetSeat { Seat = "mayor", Owner = string.IsNullOrEmpty(m?.Owner) ? Me() : m.Owner, Level = _seatDraft.Level, Style = _seatDraft.Style, SpendCap = _seatDraft.Cap } });
                 CloseDialog();
                 return;
             }
             case "claim" or "leave":
             {
                 bool claim = a[0] == "claim";
-                Send(new PAction { Seat = new SetSeat { Seat = a[1], Owner = claim ? "player" : "", Level = claim ? SeatLevel.SeatManual : SeatLevel.SeatCaretaker, SpendCap = 25000 } });
+                Send(new PAction { Seat = new SetSeat { Seat = a[1], Owner = claim ? Me() : "", Level = claim ? SeatLevel.SeatManual : SeatLevel.SeatCaretaker, SpendCap = 25000 } });
                 CloseDialog();
                 return;
             }
             case "consent":
-                Send(new PAction { Consent = new SetConsent { Owner = "player", Mechanic = (Mechanic)I(1), Allowed = I(2) == 1 } });
+                Send(new PAction { Consent = new SetConsent { Owner = Me(), Mechanic = (Mechanic)I(1), Allowed = I(2) == 1 } });
                 return;
 
             // Leases

@@ -107,7 +107,9 @@ public partial class Main : Node
         // Below the toolbar, which runs across the top.
         _status = new Label { Text = $"Connecting to {server}…", Position = new Vector2(12, 84) };
         _hover = new Label { Position = new Vector2(12, 108) };
-        foreach (var l in new[] { _status, _hover })
+        var players = new Label { Position = new Vector2(12, 132), Modulate = new Color(1, 1, 1, 0.85f) };
+        _client.Message += m => { if (m.BodyCase == Protocol.V0.ServerMessage.BodyOneofCase.Presence) players.Text = PresenceText(m.Presence); };
+        foreach (var l in new[] { _status, _hover, players })
         {
             l.AddThemeColorOverride("font_outline_color", Colors.Black);
             l.AddThemeConstantOverride("outline_size", 4);
@@ -133,6 +135,8 @@ public partial class Main : Node
         _panels = new PanelView(_client) { Tools = _tools, Camera = _camera, City = _view, Map = _map };
         AddChild(_panels);
         var pm = _panels.Model;
+        pm.Me = () => _client.Connection.Player is { Length: > 0 } me ? me : "player";
+        pm.OnServer = () => _client.Connection.Welcome?.SignInRequired == true;
         if (global::Godot.FileAccess.FileExists(ReportFile) && long.TryParse(global::Godot.FileAccess.GetFileAsString(ReportFile).Trim(), out var seen)) pm.ShownReport = _savedReport = seen;
         _client.Message += pm.Handle;
         pm.JumpTo += (x, y) => _camera.CentreOn(x + 0.5f, y + 0.5f);
@@ -172,6 +176,16 @@ public partial class Main : Node
     }
 
     void SetStatus(string text) { if (_status != null) _status.Text = text; }
+
+    /// <summary>Who's here, under the status line: shown once there's anyone but this player.</summary>
+    string PresenceText(Protocol.V0.Presence p)
+    {
+        if (p.Players.Count < 2) return "";
+        var civic = _panels?.Model.Civic;
+        string Seat(string id) => id == "mayor" ? "mayor" : civic?.Seats.FirstOrDefault(s => s.Id == id)?.Name ?? id;
+        return "Here: " + string.Join("   ", p.Players.Select(pl =>
+            $"{pl.Name}{(pl.Name == _client!.Connection.Player ? " (you)" : "")} · {(pl.Spectator ? "watching" : string.Join(", ", pl.Seats.Select(Seat)))}{(pl.Online ? "" : " · away")}"));
+    }
 
     public override void _Process(double delta)
     {

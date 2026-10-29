@@ -605,13 +605,20 @@ public sealed partial class PanelModel
         }
         if (_seatDraft.Level is SeatLevel.SeatCaretaker or SeatLevel.SeatAutopilot)
             sb.Append(H4("Most the computer may spend in a month")).Append($"{Link("cap:-5000", "−5,000")} {Link("cap:-1000", "−1,000")}  [b]{Money(_seatDraft.Cap)}[/b]  {Link("cap:1000", "+1,000")} {Link("cap:5000", "+5,000")}\n");
+        if (OnServer() && Mayor is { } mayor && mayor.Owner == Me())
+        {
+            sb.Append(H4("While you're away from this server"));
+            for (int i = 1; i < Levels.Length; i++)
+                sb.Append((int)mayor.AwayLevel == i ? $"[b]{Col(Gold, Levels[i])}[/b]" : Link($"away:{i}", Levels[i])).Append("  ");
+            sb.Append('\n').Append(Small(Dim("When your last window closes, the computer plays the city this way after a short wait, and hands it back when you return."))).Append('\n');
+        }
         var others = Civic?.Seats.Where(s => s.Id != "mayor").ToList() ?? new();
         if (others.Count > 0)
         {
             sb.Append(H4("Side games"));
             foreach (var s in others)
                 sb.Append($"[b]{Esc(s.Name)}[/b] {Small(Dim($"{(string.IsNullOrEmpty(s.Owner) ? "nobody runs it" : $"run by {Esc(s.Owner)}")} · {Levels[(int)s.Level].ToLowerInvariant()}"))}  "
-                    + (s.Owner == "player" && s.Level == SeatLevel.SeatManual ? Link($"leave:{s.Id}", "Hand to the computer") : Link($"claim:{s.Id}", "Run it yourself")) + "\n");
+                    + (s.Owner == Me() && s.Level == SeatLevel.SeatManual ? Link($"leave:{s.Id}", "Hand to the computer") : Link($"claim:{s.Id}", "Run it yourself")) + "\n");
         }
         return sb.Append(Footer(Link("dialog:consent", "House rules…"), Link("close", "Cancel"), $"[b]{Link("seat-apply", "Apply")}[/b]")).ToString();
     }
@@ -626,7 +633,7 @@ public sealed partial class PanelModel
         sb.Append(Small(Dim("Each player switches these on or off for themselves. One is on in this city only while every player who owns a seat allows it."))).Append('\n');
         var consent = Civic?.Consent;
         if (consent == null) return sb.Append(Footer($"[b]{Link("close", "Done")}[/b]")).ToString();
-        const string me = "player";
+        string me = Me();
         var owners = consent.Owners.ToList();
         var cols = owners.Contains(me) ? owners : owners.Append(me).ToList();
         var cells = new StringBuilder("[cell] [/cell]");

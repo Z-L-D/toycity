@@ -26,6 +26,9 @@ public sealed class CompanyModel
 
     public CompanyModel(CityMirror city, Func<ClientMessage, uint> send, System.Action changed) => (_city, _send, _changed) = (city, send, changed);
 
+    /// <summary>Who this client plays as, named "you" in the city's reasons.</summary>
+    public Func<string> Me { get; set; } = () => "player";
+
     public View? View { get; private set; }
     /// <summary>True while the company's view is up instead of the city's.</summary>
     public bool Active { get; private set; }
@@ -189,7 +192,7 @@ public sealed class CompanyModel
             case "co-tab": Tab = a[1]; _changed(); return;
             case "co-tool": SetTool(Enum.Parse<CompanyTool>(a[1])); return;
             case "co-catch": ShowCatchment = !ShowCatchment; MapVersion++; _changed(); return;
-            case "co-claim": Act(new PAction { Seat = new SetSeat { Seat = Game, Owner = "player", Level = SeatLevel.SeatManual, SpendCap = 25000 } }); return;
+            case "co-claim": Act(new PAction { Seat = new SetSeat { Seat = Game, Owner = Me(), Level = SeatLevel.SeatManual, SpendCap = 25000 } }); return;
             case "co-handoff": Act(new PAction { Seat = new SetSeat { Seat = Game, Owner = "", Level = SeatLevel.SeatAutopilot, SpendCap = 25000 } }); return;
             case "co-new": SetTool(CompanyTool.Line); return;
             case "co-edit":
@@ -234,8 +237,12 @@ public sealed class CompanyModel
 
     static string Fare(int c) => c == 0 ? "free" : $"${c / 100.0:0.00}";
     static string Many(int n, string one, string? many = null) => $"{Num(n)} {(n == 1 ? one : many ?? one + "s")}";
-    // This client plays as "player": name it as "you" in the city's reasons.
-    static string Yours(string s) => System.Text.RegularExpressions.Regex.Replace(s.Replace("player won't allow it", "you haven't allowed it"), @"\bplayer\b", "you");
+    // Name this client's player as "you" in the city's reasons.
+    string Yours(string s)
+    {
+        string me = System.Text.RegularExpressions.Regex.Escape(Me());
+        return System.Text.RegularExpressions.Regex.Replace(System.Text.RegularExpressions.Regex.Replace(s, $@"\b{me} won't allow it", "you haven't allowed it"), $@"\b{me}\b", "you");
+    }
 
     /// <summary>The city's Buses tab: a summary and the way into the company's view.</summary>
     public string RenderCityTab()

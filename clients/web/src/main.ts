@@ -108,6 +108,9 @@ const conn = new Connection({
       case 'welcome':
         updateAdmin();
         break;
+      case 'presence':
+        renderPresence(body);
+        break;
       case 'full': {
         const first = !city.loaded || city.width !== body.width;
         city.applyFull(body);
@@ -1023,6 +1026,19 @@ function showSignIn(welcome: Msg, error: string) {
     conn.signIn(String(f.get('name') ?? '').trim(), String(f.get('password') ?? ''), v === 'create', String(f.get('invite') ?? '').trim());
   };
   dlg.showModal();
+}
+
+/** Who's here, in the top bar: each player online (dimmed while away), what they run, and who only watches. */
+function renderPresence(p: Msg) {
+  const players = p.players as Msg[];
+  const el = $('#players');
+  el.classList.toggle('hidden', players.length < 2 && !conn.player.length);
+  const seatName = (id: string) => (id === 'mayor' ? 'mayor' : seats?.seatName(id) ?? id);
+  el.innerHTML = players.map((pl) => {
+    const role = pl.spectator ? 'watching' : (pl.seats as string[]).map(seatName).join(', ');
+    const me = pl.name === conn.player ? ' (you)' : '';
+    return `<span class="player${pl.online ? '' : ' away'}" title="${pl.online ? 'Online' : 'Away: the computer has their seats'}${pl.admin ? ' · admin' : ''}">${esc(pl.name)}${me}<small>${esc(role)}</small></span>`;
+  }).join('');
 }
 
 /** Only admins save, load, found cities and set the speed; everyone else doesn't see the buttons. */
