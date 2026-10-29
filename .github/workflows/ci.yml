@@ -63,6 +63,14 @@ jobs:
           "$GODOT_BIN" --headless --path clients/godot --import
           timeout 90 "$GODOT_BIN" --headless --path clients/godot -- --smoke | tee smoke.log
           grep -q "SMOKE OK" smoke.log
+      - name: Smoke test against a dedicated server, signing in
+        run: |
+          mkdir -p ded && echo '{ "name": "CI server", "join": "open" }' > ded/host.json
+          ToyCity__SaveDir="$PWD/ded" dotnet run --project src/ToyCity.Server -c Release --no-build -- --dedicated --urls http://localhost:5181 > ded-server.log 2>&1 &
+          for i in $(seq 60); do curl -sf localhost:5181/health && break; sleep 1; done
+          timeout 90 "$GODOT_BIN" --headless --path clients/godot -- --smoke --server ws://localhost:5181/ws --user ci-player --password secret1 --new-account | tee ded-smoke.log
+          grep -q "SMOKE OK" ded-smoke.log
+          grep -q "ci-player signed in" ded-server.log
       - name: Screenshots of each view (software OpenGL)
         run: |
           sudo apt-get install -y -qq xvfb libgl1-mesa-dri > /dev/null

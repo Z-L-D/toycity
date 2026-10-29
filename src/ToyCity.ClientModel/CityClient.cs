@@ -13,9 +13,9 @@ public sealed class CityClient : IDisposable
     /// <summary>Every message, after the mirror has applied it.</summary>
     public event Action<ServerMessage>? Message;
 
-    public CityClient(Uri server, string name = "toycity-godot")
+    public CityClient(Uri server, string name = "toycity-godot", SignIn? credentials = null)
     {
-        Connection = new Connection(server, name);
+        Connection = new Connection(server, name, credentials);
     }
 
     /// <summary>Applies whatever has arrived. Call once a frame.</summary>

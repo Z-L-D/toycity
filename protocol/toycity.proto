@@ -27,12 +27,23 @@ message ClientMessage {
     EncyclopediaRequest encyclopedia = 13;
     OrdinancesRequest ordinances = 14;
     AdvisorsRequest advisors = 15;
+    SignIn sign_in = 16;
   }
 }
 
 message Hello {
   string client_name = 1;
   uint32 protocol_version = 2;
+}
+
+// Signs in to a server that asks for it (Welcome.sign_in_required): with a name and password, creating the account
+// if create is set, or with a token from an earlier SignedIn. The server answers SignedIn or an Error.
+message SignIn {
+  string name = 1;
+  string password = 2;
+  bool create = 3;
+  string invite_code = 4;  // for a server that joins by invite
+  string token = 5;
 }
 
 message Rect {
@@ -418,12 +429,26 @@ message ServerMessage {
     AdvisorList advisors = 17;
     AgentRoster agents = 18;  // the followed commuters; sent when they change and monthly
     SideGameView side_game = 19;  // sent when a side game's view changes
+    SignedIn signed_in = 20;
   }
 }
 
+// The first message on every connection. A server that needs no sign-in (solo play) has already signed the
+// connection in as player and sends the city straight after; one that does sends nothing more until SignIn.
 message Welcome {
   uint32 protocol_version = 1;
   string server_name = 2;
+  bool sign_in_required = 3;
+  bool invite_required = 4;  // new accounts need the host's invite code
+  string player = 5;         // who this connection plays as, when signed in already
+  bool admin = 6;            // may save, load, start a new city and set the speed
+}
+
+// Signed in: the city follows. Keep the token to sign in again without the password.
+message SignedIn {
+  string name = 1;
+  string token = 2;
+  bool admin = 3;
 }
 
 message PathProfileInfo {

@@ -18,6 +18,8 @@ public sealed partial class SimHost : IDisposable
     readonly ContentDb _content;
     readonly string _saveDir;
     readonly ILogger<SimHost> _log;
+    readonly HostConfig _host;
+    readonly AccountStore? _accounts;
     readonly List<Client> _clients = new();
     readonly Thread _thread;
     volatile bool _running = true;
@@ -33,11 +35,19 @@ public sealed partial class SimHost : IDisposable
     /// <summary>Milliseconds per tick (one day) at speeds 1, 2 and 3: a game year takes an hour, twenty minutes or five.</summary>
     static readonly int[] TickMs = { 0, 10_000, 3_333, 833 };
 
-    public SimHost(ContentDb content, string saveDir, ILogger<SimHost> log)
+    /// <summary>Who a solo player is: the name every city before Beta 2 gave its mayor.</summary>
+    public const string LocalPlayer = "player";
+
+    /// <summary>Sign-in attempts a connection gets before the server hangs up.</summary>
+    const int MaxSignInFailures = 5;
+
+    public SimHost(ContentDb content, string saveDir, ILogger<SimHost> log, HostConfig? host = null, AccountStore? accounts = null)
     {
         _content = content;
         _saveDir = saveDir;
         _log = log;
+        _host = host ?? HostConfig.Solo();
+        _accounts = accounts ?? (_host.Dedicated ? new AccountStore(Path.Combine(saveDir, "accounts.json")) : null);
         Directory.CreateDirectory(saveDir);
         _world = NewWorld("Toyville", 2026, 128, starter: true);
         LoadAgentTiers();
@@ -60,6 +70,11 @@ public sealed partial class SimHost : IDisposable
         public required WebSocket Socket;
         public readonly DeltaTracker Tracker = new();
         public readonly SemaphoreSlim SendLock = new(1, 1);
+        /// <summary>Who this connection plays as; empty until signed in.</summary>
+        public string Player = "";
+        public bool Admin;
+        public int SignInFailures;
+        public bool SignedIn => Player.Length > 0;
     }
 
     void Loop()
@@ -149,26 +164,17 @@ public sealed partial class SimHost : IDisposable
     public async Task RunClientAsync(WebSocket socket, CancellationToken ct)
     {
         var client = new Client { Socket = socket };
-        P.ServerMessage full;
-        lock (_gate)
+        bool solo = !_host.Dedicated;
+        if (solo) { client.Player = LocalPlayer; client.Admin = true; }
+        await SendAsync(client, new P.ServerMessage
         {
-            _clients.Add(client);
-            full = FullStateMessage(client);
-        }
-        await SendAsync(client, new P.ServerMessage { Welcome = new P.Welcome { ProtocolVersion = Mapping.ProtocolVersion, ServerName = "ToyCity" } });
-        await SendAsync(client, full);
-        await SendAsync(client, new P.ServerMessage { Saves = ListSaves() });
-        P.AlertList alerts;
-        lock (_gate) alerts = Mapping.Alerts(_world, _world.Alerts());
-        await SendAsync(client, new P.ServerMessage { Alerts = alerts });
-        P.CivicState civicNow;
-        lock (_gate) civicNow = Mapping.Civic(_world);
-        await SendAsync(client, new P.ServerMessage { Civic = civicNow });
-        P.AgentRoster rosterNow;
-        List<P.ServerMessage> viewsNow;
-        lock (_gate) { rosterNow = Roster(Agents()); viewsNow = ChangedViews(all: true); }
-        await SendAsync(client, new P.ServerMessage { Agents = rosterNow });
-        foreach (var v in viewsNow) await SendAsync(client, v);
+            Welcome = new P.Welcome
+            {
+                ProtocolVersion = Mapping.ProtocolVersion, ServerName = _host.Name, SignInRequired = !solo,
+                InviteRequired = _host.Join == JoinPolicy.Invite, Player = client.Player, Admin = client.Admin,
+            },
+        });
+        if (solo) await JoinAsync(client);
 
         var buffer = new byte[64 * 1024];
         using var ms = new MemoryStream();
@@ -185,7 +191,15 @@ public sealed partial class SimHost : IDisposable
                 P.ClientMessage msg;
                 try { msg = P.ClientMessage.Parser.ParseFrom(data); }
                 catch (InvalidProtocolBufferException) { await SendAsync(client, Error(0, "Could not read that message.")); continue; }
-                await HandleAsync(client, msg);
+                if (msg.BodyCase == P.ClientMessage.BodyOneofCase.SignIn)
+                {
+                    if (!await SignInAsync(client, msg)) break;
+                }
+                else if (!client.SignedIn)
+                {
+                    if (msg.BodyCase != P.ClientMessage.BodyOneofCase.Hello) await SendAsync(client, Error(msg.Seq, "Sign in first."));
+                }
+                else await HandleAsync(client, msg);
             }
         }
         catch (OperationCanceledException) { }
@@ -194,6 +208,61 @@ public sealed partial class SimHost : IDisposable
         {
             lock (_gate) _clients.Remove(client);
         }
+    }
+
+    /// <summary>Joins a signed-in connection to the city: it gets the whole state now and every delta from here on.</summary>
+    async Task JoinAsync(Client client)
+    {
+        P.ServerMessage full;
+        lock (_gate)
+        {
+            _clients.Add(client);
+            full = FullStateMessage(client);
+        }
+        await SendAsync(client, full);
+        await SendAsync(client, new P.ServerMessage { Saves = ListSaves() });
+        P.AlertList alerts;
+        lock (_gate) alerts = Mapping.Alerts(_world, _world.Alerts());
+        await SendAsync(client, new P.ServerMessage { Alerts = alerts });
+        P.CivicState civicNow;
+        lock (_gate) civicNow = Mapping.Civic(_world);
+        await SendAsync(client, new P.ServerMessage { Civic = civicNow });
+        P.AgentRoster rosterNow;
+        List<P.ServerMessage> viewsNow;
+        lock (_gate) { rosterNow = Roster(Agents()); viewsNow = ChangedViews(all: true); }
+        await SendAsync(client, new P.ServerMessage { Agents = rosterNow });
+        foreach (var v in viewsNow) await SendAsync(client, v);
+    }
+
+    /// <summary>Answers a SignIn. False when the connection has failed too often and should be closed.</summary>
+    async Task<bool> SignInAsync(Client client, P.ClientMessage msg)
+    {
+        var s = msg.SignIn;
+        if (client.SignedIn) { await SendAsync(client, Error(msg.Seq, $"Already signed in as {client.Player}.")); return true; }
+        if (_accounts == null) { await SendAsync(client, Error(msg.Seq, "This server has no accounts.")); return true; }
+        SignInResult r;
+        if (s.Token.Length > 0) r = _accounts.SignInWithToken(s.Token);
+        else if (s.Create)
+        {
+            string name = s.Name.Trim();
+            r = _host.MayCreate(name, s.InviteCode) is { } no ? new SignInResult(null, null, no) : _accounts.Create(name, s.Password);
+            if (r.Ok) _host.PromoteFirst(r.Name!);
+        }
+        else r = _accounts.SignIn(s.Name.Trim(), s.Password);
+        if (!r.Ok)
+        {
+            client.SignInFailures++;
+            await SendAsync(client, Error(msg.Seq, r.Error!));
+            if (client.SignInFailures < MaxSignInFailures) return true;
+            _log.LogInformation("closing a connection after {N} failed sign-ins", client.SignInFailures);
+            return false;
+        }
+        client.Player = r.Name!;
+        client.Admin = _host.IsAdmin(r.Name!);
+        _log.LogInformation("{Player} signed in", client.Player);
+        await SendAsync(client, new P.ServerMessage { ReplyTo = msg.Seq, SignedIn = new P.SignedIn { Name = client.Player, Token = r.Token!, Admin = client.Admin } });
+        await JoinAsync(client);
+        return true;
     }
 
     static P.ServerMessage Error(uint seq, string text) => new() { ReplyTo = seq, Error = new P.Error { Message = text } };
@@ -225,6 +294,11 @@ public sealed partial class SimHost : IDisposable
                     break;
                 case P.ClientMessage.BodyOneofCase.Overlay:
                     reply = new P.ServerMessage { Overlay = Mapping.Overlay(_world.Overlay((OverlayKind)(int)msg.Overlay.Kind)) };
+                    break;
+                case P.ClientMessage.BodyOneofCase.Speed or P.ClientMessage.BodyOneofCase.Load or P.ClientMessage.BodyOneofCase.NewCity
+                    when !c.Admin:
+                case P.ClientMessage.BodyOneofCase.Save when !c.Admin && msg.Save.Name.Length > 0:
+                    reply = Error(msg.Seq, "Only this server's admins can save, load, start a new city or change the speed.");
                     break;
                 case P.ClientMessage.BodyOneofCase.Speed:
                     _speed = Math.Clamp(msg.Speed.Speed, 0, 3);

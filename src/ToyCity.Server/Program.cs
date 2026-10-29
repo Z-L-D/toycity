@@ -4,17 +4,23 @@ using ToyCity.Sim;
 
 // ToyCity server: runs one city and serves the web client.
 //   dotnet run --project src/ToyCity.Server [-- --urls http://0.0.0.0:5180]
-// Settings (appsettings or environment): ToyCity:ContentDir, ToyCity:SaveDir, ToyCity:WebDir.
-var builder = WebApplication.CreateBuilder(args);
+//   dotnet run --project src/ToyCity.Server -- --dedicated    players sign in; host.json beside the saves sets who may join
+// Settings (appsettings or environment): ToyCity:ContentDir, ToyCity:SaveDir, ToyCity:WebDir, ToyCity:Dedicated,
+// ToyCity:HostConfig (default: host.json in the save folder).
+bool dedicated = args.Contains("--dedicated");
+var builder = WebApplication.CreateBuilder(args.Where(a => a != "--dedicated").ToArray());
+dedicated |= builder.Configuration.GetValue<bool>("ToyCity:Dedicated");
+// Solo play listens only on this machine; a dedicated server listens on every network it's on.
 if (builder.Configuration["urls"] == null && Environment.GetEnvironmentVariable("ASPNETCORE_URLS") == null)
-    builder.WebHost.UseUrls("http://localhost:5180");
+    builder.WebHost.UseUrls(dedicated ? "http://0.0.0.0:5180" : "http://localhost:5180");
 
 string contentDir = builder.Configuration["ToyCity:ContentDir"] ?? ContentDb.FindContentDir(Directory.GetCurrentDirectory());
 string repoRoot = Path.GetDirectoryName(contentDir)!;
 string saveDir = builder.Configuration["ToyCity:SaveDir"] ?? Path.Combine(repoRoot, "saves");
 string webDir = builder.Configuration["ToyCity:WebDir"] ?? Path.Combine(repoRoot, "clients", "web", "dist");
 
-builder.Services.AddSingleton(sp => new SimHost(ContentDb.Load(contentDir), saveDir, sp.GetRequiredService<ILogger<SimHost>>()));
+var host = dedicated ? HostConfig.LoadOrCreate(builder.Configuration["ToyCity:HostConfig"] ?? Path.Combine(saveDir, "host.json")) : HostConfig.Solo();
+builder.Services.AddSingleton(sp => new SimHost(ContentDb.Load(contentDir), saveDir, sp.GetRequiredService<ILogger<SimHost>>(), host));
 
 var app = builder.Build();
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
@@ -42,4 +48,5 @@ else
 // Start the sim as soon as the server is up, not on the first connection.
 app.Services.GetRequiredService<SimHost>();
 app.Logger.LogInformation("ToyCity content: {Content}, saves: {Saves}", contentDir, saveDir);
+if (dedicated) app.Logger.LogInformation("Dedicated server \"{Name}\": joining is {Join}; settings in {Path}", host.Name, host.Join, host.Path);
 app.Run();

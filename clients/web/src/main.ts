@@ -93,10 +93,21 @@ const conn = new Connection({
     transport?.onCityTick();
     if (!ok) toast('Lost connection to the server. Reconnecting…', 'error');
   },
+  onSignIn(welcome, error) {
+    showSignIn(welcome, error);
+  },
   onMessage(kind, body, replyTo) {
     if (kind === 'civic') seats?.onCivic(body);
     if (talk?.onMessage(kind, body, replyTo)) return;
     switch (kind) {
+      case 'signedIn':
+        if (dlg.open && signInOpen) dlg.close('signed-in');
+        toast(`Signed in as ${body.name}.`, 'good');
+        updateAdmin();
+        break;
+      case 'welcome':
+        updateAdmin();
+        break;
       case 'full': {
         const first = !city.loaded || city.width !== body.width;
         city.applyFull(body);
@@ -986,6 +997,38 @@ function pickBuilding(typeId: string, x: number, y: number) {
 
 const dlg = $<HTMLDialogElement>('#dlg');
 const form = $<HTMLFormElement>('#dlg-form');
+
+let signInOpen = false;
+
+/** Asks for a name and password on a server that wants them. It stays up until the server signs this player in. */
+function showSignIn(welcome: Msg, error: string) {
+  if (dlg.open) dlg.close('replaced');
+  signInOpen = true;
+  form.innerHTML = `
+    <h3>Sign in to ${esc(welcome.serverName || 'this server')}</h3>
+    ${error ? `<p class="error">${esc(error)}</p>` : ''}
+    <label>Name</label><input type="text" name="name" maxlength="24" autocomplete="username" required>
+    <label>Password</label><input type="password" name="password" autocomplete="current-password" required>
+    ${welcome.inviteRequired ? '<label>Invite code (only for a new account)</label><input type="text" name="invite">' : ''}
+    <div class="actions"><button value="create">Make an account</button><button value="ok" class="active">Sign in</button></div>`;
+  dlg.onclose = () => {
+    signInOpen = false;
+    const v = dlg.returnValue;
+    if (v !== 'ok' && v !== 'create') {
+      // Escape or a click elsewhere doesn't get past the sign-in.
+      if (v !== 'signed-in' && v !== 'replaced' && !conn.player) setTimeout(() => showSignIn(welcome, ''), 0);
+      return;
+    }
+    const f = new FormData(form);
+    conn.signIn(String(f.get('name') ?? '').trim(), String(f.get('password') ?? ''), v === 'create', String(f.get('invite') ?? '').trim());
+  };
+  dlg.showModal();
+}
+
+/** Only admins save, load, found cities and set the speed; everyone else doesn't see the buttons. */
+function updateAdmin() {
+  for (const id of ['#btn-new', '#btn-save', '#btn-load', '#speed']) $(id).classList.toggle('hidden', !conn.admin);
+}
 
 $('#btn-new').addEventListener('click', () => {
   form.innerHTML = `

@@ -11,7 +11,9 @@ namespace ToyCity.Godot;
 /// city loads and picking works at every rotation, and quit; --shots DIR to also save a screenshot of each view;
 /// --bench FILE to swap in the dense benchmark city and write frame times and memory per zoom level to FILE;
 /// --gate FILE to found the server's benchmark city and play the Alpha 3 loop on it, measuring as it goes;
-/// --graphics PRESET (Low, Medium, High, Ultra) to use a preset for this run instead of the saved options.
+/// --graphics PRESET (Low, Medium, High, Ultra) to use a preset for this run instead of the saved options;
+/// --user NAME --password PASSWORD to sign in to a dedicated server without the sign-in panel (with --new-account,
+/// making the account first).
 /// </summary>
 public partial class Main : Node
 {
@@ -43,7 +45,10 @@ public partial class Main : Node
     public override void _Ready()
     {
         var args = OS.GetCmdlineUserArgs();
-        string server = "ws://localhost:5180/ws";
+        string server = global::Godot.FileAccess.FileExists(SignInPanel.ServerFile) && global::Godot.FileAccess.GetFileAsString(SignInPanel.ServerFile).Trim() is { Length: > 0 } last
+            ? last : "ws://localhost:5180/ws";
+        string? user = null, password = null;
+        bool newAccount = false;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--server" && i + 1 < args.Length) server = args[++i];
@@ -53,8 +58,13 @@ public partial class Main : Node
             if (args[i] == "--company") _company = true;
             if (args[i] == "--gate" && i + 1 < args.Length) _gateFile = args[++i];
             if (args[i] == "--graphics" && i + 1 < args.Length) _graphicsPreset = args[++i];
+            if (args[i] == "--user" && i + 1 < args.Length) user = args[++i];
+            if (args[i] == "--password" && i + 1 < args.Length) password = args[++i];
+            if (args[i] == "--new-account") newAccount = true;
         }
-        _client = new CityClient(new Uri(server));
+        if (!Uri.TryCreate(server, UriKind.Absolute, out var uri)) uri = new Uri(server = "ws://localhost:5180/ws");
+        var credentials = user != null && password != null ? new Protocol.V0.SignIn { Name = user, Password = password, Create = newAccount } : SignInPanel.StoredCredentials(server);
+        _client = new CityClient(uri, credentials: credentials);
         if (_bench != null || _gateFile != null)
         {
             System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
@@ -109,6 +119,17 @@ public partial class Main : Node
         AddChild(_tools);
 
         // The panels, and what they ask of the map.
+        var signIn = new SignInPanel(_client, server);
+        signIn.Reconnect += address =>
+        {
+            // Start again pointed at the new server, as the company's own window is started.
+            if (!address.Contains("://")) address = $"ws://{address}{(address.Contains(':') ? "" : ":5180")}/ws";
+            using (var f = global::Godot.FileAccess.Open(SignInPanel.ServerFile, global::Godot.FileAccess.ModeFlags.Write)) f?.StoreString(address);
+            OS.CreateProcess(OS.GetExecutablePath(), OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", address }).ToArray());
+            GetTree().Quit();
+        };
+        if (!_smoke && _bench == null && _gateFile == null) AddChild(signIn);
+
         _panels = new PanelView(_client) { Tools = _tools, Camera = _camera, City = _view, Map = _map };
         AddChild(_panels);
         var pm = _panels.Model;

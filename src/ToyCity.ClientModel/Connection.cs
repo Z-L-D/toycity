@@ -8,6 +8,9 @@ namespace ToyCity.ClientModel;
 /// <summary>
 /// The WebSocket connection to a ToyCity server, reconnecting with back-off. Messages arrive on a background task
 /// and wait in a queue; the game loop drains them with <see cref="Poll"/> so all state changes happen on its thread.
+/// A server that wants players to sign in says so in its Welcome. The connection then signs in with
+/// <see cref="Credentials"/> if it has them, and after a sign-in keeps the token, so a reconnect signs in again
+/// by itself. Without credentials (or when they are refused) <see cref="SignInNeeded"/> is set for the UI to ask.
 /// </summary>
 public sealed class Connection : IDisposable
 {
@@ -19,14 +22,28 @@ public sealed class Connection : IDisposable
     uint _seq = 1;
 
     public bool Connected => _socket?.State == WebSocketState.Open;
+
+    /// <summary>What to sign in with when a server asks. After a sign-in it holds the token the server gave.</summary>
+    public SignIn? Credentials { get; set; }
+    /// <summary>Who this connection plays as, once the server has said (at once in solo play, after SignedIn otherwise).</summary>
+    public string Player { get; private set; } = "";
+    public bool Admin { get; private set; }
+    /// <summary>The server asked for a sign-in this connection can't make by itself.</summary>
+    public bool SignInNeeded { get; private set; }
+    /// <summary>The server's last Welcome.</summary>
+    public Welcome? Welcome { get; private set; }
+    /// <summary>Why the last sign-in failed, until the next one.</summary>
+    public string SignInError { get; private set; } = "";
+    uint _signInSeq;
     /// <summary>Raised on the polling thread when the connection opens or drops.</summary>
     public event Action<bool>? StatusChanged;
     bool _reportedOpen;
 
-    public Connection(Uri uri, string clientName = "toycity-godot")
+    public Connection(Uri uri, string clientName = "toycity-godot", SignIn? credentials = null)
     {
         _uri = uri;
         _clientName = clientName;
+        Credentials = credentials;
         _ = Task.Run(RunAsync);
     }
 
@@ -50,8 +67,10 @@ public sealed class Connection : IDisposable
                     if (r.MessageType == WebSocketMessageType.Close) break;
                     ms.Write(buffer, 0, r.Count);
                     if (!r.EndOfMessage) continue;
-                    _inbox.Enqueue(ServerMessage.Parser.ParseFrom(ms.GetBuffer(), 0, (int)ms.Length));
+                    var m = ServerMessage.Parser.ParseFrom(ms.GetBuffer(), 0, (int)ms.Length);
                     ms.SetLength(0);
+                    Track(m);
+                    _inbox.Enqueue(m);
                 }
             }
             catch (Exception) when (!_stop.IsCancellationRequested) { }
@@ -59,12 +78,53 @@ public sealed class Connection : IDisposable
             finally
             {
                 _socket = null;
+                Player = "";
                 ws.Dispose();
             }
             if (_stop.IsCancellationRequested) break;
             try { await Task.Delay(retry, _stop.Token); } catch (OperationCanceledException) { break; }
             retry = Math.Min(retry * 2, 8000);
         }
+    }
+
+    /// <summary>Follows the sign-in on the receiving task, so a reconnect signs in before the UI's next frame.</summary>
+    void Track(ServerMessage m)
+    {
+        switch (m.BodyCase)
+        {
+            case ServerMessage.BodyOneofCase.Welcome:
+                Welcome = m.Welcome;
+                Player = m.Welcome.Player;
+                Admin = m.Welcome.Admin;
+                SignInNeeded = false;
+                if (!m.Welcome.SignInRequired || Player.Length > 0) break;
+                if (Credentials != null) SendSignIn(Credentials);
+                else SignInNeeded = true;
+                break;
+            case ServerMessage.BodyOneofCase.SignedIn:
+                Player = m.SignedIn.Name;
+                Admin = m.SignedIn.Admin;
+                Credentials = new SignIn { Token = m.SignedIn.Token };
+                SignInNeeded = false;
+                SignInError = "";
+                break;
+            case ServerMessage.BodyOneofCase.Error when m.ReplyTo != 0 && m.ReplyTo == _signInSeq:
+                SignInError = m.Error.Message;
+                // Refused credentials are dropped, so a reconnect doesn't try them again.
+                Credentials = null;
+                SignInNeeded = true;
+                break;
+        }
+    }
+
+    /// <summary>Signs in with a name and password, or makes the account first when create is set.</summary>
+    public void SignIn(string name, string password, bool create = false, string inviteCode = "") =>
+        SendSignIn(new SignIn { Name = name, Password = password, Create = create, InviteCode = inviteCode });
+
+    void SendSignIn(SignIn s)
+    {
+        SignInNeeded = false;
+        _signInSeq = Send(new ClientMessage { SignIn = s.Clone() });
     }
 
     readonly SemaphoreSlim _sendLock = new(1, 1);

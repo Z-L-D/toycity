@@ -219,7 +219,8 @@ dialog {
 dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
 dialog h3 { margin-top: 0; }
 dialog label { display: block; margin: 8px 0 3px; color: var(--muted); }
-dialog input[type='text'], dialog input[type='number'], dialog select { width: 100%; }
+dialog input[type='text'], dialog input[type='number'], dialog input[type='password'], dialog select { width: 100%; }
+dialog p.error { color: var(--bad); margin: 4px 0; }
 dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 dialog .saves { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
 dialog .saves button { text-align: left; }
