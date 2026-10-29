@@ -15,6 +15,8 @@ namespace ToyCity.ClientModel;
 public sealed class Connection : IDisposable
 {
     readonly Uri _uri;
+    /// <summary>The server this connects to.</summary>
+    public Uri Uri => _uri;
     readonly string _clientName;
     readonly ConcurrentQueue<ServerMessage> _inbox = new();
     readonly CancellationTokenSource _stop = new();

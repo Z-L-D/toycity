@@ -92,6 +92,7 @@ the same rules to the same people. The sim checks it before applying anything (`
 | --- | --- |
 | Anything done to the city (paths, zones, buildings, taxes, budget, laws, petitions, disasters, leases) | the mayor seat's owner |
 | A side game's commands | that side game's seat owner |
+| Leasing a free lot to a side game on the city's standard terms | also that side game's seat owner (Part 13: the computer's own requests were already granted this way) |
 | Giving up a lease as its operator | the side game's seat owner |
 | Claiming a free seat | anyone, for themselves only |
 | Handing over, or changing how a seat is played | its owner (who can give it to another player) |
@@ -706,3 +707,21 @@ The CI screenshots' free-camera views always turn smooth shapes and smooth terra
   cube reads embedded, from a .bin beside it and as a .glb, with its transform and colour, and fits a lot; smooth
   terrain slopes open ground, keeps built cells flat and leaves no cracks; the shape options get finer from Low to
   Ultra.
+
+## Part 13: the gate run
+
+Four players on a dedicated server play a live session through the client model: Mayor May in the Godot window,
+Tess running the bus company, Dan running the emergency services and Sam watching, ending with Tess de-linking.
+The steps and results are in [GATE-BETA2.md](GATE-BETA2.md).
+
+- `ClientModel/Gate/TogetherRun`: the session as an iterator of waits, as the Beta 1 gate is. The mayor's tools and
+  panels come from the host; the other three are client models in the same process, driven through their own
+  panels (seat dialog, company view, dispatch board, lease offers).
+- Godot: `--together FILE` with `--user`, `--password` and `--new-account` for the mayor. CI runs it against its own
+  dedicated server and prints a contact sheet of the moments between `TOGETHER-SHEET-BEGIN` and `TOGETHER-SHEET-END`.
+- Fixed on the way: in a shared city the player running the bus company couldn't lease a free stop from the
+  company's view, because leasing was the mayor's alone; the computer playing the same company had its requests
+  granted. Now a side game's seat owner may lease a free lot for it on the city's standard terms. Setting other
+  terms is still the city's.
+- Tests: `TogetherRunTests` (the whole session against a real dedicated server, then loading Tess's copy) and
+  `RolesTests.WhoeverRunsACompanyLeasesFreeLotsForItOnTheStandardTermsOnly`.

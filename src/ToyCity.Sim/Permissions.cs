@@ -71,6 +71,8 @@ public sealed partial class World
                 string name = SideGame(g.GameId)?.Game.Manifest.Name ?? g.GameId;
                 return seat.Owner.Length == 0 ? $"Nobody runs {name}. Claim it to give it orders." : $"{seat.Owner} runs {name}, not you.";
             }
+            case LeaseLotAction { Terms: null } l when by.Length > 0 && SeatOf(l.GameId)?.Owner == by:
+                return null;  // whoever runs a side game leases free lots for it on the standard terms, as the computer would
             case EndLeaseAction { ByOperator: true } e:
             {
                 var lease = LeaseById(e.LeaseId);

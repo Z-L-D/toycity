@@ -50,7 +50,7 @@ public partial class Main
         RenderingServer.DirectionalShadowAtlasSetSize(g.Shadows == ShadowQuality.High ? 4096 : 2048, true);
         RenderingServer.DirectionalSoftShadowFilterSetQuality(g.Shadows == ShadowQuality.High ? RenderingServer.ShadowQuality.SoftLow : RenderingServer.ShadowQuality.Hard);
         // The measuring runs always draw as fast as they can.
-        bool measuring = _bench != null || _gateFile != null;
+        bool measuring = _bench != null || _gateFile != null || _togetherFile != null;
         DisplayServer.WindowSetVsyncMode(g.VSync && !measuring ? DisplayServer.VSyncMode.Enabled : DisplayServer.VSyncMode.Disabled);
         Engine.MaxFps = measuring ? 0 : g.MaxFps;
         foreach (Node3D life in new Node3D[] { _agents!, _buses! })

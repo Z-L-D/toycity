@@ -11,6 +11,8 @@ namespace ToyCity.Godot;
 /// city loads and picking works at every rotation, and quit; --shots DIR to also save a screenshot of each view;
 /// --bench FILE to swap in the dense benchmark city and write frame times and memory per zoom level to FILE;
 /// --gate FILE to found the server's benchmark city and play the Alpha 3 loop on it, measuring as it goes;
+/// --together FILE to play the Beta 2 gate's live session as the mayor of a dedicated server, with three scripted
+/// players beside it, and write its checks to FILE;
 /// --graphics PRESET (Low, Medium, High, Ultra) to use a preset for this run instead of the saved options;
 /// --user NAME --password PASSWORD to sign in to a dedicated server without the sign-in panel (with --new-account,
 /// making the account first).
@@ -57,6 +59,7 @@ public partial class Main : Node
             if (args[i] == "--bench" && i + 1 < args.Length) _bench = args[++i];
             if (args[i] == "--company") _company = true;
             if (args[i] == "--gate" && i + 1 < args.Length) _gateFile = args[++i];
+            if (args[i] == "--together" && i + 1 < args.Length) _togetherFile = args[++i];
             if (args[i] == "--graphics" && i + 1 < args.Length) _graphicsPreset = args[++i];
             if (args[i] == "--user" && i + 1 < args.Length) user = args[++i];
             if (args[i] == "--password" && i + 1 < args.Length) password = args[++i];
@@ -65,7 +68,7 @@ public partial class Main : Node
         if (!Uri.TryCreate(server, UriKind.Absolute, out var uri)) uri = new Uri(server = "ws://localhost:5180/ws");
         var credentials = user != null && password != null ? new Protocol.V0.SignIn { Name = user, Password = password, Create = newAccount } : SignInPanel.StoredCredentials(server);
         _client = new CityClient(uri, credentials: credentials);
-        if (_bench != null || _gateFile != null)
+        if (_bench != null || _gateFile != null || _togetherFile != null)
         {
             System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
         }
@@ -99,7 +102,7 @@ public partial class Main : Node
         AddChild(_view);
         _disasters = new DisasterView(_client.City);
         AddChild(_disasters);
-        _camera = new ClassicCamera { EdgePan = !_smoke && _bench == null && _gateFile == null };
+        _camera = new ClassicCamera { EdgePan = !_smoke && _bench == null && _gateFile == null && _togetherFile == null };
         AddChild(_camera);
 
         var hud = new CanvasLayer();
@@ -130,7 +133,7 @@ public partial class Main : Node
             OS.CreateProcess(OS.GetExecutablePath(), OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", address }).ToArray());
             GetTree().Quit();
         };
-        if (!_smoke && _bench == null && _gateFile == null) AddChild(signIn);
+        if (!_smoke && _bench == null && _gateFile == null && _togetherFile == null) AddChild(signIn);
 
         _panels = new PanelView(_client) { Tools = _tools, Camera = _camera, City = _view, Map = _map };
         AddChild(_panels);
@@ -232,6 +235,11 @@ public partial class Main : Node
         {
             if (_gate == null) GateStart();
             Gate(delta);
+        }
+        else if (_togetherFile != null)
+        {
+            if (_together == null) TogetherStart();
+            Together(delta);
         }
         else if (_bench != null) Bench(c, delta);
         else if (_smoke) Smoke(c, delta);

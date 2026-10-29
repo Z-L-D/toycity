@@ -1,3 +1,4 @@
+using ToyCity.Contract;
 using ToyCity.Protocol;
 
 namespace ToyCity.Sim.Tests;
@@ -171,5 +172,33 @@ public class RolesTests
         Assert.True(civic.CouncilOn);
         Assert.Contains(civic.Deputies, d => d.Player == "jo" && d.Portfolios == 9);
         Assert.Equal("passed", civic.Proposals.Single().Status);
+    }
+    [Fact]
+    public void WhoeverRunsACompanyLeasesFreeLotsForItOnTheStandardTermsOnly()
+    {
+        SideGameCatalog.Register(Transport.TransportGame.Id, () => new Transport.TransportGame());
+        var w = Town(205);
+        w.Run(60);
+        w.Enqueue(new AttachSideGameAction(Transport.TransportGame.Id) { By = "zac" });
+        w.Step();
+        var stops = TransportTests.PlaceAlongRoads(w, "bus-stop", 2, spacing: 6);
+        w.Enqueue(new SetSeatAction(Transport.TransportGame.Id, "mo", OperatorLevel.Manual) { By = "mo" });
+        w.ApplyPending();
+
+        // Mo may take a free stop for the company, but not name the terms, which are the city's to set.
+        w.Notices.Clear();
+        w.Enqueue(new LeaseLotAction(Transport.TransportGame.Id, stops[0], new LeaseTerms(LeaseMode.Business, 0, 0, 0, 0, 1)) { By = "mo" });
+        w.ApplyPending();
+        Assert.Empty(w.Leases);
+        Assert.Contains(w.Notices, n => n.To == "mo" && n.Text.Contains("deputy for transit"));
+        w.Enqueue(new LeaseLotAction(Transport.TransportGame.Id, stops[0]) { By = "mo" });
+        w.ApplyPending();
+        var lease = Assert.Single(w.Leases);
+        Assert.Equal(World.StandardTerms("bus-stop"), lease.Terms);
+
+        // Someone who doesn't run it can't lease for it.
+        w.Enqueue(new LeaseLotAction(Transport.TransportGame.Id, stops[1]) { By = "jo" });
+        w.ApplyPending();
+        Assert.Single(w.Leases);
     }
 }
