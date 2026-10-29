@@ -171,7 +171,8 @@ public sealed class GateRun
         Check("commuters ride the line", line.Riders > 0, $"{line.Riders:N0} riders yesterday, {line.LoadPercent}% of seats at the peak");
         Check("fares come in", Co.View.LastMonth.Fares > 0 || Co.View.ThisMonth.Fares > 0, $"${Co.View.LastMonth.Fares:N0} last month, ${Co.View.ThisMonth.Fares:N0} this month");
         var depotNow = c.Buildings.GetValueOrDefault(Co.View.Lots.First(l => l.Kind == "bus-depot").BuildingId);
-        Check("drivers work at the depot", _mostDrivers > 0, $"up to {_mostDrivers} drivers{(depotNow is { Powered: false } ? " (the depot has no power)" : "")}");
+        Check("drivers work at the depot", _mostDrivers > 0, $"up to {_mostDrivers} drivers{(depotNow is { Powered: false } ? " (the depot has no power)" : "")}"
+            + (_mostDrivers > 0 ? "" : $"; now {depotNow?.Workers ?? 0} of {depotNow?.Jobs ?? 0} jobs filled, {depotNow?.ConstructionDaysLeft ?? 0} building days left, {c.Stats.Tick - away} days since the line opened"));
         Check("riders through the city's stops", _mostStopRiders > 0, $"up to {_mostStopRiders:N0} a day at the three stops");
 
         // The city back in hand, and the report on the time away.
