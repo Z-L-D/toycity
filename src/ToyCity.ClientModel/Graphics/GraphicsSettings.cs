@@ -12,6 +12,12 @@ public enum ShadowQuality { Off, Low, High }
 /// <summary>Smoothed (rounded) buildings around where the free camera looks: none, the nearest blocks, or a wide ring.</summary>
 public enum Smoothing { Off, Near, Wide }
 
+/// <summary>
+/// How finely smoothed shapes are made: coarse voxels in few triangles, or the full voxels, curved, in many. Each
+/// model is cut to this many triangles at most.
+/// </summary>
+public enum ShapeDetail { Low, Medium, High }
+
 /// <summary>Edge smoothing for the 3D view: none, FXAA (cheap, a little soft), or 2× or 4× MSAA.</summary>
 public enum AntiAliasing { Off, Fxaa, Msaa2, Msaa4 }
 
@@ -27,6 +33,9 @@ public sealed record GraphicsSettings
     public ShadowQuality Shadows { get; init; } = ShadowQuality.High;
     public BuildingDetail Detail { get; init; } = BuildingDetail.High;
     public Smoothing Smoothing { get; init; } = Smoothing.Near;
+    public ShapeDetail ShapeDetail { get; init; } = ShapeDetail.Medium;
+    /// <summary>Open ground slopes between neighbouring levels instead of stepping.</summary>
+    public bool SmoothTerrain { get; init; } = true;
     public AntiAliasing AntiAliasing { get; init; } = AntiAliasing.Msaa2;
     /// <summary>How far, in cells, the free camera draws buildings in detail; beyond it they use their far models.</summary>
     public int DetailDistance { get; init; } = 120;
@@ -44,17 +53,17 @@ public sealed record GraphicsSettings
     public static readonly GraphicsSettings Low = new()
     {
         RenderScale = 75, Shadows = ShadowQuality.Off, Detail = BuildingDetail.Low, Smoothing = Smoothing.Off,
-        AntiAliasing = AntiAliasing.Off, DetailDistance = 40,
+        AntiAliasing = AntiAliasing.Off, DetailDistance = 40, ShapeDetail = ShapeDetail.Low, SmoothTerrain = false,
     };
     public static readonly GraphicsSettings Medium = new()
     {
         RenderScale = 100, Shadows = ShadowQuality.Low, Detail = BuildingDetail.Medium, Smoothing = Smoothing.Off,
-        AntiAliasing = AntiAliasing.Fxaa, DetailDistance = 80,
+        AntiAliasing = AntiAliasing.Fxaa, DetailDistance = 80, ShapeDetail = ShapeDetail.Low,
     };
     public static readonly GraphicsSettings High = new();
     public static readonly GraphicsSettings Ultra = new()
     {
-        Smoothing = Smoothing.Wide, AntiAliasing = AntiAliasing.Msaa4, DetailDistance = 200,
+        Smoothing = Smoothing.Wide, AntiAliasing = AntiAliasing.Msaa4, DetailDistance = 200, ShapeDetail = ShapeDetail.High,
     };
 
     public static readonly (string Name, GraphicsSettings Settings)[] Presets =
@@ -109,6 +118,14 @@ public sealed record GraphicsSettings
         return Detail switch { BuildingDetail.Low => ModelDetail.Far, BuildingDetail.Medium => ModelDetail.Mid, _ => ModelDetail.Near };
     }
 
+    /// <summary>The voxel size smooth shapes start from (1 full, 2 half, 4 a quarter) and the most triangles a model may take.</summary>
+    public (int Start, int Budget) Shapes => ShapeDetail switch
+    {
+        ShapeDetail.Low => (4, 2_000),
+        ShapeDetail.Medium => (2, 6_000),
+        _ => (1, 20_000),
+    };
+
     /// <summary>How many map regions out from the focus get smoothed models: 0 just the focus's, 1 the ring around it.</summary>
     public int SmoothRadius => Smoothing == Smoothing.Wide ? 1 : 0;
 
@@ -123,8 +140,12 @@ public sealed record GraphicsSettings
             new[] { "Off", "Low", "High" }, s => (int)s.Shadows, (s, i) => s with { Shadows = (ShadowQuality)i }),
         new("Building detail", "How much of each building's voxel detail shows when you're close: a quarter, half or all of it.",
             new[] { "Low", "Medium", "High" }, s => (int)s.Detail, (s, i) => s with { Detail = (BuildingDetail)i }),
-        new("Smoothed buildings", "Rounds off the buildings around what the free camera looks at, up close.",
+        new("Smoothed buildings", "Smooth shapes for the buildings around what the free camera looks at, up close: domes, leaves and roofs curve, walls keep their edges.",
             new[] { "Off", "Nearest blocks", "Wide" }, s => (int)s.Smoothing, (s, i) => s with { Smoothing = (Smoothing)i }),
+        new("Smooth shape detail", "How finely smooth shapes are made. Higher is rounder and takes more triangles; each shape is made once and kept on disk.",
+            new[] { "Low", "Medium", "High" }, s => (int)s.ShapeDetail, (s, i) => s with { ShapeDetail = (ShapeDetail)i }),
+        new("Smooth terrain", "Open ground slopes between levels instead of stepping. Built and paved cells stay flat.",
+            new[] { "Off", "On" }, s => s.SmoothTerrain ? 1 : 0, (s, i) => s with { SmoothTerrain = i == 1 }),
         new("Anti-aliasing", "Smooths jagged edges. FXAA is cheap and a little soft; MSAA is sharper and costs more.",
             new[] { "Off", "FXAA", "MSAA 2×", "MSAA 4×" }, s => (int)s.AntiAliasing, (s, i) => s with { AntiAliasing = (AntiAliasing)i }),
         new("Detail distance", "How far the free camera draws buildings in detail before switching to their far models.",
@@ -153,6 +174,8 @@ public sealed record GraphicsSettings
         Line("shadows", Shadows);
         Line("detail", Detail);
         Line("smoothing", Smoothing);
+        Line("shape_detail", ShapeDetail);
+        Line("smooth_terrain", SmoothTerrain);
         Line("anti_aliasing", AntiAliasing);
         Line("detail_distance", DetailDistance);
         Line("vsync", VSync);
@@ -180,6 +203,8 @@ public sealed record GraphicsSettings
                 "shadows" => s with { Shadows = E(s.Shadows) },
                 "detail" => s with { Detail = E(s.Detail) },
                 "smoothing" => s with { Smoothing = E(s.Smoothing) },
+                "shape_detail" => s with { ShapeDetail = E(s.ShapeDetail) },
+                "smooth_terrain" => s with { SmoothTerrain = B(s.SmoothTerrain) },
                 "anti_aliasing" => s with { AntiAliasing = E(s.AntiAliasing) },
                 "detail_distance" => s with { DetailDistance = Math.Clamp(I(s.DetailDistance), 20, 400) },
                 "vsync" => s with { VSync = B(s.VSync) },

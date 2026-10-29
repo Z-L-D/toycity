@@ -638,3 +638,71 @@ this: trains run at grade.
   invited.
 - `FranchiseClientTests` (client, dedicated server): the mayor invites the rival, two players take the two companies,
   the mayor tenders a district, both bid from the Standing tab and the higher wins.
+
+## Part 12: smooth shapes
+
+Voxels stay the model format; smooth shapes are how they are drawn up close. Each palette entry of a model is smooth
+or sharp, so a dome, a tree's leaves or a pitched roof can curve while the walls under them keep their edges.
+
+### Smooth and sharp materials
+
+- `VoxModel.Smooth[i]` marks palette entry `i` smooth. In a .vox file it is a MATL chunk for that entry with the key
+  `_smooth` set to `1`; `VoxFile.Write` writes them, and a file without them reads as all sharp.
+- MagicaVoxel can't set that key, so a text file beside the model can: `{name}.shape` next to `{name}.vox`, with
+  lines such as `smooth = 6 7 40-52` and `sharp = 3`. Problems are reported as warnings, line by line, and the lines
+  that were understood still apply.
+- The placeholders mark their leaves and roofs smooth. `tools/ToyCity.VoxGen vox-placeholders` writes those flags
+  into the .vox files it makes, so an artist starting from a placeholder keeps them.
+
+### Making the shapes (`ShapeMesher`)
+
+1. Dual contouring: one corner per cell of the dual grid. Where every voxel around it is sharp, the corner goes
+   where the faces around it meet, so a box stays exactly a box. Where any is smooth, it goes to the average of the
+   surface crossings, as surface nets do.
+2. The smooth corners are relaxed twice toward their neighbours, taking out the voxel steps.
+3. One Catmull-Clark subdivision of every quad with a smooth corner. Sharp corners stay put, and an edge between two
+   sharp corners is a crease that stays straight, so smooth parts meet sharp ones without a crack.
+4. Sharp faces are flat-shaded in their voxel's colour; smooth faces take the surface's normals, so they shade as one
+   curve.
+5. The triangle budget: the shape is made from coarser voxels (half, then a quarter), or without the subdivision,
+   until it fits; as a last resort vertices are clustered. A model with no smooth material is meshed by the greedy
+   mesher as before.
+- Shapes are made once and kept on disk under `user://cache/shapes/`, keyed by the voxels, the palette, the smooth
+  flags, the scale, the budget and the mesher's version. A file that won't read is made again.
+
+### glTF props
+
+- Beside the .vox files, `clients/godot/vox/` takes glTF 2.0 models: `{type}-{w}x{d}.glb` (or `.gltf`) and
+  `{type}.glb`, used when there is no .vox for the type. A .gltf's buffers can be embedded or in a file beside it.
+- Every triangle mesh in the default scene is read with its node transforms, vertex colours and each material's base
+  colour. Textures are not read.
+- The model is in metres with y up. One cell is 16 m. It stands on the ground at the lot's corner, and one too big
+  for the lot is shrunk to fit. Its detail levels are the same mesh cut to fewer triangles (800 far, 6,000 mid,
+  40,000 near).
+
+### Smooth terrain
+
+- With smooth terrain on, open ground slopes between neighbouring levels instead of stepping. A corner shared by
+  four cells at most one step apart, none of them built on, paved or under water, sits at their average height.
+- Built and paved cells stay flat, and the map's edge keeps its walls. It is only how the ground is drawn: the sim's
+  heights, building and picking are unchanged.
+
+### Graphics options
+
+| | Low | Medium | High | Ultra |
+| --- | --- | --- | --- | --- |
+| Smoothed buildings (where) | off | off | nearest blocks | wide |
+| Smooth shape detail | Low: quarter voxels, 2,000 triangles | Low | Medium: half voxels, 6,000 | High: full voxels, 20,000 |
+| Smooth terrain | off | on | on | on |
+
+The CI screenshots' free-camera views always turn smooth shapes and smooth terrain on, whatever the preset.
+
+### Tests
+
+- `ShapeTests` (client model): smooth materials round-trip in the file and a shape file can set them; sharp parts
+  keep their corners and flat walls while a smooth dome comes out round, faces out and keeps both colours; a shape
+  fits its triangle budget at 5,000, 1,000 and 200; every placeholder has a smooth shape within the High budget (63
+  models in about 2 seconds); shapes are made once and read back from disk, and a broken file is made again; a glTF
+  cube reads embedded, from a .bin beside it and as a .glb, with its transform and colour, and fits a lot; smooth
+  terrain slopes open ground, keeps built cells flat and leaves no cracks; the shape options get finer from Low to
+  Ultra.

@@ -59,6 +59,8 @@ public partial class Main
             if (!g.CityLife) life.Visible = false;
         }
         if (g.CityLife) _agents!.Visible = true;
+        var (start, budget) = g.Shapes;
+        _view!.SetShapes(g.SmoothTerrain, start, budget);
     }
 
     /// <summary>The buildings' models for the camera as it is now, from the settings.</summary>

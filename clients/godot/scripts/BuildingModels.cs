@@ -5,41 +5,131 @@ using ToyCity.Protocol.V0;
 namespace ToyCity.Godot;
 
 /// <summary>
-/// One voxel model per building type and lot size, meshed four ways: full detail for close zoom levels, a
-/// quarter of the resolution for far ones, half for close ones at lower detail settings, and smoothed (surface
-/// nets, at half the resolution) for the free camera up close; the last two made the first time they're needed. A file at res://vox/{type}-{w}x{d}.vox or res://vox/{type}.vox
-/// replaces the generated placeholder; artists drop files there and nothing else changes.
+/// One model per building type and lot size, meshed four ways: full detail for close zoom levels, a quarter of
+/// the resolution for far ones, half for close ones at lower detail settings, and smooth shapes for the free
+/// camera up close (<see cref="ShapeMesher"/>: smooth materials curve, sharp ones keep their edges, cut to the
+/// graphics options' triangle budget and kept on disk under user://cache/shapes); the last two made the first
+/// time they're needed.
+///
+/// Artists drop files in res://vox/ and nothing else changes. For a type, the first of these found is used:
+/// {type}-{w}x{d}.vox, {type}.vox, {type}-{w}x{d}.glb or .gltf, {type}.glb or .gltf; otherwise the generated
+/// placeholder. A .vox model's smooth materials come from the file, or from a {name}.shape file beside it
+/// (lines like "smooth = 6 7 40-52"). A glTF model is in metres, y up, set on the lot's corner and shrunk to fit.
 /// </summary>
 public sealed class BuildingModels
 {
-    public sealed record Model(ArrayMesh Near, ArrayMesh Far, Lazy<ArrayMesh> Mid, Lazy<ArrayMesh> Smooth, float Height, bool FromFile);
+    public sealed class Model
+    {
+        public required ArrayMesh Near, Far;
+        public required Lazy<ArrayMesh> Mid;
+        public required Lazy<ArrayMesh> Smooth;
+        public required float Height;
+        public required bool FromFile;
+        /// <summary>The voxels, for remaking the smooth shapes when the options change; null for a glTF model.</summary>
+        public VoxModel? Voxels;
+        public float Scale;
+    }
+
     readonly Dictionary<(string, int, int), Model> _cache = new();
+    readonly ShapeCache _shapes = new(ProjectSettings.GlobalizePath("user://cache/shapes"));
+    (int Start, int Budget) _shapeOptions = (2, 6_000);
 
     public int Count => _cache.Count;
+    public int ShapesMade => _shapes.Builds;
+    public int ShapesRead => _shapes.Hits;
+
+    /// <summary>The graphics options' smooth shape detail: returns true when it changed, and the smooth meshes are made again as needed.</summary>
+    public bool SetShapes(int start, int budget)
+    {
+        if (_shapeOptions == (start, budget)) return false;
+        _shapeOptions = (start, budget);
+        foreach (var m in _cache.Values)
+            if (m.Voxels is { } vox) m.Smooth = SmoothOf(vox, m.Scale);
+        return true;
+    }
+
+    Lazy<ArrayMesh> SmoothOf(VoxModel vox, float scale)
+    {
+        var (start, budget) = _shapeOptions;
+        return new Lazy<ArrayMesh>(() => ToMesh(_shapes.Get(vox, scale, budget, start)));
+    }
 
     public Model Get(BuildingTypeInfo t, int w, int d)
     {
         if (_cache.TryGetValue((t.Id, w, d), out var m)) return m;
-        var vox = Load($"res://vox/{t.Id}-{w}x{d}.vox") ?? Load($"res://vox/{t.Id}.vox");
-        bool fromFile = vox != null;
-        vox ??= Placeholder.Build(t, w, d);
-        // A file's model is scaled to fit the lot if it was made for another size.
-        float fit = Mathf.Min((float)w * VoxModel.PerCell / vox.SizeX, (float)d * VoxModel.PerCell / vox.SizeY);
-        float scale = Mathf.Min(1, fit) / VoxModel.PerCell;
-        var near = VoxMesher.Mesh(vox, scale);
-        var far = VoxMesher.Mesh(vox.Downsample(4), 4 * scale);
-        var model = vox;
-        m = new Model(ToMesh(near), ToMesh(far), new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model.Downsample(2), 2 * scale))), new Lazy<ArrayMesh>(() => ToMesh(SurfaceNets.Mesh(model.Downsample(2), 2 * scale))),
-            near.Positions.Count > 0 ? near.Positions.Max(p => p.Y) : 0, fromFile);
+        var vox = LoadVox($"{t.Id}-{w}x{d}") ?? LoadVox(t.Id);
+        if (vox == null && (LoadGltf($"{t.Id}-{w}x{d}") ?? LoadGltf(t.Id)) is { } gltf)
+            m = FromGltf(GltfFile.FitToLot(gltf, w, d));
+        else
+        {
+            bool fromFile = vox != null;
+            vox ??= Placeholder.Build(t, w, d);
+            // A file's model is scaled to fit the lot if it was made for another size.
+            float fit = Mathf.Min((float)w * VoxModel.PerCell / vox.SizeX, (float)d * VoxModel.PerCell / vox.SizeY);
+            float scale = Mathf.Min(1, fit) / VoxModel.PerCell;
+            var near = VoxMesher.Mesh(vox, scale);
+            var far = VoxMesher.Mesh(vox.Downsample(4), 4 * scale);
+            var model = vox;
+            m = new Model
+            {
+                Near = ToMesh(near), Far = ToMesh(far),
+                Mid = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model.Downsample(2), 2 * scale))),
+                Smooth = SmoothOf(vox, scale),
+                Height = near.Positions.Count > 0 ? near.Positions.Max(p => p.Y) : 0, FromFile = fromFile, Voxels = vox, Scale = scale,
+            };
+        }
         _cache[(t.Id, w, d)] = m;
         return m;
     }
 
-    static VoxModel? Load(string path)
+    /// <summary>A glTF model: already smooth, so its detail levels are the same mesh cut to fewer triangles.</summary>
+    static Model FromGltf(MeshData mesh)
     {
+        var near = Decimate.Cluster(mesh, 40_000);
+        var smooth = ToMesh(near);
+        return new Model
+        {
+            Near = smooth, Far = ToMesh(Decimate.Cluster(mesh, 800)),
+            Mid = new Lazy<ArrayMesh>(() => ToMesh(Decimate.Cluster(mesh, 6_000))), Smooth = new Lazy<ArrayMesh>(() => smooth),
+            Height = mesh.Positions.Count > 0 ? mesh.Positions.Max(p => p.Y) : 0, FromFile = true,
+        };
+    }
+
+    static VoxModel? LoadVox(string name)
+    {
+        string path = $"res://vox/{name}.vox";
         if (!global::Godot.FileAccess.FileExists(path)) return null;
-        try { return VoxFile.Read(new MemoryStream(global::Godot.FileAccess.GetFileAsBytes(path))); }
+        try
+        {
+            var m = VoxFile.Read(new MemoryStream(global::Godot.FileAccess.GetFileAsBytes(path)));
+            string shapes = $"res://vox/{name}.shape";
+            if (global::Godot.FileAccess.FileExists(shapes))
+                foreach (var problem in VoxFile.ApplyShapes(m, global::Godot.FileAccess.GetFileAsString(shapes))) GD.PushWarning($"{shapes}: {problem}");
+            return m;
+        }
         catch (Exception e) { GD.PushWarning($"{path}: {e.Message}"); return null; }
+    }
+
+    static MeshData? LoadGltf(string name)
+    {
+        foreach (string ext in new[] { "glb", "gltf" })
+        {
+            string path = $"res://vox/{name}.{ext}";
+            if (!global::Godot.FileAccess.FileExists(path)) continue;
+            try
+            {
+                return GltfFile.Read(global::Godot.FileAccess.GetFileAsBytes(path), uri =>
+                {
+                    string beside = $"res://vox/{uri}";
+                    return !uri.Contains("..") && global::Godot.FileAccess.FileExists(beside) ? global::Godot.FileAccess.GetFileAsBytes(beside) : null;
+                });
+            }
+            catch (Exception e) when (e is InvalidDataException or System.Text.Json.JsonException or FormatException or KeyNotFoundException or InvalidOperationException or IndexOutOfRangeException)
+            {
+                GD.PushWarning($"{path}: {e.Message}");
+            }
+        }
+        return null;
     }
 
     /// <summary>A mesher result as a Godot mesh. Godot's front faces wind clockwise, so each triangle is turned over.</summary>
