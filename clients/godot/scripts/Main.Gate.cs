@@ -189,7 +189,7 @@ public partial class Main
         var json = new StringBuilder();
         var table = new StringBuilder("| What was on screen | Frames | Avg ms | p95 ms | Worst ms | fps | Triangles | Draw calls | Process MB |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
         json.Append($"{{\"passed\":{(failure == null ? "true" : "false")},\"failure\":{Quote(failure?.Message ?? "")},\"city\":\"{c.Width}x{c.Height}\",\"buildings\":{c.Buildings.Count},");
-        json.Append($"\"renderer\":{Quote($"{RenderingServer.GetVideoAdapterName()} / {RenderingServer.GetCurrentRenderingDriverName()}")},\"seconds\":{_gateClock:F0},\"peakProcessMB\":{_gatePeakMB:F0},\"phases\":[");
+        json.Append($"\"renderer\":{Quote($"{RenderingServer.GetVideoAdapterName()} / {RenderingServer.GetCurrentRenderingDriverName()}")},\"graphics\":\"{_graphics.PresetName}\",\"seconds\":{_gateClock:F0},\"peakProcessMB\":{_gatePeakMB:F0},\"phases\":[");
         bool first = true;
         foreach (var name in _gateOrder)
         {

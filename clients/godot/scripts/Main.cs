@@ -10,7 +10,8 @@ namespace ToyCity.Godot;
 /// 3D view and the minimap. Command line (after "--"): --server ws://host:port/ws; --smoke to connect, check the
 /// city loads and picking works at every rotation, and quit; --shots DIR to also save a screenshot of each view;
 /// --bench FILE to swap in the dense benchmark city and write frame times and memory per zoom level to FILE;
-/// --gate FILE to found the server's benchmark city and play the Alpha 3 loop on it, measuring as it goes.
+/// --gate FILE to found the server's benchmark city and play the Alpha 3 loop on it, measuring as it goes;
+/// --graphics PRESET (Low, Medium, High, Ultra) to use a preset for this run instead of the saved options.
 /// </summary>
 public partial class Main : Node
 {
@@ -51,13 +52,12 @@ public partial class Main : Node
             if (args[i] == "--bench" && i + 1 < args.Length) _bench = args[++i];
             if (args[i] == "--company") _company = true;
             if (args[i] == "--gate" && i + 1 < args.Length) _gateFile = args[++i];
+            if (args[i] == "--graphics" && i + 1 < args.Length) _graphicsPreset = args[++i];
         }
         _client = new CityClient(new Uri(server));
         if (_bench != null || _gateFile != null)
         {
             System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
-            DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
-            Engine.MaxFps = 0;
         }
         if (_bench != null)
         {
@@ -126,7 +126,7 @@ public partial class Main : Node
         AddChild(_agents);
         _streets = new StreetLabels(_client.City, _view);
         AddChild(_streets);
-        var buses = new BusLinesView(_client.City, pm, _view);
+        var buses = _buses = new BusLinesView(_client.City, pm, _view);
         AddChild(buses);
         _free = new FreeCamera
         {
@@ -143,6 +143,9 @@ public partial class Main : Node
         AddChild(_free);
         _camera.FreeCam = _free;
         // The company's view in a window of its own: a second client, as the web client opens a second tab.
+        LoadGraphics();
+        _panels.GraphicsPressed += _graphicsPanel!.Toggle;
+        ApplyGraphics();
         pm.Company.OwnWindow += () => OS.CreateProcess(OS.GetExecutablePath(),
             OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", server, "--company" }).ToArray());
     }
@@ -181,19 +184,7 @@ public partial class Main : Node
             _view!.Hover(cell);
             _hover!.Text = cell is { } h ? Describe(c, h.X, h.Y) : "";
             _map!.Marker = _camera.IsFree ? new System.Numerics.Vector2(_free!.Target.X, _free.Target.Z) : _camera.View.Target;
-            if (_camera.IsFree)
-            {
-                // Smoothed buildings around where the free camera looks once it's close; shadows as far as it sees.
-                float d = _free!.Riding >= 0 ? 4 : _free.Distance;
-                _view.SetDetail(d < 24 ? CityView.Detail.Smooth : d > 120 ? CityView.Detail.Far : CityView.Detail.Near, _free.Target.X, _free.Target.Z);
-                _sun!.DirectionalShadowMaxDistance = Math.Min(300, d * 3 + 40);
-            }
-            else
-            {
-                _view.SetDetail(_camera.View.Zoom <= 2 ? CityView.Detail.Far : CityView.Detail.Near, _camera.View.Target.X, _camera.View.Target.Y);
-                // Shadows only as far as the view reaches, so close zoom levels don't cast the whole city.
-                _sun!.DirectionalShadowMaxDistance = _camera.View.Distance + _camera.View.Size * 1.5f;
-            }
+            UpdateDetail();
         }
         if (_gateFile != null)
         {
@@ -229,6 +220,7 @@ public partial class Main : Node
         }
         _streets!.Refresh(GetProcessDeltaTime());
         _streets.Visible = _camera!.IsFree ? _free!.Distance < 40 || _free.Riding >= 0 : _camera.View.Zoom >= 3;
+        _streets.Visible &= _graphics.StreetLabels;
         // A newly followed commuter takes the camera, until the player pans away.
         if (pm.Followed != _followed) { _followed = pm.Followed; _panels.FollowCam = _followed != null; if (_followed != null) _camera.View.Zoom = Math.Max(_camera.View.Zoom, 3); }
         if (_agents!.FollowedAt is { } f)
@@ -298,6 +290,13 @@ public partial class Main : Node
         }
         // One view per few frames: set it, let it draw, save it.
         if (_wait-- > 0) return;
+        if (_shot == ShotViews.Length && _graphicsPanel!.Visible)
+        {
+            // Last, the graphics options over the free camera's view.
+            GetViewport().GetTexture().GetImage().SavePng($"{_shots}/view-{_shot}-graphics.png");
+            GetTree().Quit(0);
+            return;
+        }
         if (_shot > 0)
         {
             var (pr, pz, pm) = ShotViews[_shot - 1];
@@ -305,7 +304,12 @@ public partial class Main : Node
             GetViewport().GetTexture().GetImage().SavePng(file);
             GD.Print($"SHOT {file}");
         }
-        if (_shot == ShotViews.Length) { GetTree().Quit(0); return; }
+        if (_shot == ShotViews.Length)
+        {
+            _graphicsPanel!.Visible = true;
+            _wait = 5;
+            return;
+        }
         (v.Rotation, v.Zoom, v.Mode) = ShotViews[_shot++];
         int tx = (int)v.Target.X, ty = (int)v.Target.Y;
         _wait = 5;
@@ -383,7 +387,7 @@ public partial class Main : Node
         double video = Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed) / 1048576.0;
         double engine = OS.GetStaticMemoryUsage() / 1048576.0, managed = GC.GetTotalMemory(false) / 1048576.0;
         double process = System.Environment.WorkingSet / 1048576.0;
-        string row = $"{{\"zoom\":{v.Zoom},\"lod\":\"{(v.Zoom <= 2 ? "far" : "near")}\",\"avgMs\":{avg:F2},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"fps\":{1000 / avg:F1},"
+        string row = $"{{\"zoom\":{v.Zoom},\"lod\":\"{_graphics.ClassicDetail(v.Zoom).ToString().ToLowerInvariant()}\",\"avgMs\":{avg:F2},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"fps\":{1000 / avg:F1},"
             + $"\"triangles\":{tris},\"drawCalls\":{calls},\"objects\":{objects},\"videoMB\":{video:F0},\"engineMB\":{engine:F0},\"managedMB\":{managed:F0},\"processMB\":{process:F0}}}";
         _benchRows.Add(row);
         GD.Print($"BENCH zoom {v.Zoom}: {avg:F2} ms avg ({1000 / avg:F0} fps), p95 {p95:F2} ms, {tris:N0} triangles, {calls} draw calls, process {process:F0} MB, video {video:F0} MB");
@@ -396,7 +400,7 @@ public partial class Main : Node
         _benchFrame = 0;
         if (v.Zoom < ClassicView.ZoomSizes.Length - 1) { v.Zoom++; return; }
         string json = $"{{\"city\":\"{c.Width}x{c.Height}\",\"buildings\":{c.Buildings.Count},\"models\":{_view!.Models},\"batches\":{_view.Batches},"
-            + $"\"renderer\":\"{RenderingServer.GetVideoAdapterName()} / {RenderingServer.GetCurrentRenderingDriverName()}\",\"levels\":[{string.Join(",", _benchRows)}]}}";
+            + $"\"renderer\":\"{RenderingServer.GetVideoAdapterName()} / {RenderingServer.GetCurrentRenderingDriverName()}\",\"graphics\":\"{_graphics.PresetName}\",\"levels\":[{string.Join(",", _benchRows)}]}}";
         using (var f = global::Godot.FileAccess.Open(_bench, global::Godot.FileAccess.ModeFlags.Write)) f.StoreString(json);
         GD.Print($"BENCH wrote {_bench}");
         GetTree().Quit(0);
