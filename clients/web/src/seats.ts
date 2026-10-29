@@ -30,7 +30,8 @@ const money = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLo
 const fare = (cents: number) => (cents === 0 ? 'free' : `$${(cents / 100).toFixed(2)}`);
 
 /** The city's standard offer, as the sim defines it: a business lease, rent by size, a 10% fare tax, three months' notice. */
-const standardTerms = (kind: string) => ({ mode: 0, rentPerMonth: kind === 'bus-depot' ? 300 : 40, taxTenths: 100, subsidyPerMonth: 0, fareCapCents: 0, noticeMonths: 3 });
+const STANDARD_RENT: Record<string, number> = { 'bus-depot': 300, 'tram-depot': 500, 'rail-depot': 1200, 'tram-stop': 60, 'rail-station': 150 };
+const standardTerms = (kind: string) => ({ mode: 0, rentPerMonth: STANDARD_RENT[kind] ?? 40, taxTenths: 100, subsidyPerMonth: 0, fareCapCents: 0, noticeMonths: 3 });
 
 export function termsText(t: Msg) {
   return t.mode === 0

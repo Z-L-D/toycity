@@ -24,7 +24,8 @@ public sealed partial class World
 
     void Remember(Incident inc)
     {
-        if (inc.Source != "city" || inc.Kind is not ("fire" or "crime" or "injury")) return;
+        // The city's own emergencies, and side games' breakdowns that emergency services may answer.
+        if (!(inc.Source == "city" && inc.Kind is "fire" or "crime" or "injury") && inc.Kind != "breakdown") return;
         _openIncidents[inc.Id] = (inc, Tick);
     }
 

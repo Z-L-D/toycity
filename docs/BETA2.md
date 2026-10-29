@@ -496,3 +496,68 @@ is at that moment; the city they leave keeps its name, its log and everyone else
   the cooldown blocks claims and portfolios until it's over.
 - `DelinkClientTests`: on a dedicated server a player claims the bus company, leaves from the seat dialog, gets a
   copy they are mayor of over the wire, and can't take the company back during the cooldown.
+
+## Part 10: transport beta, tracks and timetables
+
+The transport company runs trams and trains as well as buses, on the track strips from Alpha 2. Light rail is the
+tram on its own lane (the tram avenue); the train runs on the rail line. Underground metro tunnels are not part of
+this: trains run at grade.
+
+### Lots and modes
+
+- New lot kinds: tram stops (`tram-stop`) and rail stations (`rail-station`) can now be leased, and there are two new
+  buildings, the Tram Depot (`tram-depot`, $500 a month) and the Rail Yard (`rail-depot`, $1,200). Standard rent for
+  a tram stop is $60 and a station $150. A leased tram stop or station loses the city's own service, as a leased
+  bus stop does.
+- A line is bus, tram or train, set when it opens. Its stops must all be that mode's kind of stop, and its vehicles
+  live at that mode's depots.
+
+| | Price | Seats | Per depot | Crew | Life | Service | Repair |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Bus | $3,000 | 40 | 12 | 2 | 12 years | $150 | $300, 2 days |
+| Tram | $12,000 | 150 | 8 | 2 | 25 years | $500 | $1,200, 3 days |
+| Train | $20,000 | 400 | 6 | 3 | 30 years | $1,200 | $3,000, 4 days |
+
+### Contract v1.2 (additive)
+
+- `TransitLine.Mode` (bus by default), and `ICityQueries.RouteFor(mode, fromBuilding, toBuilding)`: the route a
+  vehicle of that mode takes between two stops along the paths it runs on. A tram calls at the first tram cell beside
+  its stop, a train at the first rail cell. Over the side-game host it is a new `TrackQuery`.
+- The city's commute search rides company tram and train lines exactly as it rides bus lines, at tram and rail speeds.
+
+### Timetables
+
+- A line runs every vehicle it has (as before), or to a timetable: a vehicle every so many minutes (3 to 120). The
+  timetable needs round trip ÷ headway vehicles; the rest wait at the depot as spares and step in when one breaks down
+  or is being serviced. A line short of vehicles runs less often than its timetable, and the line card shows the share
+  of last month's days it kept time.
+
+### Ageing, servicing and breakdowns
+
+- Each vehicle has a condition from 0 to 100%. It wears a little every day it runs (spares don't). A service puts it
+  back to the best its age allows: 100% new, falling to 30% at the end of its life.
+- Each line services one vehicle a day when one is due (every 30 days by default, 7 to 180, or never), while the
+  company has a depot for that mode. Services and repairs are paid as they happen, under upkeep.
+- The chance of a breakdown rises steeply with wear: about 1 in 6,600 a day for a vehicle in top condition, 1 in 900
+  at half, 1 in 240 when worn out. A broken vehicle is off the road for its repair days, and a spare takes its place.
+- A breakdown of a worn-out vehicle (under 30%), or of a tram or train under 50%, hurts passengers: the incident is
+  severity 2, and emergency services answer it as an injury call. The city reports how that call ended.
+- "Replace oldest" sells the oldest vehicle (for its resale price, less for wear and age) and buys a new one.
+- On caretaker or autopilot the computer puts neglected lines back on a 30-day service and replaces vehicles worn out
+  by age when it can afford to. Autopilot still builds bus lines only; trams and trains are for players.
+
+### Clients
+
+- Web and Godot company views: lease tram stops, stations and their depots; the first stop clicked decides a new
+  line's mode; each line shows its fleet (running, spare, being serviced, broken down), average condition, the oldest
+  vehicle's age and on-time share, with controls for vehicles, the timetable, the service interval and replacing the
+  oldest. The money tab lists each mode's prices.
+
+### Tests
+
+- `TrackTests` (sim): the company's trains and trams carry the commuters, and their crews work at the depot; a line
+  runs only on its own kind of stop; a timetable runs what it needs and keeps the rest as spares, and keeps time;
+  vehicles wear without servicing and break down; a worn-out vehicle can be replaced; an injurious breakdown is a call
+  for the ambulance crews; trams and their fleets save and load; fleets, timetables and servicing replay; a tram line
+  on another process routes along its track and ends in the same state.
+- `CompanyTests` (client): the line's timetable and service links reach the server.

@@ -188,12 +188,14 @@ public sealed class EmergencyGame : ISideGame
     {
         foreach (var inc in input.Incidents)
         {
-            if (inc.Source != "city" || inc.Kind is not ("fire" or "crime" or "injury") || inc.X < 0) continue;
+            // The city's emergencies, and a transit breakdown that hurt people (a call for the ambulance crews).
+            bool hurt = inc.Kind == "breakdown" && inc.Severity >= 2;
+            if (inc.X < 0 || !(hurt || inc.Source == "city" && inc.Kind is "fire" or "crime" or "injury")) continue;
             if (_calls.Count(c => c.Status != "done") >= 30) break;
             var call = new Call
             {
-                Id = _nextCall++, IncidentId = inc.Id, Kind = inc.Kind, X = inc.X, Y = inc.Y, Severity = inc.Severity,
-                Text = inc.Kind switch
+                Id = _nextCall++, IncidentId = inc.Id, Kind = hurt ? "injury" : inc.Kind, X = inc.X, Y = inc.Y, Severity = inc.Severity,
+                Text = hurt ? $"Passengers hurt: {inc.Cause}" : inc.Kind switch
                 {
                     "fire" => $"Fire at a {inc.Cause.ToLowerInvariant()}",
                     "crime" => $"Report of {inc.Cause}",

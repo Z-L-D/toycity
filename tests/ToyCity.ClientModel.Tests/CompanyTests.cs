@@ -85,6 +85,15 @@ public class CompanyTests : IClassFixture<ServerFixture>
         Assert.Equal(175, line.FareCents);
         panel.Click("co-tab:lines");
         Assert.Contains("Test Line", panel.Render());
+        Assert.Equal(Transport.Wire.Mode.Bus, line.Mode);
+
+        // A timetable and a service interval, from the line's links.
+        var links = Links(panel.Render());
+        Assert.Contains($"co-tt:{line.Id}:5", links);
+        panel.Click($"co-tt:{line.Id}:20");
+        panel.Click($"co-svc:{line.Id}:14");
+        PollUntil(client, () => co.View!.Lines.Single(l => l.Id == line.Id) is { TimetableMinutes: 20, ServiceDays: 14 });
+        Assert.Contains("every 20 min", panel.Render());
 
         panel.Click("co-city");
         Assert.False(co.Active);

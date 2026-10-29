@@ -20,6 +20,14 @@ export interface TransportHost {
 }
 
 type CoTool = 'look' | 'lease' | 'line';
+
+/** Each mode's stop and depot lot kinds, and how a lot of each kind is named on a card. */
+const STOP_KIND = ['bus-stop', 'tram-stop', 'rail-station'];
+const MODE_ICON = ['🚌', '🚋', '🚆'];
+const LOT_NAME: Record<string, string> = {
+  'bus-stop': 'Stop', 'bus-depot': 'Depot', 'tram-stop': 'Tram stop', 'tram-depot': 'Tram depot', 'rail-station': 'Station', 'rail-depot': 'Rail yard',
+};
+const modeOfStop = (kind: string) => STOP_KIND.indexOf(kind);
 type CoTab = 'lines' | 'lots' | 'money' | 'standing' | 'log';
 
 const GAME = 'transport';
@@ -45,7 +53,7 @@ export class Transport {
   /** The lot picked with the look tool, by building id. */
   private selected: number | null = null;
   /** The line being drawn: its stops (lease ids) in order. */
-  private draft: { lineId: number; name: string; stops: number[]; fare: number } | null = null;
+  private draft: { lineId: number; name: string; stops: number[]; fare: number; mode: number } | null = null;
 
   constructor(private readonly host: TransportHost) {
     $('#btn-company').addEventListener('click', () => this.setMode(true));
@@ -79,7 +87,7 @@ export class Transport {
 
   private setTool(t: CoTool) {
     this.tool = t;
-    if (t === 'line' && !this.draft) this.draft = { lineId: 0, name: '', stops: [], fare: 150 };
+    if (t === 'line' && !this.draft) this.draft = { lineId: 0, name: '', stops: [], fare: 150, mode: -1 };
     if (t !== 'line') this.draft = null;
     if (t === 'line') this.tab = 'lines';
     this.render();
@@ -168,11 +176,18 @@ export class Transport {
     const near = [city.buildingAtCell(x, y), ...city.stopsAt(x, y), ...city.stopsFacing(x, y)].filter(Boolean).map((b) => b!.id);
     const lot = near.map((id) => lots.find((l) => l.buildingId === id)).find(Boolean);
     if (this.tool === 'line' && this.draft) {
-      if (!lot || lot.leaseId === 0 || lot.kind !== 'bus-stop') {
-        this.host.toast('Click a bus stop the company leases (solid yellow). Lease free ones (dashed) with the Lease tool.', 'warning');
+      const d = this.draft;
+      if (!lot || lot.leaseId === 0 || modeOfStop(lot.kind) < 0) {
+        this.host.toast('Click a stop or station the company leases (solid yellow). Lease free ones (dashed) with the Lease tool.', 'warning');
         return;
       }
-      const s = this.draft.stops;
+      // The first stop picks the mode: a line is all bus stops, all tram stops or all stations.
+      if (d.mode >= 0 && d.stops.length && modeOfStop(lot.kind) !== d.mode) {
+        this.host.toast(`This is a ${['bus', 'tram', 'rail'][d.mode]} line: click its own kind of stop.`, 'warning');
+        return;
+      }
+      if (d.mode < 0 || (!d.stops.length && !d.lineId)) d.mode = modeOfStop(lot.kind);
+      const s = d.stops;
       if (s[s.length - 1] === lot.leaseId) s.pop();
       else if (s.includes(lot.leaseId)) this.host.toast('A line visits each stop once.', 'warning');
       else s.push(lot.leaseId);
@@ -180,7 +195,7 @@ export class Transport {
       return;
     }
     if (this.tool === 'lease') {
-      if (!lot) { this.host.toast('Click a free bus stop or depot (dashed outline).', 'warning'); return; }
+      if (!lot) { this.host.toast('Click a free stop, station or depot (dashed outline).', 'warning'); return; }
       if (lot.leaseId > 0) { this.host.toast('The company already leases that.', 'info'); return; }
       if (!this.mine) { this.host.toast('Run the company yourself to lease lots.', 'warning'); return; }
       this.host.conn.action({ lease: { game: GAME, buildingId: lot.buildingId } });
@@ -188,7 +203,7 @@ export class Transport {
     }
     this.selected = lot ? lot.buildingId : null;
     if (lot) this.tab = 'lots';
-    else this.host.toast('Click a bus stop or depot to see it.', 'info');
+    else this.host.toast('Click a stop, station or depot to see it.', 'info');
     this.publishMap();
     this.renderPanel();
   }
@@ -251,14 +266,14 @@ export class Transport {
       `<button data-cotool="${t}" class="${this.tool === t ? 'active' : ''}" title="${esc(help)}"><span>${label}</span></button>`;
     const tips: Record<CoTool, string> = {
       look: 'Click a stop or depot to see who it reaches and how it does.',
-      lease: 'Click a free stop or depot (dashed) to lease it on the city’s standard terms.',
+      lease: 'Click a free stop, station or depot (dashed) to lease it on the city’s standard terms.',
       line: 'Click the company’s stops (solid yellow) in the order the line visits them. Click the last one again to take it off.',
     };
     el.innerHTML = `
       <h4>Tools</h4>
       ${btn('look', '🔍 Look', 'See a stop or depot')}
       ${this.mine ? btn('lease', '📝 Lease lots', 'Lease free stops and depots') : ''}
-      ${this.mine ? btn('line', '✏️ Draw a line', 'Draw a new bus line through the company’s stops') : ''}
+      ${this.mine ? btn('line', '✏️ Draw a line', 'Draw a new bus, tram or train line through the company’s stops') : ''}
       <div class="tip">${tips[this.tool]}</div>
       <h4>Map</h4>
       <button id="co-catch" class="${this.showCatchment ? 'active' : ''}" title="Shade the cells within walking reach of each stop"><span>Walking reach</span></button>
@@ -298,10 +313,12 @@ export class Transport {
 
   private linesHtml(v: Msg) {
     const d = this.draft;
+    const modes = (v.modes ?? []) as Msg[];
+    const word = (m: number, n = 1) => (modes[m] ? (n === 1 ? modes[m].word : modes[m].plural) : n === 1 ? 'bus' : 'buses');
     const draft = d ? `
       <div class="bus-line draft">
-        <b>${d.lineId ? 'Editing a line' : 'New line'}</b>
-        <p class="small">Click the company's stops on the map in the order the line visits them. It runs both ways.</p>
+        <b>${d.lineId ? 'Editing a line' : 'New line'}${d.mode >= 0 ? ` ${MODE_ICON[d.mode]}` : ''}</b>
+        <p class="small">Click the company's stops on the map in the order the line visits them. It runs both ways. The first stop decides what runs: buses from bus stops, trams from tram stops, trains from stations.</p>
         <div class="small">${d.stops.length ? d.stops.map((s) => this.stopName(s)).join(' → ') : '<span class="muted">No stops yet.</span>'}</div>
         <label>Name</label><input type="text" id="draft-name" maxlength="30" value="${esc(d.name)}" placeholder="Route ${(v.lines as Msg[]).length + 1}">
         <label>Fare ($)</label><input type="number" id="draft-fare" min="0" max="10" step="0.25" value="${d.fare / 100}">
@@ -310,24 +327,40 @@ export class Transport {
     const lines = (v.lines as Msg[]).map((l) => {
       const reach = (l.stopLeaseIds as number[]).map((s) => this.lot(s)).filter(Boolean).map((s) => this.reach(s!));
       const homes = reach.reduce((n, r) => n + r.homes, 0), jobs = reach.reduce((n, r) => n + r.jobs, 0);
+      const m = l.mode as number;
       const why = l.problem ? `<div class="co-warn">Not running: ${esc(l.problem)}</div>`
-        : l.riders === 0 ? `<div class="co-hint">No riders yet. Riders live near one of its stops and work near another (${plural(homes, 'home')} and ${plural(jobs, 'job')} in reach of its stops). People re-think their commute about once a month, so a new line takes a month to fill. More stops where homes and jobs are, a lower fare or more buses all help.</div>` : '';
+        : l.riders === 0 ? `<div class="co-hint">No riders yet. Riders live near one of its stops and work near another (${plural(homes, 'home')} and ${plural(jobs, 'job')} in reach of its stops). People re-think their commute about once a month, so a new line takes a month to fill. More stops where homes and jobs are, a lower fare or more ${word(m, 2)} all help.</div>` : '';
+      const veh = l.vehicles as Msg[];
+      const count = (st: string) => veh.filter((x) => x.state === st).length;
+      const fleet = `${count('running')} running${count('spare') ? `, ${count('spare')} spare` : ''}${count('workshop') ? `, ${count('workshop')} being serviced` : ''}${count('broken') ? `, <span class="neg">${count('broken')} broken down</span>` : ''}`;
+      const oldest = veh.reduce((a, x) => Math.max(a, x.ageDays), 0);
+      const cond = l.condition as number;
       return `
       <div class="bus-line" style="border-left-color:${esc(l.color)}">
-        <div class="row-flex" style="justify-content:space-between"><b>${esc(l.name)}</b><span class="muted small">${l.stopLeaseIds.length} stops · ${fare(l.fareCents)}${l.fareCapCents >= 0 && l.fareCapCents < l.fareCents ? ` (capped at ${fare(l.fareCapCents)})` : ''}</span></div>
-        ${l.problem ? '' : `<div class="small">A bus every ${l.headwayMinutes} min (${l.roundTripMinutes} min round trip) · <b>${l.riders.toLocaleString('en-US')}</b> riders yesterday · ${l.loadPercent}% full at the peak</div>`}
+        <div class="row-flex" style="justify-content:space-between"><b>${MODE_ICON[m] ?? ''} ${esc(l.name)}</b><span class="muted small">${l.stopLeaseIds.length} stops · ${fare(l.fareCents)}${l.fareCapCents >= 0 && l.fareCapCents < l.fareCents ? ` (capped at ${fare(l.fareCapCents)})` : ''}</span></div>
+        ${l.problem ? '' : `<div class="small">A ${word(m)} every ${l.headwayMinutes} min (${l.roundTripMinutes} min round trip) · <b>${l.riders.toLocaleString('en-US')}</b> riders yesterday · ${l.loadPercent}% full at the peak</div>`}
         ${why}
         <div class="small muted">Boardings: ${(l.stopLeaseIds as number[]).map((s, i) => `<a href="#" data-jumplot="${s}">${this.stopName(s)}</a> ${l.boardings[i] ?? 0}`).join(' → ')}</div>
         <div class="small">Last month: fares ${money(l.lastMonth.fares)}, costs ${money(l.lastMonth.wages + l.lastMonth.upkeep + l.lastMonth.rent)}, <b class="${l.lastMonth.profit >= 0 ? 'pos' : 'neg'}">${money(l.lastMonth.profit)}</b></div>
+        ${veh.length ? `<div class="small">Fleet: ${fleet} · condition <b class="${cond < 40 ? 'neg' : cond < 70 ? '' : 'pos'}">${cond}%</b> · oldest ${Math.floor(oldest / 360)}y ${Math.floor((oldest % 360) / 30)}m${l.timetableMinutes ? ` · on time ${l.onTimePercent}% last month` : ''}</div>` : ''}
         ${this.mine ? `<div class="row-flex" style="margin-top:4px">
-          <span>Buses</span><button class="mini" data-buses="${l.id}" data-n="${l.buses - 1}" ${l.buses === 0 ? 'disabled' : ''}>−</button><b>${l.buses}</b>${l.broken ? `<span class="small neg">(${l.broken} in the workshop)</span>` : ''}<button class="mini" data-buses="${l.id}" data-n="${l.buses + 1}" title="${money(v.busPrice)} each">+</button>
-          <button class="mini" data-edit="${l.id}">Edit</button><button class="mini" data-close="${l.id}">Close</button></div>` : `<div class="small muted">${l.buses} buses</div>`}
+          <span>${word(m, 2).replace(/^./, (c: string) => c.toUpperCase())}</span><button class="mini" data-buses="${l.id}" data-n="${l.buses - 1}" ${l.buses === 0 ? 'disabled' : ''}>−</button><b>${l.buses}</b><button class="mini" data-buses="${l.id}" data-n="${l.buses + 1}" title="${money(modes[m]?.price ?? v.busPrice)} each">+</button>
+          <button class="mini" data-renew="${l.id}" ${l.buses ? '' : 'disabled'} title="Sell the oldest and buy a new one">Replace oldest</button>
+          <button class="mini" data-edit="${l.id}">Edit</button><button class="mini" data-close="${l.id}">Close</button></div>
+        <div class="row-flex small" style="margin-top:4px">
+          <span title="Run a ${word(m)} this often and keep the rest as spares, or run them all">Timetable</span>
+          <button class="mini" data-tt="${l.id}" data-n="${l.timetableMinutes <= 5 ? 0 : l.timetableMinutes - 5}">−</button><b>${l.timetableMinutes ? `every ${l.timetableMinutes} min (${l.needed} needed)` : `all ${word(m, 2)}`}</b>
+          <button class="mini" data-tt="${l.id}" data-n="${Math.min(120, l.timetableMinutes ? l.timetableMinutes + 5 : 5)}">+</button>
+          <span title="Each ${word(m)} goes to the depot this often; neglected ones wear out and break down" style="margin-left:8px">Service</span>
+          <button class="mini" data-svc="${l.id}" data-n="${l.serviceDays <= 7 ? 0 : l.serviceDays - 7}">−</button><b>${l.serviceDays ? `every ${l.serviceDays} days` : '<span class="neg">never</span>'}</b>
+          <button class="mini" data-svc="${l.id}" data-n="${Math.min(180, l.serviceDays ? l.serviceDays + 7 : 7)}">+</button></div>`
+          : `<div class="small muted">${l.buses} ${word(m, l.buses)}</div>`}
       </div>`;
     }).join('');
-    const depots = (v.lots as Msg[]).filter((l) => l.kind === 'bus-depot').length;
-    const stops = (v.lots as Msg[]).filter((l) => l.kind === 'bus-stop').length;
+    const has = (kind: string) => (v.lots as Msg[]).some((l) => l.kind === kind);
+    const stops = (v.lots as Msg[]).filter((l) => modeOfStop(l.kind) >= 0).length;
     const start = !v.lines.length && !d
-      ? `<div class="co-hint">To start: lease a depot and two or more bus stops with <b>Lease lots</b>, then <b>Draw a line</b> through the stops and give it buses. ${depots ? '✓' : '○'} depot · ${stops >= 2 ? '✓' : '○'} two stops${!this.mine ? ' · Run the company yourself first (top bar).' : ''}</div>` : '';
+      ? `<div class="co-hint">To start: lease a depot and two or more stops of the same kind with <b>Lease lots</b> (bus stops and a bus depot, tram stops and a tram depot, or stations and a rail yard), then <b>Draw a line</b> through the stops and give it vehicles. ${has('bus-depot') || has('tram-depot') || has('rail-depot') ? '✓' : '○'} depot · ${stops >= 2 ? '✓' : '○'} two stops${!this.mine ? ' · Run the company yourself first (top bar).' : ''}</div>` : '';
     return `${draft}${start}${lines || (d ? '' : '<p class="muted">No lines yet.</p>')}
       ${this.mine && !d ? '<button id="tc-new" style="margin-top:8px">✏️ New line…</button>' : ''}`;
   }
@@ -342,10 +375,10 @@ export class Transport {
       }, 0);
       const district = (v.districts as Msg[]).find((dd) => dd.id === l.district);
       return `<div class="lot-card ${sel ? 'sel' : ''}">
-        <div class="row-flex" style="justify-content:space-between"><b><a href="#" data-jx="${l.x}" data-jy="${l.y}">${l.kind === 'bus-depot' ? 'Depot' : 'Stop'} at ${l.x},${l.y}</a></b>
+        <div class="row-flex" style="justify-content:space-between"><b><a href="#" data-jx="${l.x}" data-jy="${l.y}">${LOT_NAME[l.kind] ?? 'Lot'} at ${l.x},${l.y}</a></b>
           <span class="small ${l.leaseId ? 'pos' : 'muted'}">${l.leaseId ? 'leased' : 'free to lease'}</span></div>
         <div class="small muted">${esc(l.terms)}${district ? ` · ${esc(district.name)}, rating ${district.rating}` : ''}</div>
-        ${l.kind === 'bus-stop' ? `<div class="small">In walking reach: ${plural(r.homes, 'home')} (${plural(r.people, 'person', 'people')}), ${plural(r.sites, 'workplace')} (${plural(r.jobs, 'job')})${l.leaseId ? ` · ${plural(boards, 'boarding')} yesterday` : ''}</div>` : ''}
+        ${modeOfStop(l.kind) >= 0 ? `<div class="small">In walking reach: ${plural(r.homes, 'home')} (${plural(r.people, 'person', 'people')}), ${plural(r.sites, 'workplace')} (${plural(r.jobs, 'job')})${l.leaseId ? ` · ${plural(boards, 'boarding')} yesterday` : ''}</div>` : ''}
         ${l.closedDays ? `<div class="small neg">Closed for ${l.closedDays} more days (fire or disaster nearby).</div>` : ''}
         ${l.badStanding ? '<div class="small neg">Bad standing with the city.</div>' : ''}
         ${this.mine ? (l.leaseId ? `<button class="mini" data-release="${l.leaseId}" style="margin-top:4px">Give up the lease</button>` : `<button class="mini active" data-lease="${l.buildingId}" style="margin-top:4px">Lease it</button>`) : ''}
@@ -395,12 +428,15 @@ export class Transport {
     on('#tc-new', () => this.setTool('line'));
     on('[data-edit]', (b) => {
       const line = (v.lines as Msg[]).find((l) => l.id === Number(b.dataset.edit))!;
-      this.draft = { lineId: line.id, name: line.name, stops: [...line.stopLeaseIds], fare: line.fareCents };
+      this.draft = { lineId: line.id, name: line.name, stops: [...line.stopLeaseIds], fare: line.fareCents, mode: line.mode };
       this.tool = 'line';
       this.render();
     });
     on('[data-close]', (b) => this.command({ deleteLine: { lineId: Number(b.dataset.close) } }));
     on('[data-buses]', (b) => this.command({ buses: { lineId: Number(b.dataset.buses), buses: Number(b.dataset.n) } }));
+    on('[data-tt]', (b) => this.command({ timetable: { lineId: Number(b.dataset.tt), headwayMinutes: Number(b.dataset.n) } }));
+    on('[data-svc]', (b) => this.command({ service: { lineId: Number(b.dataset.svc), everyDays: Number(b.dataset.n) } }));
+    on('[data-renew]', (b) => this.command({ renew: { lineId: Number(b.dataset.renew) } }));
     on('[data-buy]', (b) => this.command({ standing: { kind: b.dataset.buy, district: Number(b.dataset.district) } }));
     on('[data-lease]', (b) => this.host.conn.action({ lease: { game: GAME, buildingId: Number(b.dataset.lease) } }));
     on('[data-release]', (b) => this.host.conn.action({ endLease: { leaseId: Number(b.dataset.release), byOperator: true } }));
@@ -411,7 +447,7 @@ export class Transport {
       if (!this.draft) return;
       const name = ($<HTMLInputElement>('#draft-name').value || '').trim();
       const fareCents = Math.round(Number($<HTMLInputElement>('#draft-fare').value || 0) * 100);
-      this.command({ saveLine: { lineId: this.draft.lineId, name, stopLeaseIds: this.draft.stops, fareCents } });
+      this.command({ saveLine: { lineId: this.draft.lineId, name, stopLeaseIds: this.draft.stops, fareCents, mode: Math.max(0, this.draft.mode) } });
       this.setTool('look');
     });
     el.querySelector('#draft-name')?.addEventListener('input', (e) => { if (this.draft) this.draft.name = (e.target as HTMLInputElement).value; });

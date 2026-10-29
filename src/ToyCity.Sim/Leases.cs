@@ -66,11 +66,11 @@ public sealed partial class World
         "fire-station" or "police-station" => new(LeaseMode.PublicService, 0, 0, 400, 0, 3),
         "clinic" => new(LeaseMode.PublicService, 0, 0, 300, 0, 3),
         "hospital" => new(LeaseMode.PublicService, 0, 0, 800, 0, 3),
-        _ => new(LeaseMode.Business, kind == "bus-depot" ? 300 : 40, 100, 0, 0, 3),
+        _ => new(LeaseMode.Business, kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "tram-stop" => 60, "rail-station" => 150, _ => 40 }, 100, 0, 0, 3),
     };
 
     /// <summary>Lots that run the city's transit rather than its services.</summary>
-    public static bool IsTransitLot(string kind) => kind.StartsWith("bus-", StringComparison.Ordinal);
+    public static bool IsTransitLot(string kind) => kind.StartsWith("bus-", StringComparison.Ordinal) || kind.StartsWith("tram-", StringComparison.Ordinal) || kind.StartsWith("rail-", StringComparison.Ordinal);
 
     /// <summary>The standard terms for a particular building: rent by its size (a bus bay costs more than a stop).</summary>
     public LeaseTerms StandardTermsFor(Building b) =>

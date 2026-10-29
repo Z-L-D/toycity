@@ -393,7 +393,7 @@ export class Renderer {
       ctx.strokeStyle = 'rgba(255,204,77,0.45)';
       ctx.lineWidth = 1;
       for (const l of co.lots) {
-        if (!l.leased || l.kind !== 'bus-stop') continue;
+        if (!l.leased || !(l.kind === 'bus-stop' || l.kind === 'tram-stop' || l.kind === 'rail-station')) continue;
         const r = l.reach || co.catchment;
         ctx.fillRect(px(l.x - r), py(l.y - r), (l.w + 2 * r) * s, (l.h + 2 * r) * s);
         ctx.strokeRect(px(l.x - r) + 0.5, py(l.y - r) + 0.5, (l.w + 2 * r) * s - 1, (l.h + 2 * r) * s - 1);
@@ -421,7 +421,7 @@ export class Renderer {
         ctx.lineWidth = 2;
         ctx.strokeRect(x - 3, y - 3, bw + 6, bh + 6);
       }
-      if (s >= 10 && l.kind === 'bus-depot') {
+      if (s >= 10 && l.kind.endsWith('-depot')) {
         ctx.fillStyle = l.leased ? '#1b2230' : '#fff';
         ctx.font = `${Math.round(s * 0.8)}px system-ui`;
         ctx.textAlign = 'center';

@@ -228,6 +228,7 @@ public sealed partial class World : IDisposable
         public ulong Hash(int a, int b, int c, int d) => w.Hash(a, b, c, d);
         public StreetRoute? Route(int fromCell, int toCell) => w.StreetRouteBetween(fromCell, toCell);
         public CellKind[] Area(int x0, int y0, int width, int height) => w.AreaKinds(x0, y0, width, height);
+        public StreetRoute? RouteFor(TransitMode mode, int fromBuildingId, int toBuildingId) => w.RouteForMode(mode, fromBuildingId, toBuildingId);
     }
 
     // Scratch for street routing on behalf of side games; never saved.

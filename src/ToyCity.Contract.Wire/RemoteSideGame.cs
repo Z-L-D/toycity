@@ -157,6 +157,9 @@ public sealed class RemoteSideGame : C.ISideGame, IDisposable
             case W.Query.KindOneofCase.Route:
                 if (city.Route(q.Route.FromCell, q.Route.ToCell) is { } route) a.Route = ContractWire.ToWire(route);
                 break;
+            case W.Query.KindOneofCase.Track:
+                if (city.RouteFor((C.TransitMode)q.Track.Mode, q.Track.FromBuilding, q.Track.ToBuilding) is { } track) a.Route = ContractWire.ToWire(track);
+                break;
             case W.Query.KindOneofCase.DistrictOf: a.District = city.DistrictOf(q.DistrictOf); break;
             case W.Query.KindOneofCase.Hash: a.Hash = city.Hash(q.Hash.A, q.Hash.B, q.Hash.C, q.Hash.D); break;
             case W.Query.KindOneofCase.Area:

@@ -350,7 +350,11 @@ public sealed partial class PanelModel
 
     /// <summary>The city's standard offer, as the sim defines it: a business lease, rent by size, a 10% fare tax, three months' notice.</summary>
     static LeaseTerms StandardTerms(string kind) =>
-        new() { Mode = LeaseMode.LeaseBusiness, RentPerMonth = kind == "bus-depot" ? 300 : 40, TaxTenths = 100, NoticeMonths = 3 };
+        new()
+        {
+            Mode = LeaseMode.LeaseBusiness, TaxTenths = 100, NoticeMonths = 3,
+            RentPerMonth = kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "tram-stop" => 60, "rail-station" => 150, _ => 40 },
+        };
 
     bool Allowed(Mechanic m) => Civic?.Consent?.Rows.FirstOrDefault(r => r.Mechanic == m)?.Effective ?? false;
 

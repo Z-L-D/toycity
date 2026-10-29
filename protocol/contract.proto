@@ -161,6 +161,14 @@ message TransitLine {
   int32 headway_minutes = 5;
   int32 fare_cents = 6;
   int32 seats_per_hour = 7;
+  TransitMode mode = 8;  // v1.2
+}
+
+// v1.2: what a line's vehicles run on.
+enum TransitMode {
+  BUS = 0;
+  TRAM = 1;
+  RAIL = 2;
 }
 
 message GameToCity {

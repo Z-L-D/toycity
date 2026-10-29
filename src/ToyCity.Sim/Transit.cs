@@ -105,7 +105,7 @@ public sealed partial class World
         _stopById.Clear();
         _stopsAtState.Clear();
         _leasedStops.Clear();
-        foreach (var l in Leases) if (l.Kind == "bus-stop") _leasedStops.Add(l.BuildingId);
+        foreach (var l in Leases) if (IsStopKind(l.Kind)) _leasedStops.Add(l.BuildingId);
         AddExclusiveStops();
         foreach (var b in Buildings)
         {

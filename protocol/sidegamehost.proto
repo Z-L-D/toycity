@@ -80,7 +80,15 @@ message Query {
     int32 district_of = 2;
     HashQuery hash = 3;
     AreaQuery area = 4;
+    TrackQuery track = 5;  // v1.2
   }
+}
+
+// v1.2: a route for a vehicle of this mode between two stops, by building id.
+message TrackQuery {
+  TransitMode mode = 1;
+  int32 from_building = 2;
+  int32 to_building = 3;
 }
 
 message AreaQuery {

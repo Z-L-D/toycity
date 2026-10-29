@@ -11,9 +11,10 @@ public static class ContractInfo
     public const int Version = 1;
     /// <summary>
     /// Additions since v1 froze, each optional for a side game to use: 1 added incident responses and holds
-    /// (<see cref="GameToCity.Responses"/>, <see cref="GameToCity.Holding"/>) and <see cref="ICityQueries.Area"/>.
+    /// (<see cref="GameToCity.Responses"/>, <see cref="GameToCity.Holding"/>) and <see cref="ICityQueries.Area"/>; 2 added
+    /// tram and rail lines (<see cref="TransitLine.Mode"/>) and <see cref="ICityQueries.RouteFor"/>.
     /// </summary>
-    public const int Minor = 1;
+    public const int Minor = 2;
 }
 
 /// <summary>What a side game tells the city when it registers.</summary>
@@ -106,8 +107,24 @@ public sealed class CityToGame
     public readonly List<AuthorityResult> AuthorityResults = new();
 }
 
-/// <summary>A transit line a side game runs: its stops in order (it runs both ways), how often, and the fare.</summary>
-public sealed record TransitLine(int LineId, string Name, string Color, IReadOnlyList<int> StopLeaseIds, int HeadwayMinutes, int FareCents, int SeatsPerHour);
+/// <summary>
+/// What a line's vehicles run on: buses on streets, trams on tram strips (shared with traffic or on their own lane),
+/// trains on rail lines. Each has its own kind of stop: "bus-stop", "tram-stop" or "rail-station".
+/// </summary>
+public enum TransitMode : byte { Bus = 0, Tram = 1, Rail = 2 }
+
+public static class TransitModes
+{
+    public static string StopKind(TransitMode m) => m switch { TransitMode.Tram => "tram-stop", TransitMode.Rail => "rail-station", _ => "bus-stop" };
+    public static string DepotKind(TransitMode m) => m switch { TransitMode.Tram => "tram-depot", TransitMode.Rail => "rail-depot", _ => "bus-depot" };
+}
+
+/// <summary>
+/// A transit line a side game runs: its stops in order (it runs both ways), how often, and the fare. v1.2: the mode
+/// its vehicles run on; its stops are leased lots of that mode's stop kind.
+/// </summary>
+public sealed record TransitLine(int LineId, string Name, string Color, IReadOnlyList<int> StopLeaseIds, int HeadwayMinutes, int FareCents, int SeatsPerHour,
+    TransitMode Mode = TransitMode.Bus);
 
 /// <summary>Everything a side game tells the city each day.</summary>
 public sealed class GameToCity
@@ -156,6 +173,11 @@ public interface ICityQueries
     ulong Hash(int a, int b, int c, int d);
     /// <summary>v1.1: what is on each cell of a rectangle, row by row; cells off the map read as water.</summary>
     CellKind[] Area(int x0, int y0, int w, int h) => new CellKind[Math.Max(0, w) * Math.Max(0, h)];
+    /// <summary>
+    /// v1.2: the fastest route a vehicle of this mode can take between two stops (by building id), along the paths it
+    /// runs on, at today's travel times; null when there is none. Buses go stop to stop by street, as <see cref="Route"/>.
+    /// </summary>
+    StreetRoute? RouteFor(TransitMode mode, int fromBuildingId, int toBuildingId) => null;
 }
 
 /// <summary>What became of a player's command.</summary>

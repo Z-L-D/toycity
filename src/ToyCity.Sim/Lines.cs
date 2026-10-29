@@ -34,10 +34,44 @@ public sealed partial class World
     int _lineNodes;
     /// <summary>Line node → its line.</summary>
     int[] _lineOfNode = Array.Empty<int>();
-    /// <summary>Bus routes between two cells, kept until the streets or their traffic change. Never saved.</summary>
-    readonly Dictionary<(int, int), (int Cost, int[] Cells)?> _busRoutes = new();
+    /// <summary>Vehicle routes between two cells, kept until the paths or their traffic change. Never saved.</summary>
+    readonly Dictionary<(TransitKind, int, int), (int Cost, int[] Cells)?> _busRoutes = new();
 
     void ForgetBusRoutes() => _busRoutes.Clear();
+
+    static TransitKind KindOf(TransitMode m) => m switch { TransitMode.Tram => TransitKind.Tram, TransitMode.Rail => TransitKind.Rail, _ => TransitKind.Bus };
+
+    /// <summary>Whether a lot kind is a stop a company's lines call at.</summary>
+    static bool IsStopKind(string kind) => kind is "bus-stop" or "tram-stop" or "rail-station";
+
+    /// <summary>
+    /// Where a vehicle of this kind calls at a stop: a bus at the stop's street access; a tram or train at the first
+    /// cell beside the stop that carries it. -1 when there is none.
+    /// </summary>
+    int StopCell(Building b, TransitKind k)
+    {
+        if (k == TransitKind.Bus) return b.Access;
+        if (TypeOf(b).Roadside) return Carries(k, Idx(b.X, b.Y)) ? Idx(b.X, b.Y) : -1;
+        for (int y = b.Y - 1; y <= b.Y + b.H; y++)
+        for (int x = b.X - 1; x <= b.X + b.W; x++)
+        {
+            bool corner = (x == b.X - 1 || x == b.X + b.W) && (y == b.Y - 1 || y == b.Y + b.H);
+            if (corner || !InBounds(x, y)) continue;
+            if (Carries(k, Idx(x, y))) return Idx(x, y);
+        }
+        return -1;
+    }
+
+    /// <summary>A side game's question: the route for a vehicle of this mode between two stops, as minutes and cells.</summary>
+    public StreetRoute? RouteForMode(TransitMode mode, int fromBuilding, int toBuilding)
+    {
+        if (fromBuilding < 0 || toBuilding < 0 || fromBuilding >= Buildings.Count || toBuilding >= Buildings.Count) return null;
+        if (Buildings[fromBuilding] is not { } a || Buildings[toBuilding] is not { } b) return null;
+        var k = KindOf(mode);
+        int from = StopCell(a, k), to = StopCell(b, k);
+        if (from < 0 || to < 0) return null;
+        return VehicleRoute(k, from, to) is var (cost, cells) ? new StreetRoute(cells, Math.Max(1, cost / 600)) : null;
+    }
 
     /// <summary>Whether a stop is leased: then only its company's lines stop there.</summary>
     bool StopLeased(int buildingId) => _leasedStops.Contains(buildingId);
@@ -55,13 +89,15 @@ public sealed partial class World
             {
                 if (line.StopLeaseIds.Count < 2 || line.HeadwayMinutes <= 0 || line.SeatsPerHour <= 0) continue;
                 var stops = new List<int>();
+                var kind = KindOf(line.Mode);
+                string stopKind = TransitModes.StopKind(line.Mode);
                 int fare = Math.Max(0, line.FareCents);
                 bool ok = true;
                 foreach (int leaseId in line.StopLeaseIds)
                 {
                     var lease = LeaseById(leaseId);
-                    if (lease == null || lease.GameId != hg.Id || lease.Kind != "bus-stop" || !_stopById.ContainsKey(lease.BuildingId)) { ok = false; break; }
-                    if (Buildings[lease.BuildingId]!.Access < 0) { ok = false; break; }
+                    if (lease == null || lease.GameId != hg.Id || lease.Kind != stopKind || !_stopById.ContainsKey(lease.BuildingId)) { ok = false; break; }
+                    if (StopCell(Buildings[lease.BuildingId]!, kind) < 0) { ok = false; break; }
                     if (lease.Terms.Mode == LeaseMode.PublicService) fare = Math.Min(fare, lease.Terms.FareCapCents);
                     stops.Add(lease.BuildingId);
                 }
@@ -71,7 +107,7 @@ public sealed partial class World
                 cl.SegCells = new int[stops.Count - 1][];
                 for (int i = 0; i + 1 < stops.Count; i++)
                 {
-                    var route = BusRoute(Buildings[stops[i]]!.Access, Buildings[stops[i + 1]]!.Access);
+                    var route = VehicleRoute(kind, StopCell(Buildings[stops[i]]!, kind), StopCell(Buildings[stops[i + 1]]!, kind));
                     if (route is not var (cost, cells)) { ok = false; break; }
                     cl.SegCost[i] = cost + DwellTime;
                     cl.SegCells[i] = cells;
@@ -99,10 +135,10 @@ public sealed partial class World
             for (int i = 0; i < _lines[k].StopIds.Length; i++) _lineOfNode[_lines[k].Base + i] = k;
     }
 
-    /// <summary>The fastest bus route between two street cells at today's traffic, in deciseconds, or null.</summary>
-    (int Cost, int[] Cells)? BusRoute(int from, int to)
+    /// <summary>The fastest route for a vehicle of this kind between two cells at today's traffic, in deciseconds, or null.</summary>
+    (int Cost, int[] Cells)? VehicleRoute(TransitKind kind, int from, int to)
     {
-        if (_busRoutes.TryGetValue((from, to), out var known)) return known;
+        if (_busRoutes.TryGetValue((kind, from, to), out var known)) return known;
         (int, int[])? result = null;
         if (_rDist.Length < N) { _rDist = new int[N]; _rParent = new int[N]; _rStamp = new int[N]; _rGen = 0; }
         if (++_rGen == int.MaxValue) { Array.Clear(_rStamp); _rGen = 1; }
@@ -113,7 +149,7 @@ public sealed partial class World
             _rStamp[c] = _rGen; _rDist[c] = cost; _rParent[c] = parent;
             _rPq.Enqueue(c, (long)cost * N + c);
         }
-        if (Carries(TransitKind.Bus, from) && Carries(TransitKind.Bus, to)) Push(from, 0, -1);
+        if (Carries(kind, from) && Carries(kind, to)) Push(from, 0, -1);
         while (_rPq.TryDequeue(out int c, out long pri))
         {
             int cost = (int)(pri / N);
@@ -132,10 +168,10 @@ public sealed partial class World
                 int nx = x + Dx4[k], ny = y + Dy4[k];
                 if (!InBounds(nx, ny)) continue;
                 int i = Idx(nx, ny);
-                if (Carries(TransitKind.Bus, i)) Push(i, cost + RideCost(TransitKind.Bus, i), c);
+                if (Carries(kind, i)) Push(i, cost + RideCost(kind, i), c);
             }
         }
-        _busRoutes[(from, to)] = result;
+        _busRoutes[(kind, from, to)] = result;
         return result;
     }
 

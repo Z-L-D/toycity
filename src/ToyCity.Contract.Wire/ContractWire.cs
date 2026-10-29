@@ -92,7 +92,7 @@ public static class ContractWire
         var m = new W.GameToCity { ServiceQuality = g.ServiceQuality, Status = g.Status };
         foreach (var l in g.Lines)
         {
-            var w = new W.TransitLine { LineId = l.LineId, Name = l.Name, Color = l.Color, HeadwayMinutes = l.HeadwayMinutes, FareCents = l.FareCents, SeatsPerHour = l.SeatsPerHour };
+            var w = new W.TransitLine { LineId = l.LineId, Name = l.Name, Color = l.Color, HeadwayMinutes = l.HeadwayMinutes, FareCents = l.FareCents, SeatsPerHour = l.SeatsPerHour, Mode = (W.TransitMode)l.Mode };
             w.StopLeaseIds.AddRange(l.StopLeaseIds);
             m.Lines.Add(w);
         }
@@ -111,7 +111,7 @@ public static class ContractWire
     public static C.GameToCity FromWire(W.GameToCity m)
     {
         var g = new C.GameToCity { ServiceQuality = m.ServiceQuality, Status = m.Status };
-        foreach (var l in m.Lines) g.Lines.Add(new C.TransitLine(l.LineId, l.Name, l.Color, l.StopLeaseIds.ToArray(), l.HeadwayMinutes, l.FareCents, l.SeatsPerHour));
+        foreach (var l in m.Lines) g.Lines.Add(new C.TransitLine(l.LineId, l.Name, l.Color, l.StopLeaseIds.ToArray(), l.HeadwayMinutes, l.FareCents, l.SeatsPerHour, (C.TransitMode)l.Mode));
         foreach (var (k, v) in m.JobsByLease) g.JobsByLease[k] = v;
         foreach (var i in m.Incidents) g.Incidents.Add(FromWire(i));
         foreach (var (k, v) in m.Paid) g.Paid[k] = v;

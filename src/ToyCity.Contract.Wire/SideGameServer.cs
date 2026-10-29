@@ -148,6 +148,12 @@ public sealed class SideGameServer
             return a.Route == null ? null : ContractWire.FromWire(a.Route);
         }
 
+        public C.StreetRoute? RouteFor(C.TransitMode mode, int fromBuildingId, int toBuildingId)
+        {
+            var a = Ask(new W.Query { Track = new W.TrackQuery { Mode = (W.TransitMode)mode, FromBuilding = fromBuildingId, ToBuilding = toBuildingId } });
+            return a.Route == null ? null : ContractWire.FromWire(a.Route);
+        }
+
         public int DistrictOf(int cell) => Ask(new W.Query { DistrictOf = cell }).District;
 
         public ulong Hash(int a, int b, int c, int d) => Ask(new W.Query { Hash = new W.HashQuery { A = a, B = b, C = c, D = d } }).Hash;
