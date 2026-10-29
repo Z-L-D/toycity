@@ -290,6 +290,13 @@ public partial class Main : Node
         }
         // One view per few frames: set it, let it draw, save it.
         if (_wait-- > 0) return;
+        if (_shot == ShotViews.Length && _graphicsPanel!.Visible)
+        {
+            // Last, the graphics options over the free camera's view.
+            GetViewport().GetTexture().GetImage().SavePng($"{_shots}/view-{_shot}-graphics.png");
+            GetTree().Quit(0);
+            return;
+        }
         if (_shot > 0)
         {
             var (pr, pz, pm) = ShotViews[_shot - 1];
@@ -299,14 +306,7 @@ public partial class Main : Node
         }
         if (_shot == ShotViews.Length)
         {
-            // Last, the graphics options over the free camera's view.
-            if (_graphicsPanel!.Visible)
-            {
-                GetViewport().GetTexture().GetImage().SavePng($"{_shots}/view-{_shot}-graphics.png");
-                GetTree().Quit(0);
-                return;
-            }
-            _graphicsPanel.Visible = true;
+            _graphicsPanel!.Visible = true;
             _wait = 5;
             return;
         }
