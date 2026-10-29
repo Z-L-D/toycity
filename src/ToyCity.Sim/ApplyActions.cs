@@ -48,6 +48,7 @@ public sealed partial class World
             case OfferLeaseAction a: ApplyOfferLease(a); break;
             case AnswerOfferAction a: ApplyAnswerOffer(a); break;
             case DelinkAction a: ApplyDelink(a); break;
+            case OpenTenderAction a: ApplyOpenTender(a); break;
             case ForkAction a: ApplyFork(a); break;
             case SetConsentAction a: ApplySetConsent(a); break;
             case SetCityRuleAction a: ApplySetCityRule(a); break;

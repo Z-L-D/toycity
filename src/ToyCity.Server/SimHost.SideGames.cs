@@ -18,6 +18,9 @@ public sealed partial class SimHost
     {
         SideGameCatalog.Register(TransportGame.Id, () => new TransportGame());
         SideGameCatalog.Register(EmergencyGame.Id, () => new EmergencyGame());
+        // A second transit company the mayor can invite in to compete for the districts.
+        SideGameCatalog.Register(TransportGame.RivalId, () => new TransportGame(TransportGame.RivalId, TransportGame.RivalName));
+        SideGameCatalog.Offer(TransportGame.RivalId, TransportGame.RivalName, "A rival transit company: buses, trams, trains and freight, competing with the first for riders and district franchises.");
     }
     readonly Dictionary<string, byte[]> _sentViews = new();
     string _viewOwners = "";

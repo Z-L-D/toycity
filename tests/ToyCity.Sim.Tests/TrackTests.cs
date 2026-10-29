@@ -16,7 +16,7 @@ public class TrackTests
     /// A home and a factory 26 cells apart on a slow dirt road, with a track between them (a rail line or a tram
     /// avenue), a stop at each end and a depot for the company. The player runs the company and leases it all.
     /// </summary>
-    static (World W, Building Home) Lab(TransitMode mode)
+    internal static (World W, Building Home) Lab(TransitMode mode)
     {
         SideGameCatalog.Register(TransportGame.Id, () => new TransportGame());
         var (w, x, y) = Fixture.FlatSite();
@@ -48,7 +48,7 @@ public class TrackTests
         return (w, home);
     }
 
-    static int OpenLine(World w, TransitMode mode, int vehicles, string name = "Line")
+    internal static int OpenLine(World w, TransitMode mode, int vehicles, string name = "Line")
     {
         var save = new TW.SaveLine { Name = name, FareCents = 100, Mode = (TW.Mode)(int)mode };
         save.StopLeaseIds.AddRange(w.Leases.Where(l => l.Kind == TransitModes.StopKind(mode)).Select(l => l.Id));

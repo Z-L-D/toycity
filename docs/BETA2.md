@@ -516,7 +516,7 @@ this: trains run at grade.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Bus | $3,000 | 40 | 12 | 2 | 12 years | $150 | $300, 2 days |
 | Tram | $12,000 | 150 | 8 | 2 | 25 years | $500 | $1,200, 3 days |
-| Train | $20,000 | 400 | 6 | 3 | 30 years | $1,200 | $3,000, 4 days |
+| Train | $12,000 (was $20,000 until part 11) | 400 | 6 | 3 | 30 years | $1,200 | $3,000, 4 days |
 
 ### Contract v1.2 (additive)
 
@@ -561,3 +561,80 @@ this: trains run at grade.
   for the ambulance crews; trams and their fleets save and load; fleets, timetables and servicing replay; a tram line
   on another process routes along its track and ends in the same state.
 - `CompanyTests` (client): the line's timetable and service links reach the server.
+
+## Part 11: freight, signals and franchise competition
+
+### Freight
+
+- New building: the Freight Depot (`freight-depot`, 3×3, $400 a month), leased like any transit lot.
+- Each day a factory makes half a ton of goods a job, and a shop wants a quarter of a ton a job. Each counts at the
+  nearest leased freight depot within 10 cells (anyone's), so two depots never share the same goods.
+- A freight line runs trucks (on streets) or freight trains (on rail lines) between the company's freight depots, and
+  can run on from its last depot to the map edge. It needs two depots, or one and the edge.
+- Its capacity is one load a departure over a 16-hour day: a truck carries 20 tons, a freight train 600. It picks up
+  the goods ready at its depots in order, drops them at the line's other depots whose shops want them, and takes the
+  rest to the edge if it runs there. Goods with nowhere to go stay put. Each ton earns $3 plus a dollar for every 20
+  minutes of round trip, credited to the depot it was picked up at (the city's fare tax applies).
+- Goods carried to the edge are exports. Last month's daily exports add twice their tonnage (up to 600) to industry's
+  export demand, and the demand panel says so.
+
+| | Price | Tons | Per freight depot | Crew | Life | Service | Repair |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Truck | $4,000 | 20 | 10 | 1 | 10 years | $150 | $300, 2 days |
+| Freight train | $25,000 | 600 | 4 | 2 | 30 years | $1,200 | $3,000, 4 days |
+
+### Signals
+
+- The company can put up signals on any cell its trains run over: $250 each, up to 200. Each click on the map goes
+  block signal → path signal → none.
+- A train holds the track it is on, from the signal it passed to the next one. A block signal (or leaving a station)
+  reserves the whole block ahead, branches and all; a path signal reserves only the way that train takes. A cell can
+  be held 60 minutes an hour. A line whose track is asked for more runs less often, and its card says the signals
+  hold it back.
+- Without signals the whole line is one block, so one train at a time. One signal halfway lets two share it. Path
+  signals matter where two of the company's lines (passenger or freight) share or cross track.
+- The company map shades the held track (green has room, amber nearly full, red over-asked) and draws the signals.
+
+### Two companies and franchises
+
+- A second transit company, Metro Lines Ltd. (`transport-2`), is registered on every server but not attached. The
+  mayor invites it in from the seat dialog. It is a full company with its own seat, so a second player can run it.
+- The mayor (or a deputy for transit) puts a district's transit franchise out to tender for 6 to 36 months. Companies
+  have 14 days to bid, at least $100 a month of franchise. Bids are sealed: the mayor sees how many are in, each
+  company only its own.
+- When the tender closes the highest bid wins (ties go to the lower id), pays the city, and gains 150 rating in the
+  district. While the franchise runs, no other company may lease new transit lots there, and the mayor can't tender
+  it again. If every player allows exclusive rights, it is also exclusive: rival lines skip their stops there, and
+  the city's own buses don't stop there either. Exclusive rights bought as a paid action can't be bought in a district
+  another company holds the franchise for.
+- On autopilot a company bids once for each tender where it has lots: the minimum times (2 + its lots there, up to 6)
+  ÷ 2, keeping $20,000 in hand.
+
+### Contract v1.3 (additive)
+
+- `CityToGame.Tenders`, `Franchises` (anyone's franchise or exclusive rights in force) and `Freight` (each freight
+  depot's tons ready and wanted today).
+- `GameToCity.FreightPicked` and `FreightDropped` by depot lease; lease 0 is the map edge. The city clamps them to
+  what was ready and wanted, and to what was picked up.
+- `AuthorityAction.Amount`, for a `"bid"`. Results come back as kind `"bid"` (placed, nothing owed) and, when the
+  tender closes, `"franchise"` (won with the cost to pay, or lost).
+- `ICityQueries.RouteFor(mode, from, -1)`: the route from a stop to the nearest map edge.
+
+### Clients
+
+- Web and Godot company views: freight lines (trucks or freight trains, on to the edge or not), tons carried, goods at
+  each freight depot, the signal tool and held track on the map, tenders with bids and franchises in force on the
+  Standing tab, and a switch between the two companies when both are in town. The map shows every company's routes.
+- Seat dialog: invite the rival, put a district out to tender, the franchises in force, and last month's freight.
+
+### Tests
+
+- `FreightTests` (sim): trucks carry goods from the factories to the shops; goods carried to the edge are exports
+  and raise industry's demand; freight on another process carries the same goods; freight saves and loads.
+- `SignalTests` (sim): without signals only one train uses the line, a path signal halfway lets two share it, taking
+  it down puts it back; signals save and load.
+- `FranchiseTests` (sim): two companies bid and the highest wins, the loser can't lease there and the franchise
+  can't be re-tendered, and it replays; on autopilot a company bids where it has lots; the rival is listed until
+  invited.
+- `FranchiseClientTests` (client, dedicated server): the mayor invites the rival, two players take the two companies,
+  the mayor tenders a district, both bid from the Standing tab and the higher wins.

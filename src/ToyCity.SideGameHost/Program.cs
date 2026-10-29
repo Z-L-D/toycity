@@ -20,6 +20,7 @@ for (int i = 0; i < args.Length - 1; i++)
 var games = new Dictionary<string, Func<ISideGame>>
 {
     [TransportGame.Id] = () => new TransportGame(),
+    [TransportGame.RivalId] = () => new TransportGame(TransportGame.RivalId, TransportGame.RivalName),
     [EmergencyGame.Id] = () => new EmergencyGame(),
 };
 var server = new SideGameServer(id => games.TryGetValue(id, out var f) ? f() : null, Console.WriteLine);

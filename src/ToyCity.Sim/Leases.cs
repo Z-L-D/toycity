@@ -66,11 +66,12 @@ public sealed partial class World
         "fire-station" or "police-station" => new(LeaseMode.PublicService, 0, 0, 400, 0, 3),
         "clinic" => new(LeaseMode.PublicService, 0, 0, 300, 0, 3),
         "hospital" => new(LeaseMode.PublicService, 0, 0, 800, 0, 3),
-        _ => new(LeaseMode.Business, kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "tram-stop" => 60, "rail-station" => 150, _ => 40 }, 100, 0, 0, 3),
+        _ => new(LeaseMode.Business, kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "tram-stop" => 60, "rail-station" => 150, "freight-depot" => 400, _ => 40 }, 100, 0, 0, 3),
     };
 
     /// <summary>Lots that run the city's transit rather than its services.</summary>
-    public static bool IsTransitLot(string kind) => kind.StartsWith("bus-", StringComparison.Ordinal) || kind.StartsWith("tram-", StringComparison.Ordinal) || kind.StartsWith("rail-", StringComparison.Ordinal);
+    public static bool IsTransitLot(string kind) => kind.StartsWith("bus-", StringComparison.Ordinal) || kind.StartsWith("tram-", StringComparison.Ordinal) || kind.StartsWith("rail-", StringComparison.Ordinal)
+        || kind == "freight-depot";
 
     /// <summary>The standard terms for a particular building: rent by its size (a bus bay costs more than a stop).</summary>
     public LeaseTerms StandardTermsFor(Building b) =>
@@ -96,7 +97,7 @@ public sealed partial class World
 
     public string LotName(Building b) => $"the {TypeOf(b).Name.ToLowerInvariant()} on {StreetNear(b.X, b.Y)}";
 
-    string GameName(string id) => SideGame(id)?.Game.Manifest.Name ?? id;
+    public string GameName(string id) => SideGame(id)?.Game.Manifest.Name ?? id;
 
     void ApplyLeaseLot(LeaseLotAction a) => GrantLease(a.GameId, a.BuildingId, a.Terms, byHand: true);
 
@@ -117,6 +118,7 @@ public sealed partial class World
             return null;
         }
         int district = DistrictOf(b.X, b.Y);
+        if (FranchiseBars(gameId, district, kind) is { } barred) { Reject(barred, b.X, b.Y); return null; }
         if (!byHand && RatingOf(gameId, district) < RefuseRating)
         {
             Reject($"{DistrictName(district)} won't have more of {GameName(gameId)}: its rating there is {RatingOf(gameId, district)}.", b.X, b.Y);

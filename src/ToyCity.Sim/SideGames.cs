@@ -42,6 +42,16 @@ public static class SideGameCatalog
         lock (Factories) Factories[id] = factory;
     }
 
+    static readonly List<(string Id, string Name, string About)> Invites = new();
+
+    /// <summary>A registered side game a mayor may add to their city, such as a rival company; listed until the city has it.</summary>
+    public static void Offer(string id, string name, string about)
+    {
+        lock (Invites) if (!Invites.Any(i => i.Id == id)) Invites.Add((id, name, about));
+    }
+
+    public static List<(string Id, string Name, string About)> Invitable() { lock (Invites) return Invites.Where(i => Has(i.Id)).ToList(); }
+
     public static bool Has(string id) { lock (Factories) return Factories.ContainsKey(id) || Scoped.Value != null; }
 
     public static ISideGame Create(string id)
@@ -144,6 +154,7 @@ public sealed partial class World : IDisposable
     /// <summary>Each side game's day, after the city's: what the city tells it, its tick, and what it tells the city.</summary>
     void RunSideGames()
     {
+        _freightToday = null;
         if (SideGames.Count == 0) { _incidents.Clear(); _authorityResults.Clear(); return; }
         CountLineRiders();
         var incidents = _incidents.ToList();
@@ -170,6 +181,8 @@ public sealed partial class World : IDisposable
             input.Incidents.AddRange(incidents.Where(i => i.Source != hg.Id));
             if (newMonth && !InStasis) BillLeases(hg, input);
             FillOffers(hg, input, results);
+            FillTenders(hg, input);
+            FillFreight(hg, input);
             var output = new GameToCity();
             if (hg.MissedTick == Tick) output = Held(hg, "");
             else
@@ -182,6 +195,7 @@ public sealed partial class World : IDisposable
             hg.Last = output;
             foreach (var inc in output.Incidents) TakeIncident(hg, inc);
             SettleLeases(hg, input, output);
+            TakeFreight(hg, output);
             TakeAuthorityActions(hg, output);
             TakeResponses(hg, output);
         }

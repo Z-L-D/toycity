@@ -12,9 +12,12 @@ public static class ContractInfo
     /// <summary>
     /// Additions since v1 froze, each optional for a side game to use: 1 added incident responses and holds
     /// (<see cref="GameToCity.Responses"/>, <see cref="GameToCity.Holding"/>) and <see cref="ICityQueries.Area"/>; 2 added
-    /// tram and rail lines (<see cref="TransitLine.Mode"/>) and <see cref="ICityQueries.RouteFor"/>.
+    /// tram and rail lines (<see cref="TransitLine.Mode"/>) and <see cref="ICityQueries.RouteFor"/>; 3 added franchise
+    /// tenders (<see cref="CityToGame.Tenders"/>, <see cref="CityToGame.Franchises"/>, bids as <see cref="AuthorityAction"/>
+    /// with an amount) and freight (<see cref="CityToGame.Freight"/>, <see cref="GameToCity.FreightPicked"/>,
+    /// <see cref="GameToCity.FreightDropped"/>, and routes to the map edge).
     /// </summary>
-    public const int Minor = 2;
+    public const int Minor = 3;
 }
 
 /// <summary>What a side game tells the city when it registers.</summary>
@@ -76,8 +79,24 @@ public sealed record Bill(int LeaseId, string Label, long Amount);
 /// </summary>
 public sealed record PaidActionOffer(string Kind, string Name, long Cost, bool Allowed, string WhyNot);
 
-/// <summary>A side game buys a paid action in a district.</summary>
-public sealed record AuthorityAction(string Kind, int DistrictId);
+/// <summary>A side game buys a paid action in a district. v1.3: kind "bid" offers Amount for the district's open franchise tender.</summary>
+public sealed record AuthorityAction(string Kind, int DistrictId, long Amount = 0);
+
+/// <summary>
+/// v1.3: the city has put a district's transit franchise out to tender. Bids close in DaysLeft days; the highest wins
+/// and pays its bid. Exclusive: the winner also gets exclusive rights there (only when every player allows them);
+/// otherwise the franchise means only the winner may lease new transit lots in the district. YourBid: this game's bid.
+/// </summary>
+public sealed record Tender(int DistrictId, int Months, int DaysLeft, bool Exclusive, long MinBid, long YourBid);
+
+/// <summary>v1.3: who holds a district's transit franchise or exclusive rights, and for how much longer.</summary>
+public sealed record Franchise(int DistrictId, string Holder, bool Exclusive, int DaysLeft);
+
+/// <summary>
+/// v1.3: goods at a leased freight depot today, in tons: ready to ship from the industry in its reach, and wanted by
+/// the shops in its reach.
+/// </summary>
+public sealed record FreightLot(int LeaseId, int TonsReady, int TonsWanted);
 
 /// <summary>What became of a paid action, the day after. When Ok the side game pays Cost; otherwise nothing is owed. Rating: the side game's rating in the district now.</summary>
 public sealed record AuthorityResult(string Kind, int DistrictId, bool Ok, long Cost, string Text, int Rating);
@@ -105,6 +124,12 @@ public sealed class CityToGame
     public readonly List<PaidActionOffer> Offers = new();
     /// <summary>What became of yesterday's paid actions.</summary>
     public readonly List<AuthorityResult> AuthorityResults = new();
+    /// <summary>v1.3: franchise tenders open today.</summary>
+    public readonly List<Tender> Tenders = new();
+    /// <summary>v1.3: franchises and exclusive rights in force today, any game's.</summary>
+    public readonly List<Franchise> Franchises = new();
+    /// <summary>v1.3: goods at this game's leased freight depots.</summary>
+    public readonly List<FreightLot> Freight = new();
 }
 
 /// <summary>
@@ -155,6 +180,10 @@ public sealed class GameToCity
     /// nor goes out by itself) until a response for it comes back.
     /// </summary>
     public readonly List<long> Holding = new();
+    /// <summary>v1.3: tons of goods collected today at each leased freight depot (at most its tons ready).</summary>
+    public readonly Dictionary<int, int> FreightPicked = new();
+    /// <summary>v1.3: tons delivered today to each leased freight depot's shops, or to the map edge under lease id 0 (exports).</summary>
+    public readonly Dictionary<int, int> FreightDropped = new();
 }
 
 /// <summary>A route along the city's streets between two cells, at today's travel times.</summary>
@@ -176,6 +205,7 @@ public interface ICityQueries
     /// <summary>
     /// v1.2: the fastest route a vehicle of this mode can take between two stops (by building id), along the paths it
     /// runs on, at today's travel times; null when there is none. Buses go stop to stop by street, as <see cref="Route"/>.
+    /// v1.3: toBuildingId -1 asks for the way to the nearest map edge, where goods leave the city.
     /// </summary>
     StreetRoute? RouteFor(TransitMode mode, int fromBuildingId, int toBuildingId) => null;
 }

@@ -332,6 +332,8 @@ public sealed partial class PanelModel
     }
 
     (SeatLevel Level, AutopilotStyle Style, long Cap) _seatDraft;
+    /// <summary>Which free district the seat dialog offers to put out to tender.</summary>
+    int _tenderPick;
     int _newSize = 128;
     bool _newStarter, _newBench;
     // The lease terms dialog: what it's for, the terms being edited, and what OK does with them.
@@ -353,7 +355,7 @@ public sealed partial class PanelModel
         new()
         {
             Mode = LeaseMode.LeaseBusiness, TaxTenths = 100, NoticeMonths = 3,
-            RentPerMonth = kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "tram-stop" => 60, "rail-station" => 150, _ => 40 },
+            RentPerMonth = kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "tram-stop" => 60, "rail-station" => 150, "freight-depot" => 400, _ => 40 },
         };
 
     bool Allowed(Mechanic m) => Civic?.Consent?.Rows.FirstOrDefault(r => r.Mechanic == m)?.Effective ?? false;
@@ -476,7 +478,10 @@ public sealed partial class PanelModel
                 CloseDialog();
                 return;
             }
-            case "claim" or "leave":
+            case "invite": Send(new PAction { Attach = new AttachSideGame { Game = a[1] } }); return;
+            case "tender-pick": _tenderPick += I(1); Changed(); return;
+            case "tender": Send(new PAction { OpenTender = new OpenTender { District = I(1), Months = I(2) } }); return;
+                        case "claim" or "leave":
             {
                 bool claim = a[0] == "claim";
                 Send(new PAction { Seat = new SetSeat { Seat = a[1], Owner = claim ? Me() : "", Level = claim ? SeatLevel.SeatManual : SeatLevel.SeatCaretaker, SpendCap = 25000 } });

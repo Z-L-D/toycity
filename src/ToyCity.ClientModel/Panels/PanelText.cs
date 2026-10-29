@@ -670,8 +670,42 @@ public sealed partial class PanelModel
                 sb.Append($"[b]{Esc(s.Name)}[/b] {Small(Dim($"{(string.IsNullOrEmpty(s.Owner) ? "nobody runs it" : $"run by {Esc(s.Owner)}")} · {Levels[(int)s.Level].ToLowerInvariant()}"))}  "
                     + (s.Owner == Me() && s.Level == SeatLevel.SeatManual ? Link($"leave:{s.Id}", "Hand to the computer") : Link($"claim:{s.Id}", "Run it yourself")) + "\n");
         }
+        sb.Append(TransitText());
         sb.Append(PartingText());
         return sb.Append(Footer(Link("dialog:consent", "House rules…"), Link("dialog:council", "Deputies and council…"), Link("close", "Cancel"), $"[b]{Link("seat-apply", "Apply")}[/b]")).ToString();
+    }
+
+    /// <summary>
+    /// Transit competition: rival companies the mayor can invite in, and district franchises put out to tender. The
+    /// highest sealed bid wins and pays the city; the winner alone may lease new transit lots in the district, and with
+    /// exclusive rights allowed by everyone, only its lines stop there.
+    /// </summary>
+    string TransitText()
+    {
+        if (Civic == null) return "";
+        bool mayor = Mayor?.Owner == Me() || (string.IsNullOrEmpty(Mayor?.Owner) && !OnServer());
+        bool companies = Civic.SideGames.Any(g => g.LotKinds.Any(k => k.StartsWith("bus-", StringComparison.Ordinal) || k.StartsWith("rail-", StringComparison.Ordinal)));
+        if (!companies && Civic.Invitable.Count == 0) return "";
+        var sb = new StringBuilder(H4("Transit competition"));
+        if (mayor)
+            foreach (var g in Civic.Invitable)
+                sb.Append($"[b]{Esc(g.Name)}[/b]  {Link($"invite:{g.Id}", "Invite it in")}\n   {Small(Dim(Esc(g.Description)))}\n");
+        foreach (var f in Civic.Franchises.Where(f => f.Status != "none"))
+            sb.Append($"[b]{Esc(f.Name)}[/b]  ").Append(Small(Dim(f.Status == "open"
+                ? $"out to tender for {f.Months} months · {Plural(f.Bids, "bid")} in · closes in {Plural(f.DaysLeft, "day")}"
+                : $"{Esc(f.HolderName)} holds it{(f.Exclusive ? " exclusively" : "")} · paid {Money(f.Amount)} · {(f.DaysLeft + 29) / 30} months left"))).Append('\n');
+        var free = Civic.Franchises.Where(f => f.Status == "none").ToList();
+        if (mayor && companies && free.Count > 0)
+        {
+            var pick = free[((_tenderPick % free.Count) + free.Count) % free.Count];
+            sb.Append($"Put out to tender:  {Link("tender-pick:-1", "‹")} [b]{Esc(pick.Name)}[/b] {Link("tender-pick:1", "›")}  for  ")
+                .Append(string.Join("  ", new[] { 6, 12, 24, 36 }.Select(n => Link($"tender:{pick.District}:{n}", $"{n} months")))).Append('\n');
+            sb.Append(Small(Dim($"Companies have 14 days to bid; the highest bid wins and is paid to the city. {(Allowed(Mechanic.MechExclusiveRights) ? "Everyone allows exclusive rights, so the winner alone stops in the district." : "The winner alone may lease new transit lots there; rivals keep the stops they have.")}"
+                + (string.IsNullOrEmpty(pick.Last) ? "" : " " + Esc(pick.Last))))).Append('\n');
+        }
+        if (Civic.FreightExports > 0 || Civic.FreightDelivered > 0)
+            sb.Append(Small(Dim($"Company freight last month: {Num(Civic.FreightDelivered)} tons a day to shops, {Num(Civic.FreightExports)} tons a day exported."))).Append('\n');
+        return sb.ToString();
     }
 
     /// <summary>Parting ways: the mayor may cut players loose on the rules' grounds; anyone else may leave with a copy.</summary>

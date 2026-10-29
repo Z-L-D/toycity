@@ -9,12 +9,17 @@ namespace ToyCity.Transport;
 /// and rent, and a profit and loss for every route. Riders come from the city's commuters, who take a line when it
 /// beats driving or walking; the company sees yesterday's riders and boardings per stop and takes the fares. Each
 /// vehicle ages and wears; servicing at the depot keeps it going, neglect makes it break down. A line can run to a
-/// timetable, keeping the rest of its fleet as spares. It plays itself when nobody runs it (caretaker or autopilot),
-/// and takes commands from its owner when someone does.
+/// timetable, keeping the rest of its fleet as spares. Freight lines run trucks or freight trains between leased
+/// freight depots, carrying the city's goods to its shops and out to the map edge. Signals on the company's rail
+/// lines let more than one train use the track: a block signal reserves the whole block ahead, a path signal only
+/// the way the train takes. Two companies can run in one city and bid against each other for district franchises.
+/// It plays itself when nobody runs it (caretaker or autopilot), and takes commands from its owner when someone does.
 /// </summary>
 public sealed class TransportGame : ISideGame
 {
-    public const string Id = "transport";
+    /// <summary>The city's first transit company, and the rival a mayor can invite in.</summary>
+    public const string Id = "transport", RivalId = "transport-2";
+    public const string RivalName = "Metro Lines Ltd.";
     public const int BusPrice = 3_000, BusResale = 1_500;
     public const int WagePerBus = 500, UpkeepPerBus = 120;
     public const int SeatsPerBus = 40, BusesPerDepot = 12, DriversPerBus = 2, DepotStaff = 2;
@@ -24,6 +29,10 @@ public sealed class TransportGame : ISideGame
     /// <summary>Days between services unless the owner says otherwise.</summary>
     public const int DefaultServiceDays = 30;
     public const int MaxTimetable = 120, MaxServiceDays = 180;
+    /// <summary>What a signal costs to put up, and how many the company may have.</summary>
+    public const int SignalPrice = 250, MaxSignals = 200;
+    /// <summary>Hours a day freight runs.</summary>
+    public const int FreightHours = 16;
     static readonly string[] Palette = { "#e04f5f", "#3f88e0", "#2fa36b", "#e0a030", "#9b59b6", "#16a2b8", "#d35400", "#7f8c8d" };
 
     /// <summary>
@@ -31,20 +40,52 @@ public sealed class TransportGame : ISideGame
     /// the best its age allows, and that best falls over its life. Worn vehicles break down more often.
     /// </summary>
     public sealed record Spec(TransitMode Mode, string Word, string Plural, int Price, int Resale, int Wage, int Upkeep, int Seats, int PerDepot,
-        int Crew, int LifeYears, int WearPerDay, int RepairDays, int RepairCost, int ServiceCost);
+        int Crew, int LifeYears, int WearPerDay, int RepairDays, int RepairCost, int ServiceCost, bool Freight = false)
+    {
+        /// <summary>Where these vehicles live, and the kind of lot their line calls at. A freight vehicle's seats are tons.</summary>
+        public string Depot => Freight ? "freight-depot" : TransitModes.DepotKind(Mode);
+        public string Stop => Freight ? "freight-depot" : TransitModes.StopKind(Mode);
+    }
 
     public static readonly Spec[] Specs =
     {
         new(TransitMode.Bus, "bus", "buses", BusPrice, BusResale, WagePerBus, UpkeepPerBus, SeatsPerBus, BusesPerDepot, DriversPerBus, 12, 4, 2, 300, 150),
         new(TransitMode.Tram, "tram", "trams", 12_000, 5_000, 600, 300, 150, 8, 2, 25, 3, 3, 1_200, 500),
-        new(TransitMode.Rail, "train", "trains", 20_000, 9_000, 900, 700, 400, 6, 3, 30, 3, 4, 3_000, 1_200),
+        new(TransitMode.Rail, "train", "trains", 12_000, 5_500, 900, 700, 400, 6, 3, 30, 3, 4, 3_000, 1_200),
     };
 
-    public static Spec SpecOf(TransitMode m) => Specs[(int)m];
+    /// <summary>Freight: trucks on the streets and freight trains on the rail lines.</summary>
+    public static readonly Spec[] FreightSpecs =
+    {
+        new(TransitMode.Bus, "truck", "trucks", 4_000, 1_800, 450, 150, 20, 10, 1, 10, 5, 2, 300, 150, true),
+        new(TransitMode.Rail, "freight train", "freight trains", 25_000, 11_000, 900, 800, 600, 4, 2, 30, 3, 4, 3_000, 1_200, true),
+    };
 
-    public Manifest Manifest { get; } = new(Id, "Toy Transit Co.", ContractInfo.Version,
-        new[] { "bus-stop", "bus-depot", "tram-stop", "tram-depot", "rail-station", "rail-depot" },
-        "A transit company: bus, tram and train lines through leased stops, vehicles from leased depots, fares from the city's commuters.");
+    static readonly Spec[] AllSpecs = Specs.Concat(FreightSpecs).ToArray();
+
+    public static Spec SpecOf(TransitMode m) => Specs[(int)m];
+    public static Spec? FreightSpecOf(TransitMode m) => FreightSpecs.FirstOrDefault(s => s.Mode == m);
+
+    /// <summary>What a ton carried earns: more the longer the run.</summary>
+    public static int RatePerTon(int roundTrip) => 3 + roundTrip / 20;
+
+    readonly string _id;
+    readonly int _paletteOffset;
+
+    public TransportGame() : this(Id, "Toy Transit Co.") { }
+
+    /// <summary>A transit company under this catalogue id and starting name: the city's own, or a rival.</summary>
+    public TransportGame(string id, string name)
+    {
+        _id = id;
+        _name = name;
+        _paletteOffset = id == Id ? 0 : 4;
+        Manifest = new(id, name, ContractInfo.Version,
+            new[] { "bus-stop", "bus-depot", "tram-stop", "tram-depot", "rail-station", "rail-depot", "freight-depot" },
+            "A transit company: bus, tram and train lines through leased stops, freight between leased depots, vehicles from leased depots, fares from the city's commuters.");
+    }
+
+    public Manifest Manifest { get; }
 
     sealed class Money
     {
@@ -82,9 +123,17 @@ public sealed class TransportGame : ISideGame
         public int[] Boardings = Array.Empty<int>();
         public string Problem = "";
         public Money This = new(), Last = new();
+        /// <summary>A freight line (trucks or freight trains between freight depots), and whether it runs on to the map edge.</summary>
+        public bool Freight, ToEdge;
+        /// <summary>Freight carried today, in tons.</summary>
+        public int Tons;
+        /// <summary>The signals don't let it run as often as its vehicles could.</summary>
+        public bool SignalLimited;
         public int Buses => Fleet.Count;
-        public Spec Spec => SpecOf(Mode);
+        public Spec Spec => Freight ? FreightSpecOf(Mode)! : SpecOf(Mode);
     }
+
+    public enum SignalKind : byte { None = 0, Block = 1, Path = 2 }
 
     ulong _seed;
     string _name = "Toy Transit Co.";
@@ -108,13 +157,21 @@ public sealed class TransportGame : ISideGame
     readonly List<AuthorityAction> _buying = new();
     /// <summary>What the company has paid for, by district: a statue, and when its exclusive rights run out.</summary>
     readonly SortedDictionary<int, (bool Statue, long ExclusiveUntil)> _bought = new();
+    /// <summary>Franchises out to tender, and those in force (anyone's), as the city told it today.</summary>
+    readonly List<Tender> _tenders = new();
+    readonly List<Franchise> _franchises = new();
+    /// <summary>Goods at the company's freight depots today.</summary>
+    readonly List<FreightLot> _freight = new();
+    /// <summary>Signals on the company's rail lines, by cell; and how much of each hour each track cell is reserved, in minutes.</summary>
+    readonly SortedDictionary<int, SignalKind> _signals = new();
+    readonly SortedDictionary<int, int> _reserved = new();
 
     public void NewGame(ulong seed) => _seed = seed;
 
     int Buses => _lines.Sum(l => l.Buses);
-    int Owned(TransitMode m) => _lines.Where(l => l.Mode == m).Sum(l => l.Buses);
-    int Depots(TransitMode m) => _lots.Count(l => l.Kind == TransitModes.DepotKind(m));
-    int Capacity(TransitMode m) => Depots(m) * SpecOf(m).PerDepot;
+    int Owned(Spec s) => _lines.Where(l => l.Spec == s).Sum(l => l.Buses);
+    int Depots(Spec s) => _lots.Count(l => l.Kind == s.Depot);
+    int Capacity(Spec s) => Depots(s) * s.PerDepot;
     LeasedLot? Lot(int leaseId) => _lots.FirstOrDefault(l => l.LeaseId == leaseId);
 
     /// <summary>The best condition a vehicle of this age can be serviced back to: a new one 1000, one at the end of its life 300.</summary>
@@ -166,19 +223,22 @@ public sealed class TransportGame : ISideGame
         _open.Clear(); _open.AddRange(input.OpenLots);
         if (input.NewMonth) { _districts.Clear(); _districts.AddRange(input.Districts); }
         _offers.Clear(); _offers.AddRange(input.Offers);
+        _tenders.Clear(); _tenders.AddRange(input.Tenders);
+        _franchises.Clear(); _franchises.AddRange(input.Franchises);
+        _freight.Clear(); _freight.AddRange(input.Freight);
         HearStanding(input);
 
         // Lines lose stops the company no longer leases.
         foreach (var line in _lines)
         {
             int before = line.Stops.Count;
-            string kind = TransitModes.StopKind(line.Mode);
+            string kind = line.Spec.Stop;
             line.Stops.RemoveAll(s => Lot(s)?.Kind != kind);
             if (line.Stops.Count != before) { line.RouteDirty = true; Log($"The {line.Name} line lost a stop the company no longer leases."); }
         }
         // Too many vehicles for the depots: sell the extras.
-        foreach (var spec in Specs)
-            while (Owned(spec.Mode) > Capacity(spec.Mode) && _lines.Where(l => l.Mode == spec.Mode && l.Buses > 0).OrderBy(l => l.Riders).ThenBy(l => l.Id).FirstOrDefault() is { } spare)
+        foreach (var spec in AllSpecs)
+            while (Owned(spec) > Capacity(spec) && _lines.Where(l => l.Spec == spec && l.Buses > 0).OrderBy(l => l.Riders).ThenBy(l => l.Id).FirstOrDefault() is { } spare)
             {
                 SellOne(spare);
                 Log($"Sold a {spec.Word} from the {spare.Name} line: the depots have no room for it.");
@@ -190,7 +250,9 @@ public sealed class TransportGame : ISideGame
         if (input.NewMonth) CloseMonth(input, output);
         if (_operator != OperatorLevel.Manual) PlayItself(input, city);
         foreach (var line in _lines) if (line.RouteDirty) Route(line, city);
+        Plan();
         Publish(output);
+        CarryFreight(output);
     }
 
     /// <summary>The city's answers to yesterday's paid actions: pay for those that went ahead.</summary>
@@ -200,6 +262,7 @@ public sealed class TransportGame : ISideGame
         {
             int i = _districts.FindIndex(d => d.Id == r.DistrictId);
             if (i >= 0) _districts[i] = _districts[i] with { Rating = r.Rating };
+            if (r.Kind is "bid" or "franchise" && (!r.Ok || r.Cost == 0)) { Log(r.Text); continue; }
             if (!r.Ok) { Log($"Couldn't buy that: {r.Text}"); continue; }
             _cash -= r.Cost;
             _this.Standing += r.Cost;
@@ -266,7 +329,7 @@ public sealed class TransportGame : ISideGame
         {
             var spec = line.Spec;
             foreach (var v in line.Fleet) { v.Servicing = false; v.Running = false; }
-            if (line.ServiceDays > 0 && Depots(line.Mode) > 0
+            if (line.ServiceDays > 0 && Depots(spec) > 0
                 && line.Fleet.Where(v => v.BrokenUntil <= _tick && v.ServicedAt + line.ServiceDays <= _tick).OrderBy(v => v.ServicedAt).ThenBy(v => v.Id).FirstOrDefault() is { } due)
             {
                 due.Servicing = true;
@@ -277,7 +340,7 @@ public sealed class TransportGame : ISideGame
             var ready = line.Fleet.Where(v => v.BrokenUntil <= _tick && !v.Servicing).OrderByDescending(v => v.Condition).ThenBy(v => v.Id).ToList();
             line.Needed = line.Timetable > 0 && line.RoundTrip > 0 ? (line.RoundTrip + line.Timetable - 1) / line.Timetable : ready.Count;
             line.Running = 0;
-            if (line.RoundTrip == 0 || line.Stops.Count < 2) continue;
+            if (line.RoundTrip == 0 || !Runnable(line)) continue;
             foreach (var v in ready)
             {
                 if (line.Running >= line.Needed) break;
@@ -290,11 +353,12 @@ public sealed class TransportGame : ISideGame
                     Spend(line, spec.RepairCost);
                     var at = Lot(line.Stops[(int)(city.Hash((int)_tick, line.Id, v.Id, 0x6274) % (ulong)line.Stops.Count)]);
                     // A worn tram or train failing, or any badly worn vehicle, hurts people aboard.
-                    int severity = v.Condition < 300 || (line.Mode != TransitMode.Bus && v.Condition < 500) ? 2 : 1;
-                    string text = severity >= 2
+                    int severity = line.Freight ? 1 : v.Condition < 300 || (line.Mode != TransitMode.Bus && v.Condition < 500) ? 2 : 1;
+                    string text = line.Freight ? $"A {_name} {spec.Word} broke down on the {line.Name} run."
+                        : severity >= 2
                         ? $"A worn-out {_name} {spec.Word} broke down on the {line.Name} line and passengers were hurt."
                         : $"A {_name} {spec.Word} broke down on the {line.Name} line. Riders wait longer for a few days.";
-                    output.Incidents.Add(new Incident(0, "breakdown", at?.X ?? -1, at?.Y ?? -1, Id, $"{spec.Word} breakdown on the {line.Name} line", severity, text));
+                    output.Incidents.Add(new Incident(0, "breakdown", at?.X ?? -1, at?.Y ?? -1, _id, $"{spec.Word} breakdown on the {line.Name} line", severity, text));
                     Log($"A {spec.Word} broke down on the {line.Name} line{(v.Condition < 500 ? $" ({v.Condition / 10}% condition)" : "")}.");
                     continue;
                 }
@@ -356,7 +420,14 @@ public sealed class TransportGame : ISideGame
             Log($"Closed the books: {(_last.Profit >= 0 ? "profit" : "loss")} of ${Math.Abs(_last.Profit):N0}.");
     }
 
-    List<int> RunningStops(Line line) => line.Stops.Where(s => !_closedUntil.ContainsKey(s)).ToList();
+    /// <summary>The line's stops open today: not shut by a disaster, and not in a district another company holds exclusively.</summary>
+    List<int> RunningStops(Line line) => line.Stops.Where(s => !_closedUntil.ContainsKey(s) && !Barred(s)).ToList();
+
+    bool Barred(int leaseId) => Lot(leaseId) is { } lot && _franchises.Any(f => f.Exclusive && f.Holder != _id && f.DistrictId == lot.DistrictId);
+
+    /// <summary>Whether the line has enough stops to run: two, or for freight one and the run out to the edge.</summary>
+    static bool Runnable(Line line) => line.Stops.Count >= 2 || (line.Freight && line.ToEdge && line.Stops.Count >= 1);
+    static int StopsNeeded(Line line) => line.Freight && line.ToEdge ? 1 : 2;
 
     /// <summary>Times the line along the streets and lays out its route for drawing.</summary>
     void Route(Line line, ICityQueries city)
@@ -364,7 +435,7 @@ public sealed class TransportGame : ISideGame
         line.RouteDirty = false;
         line.RoundTrip = 0;
         line.RouteCells = Array.Empty<int>();
-        if (line.Stops.Count < 2) return;
+        if (!Runnable(line)) return;
         var cells = new List<int>();
         int minutes = 0;
         for (int i = 0; i + 1 < line.Stops.Count; i++)
@@ -380,8 +451,105 @@ public sealed class TransportGame : ISideGame
             if (cells.Count > 0) cells.RemoveAt(cells.Count - 1);
             cells.AddRange(r.Cells);
         }
+        if (line.ToEdge)
+        {
+            // On from the last depot to the map edge, where the goods leave the city (contract v1.3).
+            var last = Lot(line.Stops[^1]);
+            if (last == null || city.RouteFor(line.Mode, last.BuildingId, -1) is not { } edge) return;
+            minutes += edge.Minutes + 1;
+            if (cells.Count > 0) cells.RemoveAt(cells.Count - 1);
+            cells.AddRange(edge.Cells);
+        }
         line.RoundTrip = minutes * 11 / 10 * 2 + TurnaroundMinutes;
         line.RouteCells = cells.ToArray();
+    }
+
+    /// <summary>Each line's day: what stops it running, if anything, and how often it goes, the signals allowing.</summary>
+    void Plan()
+    {
+        foreach (var line in _lines)
+        {
+            line.Headway = 0; line.Seats = 0; line.SignalLimited = false;
+            line.EffectiveFare = Math.Min(line.FareCents, FareCap(line) is int cap and >= 0 ? cap : int.MaxValue);
+            var stops = RunningStops(line);
+            var spec = line.Spec;
+            line.Problem =
+                Depots(spec) == 0 ? $"No depot: lease a {DepotName(spec)} to keep {spec.Plural}." :
+                !Runnable(line) ? (line.Freight ? "A freight line needs two depots, or one and the run out to the edge." : "A line needs at least two stops.") :
+                line.RoundTrip == 0 ? (line.Mode == TransitMode.Bus ? $"No street route joins its {(line.Freight ? "depots" : "stops")}{(line.ToEdge ? " and the edge" : "")}." : $"No {(line.Mode == TransitMode.Tram ? "tram track" : "rail line")} joins its {(line.Freight ? "depots" : "stops")}{(line.ToEdge ? " and the edge" : "")}.") :
+                line.Buses == 0 ? $"No {spec.Plural} on it." :
+                line.Running == 0 ? $"Every {spec.Word} is in the workshop." :
+                stops.Count < StopsNeeded(line) ? (line.Stops.Any(Barred) ? "Its stops are in a district where another company holds exclusive rights." : "Too many of its stops are closed.") : "";
+            if (line.Problem.Length > 0) continue;
+            line.Headway = Math.Max(MinHeadway, line.RoundTrip / line.Running);
+            if (line.Timetable > 0) line.Headway = Math.Max(line.Headway, line.Timetable);
+        }
+        Signal();
+    }
+
+    /// <summary>
+    /// Rail capacity. Each train holds the track it is on: from the signal it passed to the next one, and with a block
+    /// signal (or none, leaving a station) the whole block it enters, branches and all. A path signal reserves only the
+    /// way the train takes. A cell can be held 60 minutes an hour; a line whose track is asked for more runs less often.
+    /// Without signals the whole line is one block, so only one train can be on it.
+    /// </summary>
+    void Signal()
+    {
+        _reserved.Clear();
+        var rail = _lines.Where(l => l.Mode == TransitMode.Rail && l.Problem.Length == 0 && l.RouteCells.Length > 1 && l.Headway > 0).ToList();
+        if (rail.Count == 0) return;
+        // The company's track, split into blocks at the signals.
+        var next = new Dictionary<int, List<int>>();
+        void Link(int a, int b) { (next.TryGetValue(a, out var la) ? la : next[a] = new()).Add(b); (next.TryGetValue(b, out var lb) ? lb : next[b] = new()).Add(a); }
+        foreach (var l in rail) for (int i = 0; i + 1 < l.RouteCells.Length; i++) Link(l.RouteCells[i], l.RouteCells[i + 1]);
+        var blockOf = new Dictionary<int, int>();
+        var blocks = new List<List<int>>();
+        foreach (int start in next.Keys.OrderBy(c => c))
+        {
+            if (blockOf.ContainsKey(start) || _signals.ContainsKey(start)) continue;
+            var cells = new List<int>();
+            var todo = new Stack<int>();
+            todo.Push(start);
+            blockOf[start] = blocks.Count;
+            while (todo.Count > 0)
+            {
+                int c = todo.Pop();
+                cells.Add(c);
+                foreach (int n in next[c])
+                    if (!blockOf.ContainsKey(n) && !_signals.ContainsKey(n)) { blockOf[n] = blocks.Count; todo.Push(n); }
+            }
+            blocks.Add(cells);
+        }
+        var load = new Dictionary<int, int>();
+        foreach (var l in rail)
+        {
+            var cells = l.RouteCells;
+            int oneWay = Math.Max(1, (l.RoundTrip - TurnaroundMinutes) / 2);
+            int from = 0;
+            for (int i = 1; i <= cells.Length; i++)
+            {
+                if (i < cells.Length && !_signals.ContainsKey(cells[i])) continue;
+                // A section: from the signal at cells[from] (or the line's end) to the next signal.
+                var kind = _signals.GetValueOrDefault(cells[from]);
+                var held = new HashSet<int>();
+                for (int k = from; k < i; k++) held.Add(cells[k]);
+                if (kind != SignalKind.Path)
+                    foreach (int k in held.ToList()) if (blockOf.TryGetValue(k, out int b)) held.UnionWith(blocks[b]);
+                int minutes = Math.Max(1, oneWay * (i - from) / cells.Length);
+                // Trains both ways each hour, each holding this much track for the section's minutes.
+                int minutesPerHour = 2 * 60 * minutes / l.Headway;
+                foreach (int c in held) load[c] = load.GetValueOrDefault(c) + minutesPerHour;
+                from = i;
+            }
+        }
+        foreach (var (c, m) in load) _reserved[c] = m;
+        foreach (var l in rail)
+        {
+            int most = l.RouteCells.Max(c => load.GetValueOrDefault(c));
+            if (most <= 60) continue;
+            l.Headway = (l.Headway * most + 59) / 60;
+            l.SignalLimited = true;
+        }
     }
 
     /// <summary>What the company runs today, and what it tells the city.</summary>
@@ -390,23 +558,13 @@ public sealed class TransportGame : ISideGame
         int quality = 0, running = 0, riders = 0;
         foreach (var line in _lines)
         {
-            line.Headway = 0; line.Seats = 0;
-            line.EffectiveFare = Math.Min(line.FareCents, FareCap(line) is int cap and >= 0 ? cap : int.MaxValue);
+            if (line.Problem.Length > 0 || line.Headway == 0) continue;
             var stops = RunningStops(line);
             var spec = line.Spec;
-            line.Problem =
-                Depots(line.Mode) == 0 ? $"No depot: lease a {DepotName(line.Mode)} to keep {spec.Plural}." :
-                line.Stops.Count < 2 ? "A line needs at least two stops." :
-                line.RoundTrip == 0 ? (line.Mode == TransitMode.Bus ? "No street route joins its stops." : $"No {(line.Mode == TransitMode.Tram ? "tram track" : "rail line")} joins its stops.") :
-                line.Buses == 0 ? $"No {spec.Plural} on it." :
-                line.Running == 0 ? $"Every {spec.Word} is in the workshop." :
-                stops.Count < 2 ? "Too many of its stops are closed." : "";
-            if (line.Problem.Length > 0) continue;
-            line.Headway = Math.Max(MinHeadway, line.RoundTrip / line.Running);
-            if (line.Timetable > 0) line.Headway = Math.Max(line.Headway, line.Timetable);
             line.DaysRun++;
             if (line.Running >= line.Needed) line.DaysOnTime++;
             line.Seats = spec.Seats * 60 / line.Headway;
+            if (line.Freight) continue;
             output.Lines.Add(new TransitLine(line.Id, line.Name, line.Color, stops, line.Headway, line.EffectiveFare, line.Seats, line.Mode));
             running++;
             riders += line.Riders;
@@ -419,14 +577,14 @@ public sealed class TransportGame : ISideGame
         _quality = running == 0 ? 50 : quality / running;
         output.ServiceQuality = _quality;
         // Drivers and mechanics work at the depots of each mode.
-        foreach (var spec in Specs)
+        foreach (var spec in AllSpecs)
         {
-            var depots = _lots.Where(l => l.Kind == TransitModes.DepotKind(spec.Mode)).ToList();
-            int owned = Owned(spec.Mode);
+            var depots = _lots.Where(l => l.Kind == spec.Depot).ToList();
+            int owned = Owned(spec);
             for (int i = 0; i < depots.Count; i++)
             {
                 int share = owned / depots.Count + (i < owned % depots.Count ? 1 : 0);
-                output.JobsByLease[depots[i].LeaseId] = share * spec.Crew + DepotStaff;
+                output.JobsByLease[depots[i].LeaseId] = output.JobsByLease.GetValueOrDefault(depots[i].LeaseId, DepotStaff) + share * spec.Crew;
             }
         }
         output.LeaseRequests.AddRange(_wanted);
@@ -436,7 +594,65 @@ public sealed class TransportGame : ISideGame
         output.Status = running == 0 ? $"{_name}: nothing running" : $"{_name}: {running} line{(running == 1 ? "" : "s")}, {riders:N0} riders yesterday";
     }
 
-    static string DepotName(TransitMode m) => m switch { TransitMode.Tram => "tram depot", TransitMode.Rail => "rail yard", _ => "bus depot" };
+    static string DepotName(Spec s) => s.Freight ? "freight depot" : s.Mode switch { TransitMode.Tram => "tram depot", TransitMode.Rail => "rail yard", _ => "bus depot" };
+
+    /// <summary>
+    /// Freight's day. Each freight line can move a load each departure over the day. It picks up the goods ready at
+    /// its depots, in order, drops them at the other depots whose shops want them, and takes the rest to the edge if
+    /// it runs there; goods with nowhere to go stay where they are. Each ton delivered pays by the length of the run.
+    /// </summary>
+    void CarryFreight(GameToCity output)
+    {
+        var left = _freight.ToDictionary(f => f.LeaseId, f => (Ready: f.TonsReady, Wanted: f.TonsWanted));
+        foreach (var line in _lines.Where(l => l.Freight))
+        {
+            line.Tons = 0;
+            if (line.Problem.Length > 0 || line.Headway == 0) continue;
+            var stops = RunningStops(line);
+            int capacity = FreightHours * 60 / line.Headway * line.Spec.Seats;
+            var picks = new int[stops.Count];
+            var drops = new int[stops.Count];
+            int picked = 0, dropped = 0;
+            for (int i = 0; i < stops.Count && picked < capacity; i++)
+            {
+                picks[i] = Math.Min(left.GetValueOrDefault(stops[i]).Ready, capacity - picked);
+                picked += picks[i];
+            }
+            for (int i = 0; i < stops.Count; i++)
+            {
+                // Goods from the line's other depots, for the shops around this one.
+                drops[i] = Math.Max(0, Math.Min(left.GetValueOrDefault(stops[i]).Wanted, Math.Min(picked - picks[i], picked - dropped)));
+                dropped += drops[i];
+            }
+            int edge = line.ToEdge ? picked - dropped : 0;
+            // Goods with nowhere to go aren't picked up: give back from the last depot first.
+            for (int i = stops.Count - 1, extra = picked - dropped - edge; i >= 0 && extra > 0; i--)
+            {
+                int back = Math.Min(extra, picks[i]);
+                picks[i] -= back; picked -= back; extra -= back;
+            }
+            if (picked == 0) continue;
+            int rate = RatePerTon(line.RoundTrip);
+            for (int i = 0; i < stops.Count; i++)
+            {
+                int s = stops[i];
+                var f = left.GetValueOrDefault(s);
+                left[s] = (f.Ready - picks[i], f.Wanted - drops[i]);
+                if (picks[i] > 0)
+                {
+                    output.FreightPicked[s] = output.FreightPicked.GetValueOrDefault(s) + picks[i];
+                    output.RevenueByLease[s] = output.RevenueByLease.GetValueOrDefault(s) + (long)picks[i] * rate;
+                }
+                if (drops[i] > 0) output.FreightDropped[s] = output.FreightDropped.GetValueOrDefault(s) + drops[i];
+            }
+            if (edge > 0) output.FreightDropped[0] = output.FreightDropped.GetValueOrDefault(0) + edge;
+            long earned = (long)picked * rate;
+            line.Tons = picked;
+            _cash += earned;
+            line.This.Fares += earned;
+            _this.Fares += earned;
+        }
+    }
 
     static int LoadPercent(Line line) => line.Seats == 0 ? 0 : line.Riders / 4 * 100 / line.Seats;
 
@@ -465,6 +681,7 @@ public sealed class TransportGame : ISideGame
             SellOne(thin);
             Log($"Sold a {thin.Spec.Word} from the {thin.Name} line to pay the bills.");
         }
+        if (_operator == OperatorLevel.Autopilot) BidForFranchises();
         bool monthly = input.NewMonth || _tick % 30 == 1;
         if (!monthly) return;
         foreach (var line in _lines)
@@ -484,7 +701,8 @@ public sealed class TransportGame : ISideGame
             && _districts.Where(d => d.Rating < 0 && _lots.Any(l => l.DistrictId == d.Id)).OrderBy(d => d.Rating).ThenBy(d => d.Id).FirstOrDefault() is { } sour)
             _buying.Add(new AuthorityAction("advertise", sour.Id));
 
-        if (Depots(TransitMode.Bus) == 0 && _open.FirstOrDefault(o => o.Kind == "bus-depot") is { } depot) _wanted.Add(depot.BuildingId);
+        var bus = SpecOf(TransitMode.Bus);
+        if (Depots(bus) == 0 && _open.FirstOrDefault(o => o.Kind == "bus-depot") is { } depot) _wanted.Add(depot.BuildingId);
         int stops = _lots.Count(l => l.Kind == "bus-stop");
         if (stops < 8)
         {
@@ -494,7 +712,7 @@ public sealed class TransportGame : ISideGame
                 _wanted.Add(o.BuildingId);
         }
         var leasedStops = _lots.Where(l => l.Kind == "bus-stop" && !l.BadStanding).Select(l => l.LeaseId).ToList();
-        var busLines = _lines.Where(l => l.Mode == TransitMode.Bus).ToList();
+        var busLines = _lines.Where(l => l.Mode == TransitMode.Bus && !l.Freight).ToList();
         if (busLines.Count == 0 && leasedStops.Count >= 2)
         {
             var line = NewLine("Route 1", TransitMode.Bus, Chain(leasedStops));
@@ -510,14 +728,14 @@ public sealed class TransportGame : ISideGame
                 Log($"Added a stop to the {main.Name} line.");
             }
         }
-        foreach (var line in _lines.Where(l => l.Mode == TransitMode.Bus))
+        foreach (var line in busLines)
         {
-            if (Depots(TransitMode.Bus) == 0) break;
+            if (Depots(bus) == 0) break;
             int load = LoadPercent(line);
             // A bus at least every quarter of an hour, and more when they're full.
             bool sparse = line.Buses == 0 || line.RoundTrip / Math.Max(1, line.Buses) > TargetHeadway;
             int before = line.Buses;
-            while ((sparse || load > 90) && Owned(TransitMode.Bus) < Capacity(TransitMode.Bus) && _cash >= BusPrice + 5_000)
+            while ((sparse || load > 90) && Owned(bus) < Capacity(bus) && _cash >= BusPrice + 5_000)
             {
                 line.Fleet.Add(NewVehicle());
                 _cash -= BusPrice;
@@ -534,6 +752,25 @@ public sealed class TransportGame : ISideGame
             }
         }
     }
+
+    /// <summary>
+    /// Autopilot's bids: for a franchise out to tender where the company has lots, a bid it can afford, more for a
+    /// district where it has more. It bids once and lets the bid stand.
+    /// </summary>
+    void BidForFranchises()
+    {
+        foreach (var t in _tenders.Where(t => t.YourBid == 0).OrderBy(t => t.DistrictId))
+        {
+            int lots = _lots.Count(l => l.DistrictId == t.DistrictId);
+            if (lots == 0 || _buying.Any(b => b.Kind == "bid" && b.DistrictId == t.DistrictId)) continue;
+            long amount = Math.Min(_cash - 20_000, t.MinBid * (2 + Math.Min(lots, 6)) / 2);
+            if (amount < t.MinBid) continue;
+            _buying.Add(new AuthorityAction("bid", t.DistrictId, amount));
+            Log($"Bid ${amount:N0} for the {DistrictName(t.DistrictId)} franchise.");
+        }
+    }
+
+    string DistrictName(int id) => _districts.FirstOrDefault(d => d.Id == id)?.Name ?? $"district {id + 1}";
 
     /// <summary>Sells a vehicle and buys a new one in its place.</summary>
     void Renew(Line line, Vehicle old)
@@ -573,7 +810,7 @@ public sealed class TransportGame : ISideGame
     Line NewLine(string name, TransitMode mode, List<int> stops)
     {
         var line = new Line { Id = _nextLineId++, Name = name, Mode = mode, Stops = stops };
-        line.Color = Palette[(line.Id - 1) % Palette.Length];
+        line.Color = Palette[(line.Id - 1 + _paletteOffset) % Palette.Length];
         _lines.Add(line);
         return line;
     }
@@ -597,19 +834,25 @@ public sealed class TransportGame : ISideGame
                 if (c.LineId != 0 && existing == null) return new CommandResult(false, "That line has been closed.");
                 if (!Enum.IsDefined((TransitMode)(int)c.Mode)) return new CommandResult(false, "The company runs buses, trams and trains.");
                 var mode = existing?.Mode ?? (TransitMode)(int)c.Mode;
-                string kind = TransitModes.StopKind(mode);
-                if (stops.Count < 2) return new CommandResult(false, "A line needs at least two stops.");
+                bool freight = existing?.Freight ?? c.Freight;
+                if (freight && FreightSpecOf(mode) == null) return new CommandResult(false, "Freight goes by truck or by train.");
+                bool toEdge = freight && c.ToEdge;
+                var lineSpec = freight ? FreightSpecOf(mode)! : SpecOf(mode);
+                string kind = lineSpec.Stop;
+                if (stops.Count < (toEdge ? 1 : 2)) return new CommandResult(false, freight ? "A freight line needs two depots, or one and the run out to the edge." : "A line needs at least two stops.");
                 if (stops.Any(s => Lot(s)?.Kind != kind))
-                    return new CommandResult(false, $"Every stop on a {SpecOf(mode).Word} line must be a {kind.Replace('-', ' ')} the company leases.");
+                    return new CommandResult(false, $"Every stop on a {lineSpec.Word} line must be a {kind.Replace('-', ' ')} the company leases.");
                 if (stops.Distinct().Count() != stops.Count) return new CommandResult(false, "A line can't visit the same stop twice.");
                 if (c.FareCents is < 0 or > MaxFareCents) return new CommandResult(false, $"Fares run from free to ${MaxFareCents / 100}.");
-                var line = existing ?? NewLine(c.Name.Length > 0 ? c.Name : $"{(mode == TransitMode.Bus ? "Route" : mode == TransitMode.Tram ? "Tram" : "Rail")} {_nextLineId}", mode, stops);
+                var line = existing ?? NewLine(c.Name.Length > 0 ? c.Name : $"{(freight ? "Freight" : mode == TransitMode.Bus ? "Route" : mode == TransitMode.Tram ? "Tram" : "Rail")} {_nextLineId}", mode, stops);
+                line.Freight = freight;
+                line.ToEdge = toEdge;
                 if (c.Name.Length > 0) line.Name = c.Name.Length > 30 ? c.Name[..30] : c.Name;
                 line.Stops = stops;
                 line.FareCents = c.FareCents;
                 Route(line, city);
                 if (line.RoundTrip == 0)
-                    return new CommandResult(true, $"Saved the {line.Name} line, but no {(mode == TransitMode.Bus ? "street route" : mode == TransitMode.Tram ? "tram track" : "rail line")} joins all its stops.");
+                    return new CommandResult(true, $"Saved the {line.Name} line, but no {(mode == TransitMode.Bus ? "street route" : mode == TransitMode.Tram ? "tram track" : "rail line")} joins all its stops{(toEdge ? " and the edge" : "")}.");
                 Log(c.LineId == 0 ? $"Opened the {line.Name} line." : $"Changed the {line.Name} line.");
                 return new CommandResult(true, "");
             }
@@ -631,9 +874,9 @@ public sealed class TransportGame : ISideGame
                 int want = Math.Clamp(cmd.Buses.Buses, 0, 500);
                 if (want > line.Buses)
                 {
-                    if (Depots(line.Mode) == 0) return new CommandResult(false, $"Lease a {DepotName(line.Mode)} first: {spec.Plural} need somewhere to live.");
+                    if (Depots(spec) == 0) return new CommandResult(false, $"Lease a {DepotName(spec)} first: {spec.Plural} need somewhere to live.");
                     int add = want - line.Buses;
-                    if (Owned(line.Mode) + add > Capacity(line.Mode)) return new CommandResult(false, $"The depots hold {Capacity(line.Mode)} {spec.Plural}. Lease another {DepotName(line.Mode)} for more.");
+                    if (Owned(spec) + add > Capacity(spec)) return new CommandResult(false, $"The depots hold {Capacity(spec)} {spec.Plural}. Lease another {DepotName(spec)} for more.");
                     long cost = (long)add * spec.Price;
                     if (cost > _cash) return new CommandResult(false, $"{add} {(add == 1 ? spec.Word : spec.Plural)} cost ${cost:N0} and the company has ${_cash:N0}.");
                     _cash -= cost;
@@ -688,6 +931,39 @@ public sealed class TransportGame : ISideGame
                 _buying.Add(new AuthorityAction(c.Kind, c.District));
                 return new CommandResult(true, "");
             }
+            case W.Command.KindOneofCase.Signal:
+            {
+                var c = cmd.Signal;
+                var kind = (SignalKind)(int)c.Kind;
+                if (!Enum.IsDefined(kind)) return new CommandResult(false, "Signals are block signals or path signals.");
+                if (kind == SignalKind.None)
+                {
+                    if (!_signals.Remove(c.Cell)) return new CommandResult(false, "There's no signal there.");
+                    Log($"Took down a signal.");
+                    return new CommandResult(true, "");
+                }
+                if (!_lines.Any(l => l.Mode == TransitMode.Rail && l.RouteCells.Contains(c.Cell)))
+                    return new CommandResult(false, "Signals go on the company's own rail lines: put it on a cell one of its trains runs over.");
+                bool had = _signals.TryGetValue(c.Cell, out var was);
+                if (had && was == kind) return new CommandResult(true, "");
+                if (!had && _signals.Count >= MaxSignals) return new CommandResult(false, $"The company can keep {MaxSignals} signals.");
+                if (!had && _cash < SignalPrice) return new CommandResult(false, $"A signal costs ${SignalPrice:N0} and the company has ${_cash:N0}.");
+                if (!had) { _cash -= SignalPrice; _this.Upkeep += SignalPrice; }
+                _signals[c.Cell] = kind;
+                Log(had ? $"Changed a signal to a {(kind == SignalKind.Path ? "path" : "block")} signal." : $"Put up a {(kind == SignalKind.Path ? "path" : "block")} signal for ${SignalPrice:N0}.");
+                return new CommandResult(true, "");
+            }
+            case W.Command.KindOneofCase.Bid:
+            {
+                var c = cmd.Bid;
+                var t = _tenders.FirstOrDefault(t => t.DistrictId == c.District);
+                if (t == null) return new CommandResult(false, "That district's franchise isn't out to tender.");
+                if (c.Amount < t.MinBid) return new CommandResult(false, $"The city wants at least ${t.MinBid:N0} for {t.Months} months.");
+                if (c.Amount > _cash) return new CommandResult(false, $"The company has ${_cash:N0}: it can't bid ${c.Amount:N0}.");
+                _buying.RemoveAll(b => b.Kind == "bid" && b.DistrictId == c.District);
+                _buying.Add(new AuthorityAction("bid", c.District, c.Amount));
+                return new CommandResult(true, "");
+            }
             case W.Command.KindOneofCase.Rename:
                 if (cmd.Rename.Name.Trim().Length == 0) return new CommandResult(false, "The company needs a name.");
                 _name = cmd.Rename.Name.Trim().Length > 30 ? cmd.Rename.Name.Trim()[..30] : cmd.Rename.Name.Trim();
@@ -701,8 +977,8 @@ public sealed class TransportGame : ISideGame
         var v = new W.View
         {
             Name = _name, Cash = _cash, Operator = _operator switch { OperatorLevel.Manual => "manual", OperatorLevel.Autopilot => "autopilot", _ => "caretaker" },
-            Owner = _owner, Buses = Owned(TransitMode.Bus), BusCapacity = Capacity(TransitMode.Bus), BusPrice = BusPrice, ThisMonth = _this.ToWire(), LastMonth = _last.ToWire(),
-            ServiceQuality = _quality, Day = _day,
+            Owner = _owner, Buses = Owned(SpecOf(TransitMode.Bus)), BusCapacity = Capacity(SpecOf(TransitMode.Bus)), BusPrice = BusPrice, ThisMonth = _this.ToWire(), LastMonth = _last.ToWire(),
+            ServiceQuality = _quality, Day = _day, GameId = _id, SignalPrice = SignalPrice,
         };
         foreach (var l in _lines)
         {
@@ -714,6 +990,7 @@ public sealed class TransportGame : ISideGame
                 ThisMonth = l.This.ToWire(), LastMonth = l.Last.ToWire(), Problem = l.Problem,
                 Mode = (W.Mode)(int)l.Mode, TimetableMinutes = l.Timetable, ServiceDays = l.ServiceDays, Needed = l.Needed, Running = l.Running,
                 OnTimePercent = l.OnTimePercent, Condition = l.Fleet.Count == 0 ? 0 : (int)l.Fleet.Average(v => v.Condition) / 10,
+                Freight = l.Freight, ToEdge = l.ToEdge, Tons = l.Tons, SignalLimited = l.SignalLimited,
             };
             foreach (var veh in l.Fleet)
                 lv.Vehicles.Add(new W.VehicleView
@@ -733,6 +1010,9 @@ public sealed class TransportGame : ISideGame
                 LeaseId = lot.LeaseId, BuildingId = lot.BuildingId, Kind = lot.Kind, X = lot.X, Y = lot.Y, District = lot.DistrictId,
                 Terms = lot.Terms.Mode == LeaseMode.Business ? $"${lot.Terms.RentPerMonth:N0}/month + {lot.Terms.TaxTenths / 10.0:0.#}% of fares" : $"public service, ${lot.Terms.SubsidyPerMonth:N0}/month subsidy",
                 BadStanding = lot.BadStanding, ClosedDays = _closedUntil.TryGetValue(lot.LeaseId, out long until) ? (int)(until - _tick) : 0,
+                TonsReady = _freight.FirstOrDefault(f => f.LeaseId == lot.LeaseId)?.TonsReady ?? 0,
+                TonsWanted = _freight.FirstOrDefault(f => f.LeaseId == lot.LeaseId)?.TonsWanted ?? 0,
+                Barred = Barred(lot.LeaseId),
             });
         foreach (var o in _open)
             v.OpenLots.Add(new W.LotView { BuildingId = o.BuildingId, Kind = o.Kind, X = o.X, Y = o.Y, District = o.DistrictId, Terms = $"${o.Terms.RentPerMonth:N0}/month + {o.Terms.TaxTenths / 10.0:0.#}% of fares" });
@@ -745,19 +1025,25 @@ public sealed class TransportGame : ISideGame
                 ExclusiveDays = (int)Math.Max(0, b.ExclusiveUntil - _tick),
             });
         }
-        foreach (var spec in Specs)
-            v.Modes.Add(new W.ModeView
+        foreach (var spec in AllSpecs)
+            (spec.Freight ? v.FreightModes : v.Modes).Add(new W.ModeView
             {
-                Mode = (W.Mode)(int)spec.Mode, Word = spec.Word, Plural = spec.Plural, Price = spec.Price, Seats = spec.Seats, Capacity = Capacity(spec.Mode),
-                Owned = Owned(spec.Mode), LifeYears = spec.LifeYears, ServiceCost = spec.ServiceCost,
+                Mode = (W.Mode)(int)spec.Mode, Word = spec.Word, Plural = spec.Plural, Price = spec.Price, Seats = spec.Seats, Capacity = Capacity(spec),
+                Owned = Owned(spec), LifeYears = spec.LifeYears, ServiceCost = spec.ServiceCost, Freight = spec.Freight,
             });
+        foreach (var (cell, kind) in _signals) v.Signals.Add(new W.SignalView { Cell = cell, Kind = (W.Signal)(int)kind });
+        foreach (var (cell, minutes) in _reserved) v.Reserved.Add(new W.CellLoad { Cell = cell, Percent = minutes * 100 / 60 });
+        foreach (var t in _tenders)
+            v.Tenders.Add(new W.TenderView { District = t.DistrictId, Name = DistrictName(t.DistrictId), Months = t.Months, DaysLeft = t.DaysLeft, Exclusive = t.Exclusive, MinBid = t.MinBid, YourBid = t.YourBid, Lots = _lots.Count(l => l.DistrictId == t.DistrictId) });
+        foreach (var f in _franchises)
+            v.Franchises.Add(new W.FranchiseView { District = f.DistrictId, Name = DistrictName(f.DistrictId), Holder = f.Holder, Mine = f.Holder == _id, Exclusive = f.Exclusive, DaysLeft = f.DaysLeft });
         foreach (var o in _offers) v.Offers.Add(new W.OfferView { Kind = o.Kind, Name = o.Name, Cost = o.Cost, Allowed = o.Allowed, WhyNot = o.WhyNot });
         v.Log.AddRange(_log);
         if (seat == "public")
         {
             // What a rival or a spectator sees: the routes and lots on the map, not the books, the standing or the dealings.
             v.Cash = 0; v.ThisMonth = null; v.LastMonth = null;
-            v.Districts.Clear(); v.Offers.Clear(); v.Log.Clear();
+            v.Districts.Clear(); v.Offers.Clear(); v.Log.Clear(); v.Tenders.Clear();
             foreach (var l in v.Lines) { l.ThisMonth = null; l.LastMonth = null; }
         }
         return v.ToByteArray();
@@ -785,6 +1071,7 @@ public sealed class TransportGame : ISideGame
             w.Write(l.Riders); w.Write(l.Headway); w.Write(l.Seats); w.Write(l.EffectiveFare); w.Write(l.Problem);
             w.Write(l.Boardings.Length); foreach (var b in l.Boardings) w.Write(b);
             l.This.Write(w); l.Last.Write(w);
+            w.Write(l.Freight); w.Write(l.ToEdge); w.Write(l.Tons); w.Write(l.SignalLimited);
         }
         w.Write(_closedUntil.Count);
         foreach (var (k, v) in _closedUntil) { w.Write(k); w.Write(v); }
@@ -807,9 +1094,19 @@ public sealed class TransportGame : ISideGame
         w.Write(_offers.Count);
         foreach (var o in _offers) { w.Write(o.Kind); w.Write(o.Name); w.Write(o.Cost); w.Write(o.Allowed); w.Write(o.WhyNot); }
         w.Write(_buying.Count);
-        foreach (var b in _buying) { w.Write(b.Kind); w.Write(b.DistrictId); }
+        foreach (var b in _buying) { w.Write(b.Kind); w.Write(b.DistrictId); w.Write(b.Amount); }
         w.Write(_bought.Count);
         foreach (var (d, b) in _bought) { w.Write(d); w.Write(b.Statue); w.Write(b.ExclusiveUntil); }
+        w.Write(_tenders.Count);
+        foreach (var t in _tenders) { w.Write(t.DistrictId); w.Write(t.Months); w.Write(t.DaysLeft); w.Write(t.Exclusive); w.Write(t.MinBid); w.Write(t.YourBid); }
+        w.Write(_franchises.Count);
+        foreach (var f in _franchises) { w.Write(f.DistrictId); w.Write(f.Holder); w.Write(f.Exclusive); w.Write(f.DaysLeft); }
+        w.Write(_freight.Count);
+        foreach (var f in _freight) { w.Write(f.LeaseId); w.Write(f.TonsReady); w.Write(f.TonsWanted); }
+        w.Write(_signals.Count);
+        foreach (var (c, k) in _signals) { w.Write(c); w.Write((byte)k); }
+        w.Write(_reserved.Count);
+        foreach (var (c, m) in _reserved) { w.Write(c); w.Write(m); }
     }
 
     public void Load(BinaryReader r)
@@ -836,6 +1133,7 @@ public sealed class TransportGame : ISideGame
             l.Riders = r.ReadInt32(); l.Headway = r.ReadInt32(); l.Seats = r.ReadInt32(); l.EffectiveFare = r.ReadInt32(); l.Problem = r.ReadString();
             l.Boardings = new int[r.ReadInt32()]; for (int k = 0; k < l.Boardings.Length; k++) l.Boardings[k] = r.ReadInt32();
             l.This = Money.Read(r); l.Last = Money.Read(r);
+            l.Freight = r.ReadBoolean(); l.ToEdge = r.ReadBoolean(); l.Tons = r.ReadInt32(); l.SignalLimited = r.ReadBoolean();
             _lines.Add(l);
         }
         int nc = r.ReadInt32(); for (int i = 0; i < nc; i++) _closedUntil[r.ReadInt32()] = r.ReadInt64();
@@ -859,9 +1157,19 @@ public sealed class TransportGame : ISideGame
         int nof = r.ReadInt32();
         for (int i = 0; i < nof; i++) _offers.Add(new PaidActionOffer(r.ReadString(), r.ReadString(), r.ReadInt64(), r.ReadBoolean(), r.ReadString()));
         int nbuy = r.ReadInt32();
-        for (int i = 0; i < nbuy; i++) _buying.Add(new AuthorityAction(r.ReadString(), r.ReadInt32()));
+        for (int i = 0; i < nbuy; i++) _buying.Add(new AuthorityAction(r.ReadString(), r.ReadInt32(), r.ReadInt64()));
         int nbo = r.ReadInt32();
         for (int i = 0; i < nbo; i++) _bought[r.ReadInt32()] = (r.ReadBoolean(), r.ReadInt64());
+        int nt = r.ReadInt32();
+        for (int i = 0; i < nt; i++) _tenders.Add(new Tender(r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadBoolean(), r.ReadInt64(), r.ReadInt64()));
+        int nf = r.ReadInt32();
+        for (int i = 0; i < nf; i++) _franchises.Add(new Franchise(r.ReadInt32(), r.ReadString(), r.ReadBoolean(), r.ReadInt32()));
+        int nfr = r.ReadInt32();
+        for (int i = 0; i < nfr; i++) _freight.Add(new FreightLot(r.ReadInt32(), r.ReadInt32(), r.ReadInt32()));
+        int nsg = r.ReadInt32();
+        for (int i = 0; i < nsg; i++) _signals[r.ReadInt32()] = (SignalKind)r.ReadByte();
+        int nrs = r.ReadInt32();
+        for (int i = 0; i < nrs; i++) _reserved[r.ReadInt32()] = r.ReadInt32();
     }
 
     static void WriteTerms(BinaryWriter w, LeaseTerms t)

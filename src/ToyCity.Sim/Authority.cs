@@ -67,7 +67,7 @@ public sealed partial class World
     void AddExclusiveStops()
     {
         foreach (var b in Buildings)
-            if (b != null && TypeOf(b).LotKind == "bus-stop" && ExclusiveHeld(DistrictOf(b.X, b.Y), out _)) _leasedStops.Add(b.Id);
+            if (b != null && IsStopKind(TypeOf(b).LotKind) && ExclusiveHeld(DistrictOf(b.X, b.Y), out _)) _leasedStops.Add(b.Id);
     }
 
     void FillOffers(HostedGame hg, CityToGame input, List<(string GameId, AuthorityResult Result)> results)
@@ -88,7 +88,7 @@ public sealed partial class World
     {
         foreach (var a in output.AuthorityActions.Take(8))
         {
-            var r = PaidAction(hg.Id, a.Kind, a.DistrictId);
+            var r = a.Kind == "bid" ? Bid(hg.Id, a.DistrictId, a.Amount) : PaidAction(hg.Id, a.Kind, a.DistrictId);
             _authorityResults.Add((hg.Id, r));
             if (!r.Ok) continue;
             if (a.Kind is "statue" or "exclusive-rights") Funds += r.Cost;
@@ -119,6 +119,7 @@ public sealed partial class World
                 return new(kind, district, true, cost, $"A statue of {game}'s founder goes up in {where}.", s.Rating);
             case "exclusive-rights":
                 if (ExclusiveHeld(district, out string holder)) return No($"{GameName(holder)} holds exclusive rights in {where} already.");
+                if (FranchiseIn(district) is { } f && f.Winner != gameId) return No($"{GameName(f.Winner)} holds the transit franchise in {where}.");
                 s.ExclusiveUntil = Tick + ExclusiveMonths * 30;
                 AddHeadline($"{game} buys exclusive rights in {where}: city buses stop running there for a year.", "info");
                 return new(kind, district, true, cost, $"{game} has exclusive rights in {where} for {ExclusiveMonths} months.", s.Rating);
@@ -184,6 +185,7 @@ public sealed partial class World
             w.Write(id); w.Write(r.Kind); w.Write(r.DistrictId); w.Write(r.Ok); w.Write(r.Cost); w.Write(r.Text); w.Write(r.Rating);
         }
         WriteConsent(w);
+        WriteTenders(w);
     }
 
     void ReadAuthority(BinaryReader r)
@@ -199,5 +201,6 @@ public sealed partial class World
         for (int i = 0; i < nr; i++)
             _authorityResults.Add((r.ReadString(), new AuthorityResult(r.ReadString(), r.ReadInt32(), r.ReadBoolean(), r.ReadInt64(), r.ReadString(), r.ReadInt32())));
         ReadConsent(r);
+        ReadTenders(r);
     }
 }

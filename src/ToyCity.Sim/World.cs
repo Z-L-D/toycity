@@ -245,6 +245,7 @@ public sealed partial class World
         ApplyPending();
         RunCouncil();
         RunDisputes();
+        RunTenders();
         bool stasis = InStasis;
         if (stasis) HoldPrompts();
         else RunDisasters();
@@ -280,6 +281,7 @@ public sealed partial class World
         bool live = Tick > 0 && !InStasis;
         if (live)
         {
+            CloseFreightMonth();
             CheckUnlocks();
             RunDirector();
             RollDisaster();

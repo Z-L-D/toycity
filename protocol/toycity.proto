@@ -86,6 +86,7 @@ message Action {
     OfferLease offer = 29;
     AnswerOffer answer_offer = 30;
     Delink delink = 31;
+    OpenTender open_tender = 32;
   }
 }
 
@@ -110,6 +111,12 @@ message OfferLease {
 // A player leaves the city for good, taking a copy of it; or the mayor cuts them loose when the rules allow.
 message Delink {
   string player = 1;
+}
+
+// The mayor (or a deputy for transit) puts a district's transit franchise out to tender, for 6 to 36 months.
+message OpenTender {
+  int32 district = 1;
+  int32 months = 2;
 }
 
 // The other side accepts or declines an offer; its maker declining it withdraws it.
@@ -981,6 +988,32 @@ message CivicState {
   repeated string council = 12;      // who votes: every seat owner and deputy
   repeated DelinkState delinks = 13; // de-links, newest first
   repeated DelinkOption delink_options = 14;  // each player with a part here besides the mayor: whether the mayor may cut them loose
+  repeated DistrictFranchise franchises = 15;  // every district: its transit franchise, if any, or the tender for it
+  repeated SideGameOffer invitable = 16;       // side games this server can add that the city doesn't have yet
+  int32 freight_exports = 17;    // tons a day company freight carried out of the city last month
+  int32 freight_delivered = 18;  // tons a day company freight delivered to shops last month
+}
+
+// A side game the mayor can invite in, such as a rival transit company.
+message SideGameOffer {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+// A district's transit franchise. status: "none", "open" (out to tender), "held".
+message DistrictFranchise {
+  int32 district = 1;
+  string name = 2;
+  string status = 3;
+  int32 months = 4;
+  int32 days_left = 5;   // until the tender closes, or the franchise ends
+  int32 bids = 6;        // bids in so far (their amounts are sealed)
+  string holder = 7;     // the holding side game's id
+  string holder_name = 8;
+  int64 amount = 9;      // what the holder paid
+  bool exclusive = 10;
+  string last = 11;      // how the last tender here went, if one closed without a winner
 }
 
 message DelinkOption {

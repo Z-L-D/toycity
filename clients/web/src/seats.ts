@@ -30,7 +30,7 @@ const money = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLo
 const fare = (cents: number) => (cents === 0 ? 'free' : `$${(cents / 100).toFixed(2)}`);
 
 /** The city's standard offer, as the sim defines it: a business lease, rent by size, a 10% fare tax, three months' notice. */
-const STANDARD_RENT: Record<string, number> = { 'bus-depot': 300, 'tram-depot': 500, 'rail-depot': 1200, 'tram-stop': 60, 'rail-station': 150 };
+const STANDARD_RENT: Record<string, number> = { 'bus-depot': 300, 'tram-depot': 500, 'rail-depot': 1200, 'tram-stop': 60, 'rail-station': 150, 'freight-depot': 400 };
 const standardTerms = (kind: string) => ({ mode: 0, rentPerMonth: STANDARD_RENT[kind] ?? 40, taxTenths: 100, subsidyPerMonth: 0, fareCapCents: 0, noticeMonths: 3 });
 
 export function termsText(t: Msg) {
@@ -144,6 +144,7 @@ export class Seats {
           ${s.owner === this.me && s.level === 0
             ? `<button value="leave:${esc(s.id)}">Hand to the computer</button>`
             : `<button value="claim:${esc(s.id)}">Run it yourself</button>`}</div>`).join('')}` : ''}
+      ${this.transitHtml(m)}
       ${this.partingHtml(m)}
       <div class="actions"><button value="consent">House rules…</button><button value="council" style="margin-right:auto">Deputies and council…</button><button value="cancel">Cancel</button><button value="ok" class="active">Apply</button></div>`;
     const sync = () => {
@@ -159,6 +160,12 @@ export class Seats {
       if (v === 'consent') { this.openConsent(); return; }
       if (v === 'council') { this.openCouncil(); return; }
       if (v.startsWith('delink:')) { this.delink(v.slice(7)); return; }
+      if (v.startsWith('invite:')) { this.host.conn.action({ attach: { game: v.slice(7) } }); return; }
+      if (v === 'tender') {
+        const fd = new FormData(form);
+        this.host.conn.action({ openTender: { district: Number(fd.get('tender-district')), months: Number(fd.get('tender-months')) } });
+        return;
+      }
       if (v.startsWith('claim:') || v.startsWith('leave:')) {
         const claim = v.startsWith('claim:');
         this.host.conn.action({ seat: { seat: v.slice(6), owner: claim ? this.me : '', level: claim ? 0 : 2, style: 0, spendCap: 25000 } });
@@ -171,6 +178,32 @@ export class Seats {
       this.host.conn.action({ seat: { seat: 'mayor', owner: m.owner || this.me, level: Number(fd.get('level')), style: Number(fd.get('style')), spendCap: Number(fd.get('cap') || 0) } });
     };
     dlg.showModal();
+  }
+
+  /**
+   * Transit competition: rival companies the mayor can invite in, and district franchises put out to tender. The
+   * highest sealed bid wins and pays the city; the winner alone may lease new transit lots in the district, and
+   * with exclusive rights allowed by everyone, only its lines stop there.
+   */
+  private transitHtml(m: Msg) {
+    const c = this.civic;
+    const isMayor = m.owner === this.me || (!m.owner && !this.host.conn.dedicated);
+    const invitable = (c.invitable ?? []) as Msg[];
+    const rows = ((c.franchises ?? []) as Msg[]);
+    const companies = this.sideGames.filter((g) => (g.lotKinds as string[]).some((k) => k.startsWith('bus-') || k.startsWith('rail-')));
+    if (!companies.length && !invitable.length) return '';
+    const live = rows.filter((f) => f.status !== 'none').map((f) => `<div class="seat-row"><b>${esc(f.name)}</b> <span class="muted small">${f.status === 'open'
+      ? `out to tender for ${f.months} months · ${f.bids} bid${f.bids === 1 ? '' : 's'} in · closes in ${f.daysLeft} day${f.daysLeft === 1 ? '' : 's'}`
+      : `${esc(f.holderName)} holds it${f.exclusive ? ' exclusively' : ''} · paid ${money(f.amount)} · ${Math.ceil(f.daysLeft / 30)} months left`}</span></div>`).join('');
+    const free = rows.filter((f) => f.status === 'none');
+    const tender = isMayor && free.length && companies.length ? `<div class="row-flex" style="margin-top:6px;flex-wrap:wrap">
+        <select name="tender-district">${free.map((f) => `<option value="${f.district}">${esc(f.name)}${f.last ? ' (no bids last time)' : ''}</option>`).join('')}</select>
+        <select name="tender-months">${[6, 12, 24, 36].map((n) => `<option value="${n}" ${n === 12 ? 'selected' : ''}>${n} months</option>`).join('')}</select>
+        <button value="tender">Put the franchise out to tender</button></div>
+      <div class="muted small">Companies have ${14} days to bid; the highest bid wins and is paid to the city. ${this.allowed(1) ? 'Everyone allows exclusive rights, so the winner alone stops in the district.' : 'The winner alone may lease new transit lots there; rivals keep the stops they have.'}</div>` : '';
+    const invite = isMayor ? invitable.map((g) => `<div class="seat-row"><b>${esc(g.name)}</b> <span class="muted small">${esc(g.description)}</span><button value="invite:${esc(g.id)}">Invite it in</button></div>`).join('') : '';
+    const freight = c.freightExports || c.freightDelivered ? `<p class="muted small">Company freight last month: ${Number(c.freightDelivered).toLocaleString('en-US')} tons a day to shops, ${Number(c.freightExports).toLocaleString('en-US')} tons a day exported.</p>` : '';
+    return `<h4>Transit competition</h4>${invite}${live}${tender}${freight}`;
   }
 
   /** Parting ways: the mayor may cut players loose on the rules' grounds; anyone else may leave with a copy. */

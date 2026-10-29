@@ -58,6 +58,7 @@ public sealed partial class World
         UpgradeBuildingAction u => u.BuildingId >= 0 && u.BuildingId < Buildings.Count && Buildings[u.BuildingId] is { } b && IsTransitLot(LotKindOf(b)) ? Portfolio.Transit : Portfolio.Services,
         LeaseLotAction l => l.BuildingId >= 0 && l.BuildingId < Buildings.Count && Buildings[l.BuildingId] is { } lb && !IsTransitLot(LotKindOf(lb)) ? Portfolio.Services : Portfolio.Transit,
         SetLeaseTermsAction or EndLeaseAction => LeaseKindPortfolio(a),
+        OpenTenderAction => Portfolio.Transit,
         _ => Portfolio.None,
     };
 

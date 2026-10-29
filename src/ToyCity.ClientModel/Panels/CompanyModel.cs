@@ -7,7 +7,7 @@ using PAction = ToyCity.Protocol.V0.Action;
 
 namespace ToyCity.ClientModel.Panels;
 
-public enum CompanyTool { Look, Lease, Line }
+public enum CompanyTool { Look, Lease, Line, Signal }
 
 /// <summary>
 /// The bus company's own view, as the web client has it. Switching to it swaps the city's top bar, tools and panel
@@ -17,7 +17,9 @@ public enum CompanyTool { Look, Lease, Line }
 /// </summary>
 public sealed class CompanyModel
 {
+    /// <summary>The city's first transit company; a rival the mayor invites in has an id starting "transport-".</summary>
     public const string Game = "transport";
+    static bool IsTransport(string game) => game == Game || game.StartsWith("transport-", StringComparison.Ordinal);
     public static readonly (string Id, string Name)[] Tabs = { ("lines", "Lines"), ("lots", "Lots"), ("money", "Money"), ("standing", "Standing"), ("log", "Log") };
 
     readonly CityMirror _city;
@@ -30,6 +32,12 @@ public sealed class CompanyModel
     public Func<string> Me { get; set; } = () => "player";
 
     public View? View { get; private set; }
+    /// <summary>Every transit company's view, by game id, and the one shown.</summary>
+    readonly SortedDictionary<string, (View View, bool Public)> _views = new(StringComparer.Ordinal);
+    public string GameId { get; private set; } = Game;
+    public IReadOnlyDictionary<string, (View View, bool Public)> Companies => _views;
+    /// <summary>The player picked the company to show: don't switch to their own when it arrives.</summary>
+    bool _picked;
     /// <summary>True while the company's view is up instead of the city's.</summary>
     public bool Active { get; private set; }
     public CompanyTool Tool { get; private set; }
@@ -38,14 +46,17 @@ public sealed class CompanyModel
     /// <summary>The lot picked with the look tool, by building id.</summary>
     public int? Selected { get; private set; }
     /// <summary>The line being drawn: its stops (lease ids) in order, and what runs on it (-1 until its first stop).</summary>
-    public (int LineId, string Name, List<int> Stops, int Fare, int Mode)? Draft { get; private set; }
+    public (int LineId, string Name, List<int> Stops, int Fare, int Mode, bool Freight, bool ToEdge)? Draft { get; private set; }
 
     static readonly string[] StopKinds = { "bus-stop", "tram-stop", "rail-station" };
     static readonly string[] ModeIcon = { "🚌", "🚋", "🚆" };
     static int ModeOfStop(string kind) => Array.IndexOf(StopKinds, kind);
+    static bool IsStop(string kind) => ModeOfStop(kind) >= 0 || kind == "freight-depot";
+    static string FreightIcon(int mode) => mode == 2 ? "🚂" : "🚚";
+    static string Icon(LineView l) => l.Freight ? FreightIcon((int)l.Mode) : ModeIcon[Math.Clamp((int)l.Mode, 0, 2)];
     static string LotName(string kind) => kind switch
     {
-        "bus-depot" => "Depot", "tram-stop" => "Tram stop", "tram-depot" => "Tram depot", "rail-station" => "Station", "rail-depot" => "Rail yard", _ => "Stop",
+        "bus-depot" => "Depot", "tram-stop" => "Tram stop", "tram-depot" => "Tram depot", "rail-station" => "Station", "rail-depot" => "Rail yard", "freight-depot" => "Freight depot", _ => "Stop",
     };
     /// <summary>Goes up when the company's lots or lines change, so the map redraws them.</summary>
     public int MapVersion { get; private set; }
@@ -61,12 +72,24 @@ public sealed class CompanyModel
 
     public void Handle(SideGameView v)
     {
-        if (v.Game != Game) return;
-        View = View.Parser.ParseFrom(v.Payload);
-        Public = v.Seat == "public";
+        if (!IsTransport(v.Game)) return;
+        _views[v.Game] = (View.Parser.ParseFrom(v.Payload), v.Seat == "public");
+        // Show the company this player runs, when they run one.
+        string? mine = _views.FirstOrDefault(x => x.Value.View.Operator == "manual" && x.Value.View.Owner == Me()).Key;
+        if (!_views.ContainsKey(GameId) || (mine != null && !_picked)) GameId = mine ?? (_views.ContainsKey(Game) ? Game : v.Game);
+        Show();
+    }
+
+    void Show()
+    {
+        if (!_views.TryGetValue(GameId, out var cur)) return;
+        (View, Public) = cur;
         MapVersion++;
         _changed();
     }
+
+    /// <summary>Every company's running routes, for the city map.</summary>
+    public IEnumerable<LineView> AllLines => _views.Values.SelectMany(x => x.View.Lines);
 
     public void SetActive(bool on)
     {
@@ -79,14 +102,14 @@ public sealed class CompanyModel
     void SetTool(CompanyTool t)
     {
         Tool = t;
-        if (t == CompanyTool.Line && Draft == null) Draft = (0, "", new List<int>(), 150, -1);
+        if (t == CompanyTool.Line && Draft == null) Draft = (0, "", new List<int>(), 150, -1, false, false);
         if (t != CompanyTool.Line) Draft = null;
         if (t == CompanyTool.Line) Tab = "lines";
         _changed();
     }
 
     void Command(Command c) =>
-        _send(new ClientMessage { Action = new PAction { SideGame = new SideGameCommand { Game = Game, Seat = "operator", Payload = c.ToByteString() } } });
+        _send(new ClientMessage { Action = new PAction { SideGame = new SideGameCommand { Game = GameId, Seat = "operator", Payload = c.ToByteString() } } });
 
     void Act(PAction a) => _send(new ClientMessage { Action = a });
 
@@ -122,20 +145,32 @@ public sealed class CompanyModel
         var lots = AllLots.ToList();
         var near = new[] { _city.BuildingAtCell(x, y) }.Concat(_city.StopsAt(x, y)).Concat(_city.StopsFacing(x, y)).Where(b => b != null).Select(b => b!.Id);
         var lot = near.Select(id => lots.FirstOrDefault(l => l.BuildingId == id)).FirstOrDefault(l => l != null);
+        if (Tool == CompanyTool.Signal)
+        {
+            if (!Mine) { Toast?.Invoke("Run the company yourself to put up signals.", "warning"); return; }
+            int cell = y * _city.Width + x;
+            bool on = View.Lines.Any(l => l.Mode == Mode.Rail && l.RouteCells.Contains(cell));
+            int now = (int)(View.Signals.FirstOrDefault(sg => sg.Cell == cell)?.Kind ?? Signal.NoSignal);
+            if (!on && now == 0) { Toast?.Invoke("Signals go on the company's own rail lines: click a cell one of its trains runs over.", "warning"); return; }
+            // Each click goes round: a block signal, a path signal, none.
+            Command(new Command { Signal = new PlaceSignal { Cell = cell, Kind = (Signal)((now + 1) % 3) } });
+            return;
+        }
         if (Tool == CompanyTool.Line && Draft is { } d)
         {
-            if (lot == null || lot.LeaseId == 0 || ModeOfStop(lot.Kind) < 0)
+            if (lot == null || lot.LeaseId == 0 || !IsStop(lot.Kind))
             {
-                Toast?.Invoke("Click a stop or station the company leases (solid yellow). Lease free ones (dashed) with the Lease tool.", "warning");
+                Toast?.Invoke("Click a stop, station or freight depot the company leases (solid yellow). Lease free ones (dashed) with the Lease tool.", "warning");
                 return;
             }
-            // The first stop picks the mode: a line is all bus stops, all tram stops or all stations.
-            if (d.Mode >= 0 && d.Stops.Count > 0 && ModeOfStop(lot.Kind) != d.Mode)
+            bool freight = lot.Kind == "freight-depot";
+            // The first stop picks what runs: a line is all bus stops, all tram stops, all stations, or all freight depots.
+            if (d.Stops.Count > 0 && (freight != d.Freight || (!freight && ModeOfStop(lot.Kind) != d.Mode)))
             {
-                Toast?.Invoke($"This is a {new[] { "bus", "tram", "rail" }[d.Mode]} line: click its own kind of stop.", "warning");
+                Toast?.Invoke(d.Freight ? "This is a freight line: click the company's freight depots." : $"This is a {new[] { "bus", "tram", "rail" }[d.Mode]} line: click its own kind of stop.", "warning");
                 return;
             }
-            if (d.Mode < 0 || (d.Stops.Count == 0 && d.LineId == 0)) Draft = d = d with { Mode = ModeOfStop(lot.Kind) };
+            if (d.Stops.Count == 0 && d.LineId == 0) Draft = d = d with { Freight = freight, Mode = freight ? (d.Mode == 2 ? 2 : 0) : ModeOfStop(lot.Kind) };
             if (d.Stops.Count > 0 && d.Stops[^1] == lot.LeaseId) d.Stops.RemoveAt(d.Stops.Count - 1);
             else if (d.Stops.Contains(lot.LeaseId)) Toast?.Invoke("A line visits each stop once.", "warning");
             else d.Stops.Add(lot.LeaseId);
@@ -147,7 +182,7 @@ public sealed class CompanyModel
             if (lot == null) { Toast?.Invoke("Click a free stop, station or depot (dashed outline).", "warning"); return; }
             if (lot.LeaseId > 0) { Toast?.Invoke("The company already leases that.", "info"); return; }
             if (!Mine) { Toast?.Invoke("Run the company yourself to lease lots.", "warning"); return; }
-            Act(new PAction { Lease = new LeaseLot { Game = Game, BuildingId = lot.BuildingId } });
+            Act(new PAction { Lease = new LeaseLot { Game = GameId, BuildingId = lot.BuildingId } });
             return;
         }
         Selected = lot?.BuildingId;
@@ -192,6 +227,15 @@ public sealed class CompanyModel
             for (int y = l.Y; y < l.Y + bh; y++)
                 for (int x = l.X; x < l.X + bw; x++) Put(x, y, r, g, bl, a);
         }
+        // Track the signals hold: green with room to spare, amber nearly full, red asked for more than it can take.
+        foreach (var c in View.Reserved)
+        {
+            var (r, g, b) = c.Percent > 100 ? ((byte)230, (byte)80, (byte)70) : c.Percent > 70 ? ((byte)240, (byte)180, (byte)60) : ((byte)90, (byte)200, (byte)120);
+            Put(c.Cell % w, c.Cell / w, r, g, b, 200);
+        }
+        foreach (var sg in View.Signals)
+            if (sg.Kind == Signal.Path) Put(sg.Cell % w, sg.Cell / w, 90, 209, 255, 255);
+            else Put(sg.Cell % w, sg.Cell / w, 255, 107, 94, 255);
         return px;
     }
 
@@ -210,13 +254,20 @@ public sealed class CompanyModel
             case "co-tab": Tab = a[1]; _changed(); return;
             case "co-tool": SetTool(Enum.Parse<CompanyTool>(a[1])); return;
             case "co-catch": ShowCatchment = !ShowCatchment; MapVersion++; _changed(); return;
-            case "co-claim": Act(new PAction { Seat = new SetSeat { Seat = Game, Owner = Me(), Level = SeatLevel.SeatManual, SpendCap = 25000 } }); return;
-            case "co-handoff": Act(new PAction { Seat = new SetSeat { Seat = Game, Owner = "", Level = SeatLevel.SeatAutopilot, SpendCap = 25000 } }); return;
+            case "co-claim": Act(new PAction { Seat = new SetSeat { Seat = GameId, Owner = Me(), Level = SeatLevel.SeatManual, SpendCap = 25000 } }); return;
+            case "co-handoff": Act(new PAction { Seat = new SetSeat { Seat = GameId, Owner = "", Level = SeatLevel.SeatAutopilot, SpendCap = 25000 } }); return;
+            case "co-game" when a.Length > 1 && _views.ContainsKey(a[1]):
+                GameId = a[1]; _picked = true; Draft = null; Tool = CompanyTool.Look; Selected = null;
+                Show();
+                return;
+            case "co-bid": Command(new Command { Bid = new Bid { District = I(1), Amount = a.Length > 2 && long.TryParse(a[2], out var amt) ? amt : 0 } }); return;
+            case "co-fmode" when Draft is { } fd && fd.LineId == 0: Draft = fd with { Mode = I(1) == 2 ? 2 : 0 }; _changed(); return;
+            case "co-edge" when Draft is { } ed: Draft = ed with { ToEdge = !ed.ToEdge }; _changed(); return;
             case "co-new": SetTool(CompanyTool.Line); return;
             case "co-edit":
                 if (View?.Lines.FirstOrDefault(l => l.Id == I(1)) is { } line)
                 {
-                    Draft = (line.Id, line.Name, line.StopLeaseIds.ToList(), line.FareCents, (int)line.Mode);
+                    Draft = (line.Id, line.Name, line.StopLeaseIds.ToList(), line.FareCents, (int)line.Mode, line.Freight, line.ToEdge);
                     Tool = CompanyTool.Line;
                     Tab = "lines";
                     _changed();
@@ -228,14 +279,14 @@ public sealed class CompanyModel
             case "co-svc": Command(new Command { Service = new SetService { LineId = I(1), EveryDays = Math.Clamp(I(2), 0, 180) } }); return;
             case "co-renew": Command(new Command { Renew = new Renew { LineId = I(1) } }); return;
             case "co-buy": Command(new Command { Standing = new BuyStanding { Kind = a[1], District = I(2) } }); return;
-            case "co-lease": Act(new PAction { Lease = new LeaseLot { Game = Game, BuildingId = I(1) } }); return;
+            case "co-lease": Act(new PAction { Lease = new LeaseLot { Game = GameId, BuildingId = I(1) } }); return;
             case "co-release": Act(new PAction { EndLease = new EndLease { LeaseId = I(1), ByOperator = true } }); return;
             case "co-jump": JumpTo?.Invoke(I(1), I(2)); return;
             case "co-fare" when Draft is { } d: Draft = d with { Fare = Math.Clamp(d.Fare + I(1), 0, 1000) }; _changed(); return;
             case "co-cancel": SetTool(CompanyTool.Look); return;
             case "co-save" when Draft is { } d:
             {
-                var save = new SaveLine { LineId = d.LineId, Name = d.Name.Trim(), FareCents = d.Fare, Mode = (Mode)Math.Max(0, d.Mode) };
+                var save = new SaveLine { LineId = d.LineId, Name = d.Name.Trim(), FareCents = d.Freight ? 0 : d.Fare, Mode = (Mode)Math.Max(0, d.Mode), Freight = d.Freight, ToEdge = d.Freight && d.ToEdge };
                 save.StopLeaseIds.AddRange(d.Stops);
                 Command(new Command { SaveLine = save });
                 SetTool(CompanyTool.Look);
@@ -269,10 +320,17 @@ public sealed class CompanyModel
     public string RenderCityTab()
     {
         var v = View;
-        var sb = new StringBuilder(H3(v == null ? "Buses" : Esc(v.Name)));
+        var sb = new StringBuilder(v == null ? H3("Buses") : "");
         if (v == null) return sb.Append(Dim("No bus company in this city.")).ToString();
-        int riders = v.Lines.Sum(l => l.Riders);
-        sb.Append(Small(Dim($"{(Mine ? "You run it." : Public ? $"{Esc(v.Owner)} runs it." : $"The computer runs it ({Esc(v.Operator)}).")} {Many(v.Lines.Count, "line")}, {v.Buses} buses, {Num(riders)} riders yesterday, {v.Lots.Count} lots leased."))).Append("\n\n");
+        foreach (var (id, (cv, _)) in _views)
+        {
+            int riders = cv.Lines.Sum(l => l.Riders);
+            string runs = cv.Operator == "manual" ? (cv.Owner == Me() ? "You run it." : $"{Esc(cv.Owner)} runs it.") : $"The computer runs it ({Esc(cv.Operator)}).";
+            sb.Append(H3(Esc(cv.Name) + (_views.Count > 1 && id == GameId ? " " + Small(Dim("(shown)")) : "")));
+            sb.Append(Small(Dim($"{runs} {Many(cv.Lines.Count, "line")}, {Num(riders)} riders yesterday, {cv.Lots.Count} lots leased."))).Append('\n');
+            if (_views.Count > 1 && id != GameId) sb.Append(Link($"co-game:{id}", "Show this company")).Append('\n');
+            sb.Append('\n');
+        }
         sb.Append($"[b]{Link("co-open", "🚌 Switch to the company")}[/b]     {Link("co-window", "⧉ Own window")}\n\n");
         sb.Append(Small(Dim("The company has its own view: its lots and routes on the map, and tools for leasing lots and drawing lines. You can run it in a second window while this one shows the city."))).Append('\n');
         sb.Append(Small(Dim("Its routes show on the city map under Layers → Bus routes."))).Append('\n');
@@ -286,15 +344,20 @@ public sealed class CompanyModel
         var sb = new StringBuilder(H4("Tools"));
         sb.Append(tool(CompanyTool.Look, "🔍 Look")).Append('\n');
         if (Mine) sb.Append(tool(CompanyTool.Lease, "📝 Lease lots")).Append('\n').Append(tool(CompanyTool.Line, "✏️ Draw a line")).Append('\n');
+        if (Mine && View?.Lines.Any(l => l.Mode == Mode.Rail) == true) sb.Append(tool(CompanyTool.Signal, "🚦 Signals")).Append('\n');
+        if (_views.Count > 1)
+            foreach (var (id, (cv, _)) in _views.Where(x => x.Key != GameId)) sb.Append(Link($"co-game:{id}", $"⇄ {Esc(cv.Name)}")).Append('\n');
         sb.Append(Small(Dim(Tool switch
         {
             CompanyTool.Lease => "Click a free stop, station or depot (dashed) to lease it on the city's standard terms.",
-            CompanyTool.Line => "Click the company's stops (solid yellow) in the order the line visits them. Click the last one again to take it off. The first stop decides what runs: buses, trams or trains.",
+            CompanyTool.Line => "Click the company's stops (solid yellow) in the order the line visits them. Click the last one again to take it off. The first stop decides what runs: buses, trams, trains or freight.",
+            CompanyTool.Signal => $"Click a cell on one of the company's rail lines: a block signal ({Money(View?.SignalPrice ?? 250)}), click again for a path signal, again to take it down. Without signals only one train can use a line.",
             _ => "Click a stop, station or depot to see who it reaches and how it does.",
         }))).Append('\n');
         sb.Append(H4("Map")).Append(Link("co-catch", ShowCatchment ? "☑ Walking reach" : "☐ Walking reach")).Append('\n');
         sb.Append(Small(Dim("People ride if they live in reach of one of the company's stops and work in reach of another, and the ride beats driving or cycling."))).Append('\n');
-        sb.Append(H4("Key")).Append(Small($"{Col("#ffcc4d", "■")} the company's lots\n{Col("#ffffff", "□")} free to lease\n— a running line, ┅ one that isn't")).Append('\n');
+        sb.Append(H4("Key")).Append(Small($"{Col("#ffcc4d", "■")} the company's lots\n{Col("#ffffff", "□")} free to lease\n— a running line, ┅ one that isn't"
+            + (View is { } kv && (kv.Signals.Count > 0 || kv.Reserved.Count > 0) ? $"\n{Col("#ff6b5e", "■")} block signal, {Col("#5ad1ff", "■")} path signal\ntrack held: {Col("#5ac878", "green")} has room, {Col("#f0b43c", "amber")} nearly full, {Col("#e65046", "red")} over-asked" : ""))).Append('\n');
         return sb.ToString();
     }
 
@@ -317,42 +380,61 @@ public sealed class CompanyModel
 
     string StopName(int leaseId) => Lot(leaseId) is { } l ? $"{l.X},{l.Y}" : "?";
 
-    string Word(View v, int mode, int n = 1) =>
-        mode >= 0 && mode < v.Modes.Count ? (n == 1 ? v.Modes[mode].Word : v.Modes[mode].Plural) : n == 1 ? "bus" : "buses";
+    static ModeView? SpecOf(View v, int mode, bool freight) =>
+        freight ? v.FreightModes.FirstOrDefault(f => (int)f.Mode == mode) : mode >= 0 && mode < v.Modes.Count ? v.Modes[mode] : null;
+
+    string Word(View v, int mode, int n = 1, bool freight = false) =>
+        SpecOf(v, mode, freight) is { } sp ? (n == 1 ? sp.Word : sp.Plural) : n == 1 ? "bus" : "buses";
 
     string Lines(View v)
     {
         var sb = new StringBuilder();
         if (Draft is { } d)
         {
-            sb.Append($"[b]{(d.LineId != 0 ? "Editing a line" : "New line")}{(d.Mode >= 0 ? " " + ModeIcon[d.Mode] : "")}[/b]\n");
-            sb.Append(Small("Click the company's stops on the map in the order the line visits them. It runs both ways. Bus stops make a bus line, tram stops a tram line, stations a train line.")).Append('\n');
-            sb.Append(Small(d.Stops.Count > 0 ? string.Join(" → ", d.Stops.Select(StopName)) : Dim("No stops yet."))).Append('\n');
+            sb.Append($"[b]{(d.LineId != 0 ? "Editing a line" : "New line")}{(d.Mode >= 0 ? " " + (d.Freight ? FreightIcon(d.Mode) : ModeIcon[d.Mode]) : "")}[/b]\n");
+            sb.Append(Small("Click the company's stops on the map in the order the line visits them. It runs both ways. Bus stops make a bus line, tram stops a tram line, stations a train line, freight depots a freight line.")).Append('\n');
+            sb.Append(Small((d.Stops.Count > 0 ? string.Join(" → ", d.Stops.Select(StopName)) : Dim("No stops yet.")) + (d.Freight && d.ToEdge ? " → map edge" : ""))).Append('\n');
             sb.Append(Dim("Name it in the box above.")).Append('\n');
-            sb.Append($"Fare  {Link("co-fare:-25", "−0.25")}  [b]{Fare(d.Fare)}[/b]  {Link("co-fare:25", "+0.25")}\n");
-            sb.Append(d.Stops.Count >= 2 ? $"[b]{Link("co-save", "Save line")}[/b]" : Dim("Save line")).Append("   ").Append(Link("co-cancel", "Cancel")).Append("\n\n");
+            if (d.Freight)
+            {
+                if (d.LineId == 0) sb.Append($"{(d.Mode != 2 ? "[b]🚚 Trucks[/b]" : Link("co-fmode:0", "🚚 Trucks"))}   {(d.Mode == 2 ? "[b]🚂 Freight trains[/b]" : Link("co-fmode:2", "🚂 Freight trains"))}\n");
+                sb.Append(Link("co-edge", d.ToEdge ? "☑ On to the map edge" : "☐ On to the map edge")).Append('\n');
+                sb.Append(Small(Dim($"Goods made by factories near a depot go to the shops near the line's other depots{(d.ToEdge ? ", and the rest out of the city" : "")}. Each ton pays more the longer the run."))).Append('\n');
+            }
+            else sb.Append($"Fare  {Link("co-fare:-25", "−0.25")}  [b]{Fare(d.Fare)}[/b]  {Link("co-fare:25", "+0.25")}\n");
+            int need = d.Freight && d.ToEdge ? 1 : 2;
+            sb.Append(d.Stops.Count >= need ? $"[b]{Link("co-save", "Save line")}[/b]" : Dim("Save line")).Append("   ").Append(Link("co-cancel", "Cancel")).Append("\n\n");
         }
         bool depot = v.Lots.Any(l => l.Kind.EndsWith("-depot", StringComparison.Ordinal));
-        int stops = v.Lots.Count(l => ModeOfStop(l.Kind) >= 0);
+        int stops = v.Lots.Count(l => IsStop(l.Kind));
         if (v.Lines.Count == 0 && Draft == null)
-            sb.Append(Small(Col(Warn, $"To start: lease a depot and two or more stops of the same kind with Lease lots (bus stops and a bus depot, tram stops and a tram depot, or stations and a rail yard), then Draw a line through the stops and give it vehicles. {(depot ? "✓" : "○")} depot · {(stops >= 2 ? "✓" : "○")} two stops{(!Mine ? " · Run the company yourself first (top bar)." : "")}"))).Append('\n');
+            sb.Append(Small(Col(Warn, $"To start: lease a depot and two or more stops of the same kind with Lease lots (bus stops and a bus depot, tram stops and a tram depot, stations and a rail yard, or two freight depots for freight), then Draw a line through the stops and give it vehicles. {(depot ? "✓" : "○")} depot · {(stops >= 2 ? "✓" : "○")} two stops{(!Mine ? " · Run the company yourself first (top bar)." : "")}"))).Append('\n');
         foreach (var l in v.Lines)
         {
             int m = (int)l.Mode;
+            bool fr = l.Freight;
             var reach = l.StopLeaseIds.Select(Lot).Where(s => s != null).Select(s => Reach(s!)).ToList();
             int homes = reach.Sum(r => r.Homes), jobs = reach.Sum(r => r.Jobs);
-            sb.Append($"\n{Col(l.Color, "█")} {ModeIcon[Math.Clamp(m, 0, 2)]} [b]{Esc(l.Name)}[/b]  {Small(Dim($"{l.StopLeaseIds.Count} stops · {Fare(l.FareCents)}{(l.FareCapCents >= 0 && l.FareCapCents < l.FareCents ? $" (capped at {Fare(l.FareCapCents)})" : "")}"))}\n");
+            sb.Append($"\n{Col(l.Color, "█")} {Icon(l)} [b]{Esc(l.Name)}[/b]  {Small(Dim(fr ? $"{Many(l.StopLeaseIds.Count, "depot")}{(l.ToEdge ? " + edge" : "")} · freight" : $"{l.StopLeaseIds.Count} stops · {Fare(l.FareCents)}{(l.FareCapCents >= 0 && l.FareCapCents < l.FareCents ? $" (capped at {Fare(l.FareCapCents)})" : "")}"))}\n");
             if (!string.IsNullOrEmpty(l.Problem)) sb.Append(Small(Col(Neg, $"Not running: {Esc(l.Problem)}"))).Append('\n');
+            else if (fr)
+            {
+                sb.Append(Small($"A {Word(v, m, 1, true)} every {l.HeadwayMinutes} min ({l.RoundTripMinutes} min round trip) · [b]{Num(l.Tons)}[/b] tons carried today")).Append('\n');
+                if (l.Tons == 0)
+                    sb.Append(Small(Col(Warn, $"Nothing to carry today. Goods come from factories near its depots and go to shops near another of its depots{(l.ToEdge ? " or out to the edge" : "")}."))).Append('\n');
+            }
             else
             {
                 sb.Append(Small($"A {Word(v, m)} every {l.HeadwayMinutes} min ({l.RoundTripMinutes} min round trip) · [b]{Num(l.Riders)}[/b] riders yesterday · {l.LoadPercent}% full at the peak")).Append('\n');
                 if (l.Riders == 0)
                     sb.Append(Small(Col(Warn, $"No riders yet. Riders live near one of its stops and work near another ({Many(homes, "home")} and {Many(jobs, "job")} in reach of its stops). People re-think their commute about once a month, so a new line takes a month to fill. More stops where homes and jobs are, a lower fare or more {Word(v, m, 2)} all help."))).Append('\n');
             }
-            var boards = l.StopLeaseIds.Select((s, i) => (Lot(s) is { } lot ? Link($"co-jump:{lot.X}:{lot.Y}", StopName(s)) : "?") + $" {(i < l.Boardings.Count ? l.Boardings[i] : 0)}");
-            sb.Append(Small(Dim("Boardings: ") + string.Join(" → ", boards))).Append('\n');
+            if (l.SignalLimited)
+                sb.Append(Small(Col(Warn, $"The signals hold it to a train every {l.HeadwayMinutes} min: the track ahead is still held by the last one. Put up signals (🚦) along the line so more trains can share it; path signals keep trains on different lines out of each other's way at junctions."))).Append('\n');
+            var boards = l.StopLeaseIds.Select((s, i) => (Lot(s) is { } lot ? Link($"co-jump:{lot.X}:{lot.Y}", StopName(s)) : "?") + (fr ? "" : $" {(i < l.Boardings.Count ? l.Boardings[i] : 0)}"));
+            sb.Append(Small(Dim(fr ? "Depots: " : "Boardings: ") + string.Join(" → ", boards) + (l.ToEdge ? " → edge" : ""))).Append('\n');
             var lm = l.LastMonth ?? new MonthMoney();
-            sb.Append(Small($"Last month: fares {Money(lm.Fares)}, costs {Money(lm.Wages + lm.Upkeep + lm.Rent)}, [b]{PosNeg(lm.Profit, Money(lm.Profit))}[/b]")).Append('\n');
+            sb.Append(Small($"Last month: {(fr ? "freight" : "fares")} {Money(lm.Fares)}, costs {Money(lm.Wages + lm.Upkeep + lm.Rent)}, [b]{PosNeg(lm.Profit, Money(lm.Profit))}[/b]")).Append('\n');
             if (l.Vehicles.Count > 0)
             {
                 int Count(string st) => l.Vehicles.Count(x => x.State == st);
@@ -364,15 +446,15 @@ public sealed class CompanyModel
             }
             if (Mine)
             {
-                string price = m < v.Modes.Count ? Money(v.Modes[m].Price) : Money(v.BusPrice);
-                string plural = Word(v, m, 2);
+                string price = SpecOf(v, m, fr) is { } sp ? Money(sp.Price) : Money(v.BusPrice);
+                string plural = Word(v, m, 2, fr);
                 sb.Append($"{char.ToUpperInvariant(plural[0])}{plural[1..]}  {(l.Buses > 0 ? Link($"co-buses:{l.Id}:{l.Buses - 1}", "−") : Dim("−"))}  [b]{l.Buses}[/b]  {Link($"co-buses:{l.Id}:{l.Buses + 1}", "+")}"
                     + $"  {Small(Dim($"{price} each"))}   {(l.Buses > 0 ? Link($"co-renew:{l.Id}", "Replace oldest") : Dim("Replace oldest"))}   {Link($"co-edit:{l.Id}", "Edit")}   {Link($"co-close:{l.Id}", "Close")}\n");
                 int tt = l.TimetableMinutes, svc = l.ServiceDays;
                 sb.Append(Small($"Timetable  {Link($"co-tt:{l.Id}:{(tt <= 5 ? 0 : tt - 5)}", "−")}  [b]{(tt > 0 ? $"every {tt} min ({l.Needed} needed)" : $"all {plural}")}[/b]  {Link($"co-tt:{l.Id}:{Math.Min(120, tt > 0 ? tt + 5 : 5)}", "+")}"
                     + $"     Service  {Link($"co-svc:{l.Id}:{(svc <= 7 ? 0 : svc - 7)}", "−")}  [b]{(svc > 0 ? $"every {svc} days" : Col(Neg, "never"))}[/b]  {Link($"co-svc:{l.Id}:{Math.Min(180, svc > 0 ? svc + 7 : 7)}", "+")}")).Append('\n');
             }
-            else sb.Append(Small(Dim($"{l.Buses} {Word(v, m, l.Buses)}"))).Append('\n');
+            else sb.Append(Small(Dim($"{l.Buses} {Word(v, m, l.Buses, fr)}"))).Append('\n');
         }
         if (v.Lines.Count == 0 && Draft == null) sb.Append(Dim("No lines yet.")).Append('\n');
         if (Mine && Draft == null) sb.Append('\n').Append(Link("co-new", "✏️ New line…")).Append('\n');
@@ -392,7 +474,10 @@ public sealed class CompanyModel
             sb.Append(Small(Dim($"{Esc(l.Terms)}{(district != null ? $" · {Esc(district.Name)}, rating {district.Rating}" : "")}"))).Append('\n');
             if (ModeOfStop(l.Kind) >= 0)
                 sb.Append(Small($"In walking reach: {Many(r.Homes, "home")} ({Many(r.People, "person", "people")}), {Many(r.Sites, "workplace")} ({Many(r.Jobs, "job")}){(l.LeaseId > 0 ? $" · {Many(boards, "boarding")} yesterday" : "")}")).Append('\n');
+            if (l.Kind == "freight-depot" && l.LeaseId > 0)
+                sb.Append(Small($"Goods today: {Num(l.TonsReady)} tons ready from factories in reach, {Num(l.TonsWanted)} tons wanted by shops")).Append('\n');
             if (l.ClosedDays > 0) sb.Append(Small(Col(Neg, $"Closed for {l.ClosedDays} more days (fire or disaster nearby)."))).Append('\n');
+            if (l.Barred) sb.Append(Small(Col(Neg, "Another company holds exclusive rights in this district: no line stops here."))).Append('\n');
             if (l.BadStanding) sb.Append(Small(Col(Neg, "Bad standing with the city."))).Append('\n');
             if (Mine) sb.Append(l.LeaseId > 0 ? Link($"co-release:{l.LeaseId}", "Give up the lease") : $"[b]{Link($"co-lease:{l.BuildingId}", "Lease it")}[/b]").Append('\n');
         }
@@ -409,7 +494,7 @@ public sealed class CompanyModel
     static string Books(MonthMoney? m)
     {
         m ??= new MonthMoney();
-        var rows = new List<(string, string)> { ("Fares", Col(Pos, Money(m.Fares))) };
+        var rows = new List<(string, string)> { ("Fares and freight", Col(Pos, Money(m.Fares))) };
         if (m.Subsidy != 0) rows.Add(("From the city", Col(Pos, Money(m.Subsidy))));
         rows.Add(("Drivers' wages", Col(Neg, "-" + Money(m.Wages))));
         rows.Add(("Upkeep, servicing and repairs", Col(Neg, "-" + Money(m.Upkeep))));
@@ -422,7 +507,7 @@ public sealed class CompanyModel
     string MoneyText(View v)
     {
         var sb = new StringBuilder($"Cash [b]{PosNeg(v.Cash, Money(v.Cash))}[/b].\n");
-        sb.Append(Small(Dim(string.Join("  ·  ", v.Modes.Select(md => $"{char.ToUpperInvariant(md.Word[0])}{md.Word[1..]}: {Money(md.Price)}, {md.Seats} seats, {md.Owned} of {md.Capacity} depot places, {Money(md.ServiceCost)} a service, lasts {md.LifeYears} years"))))).Append('\n');
+        sb.Append(Small(Dim(string.Join("  ·  ", v.Modes.Concat(v.FreightModes).Select(md => $"{char.ToUpperInvariant(md.Word[0])}{md.Word[1..]}: {Money(md.Price)}, {md.Seats} {(md.Freight ? "tons" : "seats")}, {md.Owned} of {md.Capacity} depot places, {Money(md.ServiceCost)} a service, lasts {md.LifeYears} years"))))).Append('\n');
         sb.Append(H4("Last month")).Append(Books(v.LastMonth));
         sb.Append(H4("This month so far")).Append(Books(v.ThisMonth));
         sb.Append(H4("By line, last month"));
@@ -433,6 +518,22 @@ public sealed class CompanyModel
     string Standing(View v)
     {
         var sb = new StringBuilder();
+        if (v.Tenders.Count > 0) sb.Append(H4("Out to tender"));
+        foreach (var t in v.Tenders)
+        {
+            sb.Append($"[b]{Esc(t.Name)} franchise[/b]  {Small($"{t.Months} months{(t.Exclusive ? ", exclusive" : "")} · closes in {Many(t.DaysLeft, "day")}")}\n");
+            sb.Append(Small(Dim($"The city wants at least {Money(t.MinBid)}; bids are sealed and the highest wins when it closes, paying its bid then. {(t.Exclusive ? "The winner alone stops in the district." : "The winner alone may lease new transit lots in the district.")} The company has {Many(t.Lots, "lot")} there."))
+                + (t.YourBid > 0 ? Small($" [b]Your bid: {Money(t.YourBid)}[/b]") : "")).Append('\n');
+            if (Mine)
+                sb.Append(Small("Bid  " + string.Join("   ", new[] { t.MinBid, t.MinBid * 3 / 2, t.MinBid * 2, t.MinBid * 3 }
+                    .Select(amt => Link($"co-bid:{t.District}:{amt}", t.YourBid == amt ? $"[b]{Money(amt)}[/b]" : Money(amt)))))).Append('\n');
+        }
+        if (v.Franchises.Count > 0)
+        {
+            sb.Append(H4("Franchises in force"));
+            foreach (var f in v.Franchises)
+                sb.Append(Small($"{Esc(f.Name)}: {(f.Mine ? Col(Pos, "[b]yours[/b]") : $"held by {Esc(_views.TryGetValue(f.Holder, out var h) ? h.View.Name : f.Holder)}")}{(f.Exclusive ? ", exclusive" : "")}, {(f.DaysLeft + 29) / 30} months left")).Append('\n');
+        }
         if (v.Districts.Count == 0) sb.Append(Small(Dim("No lots yet, so no standing anywhere."))).Append('\n');
         foreach (var d in v.Districts)
         {

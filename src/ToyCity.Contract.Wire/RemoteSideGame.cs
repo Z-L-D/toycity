@@ -75,6 +75,8 @@ public sealed class RemoteSideGame : C.ISideGame, IDisposable
         output.AuthorityActions.AddRange(o.AuthorityActions);
         output.Responses.AddRange(o.Responses);
         output.Holding.AddRange(o.Holding);
+        foreach (var (k, v) in o.FreightPicked) output.FreightPicked[k] = v;
+        foreach (var (k, v) in o.FreightDropped) output.FreightDropped[k] = v;
         output.ServiceQuality = o.ServiceQuality;
         output.Status = o.Status;
     }

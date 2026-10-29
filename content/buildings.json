@@ -1019,6 +1019,20 @@
       "color": "#6b4e3a"
     },
     {
+      "id": "freight-depot",
+      "name": "Freight Depot",
+      "category": "transit",
+      "lotKind": "freight-depot",
+      "leaseRent": 400,
+      "w": 3,
+      "h": 3,
+      "cost": 6000,
+      "maintenance": 50,
+      "powerKw": 30,
+      "noise": 20,
+      "color": "#8a6d3b"
+    },
+    {
       "jobs": 0,
       "powerKw": 0,
       "waterUse": 0,

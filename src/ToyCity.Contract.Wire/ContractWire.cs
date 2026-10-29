@@ -62,6 +62,10 @@ public static class ContractWire
         foreach (var o in c.Offers) m.Offers.Add(new W.PaidActionOffer { Kind = o.Kind, Name = o.Name, Cost = o.Cost, Allowed = o.Allowed, WhyNot = o.WhyNot });
         foreach (var r in c.AuthorityResults)
             m.AuthorityResults.Add(new W.AuthorityResult { Kind = r.Kind, DistrictId = r.DistrictId, Ok = r.Ok, Cost = r.Cost, Text = r.Text, Rating = r.Rating });
+        foreach (var t in c.Tenders)
+            m.Tenders.Add(new W.Tender { DistrictId = t.DistrictId, Months = t.Months, DaysLeft = t.DaysLeft, Exclusive = t.Exclusive, MinBid = t.MinBid, YourBid = t.YourBid });
+        foreach (var f in c.Franchises) m.Franchises.Add(new W.Franchise { DistrictId = f.DistrictId, Holder = f.Holder, Exclusive = f.Exclusive, DaysLeft = f.DaysLeft });
+        foreach (var f in c.Freight) m.Freight.Add(new W.FreightLot { LeaseId = f.LeaseId, TonsReady = f.TonsReady, TonsWanted = f.TonsWanted });
         return m;
     }
 
@@ -84,6 +88,9 @@ public static class ContractWire
         foreach (var b in m.Bills) c.Bills.Add(new C.Bill(b.LeaseId, b.Label, b.Amount));
         foreach (var o in m.Offers) c.Offers.Add(new C.PaidActionOffer(o.Kind, o.Name, o.Cost, o.Allowed, o.WhyNot));
         foreach (var r in m.AuthorityResults) c.AuthorityResults.Add(new C.AuthorityResult(r.Kind, r.DistrictId, r.Ok, r.Cost, r.Text, r.Rating));
+        foreach (var t in m.Tenders) c.Tenders.Add(new C.Tender(t.DistrictId, t.Months, t.DaysLeft, t.Exclusive, t.MinBid, t.YourBid));
+        foreach (var f in m.Franchises) c.Franchises.Add(new C.Franchise(f.DistrictId, f.Holder, f.Exclusive, f.DaysLeft));
+        foreach (var f in m.Freight) c.Freight.Add(new C.FreightLot(f.LeaseId, f.TonsReady, f.TonsWanted));
         return c;
     }
 
@@ -102,9 +109,11 @@ public static class ContractWire
         foreach (var (k, v) in g.RevenueByLease) m.RevenueByLease[k] = v;
         m.LeaseRequests.AddRange(g.LeaseRequests);
         m.LeaseReleases.AddRange(g.LeaseReleases);
-        foreach (var a in g.AuthorityActions) m.AuthorityActions.Add(new W.AuthorityAction { Kind = a.Kind, DistrictId = a.DistrictId });
+        foreach (var a in g.AuthorityActions) m.AuthorityActions.Add(new W.AuthorityAction { Kind = a.Kind, DistrictId = a.DistrictId, Amount = a.Amount });
         foreach (var r in g.Responses) m.Responses.Add(new W.IncidentResponse { IncidentId = r.IncidentId, Outcome = r.Outcome, Text = r.Text });
         m.Holding.AddRange(g.Holding);
+        foreach (var (k, v) in g.FreightPicked) m.FreightPicked[k] = v;
+        foreach (var (k, v) in g.FreightDropped) m.FreightDropped[k] = v;
         return m;
     }
 
@@ -118,9 +127,11 @@ public static class ContractWire
         foreach (var (k, v) in m.RevenueByLease) g.RevenueByLease[k] = v;
         g.LeaseRequests.AddRange(m.LeaseRequests);
         g.LeaseReleases.AddRange(m.LeaseReleases);
-        foreach (var a in m.AuthorityActions) g.AuthorityActions.Add(new C.AuthorityAction(a.Kind, a.DistrictId));
+        foreach (var a in m.AuthorityActions) g.AuthorityActions.Add(new C.AuthorityAction(a.Kind, a.DistrictId, a.Amount));
         foreach (var r in m.Responses) g.Responses.Add(new C.IncidentResponse(r.IncidentId, r.Outcome, r.Text));
         g.Holding.AddRange(m.Holding);
+        foreach (var (k, v) in m.FreightPicked) g.FreightPicked[k] = v;
+        foreach (var (k, v) in m.FreightDropped) g.FreightDropped[k] = v;
         return g;
     }
 

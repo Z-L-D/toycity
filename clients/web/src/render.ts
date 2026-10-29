@@ -112,6 +112,12 @@ export function agentAt(t: AgentTrip, clock: { minute: number; evening: boolean 
 
 /** A lot as the bus company's view draws it. */
 export interface CompanyLot { buildingId: number; kind: string; x: number; y: number; w: number; h: number; leased: boolean; closed: boolean; reach: number; side: number }
+/** What the company view draws: its lots, and on its rail lines the signals and how much of each hour the track is held. */
+export interface CompanyMap {
+  lots: CompanyLot[]; catchment: number; showCatchment: boolean; selected: number | null;
+  signals?: { x: number; y: number; kind: number }[];
+  reserved?: { x: number; y: number; percent: number }[];
+}
 
 export class Renderer {
   readonly ctx: CanvasRenderingContext2D;
@@ -138,7 +144,7 @@ export class Renderer {
    * Set while the bus company's own view is up: the city is dimmed and the company's lots stand out, with the
    * walking reach of its stops when asked for.
    */
-  company: { lots: CompanyLot[]; catchment: number; showCatchment: boolean; selected: number | null } | null = null;
+  company: CompanyMap | null = null;
   private terrain: HTMLCanvasElement = document.createElement('canvas');
   private terrainVersion = -1;
   private blink = false;
@@ -397,6 +403,28 @@ export class Renderer {
         const r = l.reach || co.catchment;
         ctx.fillRect(px(l.x - r), py(l.y - r), (l.w + 2 * r) * s, (l.h + 2 * r) * s);
         ctx.strokeRect(px(l.x - r) + 0.5, py(l.y - r) + 0.5, (l.w + 2 * r) * s - 1, (l.h + 2 * r) * s - 1);
+      }
+    }
+    // Track the signals hold: green with room to spare, amber nearly full, red asked for more than it can take.
+    for (const c of co.reserved ?? []) {
+      ctx.fillStyle = c.percent > 100 ? 'rgba(230,80,70,0.55)' : c.percent > 70 ? 'rgba(240,180,60,0.5)' : 'rgba(90,200,120,0.4)';
+      ctx.fillRect(px(c.x), py(c.y), s, s);
+    }
+    for (const sg of co.signals ?? []) {
+      const r = Math.max(3, s * 0.35);
+      ctx.beginPath();
+      ctx.arc(px(sg.x) + s / 2, py(sg.y) + s / 2, r, 0, Math.PI * 2);
+      ctx.fillStyle = sg.kind === 2 ? '#5ad1ff' : '#ff6b5e';
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      if (s >= 12) {
+        ctx.fillStyle = '#1b2230';
+        ctx.font = `bold ${Math.round(r * 1.2)}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(sg.kind === 2 ? 'P' : 'B', px(sg.x) + s / 2, py(sg.y) + s / 2);
       }
     }
     for (const l of co.lots) {

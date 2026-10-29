@@ -39,6 +39,7 @@ public static class Mapping
             a.Offer.Terms == null ? null : Terms(a.Offer.Terms), a.Offer.Amount, a.Offer.ToBuildingId, a.Offer.CounterOf),
         P.Action.KindOneofCase.AnswerOffer => new AnswerOfferAction(a.AnswerOffer.OfferId, a.AnswerOffer.Accept),
         P.Action.KindOneofCase.Delink => new DelinkAction(a.Delink.Player),
+        P.Action.KindOneofCase.OpenTender => new OpenTenderAction(a.OpenTender.District, a.OpenTender.Months),
         P.Action.KindOneofCase.Consent => new SetConsentAction(a.Consent.Owner, (Mechanic)(int)a.Consent.Mechanic, a.Consent.Allowed),
         P.Action.KindOneofCase.Seat => new SetSeatAction(a.Seat.Seat, a.Seat.Owner, (ToyCity.Contract.OperatorLevel)(int)a.Seat.Level, (AutopilotStyle)(int)a.Seat.Style, a.Seat.SpendCap),
         P.Action.KindOneofCase.CityRule => new SetCityRuleAction((Mechanic)(int)a.CityRule.Mechanic, a.CityRule.Forbid),
@@ -84,6 +85,7 @@ public static class Mapping
         } },
         AnswerOfferAction x => new P.Action { AnswerOffer = new P.AnswerOffer { OfferId = x.OfferId, Accept = x.Accept } },
         DelinkAction x => new P.Action { Delink = new P.Delink { Player = x.Player } },
+        OpenTenderAction x => new P.Action { OpenTender = new P.OpenTender { District = x.District, Months = x.Months } },
         SetConsentAction x => new P.Action { Consent = new P.SetConsent { Owner = x.Owner, Mechanic = (P.Mechanic)(int)x.Mechanic, Allowed = x.Allowed } },
         SetSeatAction x => new P.Action { Seat = new P.SetSeat { Seat = x.SeatId, Owner = x.Owner, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style, SpendCap = x.SpendCap } },
         SetCityRuleAction x => new P.Action { CityRule = new P.SetCityRule { Mechanic = (P.Mechanic)(int)x.Mechanic, Forbid = x.Forbid } },
@@ -382,6 +384,26 @@ public static class Mapping
             ds.Games.AddRange(d.Games);
             r.Delinks.Add(ds);
         }
+        for (int d = 0; d < w.DistrictCount; d++)
+        {
+            var f = new P.DistrictFranchise { District = d, Name = w.DistrictName(d), Status = "none" };
+            if (w.FranchiseIn(d) is { } held)
+            {
+                f.Status = "held"; f.Holder = held.Winner; f.HolderName = w.GameName(held.Winner); f.Amount = held.Amount; f.Exclusive = held.Exclusive;
+                f.Months = held.Months; f.DaysLeft = (int)(held.Until - w.Tick);
+            }
+            else if (w.OpenTenderIn(d) is { } open)
+            {
+                f.Status = "open"; f.Months = open.Months; f.DaysLeft = (int)Math.Max(0, open.Closes - w.Tick); f.Bids = open.Bids.Count;
+            }
+            if (f.Status != "held" && w.Tenders.Where(t => t.District == d && t.Status == TenderStatus.NoBids).OrderByDescending(t => t.Id).FirstOrDefault() is { } none)
+                f.Last = $"Nobody bid when it was last out to tender.";
+            r.Franchises.Add(f);
+        }
+        foreach (var (id, name, about) in SideGameCatalog.Invitable())
+            if (w.SideGame(id) == null) r.Invitable.Add(new P.SideGameOffer { Id = id, Name = name, Description = about });
+        r.FreightExports = w.FreightExportDaily;
+        r.FreightDelivered = w.FreightDeliveredDaily;
         foreach (var (player, why) in w.DelinkOptions()) r.DelinkOptions.Add(new P.DelinkOption { Player = player, Open = why == null, Rule = why ?? w.DelinkRule(player) });
         foreach (var p in w.Proposals.OrderBy(p => p.Status != ProposalStatus.Open).ThenByDescending(p => p.Id).Take(12))
         {

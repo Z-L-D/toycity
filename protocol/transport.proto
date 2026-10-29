@@ -17,7 +17,29 @@ message Command {
     SetTimetable timetable = 6;
     SetService service = 7;
     Renew renew = 8;
+    PlaceSignal signal = 9;
+    Bid bid = 10;
   }
+}
+
+// What a signal does: a block signal holds the whole block ahead for one train; a path signal only the way it takes.
+enum Signal {
+  NO_SIGNAL = 0;  // takes a signal down
+  BLOCK = 1;
+  PATH = 2;
+}
+
+// Puts up, changes or takes down a signal on a cell of one of the company's rail lines.
+message PlaceSignal {
+  int32 cell = 1;
+  Signal kind = 2;
+}
+
+// Bids for a district's transit franchise while it is out to tender; a later bid replaces an earlier one. The winner
+// pays its bid when the tender closes.
+message Bid {
+  int32 district = 1;
+  int64 amount = 2;
 }
 
 // What a line's vehicles run on: buses on streets, trams on tram strips, trains on rail lines.
@@ -59,6 +81,8 @@ message SaveLine {
   repeated int32 stop_lease_ids = 3;
   int32 fare_cents = 4;
   Mode mode = 5;
+  bool freight = 6;  // trucks or freight trains between freight depots; set when the line opens
+  bool to_edge = 7;  // freight runs on from the last depot to the map edge
 }
 
 message DeleteLine {
@@ -95,6 +119,43 @@ message View {
   repeated DistrictView districts = 16;  // where the company has lots, with its standing there
   repeated OfferView offers = 17;
   repeated ModeView modes = 18;
+  repeated ModeView freight_modes = 19;  // trucks and freight trains
+  repeated SignalView signals = 20;
+  repeated CellLoad reserved = 21;       // how much of each hour the signals hold each track cell
+  repeated TenderView tenders = 22;
+  repeated FranchiseView franchises = 23;
+  string game_id = 24;                   // which company this is
+  int32 signal_price = 25;
+}
+
+message SignalView {
+  int32 cell = 1;
+  Signal kind = 2;
+}
+
+message CellLoad {
+  int32 cell = 1;
+  int32 percent = 2;  // over 100: more trains want the track than it can take
+}
+
+message TenderView {
+  int32 district = 1;
+  string name = 2;
+  int32 months = 3;
+  int32 days_left = 4;
+  bool exclusive = 5;  // the franchise comes with exclusive rights
+  int64 min_bid = 6;
+  int64 your_bid = 7;
+  int32 lots = 8;      // the company's lots there
+}
+
+message FranchiseView {
+  int32 district = 1;
+  string name = 2;
+  string holder = 3;  // the holding company's game id
+  bool mine = 4;
+  bool exclusive = 5;
+  int32 days_left = 6;
 }
 
 // What each kind of vehicle costs and holds, and how many the company has room for.
@@ -108,6 +169,7 @@ message ModeView {
   int32 owned = 7;
   int32 life_years = 8;
   int32 service_cost = 9;
+  bool freight = 10;
 }
 
 message VehicleView {
@@ -162,6 +224,10 @@ message LineView {
   int32 on_time_percent = 24;    // last month: days the timetable was kept
   int32 condition = 25;          // average, 0..100
   repeated VehicleView vehicles = 26;
+  bool freight = 27;
+  bool to_edge = 28;
+  int32 tons = 29;            // freight carried today
+  bool signal_limited = 30;   // runs less often than its trains could: the signals hold it back
 }
 
 message LotView {
@@ -174,6 +240,9 @@ message LotView {
   string terms = 7;
   bool bad_standing = 8;
   int32 closed_days = 9;  // shut by a fire or disaster nearby
+  int32 tons_ready = 10;   // a freight depot's goods ready today
+  int32 tons_wanted = 11;  // and the goods its shops want
+  bool barred = 12;        // in a district where another company holds exclusive rights
 }
 
 message MonthMoney {

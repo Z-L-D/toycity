@@ -65,9 +65,15 @@ public sealed partial class World
     /// <summary>A side game's question: the route for a vehicle of this mode between two stops, as minutes and cells.</summary>
     public StreetRoute? RouteForMode(TransitMode mode, int fromBuilding, int toBuilding)
     {
-        if (fromBuilding < 0 || toBuilding < 0 || fromBuilding >= Buildings.Count || toBuilding >= Buildings.Count) return null;
-        if (Buildings[fromBuilding] is not { } a || Buildings[toBuilding] is not { } b) return null;
+        if (fromBuilding < 0 || fromBuilding >= Buildings.Count || toBuilding < -1 || toBuilding >= Buildings.Count) return null;
         var k = KindOf(mode);
+        if (toBuilding == -1)
+        {
+            // Out to the map edge, for freight.
+            if (Buildings[fromBuilding] is not { } s) return null;
+            return EdgeRoute(k, StopCell(s, k)) is var (ec, ecells) ? new StreetRoute(ecells, Math.Max(1, ec / 600)) : null;
+        }
+        if (Buildings[fromBuilding] is not { } a || Buildings[toBuilding] is not { } b) return null;
         int from = StopCell(a, k), to = StopCell(b, k);
         if (from < 0 || to < 0) return null;
         return VehicleRoute(k, from, to) is var (cost, cells) ? new StreetRoute(cells, Math.Max(1, cost / 600)) : null;
@@ -98,6 +104,9 @@ public sealed partial class World
                     var lease = LeaseById(leaseId);
                     if (lease == null || lease.GameId != hg.Id || lease.Kind != stopKind || !_stopById.ContainsKey(lease.BuildingId)) { ok = false; break; }
                     if (StopCell(Buildings[lease.BuildingId]!, kind) < 0) { ok = false; break; }
+                    // Another company's exclusive rights: none of this line's vehicles may stop in that district.
+                    var sb = Buildings[lease.BuildingId]!;
+                    if (ExclusiveHeld(DistrictOf(sb.X, sb.Y), out string holder) && holder != hg.Id) { ok = false; break; }
                     if (lease.Terms.Mode == LeaseMode.PublicService) fare = Math.Min(fare, lease.Terms.FareCapCents);
                     stops.Add(lease.BuildingId);
                 }
