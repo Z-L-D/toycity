@@ -17,7 +17,12 @@ public sealed class EmergencyGame : ISideGame
 {
     public const string Id = "emergency";
     public const int StartingCash = 20_000, WagePerCrew = 450, StationStaff = 2;
-    public const int SuspendedDays = 30, FailAfterDays = 3, SceneIdleDays = 3;
+    public const int SuspendedDays = 30, FailAfterDays = 3;
+    /// <summary>A scene nobody has run for a day is finished by the crews, so a player can't hold units for long by walking away.</summary>
+    public const int SceneIdleDays = 1;
+    public const int GearPrice = 1_500, GearUpkeep = 40;
+    /// <summary>What each crooked way brings in: a month's racket in a district, and each call looked away from.</summary>
+    public const int RacketPerMonth = 1_500, LookAwayBribe = 400, OvertimePerFire = 500;
 
     public Manifest Manifest { get; } = new(Id, "City Emergency Services", ContractInfo.Version,
         new[] { "fire-station", "police-station", "clinic", "hospital" },
@@ -28,8 +33,19 @@ public sealed class EmergencyGame : ISideGame
     {
         W.UnitKind.Engine => ("Engine", 8_000, 4_000, 300, 4),
         W.UnitKind.Patrol => ("Patrol", 2_500, 1_200, 120, 2),
+        W.UnitKind.Swat => ("SWAT", 9_000, 4_500, 350, 4),
         _ => ("Ambulance", 4_000, 2_000, 180, 2),
     };
+
+    /// <summary>The equipment a unit of this kind can carry, with its bit. SWAT teams come armoured.</summary>
+    static readonly (string Item, string Name, W.UnitKind Kind, int Bit)[] Gear =
+    {
+        ("breathing-gear", "breathing gear", W.UnitKind.Engine, 1),
+        ("body-armour", "body armour", W.UnitKind.Patrol, 2),
+        ("defibrillator", "a defibrillator", W.UnitKind.Ambulance, 4),
+    };
+
+    static IEnumerable<string> GearOf(int bits) => Gear.Where(g => (bits & g.Bit) != 0).Select(g => g.Item);
 
     /// <summary>What a station keeps, how many it holds, and what it starts with.</summary>
     static (W.UnitKind Kind, int Holds, int Starts) StationSpec(string kind) => kind switch
@@ -52,6 +68,8 @@ public sealed class EmergencyGame : ISideGame
     sealed class Unit
     {
         public int Id, Number, LeaseId, Crew, CallId;
+        /// <summary>Equipment bits (<see cref="Gear"/>).</summary>
+        public int Gear;
         public W.UnitKind Kind;
         public string State = "ready";
         /// <summary>The tick a unit back from a call is ready again, or a suspended one is back on the road.</summary>
@@ -60,7 +78,7 @@ public sealed class EmergencyGame : ISideGame
 
     sealed class Call
     {
-        public int Id, X, Y, Severity, WaitedDays, Minutes, SceneId;
+        public int Id, X, Y, Severity, WaitedDays, Minutes, SceneId, District = -1;
         public long IncidentId, Rolled;
         public string Kind = "", Text = "", Status = "waiting", Outcome = "";
         public bool Taken;
@@ -72,7 +90,7 @@ public sealed class EmergencyGame : ISideGame
     long _cash = StartingCash;
     int _respect, _quality = 50;
     int _nextUnit = 1, _nextCall = 1, _nextScene = 1;
-    readonly int[] _numbers = new int[3];
+    readonly int[] _numbers = new int[4];
     readonly Settings _settings = new();
     readonly List<Unit> _units = new();
     readonly List<Call> _calls = new();
@@ -87,7 +105,18 @@ public sealed class EmergencyGame : ISideGame
     readonly SortedSet<int> _equipped = new();
     readonly SortedSet<int> _wanted = new();
     /// <summary>Calls that found no unit of the kind they needed this month, by unit kind: autopilot buys for these.</summary>
-    readonly int[] _short = new int[3];
+    readonly int[] _short = new int[4];
+    /// <summary>Crews on duty: three shifts keep every unit staffed around the clock; fewer save wages.</summary>
+    int _shifts = 3;
+    /// <summary>The first unit's minutes to each call rolled, by the tick it rolled: the response ratings.</summary>
+    readonly List<(long Tick, string Kind, int Minutes)> _responseTimes = new();
+    // The crooked ways (part 11): each district -1 when off.
+    bool _crookedOk;
+    string _crookedWhy = "";
+    int _slowWalk = -1, _racket = -1, _lookAway = -1, _exposed;
+    bool _overtime, _strike;
+    /// <summary>What the papers found out, for the next answer the city hears.</summary>
+    readonly List<string> _scandals = new();
     Money _this = new(), _last = new();
     long _tick;
     int _day, _month = 1, _year;
@@ -124,6 +153,10 @@ public sealed class EmergencyGame : ISideGame
         _owner = input.OwnerName ?? "";
         _lots.Clear(); _lots.AddRange(input.Lots);
         _open.Clear(); _open.AddRange(input.OpenLots);
+        var crooked = input.Offers.FirstOrDefault(o => o.Kind == "crooked");
+        _crookedOk = crooked?.Allowed == true;
+        _crookedWhy = crooked == null ? "The city doesn't allow crooked services." : crooked.WhyNot;
+        if (!_crookedOk && Crooked) EndCrooked($"Crooked services were switched off: {_crookedWhy}");
 
         Stations();
         ReturnUnits();
@@ -136,11 +169,12 @@ public sealed class EmergencyGame : ISideGame
         }
         if (_operator != OperatorLevel.Stasis)
         {
-            HearIncidents(input);
+            HearIncidents(input, city);
             Settle(city);
             Age();
             Dispatch(city);
         }
+        if (_strike) _respect = Math.Clamp(_respect - 2, -100, 100);
         if (input.NewMonth) CloseMonth(input, output);
         if (_operator is OperatorLevel.Caretaker or OperatorLevel.Autopilot) PlayItself(input);
         Publish(output);
@@ -179,12 +213,12 @@ public sealed class EmergencyGame : ISideGame
     {
         foreach (var u in _units)
         {
-            if (u.State is "on call" && u.CallId == 0 && u.Until <= _tick) u.State = "ready";
+            if (u.State is "on call" && u.CallId == 0 && u.Until <= _tick) u.State = _strike ? "on strike" : "ready";
             if (u.State == "suspended" && u.Until <= _tick) { u.State = "ready"; Log($"{UnitName(u.Id)} is back on the road."); }
         }
     }
 
-    void HearIncidents(CityToGame input)
+    void HearIncidents(CityToGame input, ICityQueries city)
     {
         foreach (var inc in input.Incidents)
         {
@@ -202,7 +236,16 @@ public sealed class EmergencyGame : ISideGame
                     _ => $"Injury: {inc.Cause}",
                 },
             };
+            call.District = city.DistrictOf(inc.Y * city.Width + inc.X);
             _calls.Add(call);
+            if (call.Kind == "crime" && call.District == _lookAway)
+            {
+                // Looked away from, for a consideration.
+                _cash += LookAwayBribe;
+                _respect = Math.Clamp(_respect - 3, -100, 100);
+                Finish(call, "escaped", $"{call.Text}: no officer came.", 0);
+                Expose(8, $"{_name} officers were paid to look the other way in district {call.District + 1}.");
+            }
         }
     }
 
@@ -221,13 +264,21 @@ public sealed class EmergencyGame : ISideGame
             "crime" => (W.UnitKind.Patrol, c.Severity >= 3 ? 2 : 1, c.Severity >= 2),
             _ => (W.UnitKind.Ambulance, 1, false),
         };
-        var ready = _units.Where(u => u.State == "ready" && Lot(u.LeaseId) != null)
+        var ready = _units.Where(u => u.State == "ready" && OnDuty(u) && Lot(u.LeaseId) != null)
             .OrderBy(u => Distance(u, c)).ThenBy(u => u.Id).ToList();
         var pick = ready.Where(u => u.Kind == need).Take(count).ToList();
         if (pick.Count == 0) return pick;
         if (help && c.Kind != "injury" && ready.FirstOrDefault(u => u.Kind == W.UnitKind.Ambulance) is { } amb) pick.Add(amb);
+        // The worst crimes get the SWAT team too, when there is one free.
+        if (c.Kind == "crime" && c.Severity >= 3 && ready.FirstOrDefault(u => u.Kind == W.UnitKind.Swat) is { } swat) pick.Add(swat);
         return pick;
     }
+
+    /// <summary>
+    /// Whether a unit's crew is on duty today: with fewer than three shifts, each unit is off one day in three or two,
+    /// staggered so a station always has someone. Nobody is on duty during a strike.
+    /// </summary>
+    bool OnDuty(Unit u) => !_strike && (_shifts >= 3 || (int)((_tick + u.Id) % 3) < _shifts);
 
     int Distance(Unit u, Call c) => Lot(u.LeaseId) is { } lot ? Math.Abs(lot.X - c.X) + Math.Abs(lot.Y - c.Y) : int.MaxValue / 2;
 
@@ -266,6 +317,9 @@ public sealed class EmergencyGame : ISideGame
         var minutes = units.Select(u => Minutes(u, c, city)).ToList();
         c.Minutes = minutes.Min();
         c.Rolled = _tick;
+        _responseTimes.Add((_tick, c.Kind, c.Minutes));
+        _responseTimes.RemoveAll(r => r.Tick < _tick - 30);
+        if (c.District == _slowWalk) Expose(4, $"{_name} has been slow to answer calls in district {c.District + 1}, and people there have noticed.");
         foreach (var u in units) { u.State = "on call"; u.CallId = c.Id; }
         if (!Scenes(c)) { c.Status = "rolling"; return; }
         OpenScene(c, units, minutes, city);
@@ -282,6 +336,7 @@ public sealed class EmergencyGame : ISideGame
         var s = Scene.Create(_nextScene++, c.Id, c.IncidentId, c.Kind, c.Severity, c.X, c.Y, c.Text, c.Minutes, area, ex, ey,
             city.Hash((int)_tick, c.Id, 0x7363, 7));
         s.Touched = _tick;
+        foreach (var u in units) if (u.Gear != 0) s.Gear[u.Id] = u.Gear;
         for (int i = 0; i < units.Count; i++)
         {
             units[i].State = "at scene";
@@ -299,7 +354,9 @@ public sealed class EmergencyGame : ISideGame
         if (lot == null) return 30;
         int road = NearestRoad(c, city);
         var route = lot.AccessCell >= 0 && road >= 0 ? city.Route(lot.AccessCell, road) : null;
-        return 2 + (route?.Minutes ?? 10 + (Math.Abs(lot.X - c.X) + Math.Abs(lot.Y - c.Y)) / 2);
+        int minutes = 2 + (route?.Minutes ?? 10 + (Math.Abs(lot.X - c.X) + Math.Abs(lot.Y - c.Y)) / 2);
+        // A slow-walked district waits.
+        return c.District == _slowWalk ? minutes + 12 : minutes;
     }
 
     static int NearestRoad(Call c, ICityQueries city)
@@ -328,6 +385,13 @@ public sealed class EmergencyGame : ISideGame
                 ? 92 - 3 * Math.Max(0, c.Minutes - 6) - 12 * (c.Severity - 1) - 10 * c.WaitedDays + (units.Count > 1 ? 5 : 0) + _respect / 10
                 : 10;
             bool ok = (int)(city.Hash((int)_tick, c.Id, 0x656d, 1) % 100) < Math.Clamp(good, 5, 97);
+            if (_overtime && c.Kind == "fire" && units.Any(u => u.Kind == W.UnitKind.Engine))
+            {
+                // Crews on the overtime game let fires run, and claim the hours.
+                _cash += OvertimePerFire;
+                if (ok && (int)(city.Hash((int)_tick, c.Id, 0x6f74, 2) % 100) < 35) ok = false;
+                Expose(6, $"Fires in {_name}'s care keep spreading, and the overtime claims are up. The papers smell arson.");
+            }
             string outcome = Good(c.Kind, ok);
             string who = units.Count > 0 ? UnitName(units[0].Id) : "Nobody";
             string text = ok ? "" : c.Kind switch
@@ -413,9 +477,17 @@ public sealed class EmergencyGame : ISideGame
     /// <summary>The first of the month: wages and upkeep, the city's subsidy and bills, and the books close.</summary>
     void CloseMonth(CityToGame input, GameToCity output)
     {
+        if (_racket >= 0)
+        {
+            _cash += RacketPerMonth;
+            _respect = Math.Clamp(_respect - 2, -100, 100);
+            Log($"Collected ${RacketPerMonth:N0} from the shops of district {_racket + 1}.");
+            Expose(15, $"{_name} has been running a protection racket on the shops of district {_racket + 1}.");
+        }
         foreach (var u in _units)
         {
-            long wages = (long)u.Crew * WagePerCrew, upkeep = Spec(u.Kind).Upkeep;
+            // Wages for the shifts kept; nobody is paid for a month on strike.
+            long wages = _strike ? 0 : (long)u.Crew * WagePerCrew * _shifts / 3, upkeep = Spec(u.Kind).Upkeep + GearUpkeep * GearOf(u.Gear).Count();
             _this.Wages += wages; _this.Upkeep += upkeep;
             _cash -= wages + upkeep;
         }
@@ -470,7 +542,15 @@ public sealed class EmergencyGame : ISideGame
         foreach (var lot in _lots)
             output.JobsByLease[lot.LeaseId] = _units.Where(u => u.LeaseId == lot.LeaseId).Sum(u => u.Crew) + StationStaff;
         int avg = _results.Count == 0 ? 50 : (int)_results.Average();
-        _quality = Math.Clamp(avg + _respect / 5, 0, 100);
+        // Response times count: each kind of call graded A to F over the last thirty days.
+        int grades = Ratings().Where(r => r.Grade.Length > 0).Sum(r => r.Grade switch { "A" => 3, "B" => 1, "C" => 0, "D" => -2, _ => -4 });
+        _quality = Math.Clamp(avg + _respect / 5 + grades, 0, 100);
+        if (_scandals.Count > 0 && _responses.Count > 0)
+        {
+            var first = _responses[0];
+            _responses[0] = first with { Text = (first.Text + " " + string.Join(" ", _scandals)).Trim() };
+            _scandals.Clear();
+        }
         output.ServiceQuality = _quality;
         output.Responses.AddRange(_responses);
         _responses.Clear();
@@ -478,7 +558,40 @@ public sealed class EmergencyGame : ISideGame
         output.LeaseRequests.AddRange(_wanted);
         _wanted.Clear();
         int open = _calls.Count(c => c.Status != "done");
-        output.Status = _units.Count == 0 ? $"{_name}: no units" : $"{_name}: {_units.Count} units, {open} open call{(open == 1 ? "" : "s")}";
+        output.Status = _strike ? $"{_name}: on strike, {open} open call{(open == 1 ? "" : "s")}"
+            : _units.Count == 0 ? $"{_name}: no units" : $"{_name}: {_units.Count} units, {open} open call{(open == 1 ? "" : "s")}";
+    }
+
+    /// <summary>Response ratings over the last thirty days: the average minutes to each kind of call, graded.</summary>
+    List<W.ResponseRating> Ratings() => new[] { "fire", "crime", "injury" }.Select(kind =>
+    {
+        var times = _responseTimes.Where(r => r.Kind == kind && r.Tick >= _tick - 30).Select(r => r.Minutes).ToList();
+        int avg = times.Count == 0 ? 0 : (int)Math.Round(times.Average());
+        string grade = times.Count == 0 ? "" : avg <= 6 ? "A" : avg <= 8 ? "B" : avg <= 11 ? "C" : avg <= 15 ? "D" : "F";
+        return new W.ResponseRating { Kind = kind, Calls = times.Count, Minutes = avg, Grade = grade };
+    }).ToList();
+
+    bool Crooked => _slowWalk >= 0 || _racket >= 0 || _lookAway >= 0 || _overtime || _strike;
+
+    void EndCrooked(string why)
+    {
+        _slowWalk = _racket = _lookAway = -1;
+        _overtime = false;
+        if (_strike) foreach (var u in _units.Where(u => u.State == "on strike")) u.State = "ready";
+        _strike = false;
+        Log(why);
+    }
+
+    /// <summary>The papers may find out, a chance in a hundred each time: respect falls and the city hears.</summary>
+    void Expose(int percent, string text)
+    {
+        ulong h = (ulong)_tick * 0x9E3779B97F4A7C15UL ^ (ulong)(_exposed + 1) * 0xC2B2AE3D27D4EB4FUL ^ (ulong)text.Length * 0x165667B19E3779F9UL ^ _seed;
+        h ^= h >> 31; h *= 0xBF58476D1CE4E5B9UL; h ^= h >> 29;
+        if ((int)(h % 100) >= percent) return;
+        _exposed++;
+        _respect = Math.Clamp(_respect - 20, -100, 100);
+        _scandals.Add($"Exposed: {text}");
+        Log($"The papers have it: {text}");
     }
 
     // ---------------------------------------------------------------------
@@ -503,6 +616,7 @@ public sealed class EmergencyGame : ISideGame
                 if (units.Count == 0) return No("Pick at least one unit to send.");
                 if (units.Any(u => u == null || !(u.State == "ready" || u.State == "proposed" && u.CallId == c.Id)))
                     return No("One of those units isn't free.");
+                if (units.Any(u => !OnDuty(u!))) return No(_strike ? "The crews are on strike." : "One of those units' crew is off shift today.");
                 Roll(c, units!, city);
                 if (c.Status == "scene" && _scenes.FirstOrDefault(s => s.Id == c.SceneId) is { } opened) opened.Touched = _tick;
                 return Yes;
@@ -567,6 +681,11 @@ public sealed class EmergencyGame : ISideGame
                 _settings.CrewsUseHeads = c.CrewsUseHeads;
                 if (_settings.DriversWatchOut && !c.DriversWatchOut) Log("Drivers were told not to stop for people at scenes.");
                 _settings.DriversWatchOut = c.DriversWatchOut;
+                if (c.Shifts is >= 1 and <= 3 && c.Shifts != _shifts)
+                {
+                    Log(c.Shifts == 3 ? "Crews are on duty around the clock again." : $"Crews now work {c.Shifts} shift{(c.Shifts == 1 ? "" : "s")}: units are off some days.");
+                    _shifts = c.Shifts;
+                }
                 var name = c.Name.Trim();
                 if (name.Length > 0) _name = name.Length > 30 ? name[..30] : name;
                 // Proposals made for a player who no longer wants them go out as they are.
@@ -577,7 +696,9 @@ public sealed class EmergencyGame : ISideGame
                 if (Lot(cmd.Buy.LeaseId) is not { } lot) return No("The service doesn't lease that station.");
                 if (!Enum.IsDefined(cmd.Buy.Kind)) return No("There's no such unit.");
                 var spec = StationSpec(lot.Kind);
-                if (spec.Kind != cmd.Buy.Kind) return No($"A {Describe(lot.Kind)} keeps {Spec(spec.Kind).Name.ToLowerInvariant()}s.");
+                bool swat = cmd.Buy.Kind == W.UnitKind.Swat && lot.Kind == "police-station";
+                if (spec.Kind != cmd.Buy.Kind && !swat) return No($"A {Describe(lot.Kind)} keeps {Spec(spec.Kind).Name.ToLowerInvariant()}s{(spec.Kind == W.UnitKind.Patrol ? " and SWAT teams" : "")}.");
+                if (swat && _units.Any(u => u.LeaseId == lot.LeaseId && u.Kind == W.UnitKind.Swat)) return No("That police station has its SWAT team.");
                 if (_units.Count(u => u.LeaseId == lot.LeaseId) >= spec.Holds) return No($"That {Describe(lot.Kind)} holds {spec.Holds} units.");
                 var price = Spec(cmd.Buy.Kind).Price;
                 if (_cash < price) return No($"A new {Spec(cmd.Buy.Kind).Name.ToLowerInvariant()} costs ${price:N0} and the service has ${_cash:N0}.");
@@ -585,6 +706,47 @@ public sealed class EmergencyGame : ISideGame
                 _this.Vehicles += price;
                 var u = AddUnit(cmd.Buy.Kind, lot.LeaseId);
                 Log($"Bought {UnitName(u.Id)}.");
+                return Yes;
+            }
+            case W.Command.KindOneofCase.Gear:
+            {
+                if (Find(cmd.Gear.UnitId) is not { } u) return No("That unit has gone.");
+                var g = Gear.FirstOrDefault(g => g.Item == cmd.Gear.Item);
+                if (g.Item == null) return No("There's no such equipment.");
+                if (g.Kind != u.Kind) return No($"{UnitName(u.Id)} can't carry {g.Name}.");
+                if ((u.Gear & g.Bit) != 0) return No($"{UnitName(u.Id)} already has {g.Name}.");
+                if (_cash < GearPrice) return No($"{char.ToUpperInvariant(g.Name[0])}{g.Name[1..]} costs ${GearPrice:N0} and the service has ${_cash:N0}.");
+                _cash -= GearPrice;
+                _this.Vehicles += GearPrice;
+                u.Gear |= g.Bit;
+                Log($"{UnitName(u.Id)} now carries {g.Name}.");
+                return Yes;
+            }
+            case W.Command.KindOneofCase.Crooked:
+            {
+                var k = cmd.Crooked;
+                if (k.On && !_crookedOk) return No(_crookedWhy.Length > 0 ? _crookedWhy : "Crooked services aren't allowed here.");
+                int district = k.On ? k.District : -1;
+                if (k.On && k.Kind is "slow-walk" or "racket" or "look-away" && (district < 0 || district > 255)) return No("Pick a district.");
+                switch (k.Kind)
+                {
+                    case "slow-walk": _slowWalk = district; Log(k.On ? $"Calls from district {district + 1} will wait." : "No more slow-walking."); break;
+                    case "racket": _racket = district; Log(k.On ? $"The service is leaning on the shops of district {district + 1}." : "The racket is over."); break;
+                    case "look-away": _lookAway = district; Log(k.On ? $"Officers will look the other way in district {district + 1}." : "Officers are watching again."); break;
+                    case "overtime": _overtime = k.On; Log(k.On ? "Fire crews are on the overtime game." : "No more overtime fires."); break;
+                    case "strike":
+                        if (_strike == k.On) return Yes;
+                        _strike = k.On;
+                        foreach (var u in _units.Where(u => u.State is "ready" or "proposed" || u.State == "on strike"))
+                        {
+                            if (k.On && u.State == "proposed") { u.CallId = 0; }
+                            u.State = k.On ? "on strike" : "ready";
+                        }
+                        foreach (var c in _calls.Where(c => c.Status == "proposed")) { c.Status = "waiting"; c.Units.Clear(); }
+                        Log(k.On ? "The crews have walked out. Nobody answers calls until the strike ends." : "The strike is over: crews are back.");
+                        break;
+                    default: return No("There's no such crooked way.");
+                }
                 return Yes;
             }
             case W.Command.KindOneofCase.Sell:
@@ -622,7 +784,17 @@ public sealed class EmergencyGame : ISideGame
             {
                 Id = u.Id, Name = UnitName(u.Id), Kind = u.Kind, StationLeaseId = u.LeaseId, Crew = u.Crew, State = u.State, CallId = u.CallId,
                 BackInDays = u.State == "suspended" ? (int)Math.Max(0, u.Until - _tick) : 0,
+                Gear = { GearOf(u.Gear) },
             });
+        // A unit whose crew is off today shows it.
+        foreach (var uv in v.Units) if (uv.State == "ready" && Find(uv.Id) is { } fu && !OnDuty(fu)) uv.State = "off shift";
+        v.Shifts = _shifts;
+        v.Ratings.AddRange(Ratings());
+        v.Crooked = new W.CrookedView
+        {
+            Allowed = _crookedOk, WhyNot = _crookedWhy, SlowWalk = _slowWalk, Racket = _racket, LookAway = _lookAway, Overtime = _overtime,
+            Strike = _strike, Exposed = _exposed,
+        };
         foreach (var c in _calls)
         {
             var cv = new W.CallView
@@ -641,6 +813,7 @@ public sealed class EmergencyGame : ISideGame
             // A rival or a spectator sees the calls and the scenes, not the books or the reports.
             v.Cash = 0; v.ThisMonth = null; v.LastMonth = null;
             v.Cards.Clear(); v.Log.Clear();
+            v.Crooked = new W.CrookedView { Strike = _strike, Exposed = _exposed, SlowWalk = -1, Racket = -1, LookAway = -1 };
         }
         return v.ToByteArray();
     }
@@ -649,7 +822,7 @@ public sealed class EmergencyGame : ISideGame
     {
         w.Write(_seed); w.Write(_name); w.Write(_cash); w.Write(_respect); w.Write(_quality);
         w.Write(_nextUnit); w.Write(_nextCall); w.Write(_nextScene);
-        foreach (var n in _numbers) w.Write(n);
+        for (int i = 0; i < 3; i++) w.Write(_numbers[i]);
         w.Write((int)_settings.Style); w.Write(_settings.PickResponders); w.Write(_settings.CrewsUseHeads); w.Write(_settings.DriversWatchOut);
         w.Write(_tick); w.Write(_day); w.Write(_month); w.Write(_year); w.Write((byte)_operator); w.Write(_owner);
         _this.Write(w); _last.Write(w);
@@ -675,7 +848,7 @@ public sealed class EmergencyGame : ISideGame
         foreach (var r in _responses) { w.Write(r.IncidentId); w.Write(r.Outcome); w.Write(r.Text); }
         w.Write(_equipped.Count); foreach (var e in _equipped) w.Write(e);
         w.Write(_wanted.Count); foreach (var e in _wanted) w.Write(e);
-        foreach (var s in _short) w.Write(s);
+        for (int i = 0; i < 3; i++) w.Write(_short[i]);
         w.Write(_lots.Count);
         foreach (var l in _lots)
         {
@@ -688,13 +861,26 @@ public sealed class EmergencyGame : ISideGame
             w.Write(o.BuildingId); w.Write(o.Kind); w.Write(o.X); w.Write(o.Y); w.Write(o.W); w.Write(o.H); w.Write(o.AccessCell); w.Write(o.DistrictId);
             WriteTerms(w, o.Terms);
         }
+        // Beta 3 (part 11), after everything Beta 2 saved so its saves still load.
+        w.Write(BetaThree);
+        w.Write(_numbers[3]); w.Write(_short[3]); w.Write(_shifts);
+        foreach (var u in _units) w.Write(u.Gear);
+        foreach (var c in _calls) w.Write(c.District);
+        foreach (var sc in _scenes) sc.SaveMore(w);
+        w.Write(_responseTimes.Count);
+        foreach (var (t, k, m) in _responseTimes) { w.Write(t); w.Write(k); w.Write(m); }
+        w.Write(_crookedOk); w.Write(_crookedWhy); w.Write(_slowWalk); w.Write(_racket); w.Write(_lookAway); w.Write(_exposed);
+        w.Write(_overtime); w.Write(_strike);
+        w.Write(_scandals.Count); foreach (var t in _scandals) w.Write(t);
     }
+
+    const int BetaThree = 0x42330001;
 
     public void Load(BinaryReader r)
     {
         _seed = r.ReadUInt64(); _name = r.ReadString(); _cash = r.ReadInt64(); _respect = r.ReadInt32(); _quality = r.ReadInt32();
         _nextUnit = r.ReadInt32(); _nextCall = r.ReadInt32(); _nextScene = r.ReadInt32();
-        for (int i = 0; i < _numbers.Length; i++) _numbers[i] = r.ReadInt32();
+        for (int i = 0; i < 3; i++) _numbers[i] = r.ReadInt32();
         _settings.Style = (W.CommandStyle)r.ReadInt32(); _settings.PickResponders = r.ReadBoolean(); _settings.CrewsUseHeads = r.ReadBoolean(); _settings.DriversWatchOut = r.ReadBoolean();
         _tick = r.ReadInt64(); _day = r.ReadInt32(); _month = r.ReadInt32(); _year = r.ReadInt32(); _operator = (OperatorLevel)r.ReadByte(); _owner = r.ReadString();
         _this = Money.Read(r); _last = Money.Read(r);
@@ -727,7 +913,7 @@ public sealed class EmergencyGame : ISideGame
         int np = r.ReadInt32(); for (int i = 0; i < np; i++) _responses.Add(new IncidentResponse(r.ReadInt64(), r.ReadString(), r.ReadString()));
         int ne = r.ReadInt32(); for (int i = 0; i < ne; i++) _equipped.Add(r.ReadInt32());
         int nw = r.ReadInt32(); for (int i = 0; i < nw; i++) _wanted.Add(r.ReadInt32());
-        for (int i = 0; i < _short.Length; i++) _short[i] = r.ReadInt32();
+        for (int i = 0; i < 3; i++) _short[i] = r.ReadInt32();
         int nlots = r.ReadInt32();
         for (int i = 0; i < nlots; i++)
             _lots.Add(new LeasedLot(r.ReadInt32(), r.ReadInt32(), r.ReadString(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(),
@@ -735,6 +921,16 @@ public sealed class EmergencyGame : ISideGame
         int no = r.ReadInt32();
         for (int i = 0; i < no; i++)
             _open.Add(new OpenLot(r.ReadInt32(), r.ReadString(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), ReadTerms(r)));
+        if (r.BaseStream.Position >= r.BaseStream.Length || r.ReadInt32() != BetaThree) return;
+        _numbers[3] = r.ReadInt32(); _short[3] = r.ReadInt32(); _shifts = r.ReadInt32();
+        foreach (var u in _units) u.Gear = r.ReadInt32();
+        foreach (var c in _calls) c.District = r.ReadInt32();
+        foreach (var sc in _scenes) sc.LoadMore(r);
+        int nt = r.ReadInt32();
+        for (int i = 0; i < nt; i++) _responseTimes.Add((r.ReadInt64(), r.ReadString(), r.ReadInt32()));
+        _crookedOk = r.ReadBoolean(); _crookedWhy = r.ReadString(); _slowWalk = r.ReadInt32(); _racket = r.ReadInt32(); _lookAway = r.ReadInt32(); _exposed = r.ReadInt32();
+        _overtime = r.ReadBoolean(); _strike = r.ReadBoolean();
+        int nsc = r.ReadInt32(); for (int i = 0; i < nsc; i++) _scandals.Add(r.ReadString());
     }
 
     static void WriteTerms(BinaryWriter w, LeaseTerms t)

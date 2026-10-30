@@ -39,6 +39,24 @@ public sealed class HostConfig
     /// <summary>Side games run on another process or machine (see ToyCity.SideGameHost) instead of in this one.</summary>
     public List<RemoteGame> SideGames { get; set; } = new();
 
+    /// <summary>
+    /// Federated regions (part 8): the key a tile host must give to run one of this region's cities. Empty: no tile
+    /// hosts may join.
+    /// </summary>
+    public string LinkKey { get; set; } = "";
+    /// <summary>How long the region holds for a tile host that stops answering before a computer mayor runs its city here.</summary>
+    public int TakeOverSeconds { get; set; } = 120;
+    /// <summary>Where players reach this server's /ws (ws://host:port/ws), for redirects from tile hosts. Optional.</summary>
+    public string PublicAddress { get; set; } = "";
+
+    /// <summary>Milliseconds a day takes at the fastest speed. 833 by default (a year in five minutes); scripted runs go faster.</summary>
+    public int FastDayMs { get; set; } = 833;
+    /// <summary>
+    /// The shortest a day may be while a player is running an emergency scene (part 11): normal speed by default, so a
+    /// scene played at full speed doesn't hold its units for days of game time.
+    /// </summary>
+    public int SceneDayMs { get; set; } = 3_333;
+
     [JsonIgnore] public bool Dedicated { get; set; }
     [JsonIgnore] public string? Path { get; set; }
 

@@ -132,7 +132,7 @@ public sealed partial class World
                     if (!s.Unlocked && bigEnough)
                     {
                         s.Unlocked = true;
-                        if (Tick > 0) Notices.Add(new SimNotice($"New ordinance available: {d.Name}.", "info"));
+                        if (Age > 0) Notices.Add(new SimNotice($"New ordinance available: {d.Name}.", "info"));
                     }
                     break;
                 case OrdinanceAvailability.Unlock:

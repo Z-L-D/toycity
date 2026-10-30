@@ -64,6 +64,11 @@ public sealed partial class World
             ForkAction f => !Text(f.Player, MaxName) || !Text(f.HomeName, 200) ? "That name is too long." : null,
             OfferLeaseAction o => !Def(o.Kind) ? "That isn't an offer." : o.Amount is < 0 or > MaxMoney ? "That amount is out of range."
                 : o.Kind == OfferKind.Relocate && !Building(o.ToBuildingId) ? "There's no such lot." : o.Terms is { } ot ? TermsOutOfBounds(ot) : null,
+            NeighbourEdgeAction n => n.Side is < 0 or > 3 || !Text(n.Name, 200) || !Text(n.Mayor, MaxName) || n.Paths.Length > 2048 || n.Power.Length > 1024 || n.Pipes.Length > 1024 || (n.Stats?.Length ?? 0) > 64 || (n.Fire?.Length ?? 0) > 1024 || (n.Movers?.Length ?? 0) > 100
+                ? "That isn't a border." : null,
+            CityDealAction d => d.Side is < 0 or > 3 || !Def(d.Kind) || !Text(d.Other, 200) || !Text(d.Why, 200) || d.Amount is < 0 or > 1_000_000 || d.Price is < 0 or > 1_000_000
+                ? "That isn't a deal." : null,
+            WeatherAction wa => !Def(wa.Kind) || wa.Strength is < 0 or > 3 ? "That isn't weather." : null,
             RenameOwnerAction r => !Text(r.From, MaxName) || !Text(r.To, MaxName) ? "That player name is too long." : null,
             _ => null,
         };

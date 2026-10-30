@@ -7,18 +7,36 @@ export interface EmergencyHost {
   conn: Connection;
   jumpTo(x: number, y: number): void;
   toast(text: string, severity?: string): void;
+  /** The city's cells across, for naming its 32-cell districts. */
+  cityWidth?(): number;
 }
 
 type EmTab = 'calls' | 'units' | 'reports' | 'settings' | 'log';
-type Order = 'move' | 'path' | 'hose' | 'treat' | 'warn' | 'arrest' | 'taser' | 'shoot';
+type Order = 'move' | 'path' | 'hose' | 'treat' | 'warn' | 'arrest' | 'taser' | 'shoot' | 'cordon' | 'search' | 'breach';
 
 const GAME = 'emergency';
 const TILE = 14;
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const money = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-US');
-const UNIT_ICON = ['🚒', '🚓', '🚑'];
-const UNIT_NAME = ['engine', 'patrol car', 'ambulance'];
+const UNIT_ICON = ['🚒', '🚓', '🚑', '🛡'];
+const UNIT_NAME = ['engine', 'patrol car', 'ambulance', 'SWAT team'];
+const SWAT = 3;
+// The equipment each kind of unit can carry, as the service sells it.
+const GEAR: [string, number, string, string][] = [
+  ['breathing-gear', 0, 'breathing gear', 'hoses harder and works in the smoke unhurt'],
+  ['body-armour', 1, 'body armour', 'officers shrug off most of a gunshot'],
+  ['defibrillator', 2, 'a defibrillator', 'paramedics treat twice as fast'],
+];
+const GEAR_PRICE = 1500;
+// The crooked ways: [kind, name, what it does, whether it's done in one district].
+const CROOKED: [string, string, string, boolean][] = [
+  ['slow-walk', 'Slow-walk a district', 'calls there wait 12 more minutes; the papers may notice', true],
+  ['racket', 'Protection racket', "the district's shops pay the service each month, or else", true],
+  ['look-away', 'Look the other way', 'officers let crime in the district go, for a cut', true],
+  ['overtime', 'Overtime fires', 'fires spread further and every one pays the crews overtime', false],
+  ['strike', 'Strike', 'every crew walks out until it ends', false],
+];
 const KIND_ICON: Record<string, string> = { fire: '🔥', crime: '🚨', injury: '🩹' };
 const STYLES = ['Full command', 'Scene command', 'Focus'];
 const STYLE_HELP = [
@@ -26,9 +44,9 @@ const STYLE_HELP = [
   'The computer picks who goes to each call; you run every scene they reach.',
   'The computer picks who goes and settles each call as it would without you. You step into only the scenes you choose (Take scene on the call).',
 ];
-const TASKS: Record<Order, number> = { move: 0, path: 0, hose: 1, treat: 2, arrest: 3, warn: 4, shoot: 5, taser: 6 };
-const ROLE_COLOR = ['#e04f3a', '#f2f2f2', '#3f7fe0', '#9aa0a8', '#f0c030', '#a050d0'];
-const ROLE_NAME = ['firefighter', 'paramedic', 'officer', 'bystander', 'casualty', 'suspect'];
+const TASKS: Record<Order, number> = { move: 0, path: 0, hose: 1, treat: 2, arrest: 3, warn: 4, shoot: 5, taser: 6, breach: 7, cordon: 8, search: 9 };
+const ROLE_COLOR = ['#e04f3a', '#f2f2f2', '#3f7fe0', '#9aa0a8', '#f0c030', '#a050d0', '#f08ad0'];
+const ROLE_NAME = ['firefighter', 'paramedic', 'officer', 'bystander', 'casualty', 'suspect', 'hostage'];
 const TILE_COLOR = ['#c9c0a0', '#6e6e6e', '#a88d6c', '#4a7fe0', '#7cbf6a', '#3a3330'];
 
 export class Emergency {
@@ -42,6 +60,8 @@ export class Emergency {
   private order: Order = 'move';
   private selected: number[] = [];
   private drawing: number[] | null = null;
+  /** A selection box being dragged, in scene tiles. */
+  private box: { x0: number; y0: number; x1: number; y1: number; moved: boolean } | null = null;
   /** Units ticked for each call, before Send. */
   private picks = new Map<number, Set<number>>();
 
@@ -188,6 +208,9 @@ export class Emergency {
       case 'order': this.order = arg as Order; this.render(); break;
       case 'buy': { const [lease, kind] = arg.split('/').map(Number); this.command({ buy: { leaseId: lease, kind } }); break; }
       case 'sell': this.command({ sell: { unitId: n } }); break;
+      case 'gear': { const [unit, item] = arg.split('/'); this.command({ gear: { unitId: Number(unit), item } }); break; }
+      case 'shifts': this.saveSettings(n); break;
+      case 'crooked': { const [kind, district, on] = arg.split('/'); this.command({ crooked: { kind, district: Number(district), on: on === 'on' } }); break; }
     }
     e.preventDefault();
   }
@@ -195,9 +218,10 @@ export class Emergency {
   private renderCalls(): string {
     const v = this.view!;
     const calls = (v.calls as Msg[]).slice().sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done') || b.id - a.id);
-    if (!calls.length) return `<p class="muted">No calls. Fires, crimes and injuries in the city come in here.</p>`;
+    const head = this.renderRatings() + (v.crooked?.strike ? `<p class="em-strike"><b>The crews are on strike.</b> Nobody answers calls until it ends.</p>` : '');
+    if (!calls.length) return head + `<p class="muted">No calls. Fires, crimes and injuries in the city come in here.</p>`;
     const ready = (v.units as Msg[]).filter((u) => u.state === 'ready');
-    return calls.map((c) => {
+    return head + calls.map((c) => {
       const units = (c.unitIds as number[]).map((id) => this.unit(id)?.name ?? '?').join(', ');
       let act = '';
       if (this.mine && (c.status === 'waiting' || c.status === 'proposed')) {
@@ -237,21 +261,59 @@ export class Emergency {
       const units = (v.units as Msg[]).filter((u) => u.stationLeaseId === s.leaseId);
       return `<div class="em-station"><b>${esc(s.name)}</b>
         ${units.map((u) => `<div>${UNIT_ICON[u.kind]} ${esc(u.name)} <span class="muted">${u.crew} crew · ${u.state}${u.backInDays ? ` (${u.backInDays}d)` : ''}</span>
-          ${this.mine && u.state === 'ready' ? `<button class="mini" data-em="sell:${u.id}">Sell</button>` : ''}</div>`).join('')}
+          ${this.mine && u.state === 'ready' ? `<button class="mini" data-em="sell:${u.id}">Sell</button>` : ''}
+          ${GEAR.filter((g) => g[1] === u.kind).map(([item, , name, does]) => (u.gear as string[]).includes(item)
+            ? `<div class="small">✓ ${name} <span class="muted">${does}</span></div>`
+            : this.mine ? `<div class="small"><button class="mini" data-em="gear:${u.id}/${item}">Fit ${name} (${money(GEAR_PRICE)})</button> <span class="muted">${does}</span></div>` : '').join('')}</div>`).join('')}
         ${this.mine ? `<button class="mini" data-em="buy:${s.leaseId}/${kind}">Buy ${UNIT_NAME[kind]}</button>` : ''}
+        ${this.mine && kind === 1 && !units.some((u) => u.kind === SWAT) ? `<button class="mini" data-em="buy:${s.leaseId}/${SWAT}" title="Four officers in armour: they breach buildings and end hostage scenes">Buy a SWAT team</button>` : ''}
       </div>`;
     }).join('');
   }
 
   private renderReports(): string {
     const cards = (this.view!.cards as Msg[]).slice().reverse();
-    if (this.public) return `<p class="muted">Scene reports are the service's own business.</p>`;
-    if (!cards.length) return `<p class="muted">Each scene you run gets a report card here. Lives saved count for most; harm your crews cause costs more than a slow response.</p>`;
-    return cards.map((c) => `<div class="em-card ${c.score < 40 ? 'bad' : ''}">
+    if (this.public) return this.renderRatings() + `<p class="muted">Scene reports are the service's own business.</p>`;
+    if (!cards.length) return this.renderRatings() + `<p class="muted">Each scene you run gets a report card here. Lives saved count for most; harm your crews cause costs more than a slow response.</p>`;
+    return this.renderRatings() + cards.map((c) => `<div class="em-card ${c.score < 40 ? 'bad' : ''}">
       <div><b>${esc(c.where)}</b> <span class="em-score">${c.score}</span> <span class="muted">${c.outcome}</span></div>
-      <div class="muted small">${c.responseMinutes} min response · ${c.saved} saved · ${c.lost} lost · ${c.harmedByCrews} hurt by crews · ${c.friendlyFire} friendly fire · ${c.unauthorizedForce} unauthorised force · ${c.propertyLostPercent}% property lost</div>
+      <div class="muted small">${c.responseMinutes} min response · ${c.saved} saved · ${c.lost} lost · ${c.harmedByCrews} hurt by crews · ${c.friendlyFire} friendly fire · ${c.unauthorizedForce} unauthorised force · ${c.propertyLostPercent}% property lost · rules of engagement ${c.rulesOfEngagement}${c.hostagesFreed + c.hostagesLost ? ` · hostages ${c.hostagesFreed} freed, ${c.hostagesLost} lost` : ''}</div>
       ${(c.notes as string[]).map((n) => `<div class="small">${esc(n)}</div>`).join('')}
     </div>`).join('');
+  }
+
+  /** Response-time grades over the last thirty days, by kind of call: they count toward the service's rating. */
+  private renderRatings(): string {
+    const r = (this.view!.ratings as Msg[]).filter((x) => x.calls > 0);
+    if (!r.length) return `<p class="muted small">Response ratings: no calls answered in the last 30 days.</p>`;
+    return `<div class="em-ratings"><b>Response, last 30 days</b> ${r.map((x) =>
+      `<span>${esc(x.kind)} <b class="grade grade-${x.grade}">${x.grade}</b> <span class="muted">${x.minutes} min · ${x.calls}</span></span>`).join(' ')}</div>`;
+  }
+
+  /** The districts the service works in: where its stations and calls are. */
+  private districts(): number[] {
+    const v = this.view!;
+    const across = Math.ceil((this.host.cityWidth?.() ?? 128) / 32);
+    const at = [...(v.stations as Msg[]), ...(v.calls as Msg[])].map((p) => Math.floor(p.y / 32) * across + Math.floor(p.x / 32));
+    return [...new Set(at)].sort((a, b) => a - b);
+  }
+
+  /** The crooked ways: only where every player has allowed crooked services, and each a risk of the papers finding out. */
+  private renderCrooked(): string {
+    const k = (this.view!.crooked ?? { slowWalk: -1, racket: -1, lookAway: -1 }) as Msg;
+    let out = `<h4>Crooked ways ${k.exposed ? `<span class="neg">caught out ${k.exposed}×</span>` : ''}</h4>`;
+    if (!k.allowed) return out + `<p class="muted small">${esc(k.whyNot || 'Not allowed here: every player must allow crooked services first.')}</p>`;
+    for (const [kind, name, note, district] of CROOKED) {
+      const at: number = kind === 'slow-walk' ? k.slowWalk : kind === 'racket' ? k.racket : kind === 'look-away' ? k.lookAway : -1;
+      const on = district ? at >= 0 : kind === 'overtime' ? k.overtime : k.strike;
+      let act = '';
+      if (this.mine) act = on ? `<button class="mini" data-em="crooked:${kind}/0/off">Stop${district ? ` (district ${at + 1})` : ''}</button>`
+        : district ? this.districts().map((d) => `<button class="mini" data-em="crooked:${kind}/${d}/on">district ${d + 1}</button>`).join(' ')
+        : `<button class="mini" data-em="crooked:${kind}/0/on">Start</button>`;
+      else if (on) act = `<span class="small">on${district ? `, in district ${at + 1}` : ''}</span>`;
+      out += `<div class="em-opt ${on ? 'em-crooked-on' : ''}"><b>${name}</b> <span class="muted small">${note}</span><div>${act}</div></div>`;
+    }
+    return out;
   }
 
   private renderSettings(): string {
@@ -262,14 +324,18 @@ export class Emergency {
       ${STYLES.map((s, i) => `<label class="em-opt"><input type="radio" name="em-style" value="${i}" data-set ${v.style === i ? 'checked' : ''} ${dis}> <b>${s}</b><br><span class="muted small">${STYLE_HELP[i]}</span></label>`).join('')}
       <label class="em-opt"><input type="checkbox" id="em-pick" data-set ${v.pickResponders ? 'checked' : ''} ${dis}> <b>Pick responders</b><br><span class="muted small">The computer proposes who goes and waits a day for you to change it.</span></label>
       <label class="em-opt"><input type="checkbox" id="em-heads" data-set ${v.crewsUseHeads ? 'checked' : ''} ${dis}> <b>Crews use their heads</b><br><span class="muted small">Crews with no orders do the obvious job nearest them. Off: they stand still until told.</span></label>
-      <label class="em-opt"><input type="checkbox" id="em-watch" data-set ${v.driversWatchOut ? 'checked' : ''} ${dis}> <b>Drivers watch out</b><br><span class="muted small">Vehicles stop for people in the way. Off: they drive on and hit them. Anyone hit is hurt or killed, the vehicle is off the road for 30 days, and the service's respect and standing fall.</span></label>`;
+      <label class="em-opt"><input type="checkbox" id="em-watch" data-set ${v.driversWatchOut ? 'checked' : ''} ${dis}> <b>Drivers watch out</b><br><span class="muted small">Vehicles stop for people in the way. Off: they drive on and hit them. Anyone hit is hurt or killed, the vehicle is off the road for 30 days, and the service's respect and standing fall.</span></label>
+      <h4>Shifts</h4>
+      <div>${[1, 2, 3].map((n) => this.mine ? `<button class="mini ${v.shifts === n ? 'active' : ''}" data-em="shifts:${n}">${n === 3 ? '3: round the clock' : n}</button>` : v.shifts === n ? `<b>${n}</b>` : '').join(' ')}</div>
+      <p class="muted small">Wages scale with the shifts worked. With fewer than three, each unit is off some days, staggered so a station is rarely empty.</p>
+      ${this.renderCrooked()}`;
   }
 
-  private saveSettings() {
+  private saveSettings(shifts = 0) {
     const style = Number((document.querySelector('input[name="em-style"]:checked') as HTMLInputElement | null)?.value ?? this.view!.style);
     this.command({ settings: {
       style, pickResponders: $<HTMLInputElement>('#em-pick').checked, crewsUseHeads: $<HTMLInputElement>('#em-heads').checked,
-      driversWatchOut: $<HTMLInputElement>('#em-watch').checked, name: '',
+      driversWatchOut: $<HTMLInputElement>('#em-watch').checked, name: '', shifts,
     } });
   }
 
@@ -293,6 +359,9 @@ export class Emergency {
       ['arrest', 'Arrest', 'Officers close in on the person you click and cuff them'],
       ['taser', 'Taser', 'Officers fire a taser at a tile: it hits the first person on the line'],
       ['shoot', 'Shoot', 'Officers fire at a tile: it hits the first person on the line, whoever they are'],
+      ['cordon', 'Cordon', "Officers hold a tile: onlookers keep back and a suspect can't slip out past them"],
+      ['search', 'Search', 'Officers go to a tile and look around it for anyone hiding'],
+      ['breach', 'Breach', 'SWAT goes into the building you click; two or more together stun whoever is inside'],
     ];
     const sel = this.selected.map((id) => {
       const p = (s.people as Msg[]).find((x) => x.id === id);
@@ -311,7 +380,7 @@ export class Emergency {
       </div>
       <canvas id="em-canvas" width="${s.width * TILE}" height="${s.height * TILE}"></canvas>
       ${this.mine ? `<div class="em-orders">${orders.map(([o, label, tip]) => `<button class="mini ${this.order === o ? 'active' : ''}" data-em="order:${o}" title="${tip}">${label}</button>`).join('')}</div>
-      <div class="muted small">Click to select (shift adds), then ${this.order === 'move' ? 'right-click where to go' : this.order === 'path' ? 'drag a path from the selected one' : 'click the target'}. ${sel ? `Selected: ${esc(sel)}` : ''}</div>` : '<p class="muted small">Watching.</p>'}
+      <div class="muted small">Click to select (shift adds; drag a box for several), then ${this.order === 'move' ? 'right-click where to go' : this.order === 'path' ? 'drag a path from the selected one' : 'click the target'}. ${sel ? `Selected: ${esc(sel)}` : ''}</div>` : '<p class="muted small">Watching.</p>'}
       <div class="em-events">${(s.events as string[]).slice().reverse().map((e) => `<div class="small">${esc(e)}</div>`).join('')}</div>
       ${(s.arriving as Msg[]).length ? `<div class="muted small">On the way: ${(s.arriving as Msg[]).map((a) => `${this.unit(a.unitId)?.name ?? '?'} in ${Math.max(0, Math.ceil((a.atStep - s.step) / 4))}s`).join(', ')}</div>` : ''}`;
   }
@@ -336,7 +405,7 @@ export class Emergency {
     };
     for (const v of s.vehicles as Msg[]) {
       path(v.path, 'rgba(255,255,255,0.6)');
-      g.fillStyle = ['#c0392b', '#2c5aa0', '#e8e8e8'][v.kind];
+      g.fillStyle = ['#c0392b', '#2c5aa0', '#e8e8e8', '#20262e'][v.kind];
       g.fillRect(v.x / 16 * TILE - TILE * 0.7, v.y / 16 * TILE - TILE * 0.45, TILE * 1.4, TILE * 0.9);
       if (this.selected.includes(v.id)) { g.strokeStyle = '#ffeb3b'; g.lineWidth = 2; g.strokeRect(v.x / 16 * TILE - TILE * 0.8, v.y / 16 * TILE - TILE * 0.55, TILE * 1.6, TILE * 1.1); }
     }
@@ -351,12 +420,30 @@ export class Emergency {
       if (this.selected.includes(p.id)) { g.strokeStyle = '#ffeb3b'; g.lineWidth = 2; g.beginPath(); g.arc(px, py, TILE * 0.5, 0, Math.PI * 2); g.stroke(); }
       if (p.health < 100 && p.state !== 'dead') { g.fillStyle = '#300'; g.fillRect(px - 6, py - 9, 12, 2); g.fillStyle = '#4caf50'; g.fillRect(px - 6, py - 9, 12 * p.health / 100, 2); }
     }
+    // Lines of fire: police blue, the suspect's red, a taser's yellow, fading over a few seconds.
+    for (const shot of (s.shots ?? []) as Msg[]) {
+      const age = (s.step - shot.step) / 12;
+      if (age >= 1) continue;
+      g.globalAlpha = 1 - age;
+      g.strokeStyle = shot.taser ? '#ffd23a' : shot.police ? '#5aa0ff' : '#ff3b30';
+      g.lineWidth = 2;
+      g.beginPath(); g.moveTo(shot.fromX / 16 * TILE, shot.fromY / 16 * TILE); g.lineTo(shot.toX / 16 * TILE, shot.toY / 16 * TILE); g.stroke();
+      if (shot.hit) { g.beginPath(); g.arc(shot.toX / 16 * TILE, shot.toY / 16 * TILE, 4, 0, Math.PI * 2); g.stroke(); }
+      g.globalAlpha = 1;
+    }
     if (this.drawing) path(this.drawing, '#ffeb3b');
+    if (this.box?.moved) {
+      const b = this.box;
+      g.fillStyle = 'rgba(255,225,77,0.12)'; g.strokeStyle = '#ffe14d'; g.lineWidth = 1.5;
+      const x = Math.min(b.x0, b.x1) * TILE, y = Math.min(b.y0, b.y1) * TILE, w = Math.abs(b.x1 - b.x0) * TILE, h = Math.abs(b.y1 - b.y0) * TILE;
+      g.fillRect(x, y, w, h); g.strokeRect(x, y, w, h);
+    }
     if (!this.mine) return;
-    const at = (e: MouseEvent) => {
+    const exact = (e: MouseEvent) => {
       const r = cv.getBoundingClientRect();
-      return { x: Math.floor((e.clientX - r.left) / r.width * s.width), y: Math.floor((e.clientY - r.top) / r.height * s.height) };
+      return { x: (e.clientX - r.left) / r.width * s.width, y: (e.clientY - r.top) / r.height * s.height };
     };
+    const at = (e: MouseEvent) => { const p = exact(e); return { x: Math.floor(p.x), y: Math.floor(p.y) }; };
     cv.oncontextmenu = (e) => {
       e.preventDefault();
       const t = at(e);
@@ -369,7 +456,11 @@ export class Emergency {
       if (this.order === 'path' && this.selected.length === 1 && (!hit || hit === this.selected[0])) { this.drawing = [t.y * s.width + t.x]; return; }
       if (this.order === 'move' || this.order === 'path' || (hit && this.isCrewOrVehicle(hit) && !e.altKey && this.order !== 'treat' && this.order !== 'warn' && this.order !== 'arrest')) {
         if (hit && this.isCrewOrVehicle(hit)) this.selected = e.shiftKey ? [...new Set([...this.selected, hit])] : [hit];
-        else if (!e.shiftKey) this.selected = [];
+        else {
+          if (!e.shiftKey) this.selected = [];
+          // On open ground, a drag becomes a box over everyone to select.
+          if (this.order === 'move') { const p = exact(e); this.box = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, moved: false }; }
+        }
         this.render();
         return;
       }
@@ -377,6 +468,13 @@ export class Emergency {
       this.command({ task: { sceneId: s.id, ids: this.selected, task: TASKS[this.order], x: t.x, y: t.y, targetId: hit ?? 0 } });
     };
     cv.onmousemove = (e) => {
+      if (this.box) {
+        const p = exact(e);
+        this.box.x1 = p.x; this.box.y1 = p.y;
+        this.box.moved ||= Math.abs(p.x - this.box.x0) + Math.abs(p.y - this.box.y0) > 0.5;
+        this.drawScene();
+        return;
+      }
       if (!this.drawing) return;
       const t = at(e), c = t.y * s.width + t.x;
       if (this.drawing[this.drawing.length - 1] === c) return;
@@ -390,7 +488,20 @@ export class Emergency {
       }
       this.drawScene();
     };
-    cv.onmouseup = () => {
+    cv.onmouseup = (e) => {
+      if (this.box) {
+        const b = this.box;
+        this.box = null;
+        if (b.moved) {
+          const [x0, x1] = [Math.min(b.x0, b.x1), Math.max(b.x0, b.x1)], [y0, y1] = [Math.min(b.y0, b.y1), Math.max(b.y0, b.y1)];
+          const inside = (x: number, y: number) => x / 16 >= x0 && x / 16 <= x1 && y / 16 >= y0 && y / 16 <= y1;
+          const ids = [...(s.people as Msg[]).filter((p) => p.role <= 2 && p.state !== 'escaped' && inside(p.x, p.y)).map((p) => p.id),
+            ...(s.vehicles as Msg[]).filter((v) => inside(v.x, v.y)).map((v) => v.id)];
+          this.selected = e.shiftKey ? [...new Set([...this.selected, ...ids])] : ids;
+        }
+        this.render();
+        return;
+      }
       if (!this.drawing) return;
       this.command({ path: { sceneId: s.id, id: this.selected[0], tiles: this.drawing } });
       this.drawing = null;

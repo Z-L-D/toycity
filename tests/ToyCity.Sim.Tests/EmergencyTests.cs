@@ -126,9 +126,10 @@ public class EmergencyTests
         var scene = v.Scenes.Single();
         Assert.Contains(w.SideGame(EmergencyGame.Id)!.Last.Holding, id => id > 0);
         Assert.True(scene.Burning > 0);
-        // Days pass with the scene open: the city neither spreads nor puts out a fire a player is fighting.
-        w.Run(2);
+        // A day passes with the scene open: the city neither spreads nor puts out a fire a player is fighting.
+        w.Run(1);
         Assert.True(home.BurningDays > 0);
+        Assert.Single(View(w).Scenes);
         // The player hands it to the crews: an engine was sent, so it goes out (or spreads), and the city hears.
         w.Enqueue(Cmd(new EW.Command { Leave = new EW.LeaveScene { SceneId = scene.Id } }));
         w.Step();

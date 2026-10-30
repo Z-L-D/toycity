@@ -9,7 +9,34 @@ public sealed partial class World
     public const int MaxBlockCells = 1600;
 
     public static List<(int X, int Y)> PathCellsOf(PlacePathAction a) =>
-        a.Curved ? CurveCells(a.X0, a.Y0, a.CX, a.CY, a.X1, a.Y1) : LCells(a.X0, a.Y0, a.X1, a.Y1);
+        a.Curved ? CurveCells(a.X0, a.Y0, a.CX, a.CY, a.X1, a.Y1)
+        : a.Diagonal ? LineCells(a.X0, a.Y0, a.X1, a.Y1)
+        : LCells(a.X0, a.Y0, a.X1, a.Y1);
+
+    /// <summary>
+    /// Cells of a straight line at any angle from (x0,y0) to (x1,y1), snapped to the grid the way
+    /// <see cref="CurveCells"/> snaps an arc: rounded to cells and joined edge to edge, horizontally first.
+    /// </summary>
+    public static List<(int X, int Y)> LineCells(int x0, int y0, int x1, int y1)
+    {
+        var cells = new List<(int X, int Y)> { (x0, y0) };
+        long n = 4L * (Math.Abs(x1 - x0) + Math.Abs(y1 - y0)) + 1;
+        const long Off = 1 << 20;
+        static long Round(long num, long n) => (2 * num + n) / (2 * n) - Off;
+        int lx = x0, ly = y0;
+        for (long k = 1; k <= n; k++)
+        {
+            int x = (int)Round((n - k) * (x0 + Off) + k * (x1 + Off), n);
+            int y = (int)Round((n - k) * (y0 + Off) + k * (y1 + Off), n);
+            while (lx != x || ly != y)
+            {
+                if (lx != x) lx += Math.Sign(x - lx);
+                else ly += Math.Sign(y - ly);
+                cells.Add((lx, ly));
+            }
+        }
+        return cells;
+    }
 
     /// <summary>
     /// Cells of a quadratic curve from P0 through control C to P1, snapped to the grid: sampled densely with integer

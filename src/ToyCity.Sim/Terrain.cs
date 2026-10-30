@@ -3,9 +3,18 @@ namespace ToyCity.Sim;
 public sealed partial class World
 {
     /// <summary>Fractal value noise from the seed: rolling hills, a few lakes and a coast.</summary>
-    void GenerateTerrain()
+    void GenerateTerrain() => GenerateHeights(Seed, Width, HeightCells, WaterLevel).CopyTo(Height, 0);
+
+    /// <summary>
+    /// Heights for a map of the given size from the seed. A region makes one map for all its tiles and cuts it up,
+    /// so their edges meet; a single city is the same thing at its own size.
+    /// </summary>
+    public static byte[] GenerateHeights(ulong seed, int width, int heightCells, int waterLevel = 8)
     {
-        ulong salt = Seed * 0x9E3779B97F4A7C15UL + 0x1234567UL;
+        int N = width * heightCells;
+        int Idx(int x, int y) => y * width + x;
+        var height = new byte[N];
+        ulong salt = seed * 0x9E3779B97F4A7C15UL + 0x1234567UL;
         // Lattice values for each octave, from a hash of (octave, x, y) so the result does not depend on call order.
         double Lattice(int o, int x, int y)
         {
@@ -17,11 +26,13 @@ public sealed partial class World
 
         var raw = new double[N];
         double min = double.MaxValue, max = double.MinValue;
-        for (int y = 0; y < HeightCells; y++)
-        for (int x = 0; x < Width; x++)
+        // Hills about half a city across: a region's are the same size as a lone city's, just more of them.
+        int basePeriod = Math.Min(128, Math.Max(16, Math.Min(width, heightCells) / 2));
+        for (int y = 0; y < heightCells; y++)
+        for (int x = 0; x < width; x++)
         {
             double v = 0, amp = 1, total = 0;
-            int period = Math.Max(16, Width / 2);
+            int period = basePeriod;
             for (int o = 0; o < 5 && period >= 2; o++)
             {
                 int gx = x / period, gy = y / period;
@@ -48,11 +59,12 @@ public sealed partial class World
             double v = raw[i];
             int h;
             if (v < waterCut)
-                h = WaterLevel - 1 - (int)((waterCut - v) / Math.Max(1e-9, waterCut - min) * 5);
+                h = waterLevel - 1 - (int)((waterCut - v) / Math.Max(1e-9, waterCut - min) * 5);
             else
-                h = WaterLevel + (int)((v - waterCut) / Math.Max(1e-9, max - waterCut) * 16);
-            Height[i] = (byte)Math.Clamp(h, 0, MaxHeight);
+                h = waterLevel + (int)((v - waterCut) / Math.Max(1e-9, max - waterCut) * 16);
+            height[i] = (byte)Math.Clamp(h, 0, MaxHeight);
         }
+        return height;
     }
 
     /// <summary>Distance from each cell to the nearest water, capped at 255.</summary>

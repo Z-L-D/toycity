@@ -84,6 +84,7 @@ public sealed class CompanyModel
     {
         if (!_views.TryGetValue(GameId, out var cur)) return;
         (View, Public) = cur;
+        if (_pendingDone != null && _pendingDone(cur.View)) (Pending, _pendingDone) = (null, null);
         MapVersion++;
         _changed();
     }
@@ -112,6 +113,36 @@ public sealed class CompanyModel
         _send(new ClientMessage { Action = new PAction { SideGame = new SideGameCommand { Game = GameId, Seat = "operator", Payload = c.ToByteString() } } });
 
     void Act(PAction a) => _send(new ClientMessage { Action = a });
+
+    /// <summary>
+    /// What the player asked for and is waiting on (taking the company, handing it back, a lease), shown at once: the
+    /// company only hears at the start of the city's next day, which at the slowest speed is seconds away.
+    /// </summary>
+    public string? Pending { get; private set; }
+    /// <summary>Taking or handing back the company is under way: a second click isn't sent again.</summary>
+    bool SeatPending => Pending is { } p && (p.StartsWith("Taking") || p.StartsWith("Handing"));
+    Func<View, bool>? _pendingDone;
+
+    void Wait(string what, Func<View, bool> done)
+    {
+        (Pending, _pendingDone) = (what, done);
+        _changed();
+    }
+
+    /// <summary>The server refused something: stop waiting on it.</summary>
+    public void Refused()
+    {
+        if (Pending == null) return;
+        (Pending, _pendingDone) = (null, null);
+        _changed();
+    }
+
+    void Lease(int buildingId)
+    {
+        // Several lots may be leased one after another: each is sent, and the board waits on the last.
+        Act(new PAction { Lease = new LeaseLot { Game = GameId, BuildingId = buildingId } });
+        Wait("Leasing the lot…", v => v.OpenLots.All(o => o.BuildingId != buildingId));
+    }
 
     LotView? Lot(int leaseId) => View?.Lots.FirstOrDefault(l => l.LeaseId == leaseId);
     IEnumerable<LotView> AllLots => View == null ? Enumerable.Empty<LotView>() : View.Lots.Concat(View.OpenLots);
@@ -182,7 +213,7 @@ public sealed class CompanyModel
             if (lot == null) { Toast?.Invoke("Click a free stop, station or depot (dashed outline).", "warning"); return; }
             if (lot.LeaseId > 0) { Toast?.Invoke("The company already leases that.", "info"); return; }
             if (!Mine) { Toast?.Invoke("Run the company yourself to lease lots.", "warning"); return; }
-            Act(new PAction { Lease = new LeaseLot { Game = GameId, BuildingId = lot.BuildingId } });
+            Lease(lot.BuildingId);
             return;
         }
         Selected = lot?.BuildingId;
@@ -254,8 +285,16 @@ public sealed class CompanyModel
             case "co-tab": Tab = a[1]; _changed(); return;
             case "co-tool": SetTool(Enum.Parse<CompanyTool>(a[1])); return;
             case "co-catch": ShowCatchment = !ShowCatchment; MapVersion++; _changed(); return;
-            case "co-claim": Act(new PAction { Seat = new SetSeat { Seat = GameId, Owner = Me(), Level = SeatLevel.SeatManual, SpendCap = 25000 } }); return;
-            case "co-handoff": Act(new PAction { Seat = new SetSeat { Seat = GameId, Owner = "", Level = SeatLevel.SeatAutopilot, SpendCap = 25000 } }); return;
+            case "co-claim":
+                if (SeatPending) return;
+                Act(new PAction { Seat = new SetSeat { Seat = GameId, Owner = Me(), Level = SeatLevel.SeatManual, SpendCap = 25000 } });
+                Wait("Taking over the company…", v => v.Operator == "manual" && v.Owner == Me());
+                return;
+            case "co-handoff":
+                if (SeatPending) return;
+                Act(new PAction { Seat = new SetSeat { Seat = GameId, Owner = "", Level = SeatLevel.SeatAutopilot, SpendCap = 25000 } });
+                Wait("Handing the company to the computer…", v => !(v.Operator == "manual" && v.Owner == Me()));
+                return;
             case "co-game" when a.Length > 1 && _views.ContainsKey(a[1]):
                 GameId = a[1]; _picked = true; Draft = null; Tool = CompanyTool.Look; Selected = null;
                 Show();
@@ -279,8 +318,14 @@ public sealed class CompanyModel
             case "co-svc": Command(new Command { Service = new SetService { LineId = I(1), EveryDays = Math.Clamp(I(2), 0, 180) } }); return;
             case "co-renew": Command(new Command { Renew = new Renew { LineId = I(1) } }); return;
             case "co-buy": Command(new Command { Standing = new BuyStanding { Kind = a[1], District = I(2) } }); return;
-            case "co-lease": Act(new PAction { Lease = new LeaseLot { Game = GameId, BuildingId = I(1) } }); return;
-            case "co-release": Act(new PAction { EndLease = new EndLease { LeaseId = I(1), ByOperator = true } }); return;
+            case "co-lease": Lease(I(1)); return;
+            case "co-release":
+            {
+                int id = I(1);
+                Act(new PAction { EndLease = new EndLease { LeaseId = id, ByOperator = true } });
+                Wait("Giving up the lot…", v => v.Lots.All(l => l.LeaseId != id));
+                return;
+            }
             case "co-jump": JumpTo?.Invoke(I(1), I(2)); return;
             case "co-fare" when Draft is { } d: Draft = d with { Fare = Math.Clamp(d.Fare + I(1), 0, 1000) }; _changed(); return;
             case "co-cancel": SetTool(CompanyTool.Look); return;
@@ -366,6 +411,7 @@ public sealed class CompanyModel
         var v = View;
         if (v == null) return Dim("No bus company in this city.");
         string paused = _city.Stats.Speed == 0 ? Small(Col(Warn, "Paused: the company hears about new lots, lines and purchases when the day turns.")) + "\n" : "";
+        if (Pending != null) paused = Col(Warn, $"⏳ {Esc(Pending)}") + " " + Small(Dim("It happens when the city's next day starts (not while paused).")) + "\n" + paused;
         if (Public && Tab is "money" or "standing" or "log")
             return Dim($"{Esc(v.Owner)} runs this company. Its books, its standing with the city and its log are theirs to see.");
         return paused + Tab switch

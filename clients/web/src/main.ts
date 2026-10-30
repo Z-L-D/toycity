@@ -1,11 +1,12 @@
 import './style.css';
 import { Connection, type Msg } from './net';
-import { City, curveCells, lCells, SIDE_DX, SIDE_DY, type BuildingType } from './state';
+import { City, curveCells, lCells, lineCells as diagonalCells, gradeSteps, padSteps, GRADE_COST_PER_STEP, PAD_COST_PER_STEP, SIDE_DX, SIDE_DY, type BuildingType } from './state';
 import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
 import { Seats } from './seats';
 import { Transport } from './transport';
 import { Emergency } from './emergency';
+import { Region } from './region';
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -26,7 +27,10 @@ const DISASTER_NAMES = ['Fire', 'Tornado', 'Earthquake', 'Clockwork Colossus'];
 const DISASTER_SETTINGS = ['Off', 'Rare', 'Normal'];
 
 const DENSITY_NAMES = ['Low', 'Medium', 'High'];
-const TERRAFORM_NAMES = ['Raise', 'Lower', 'Level'];
+const TERRAFORM_NAMES = ['Raise', 'Lower', 'Level', 'Smooth'];
+const TOO_STEEP = 'Too steep to grade between the roads it joins';
+/** The cost line's grading part, or nothing on ground that needs none. */
+const grading = (steps: number | null) => (steps ? ` (grading ${money(steps * GRADE_COST_PER_STEP)})` : '');
 const ZONE_COST = 5;
 
 const OVERLAYS: { kind: number; name: string; scheme: OverlayView['scheme'] }[] = [
@@ -66,7 +70,7 @@ let profileId = 'road';
 let buildingTypeId = 'police-station';
 let terraformMode = 0;
 let disasterKind = 0;
-let pathMode: 'straight' | 'curve' = 'straight';
+let pathMode: 'straight' | 'diagonal' | 'curve' = 'straight';
 /** Curve tool: the ends are set, the mouse now bends it. */
 let curveEnds: { x0: number; y0: number; x1: number; y1: number } | null = null;
 let zoneMode: 'area' | 'block' = 'area';
@@ -86,6 +90,7 @@ let talk: TalkBack | null = null;
 let seats: Seats | null = null;
 let transport: Transport | null = null;
 let emergency: Emergency | null = null;
+let region: Region | null = null;
 /** The followed commuters and this machine's tiers, as the server last sent them. */
 let roster: Msg | null = null;
 
@@ -125,7 +130,9 @@ const conn = new Connection({
         break;
       }
       case 'full': {
-        const first = !city.loaded || city.width !== body.width;
+        // A different city (moved within the region, or loaded): centre on it like the first time.
+        const first = !city.loaded || city.width !== body.width || city.stats.cityName !== body.stats?.cityName;
+        region?.onFull();
         city.applyFull(body);
         if (first) {
           renderer.scale = Math.max(4, Math.min(12, Math.floor(Math.min(canvas.clientWidth, canvas.clientHeight) / city.width) * 1.6));
@@ -177,7 +184,20 @@ const conn = new Connection({
       case 'error':
         toast(body.message, 'error');
         emergency?.refused();
+        region?.refused();
         break;
+      case 'region':
+        region?.onRegion(body);
+        break;
+      case 'redirect': {
+        // That city runs on another host of the region: open it there, signing in with the same account.
+        toast('That city is on another host. Moving there…', 'info');
+        const q = new URLSearchParams(location.search);
+        q.set('server', body.address);
+        q.set('tile', `${body.col},${body.row}`);
+        location.search = q.toString();
+        break;
+      }
       case 'sideGame':
         transport?.onView(body);
         emergency?.onView(body);
@@ -196,7 +216,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 function updateTopBar() {
   const s = city.stats;
   $('#city-name').textContent = s.cityName;
-  $('#date').textContent = `${MONTHS[s.month - 1]} ${s.day}, ${s.year}`;
+  $('#date').textContent = `${MONTHS[s.month - 1]} ${s.day}, ${s.year}${s.weather ? ` · ${s.weather}` : ''}`;
   const f = $('#funds');
   f.textContent = money(s.funds);
   f.classList.toggle('neg', s.funds < 0);
@@ -275,7 +295,7 @@ function buildToolbar() {
     <h4>Paths</h4>
     ${btn('Build path', 'R', { kind: 'path' })}
     <select id="sel-profile" title="Path type">${profiles}</select>
-    <div class="row"><button data-pathmode="straight" class="${pathMode === 'straight' ? 'active' : ''}" title="Straight or L-shaped runs">Straight</button><button data-pathmode="curve" class="${pathMode === 'curve' ? 'active' : ''}" title="Arcs snapped to the grid (A toggles)">Curve</button></div>
+    <div class="row"><button data-pathmode="straight" class="${pathMode === 'straight' ? 'active' : ''}" title="Straight or L-shaped runs">Straight</button><button data-pathmode="diagonal" class="${pathMode === 'diagonal' ? 'active' : ''}" title="Smooth diagonals at any angle (A cycles)">Diagonal</button><button data-pathmode="curve" class="${pathMode === 'curve' ? 'active' : ''}" title="Arcs snapped to the grid (A cycles)">Curve</button></div>
     <h4>Zones</h4>
     ${btn('Residential', 'Z', { kind: 'zone', zone: 1 }, 'var(--r)')}
     ${btn('Commercial', 'X', { kind: 'zone', zone: 2 }, 'var(--c)')}
@@ -330,7 +350,9 @@ function updateHints() {
     bulldoze: [['Drag', renderer.underground ? 'remove pipes in area' : 'clear area'], ['Esc', 'cancel']],
     path: pathMode === 'curve'
       ? (curveEnds ? [['Move', 'bend the curve'], ['Click', 'build it'], ['Esc', 'start again']] : [['Drag', 'set the two ends'], ['A', 'straight paths'], ['Esc', 'cancel']])
-      : [['Drag', 'draw path'], ['Shift', 'vertical leg first'], ['A', 'curved paths'], ['Esc', 'cancel']],
+      : pathMode === 'diagonal'
+        ? [['Drag', 'draw a road at any angle'], ['A', 'curved paths'], ['Esc', 'cancel']]
+        : [['Drag', 'draw path'], ['Shift', 'vertical leg first'], ['A', 'diagonal paths'], ['Esc', 'cancel']],
     zone: zoneMode === 'block'
       ? [['Click', `zone a whole block, ${DENSITY_NAMES[density].toLowerCase()} density`], ['G', 'paint areas'], ['V', 'cycle density'], ['Esc', 'cancel']]
       : [['Drag', `paint ${DENSITY_NAMES[density].toLowerCase()} density zone`], ['G', 'zone whole blocks'], ['V', 'cycle density'], ['Esc', 'cancel']],
@@ -397,7 +419,31 @@ function kerbSpot(t: BuildingType, cell: { x: number; y: number }, sx: number, s
 }
 
 /** Updates the tool preview and the cost tag under the cursor. */
+/**
+ * A road drawn to the map's edge near a neighbouring city's road snaps onto it, so the two meet cell for cell: within
+ * two cells of the edge and three along it.
+ */
+function borderSnap(cell: { x: number; y: number }): { x: number; y: number } {
+  if (tool.kind !== 'path' || !city.loaded) return cell;
+  let best: { x: number; y: number; d: number } | null = null;
+  for (const b of renderer.borders) {
+    const along = b.side === 0 || b.side === 2;
+    const out = b.side === 0 ? cell.y : b.side === 2 ? city.height - 1 - cell.y : b.side === 1 ? city.width - 1 - cell.x : cell.x;
+    if (out > 2) continue;
+    const pos = along ? cell.x : cell.y;
+    for (let j = 0; j + 1 < b.paths.length; j += 2) {
+      const k = b.paths[j], d = Math.abs(k - pos);
+      if (d > 3 || (best && best.d <= d)) continue;
+      const x = along ? k : b.side === 1 ? city.width - 1 : 0;
+      const y = along ? (b.side === 0 ? 0 : city.height - 1) : k;
+      best = { x, y, d };
+    }
+  }
+  return best ? { x: best.x, y: best.y } : cell;
+}
+
 function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
+  cell = borderSnap(cell);
   renderer.hover = city.inBounds(cell.x, cell.y) ? cell : null;
   const costEl = $('#cost');
   let text = '';
@@ -417,8 +463,13 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
         const i = y * city.width + x;
         if (!city.inBounds(x, y) || city.isWater(i) || city.buildingAt[i] || city.paths[i]) ok = false;
       }
+    // The building levels its own pad, up to a few steps of rise across the lot.
+    const pad = padSteps(city, f.x, f.y, f.w, f.h);
+    if (pad === null) ok = false;
     renderer.preview = { kind: 'footprint', x0: f.x, y0: f.y, x1: f.x + f.w - 1, y1: f.y + f.h - 1, ok, color: (t?.color ?? '#fff') + 'aa', catchment: t?.catchment || undefined };
-    text = `${t?.name ?? ''}: ${money(t?.cost ?? 0)}`;
+    text = pad === null ? `${t?.name ?? ''}: the ground is too uneven for a pad`
+      : pad > 0 ? `${t?.name ?? ''}: ${money((t?.cost ?? 0) + pad * PAD_COST_PER_STEP)} (pad ${money(pad * PAD_COST_PER_STEP)})`
+      : `${t?.name ?? ''}: ${money(t?.cost ?? 0)}`;
     if (t?.transit) {
       // A stop must touch a path its vehicles use.
       const carries = (j: number) => {
@@ -443,8 +494,11 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
       if (!city.inBounds(x, y) || city.isWater(i) || city.buildingAt[i]) ok = false;
       else if (city.paths[i] !== pi) cost += prof?.costPerCell ?? 0;
     }
+    const steps = gradeSteps(city, cells);
+    if (steps === null) ok = false;
+    cost += (steps ?? 0) * GRADE_COST_PER_STEP;
     renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok, color: (prof?.color ?? '#888') + 'cc', cells };
-    text = `Curve, ${cells.length} cells: ${money(cost)}`;
+    text = steps === null ? TOO_STEEP : `Curve, ${cells.length} cells: ${money(cost)}${grading(steps)}`;
   } else if (tool.kind === 'zone' && zoneMode === 'block' && !drag) {
     const block = city.blockAt(cell.x, cell.y);
     if (block) {
@@ -469,6 +523,22 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
     } else if (city.inBounds(cell.x, cell.y)) {
       text = 'Not a block: no roads close off this land';
     }
+  } else if (drag && tool.kind === 'path' && pathMode === 'diagonal') {
+    const end = borderSnap(cell);
+    const cells = diagonalCells(drag.x, drag.y, end.x, end.y);
+    const prof = city.profiles.find((p) => p.id === profileId);
+    const pi = city.profiles.indexOf(prof!) + 1;
+    let cost = 0;
+    for (const [x, y] of cells) {
+      const i = y * city.width + x;
+      if (!city.inBounds(x, y) || city.isWater(i) || city.buildingAt[i]) { ok = false; continue; }
+      if (city.paths[i] !== pi) cost += prof?.costPerCell ?? 0;
+    }
+    const steps = gradeSteps(city, cells);
+    if (steps === null) ok = false;
+    cost += (steps ?? 0) * GRADE_COST_PER_STEP;
+    renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok, color: (prof?.color ?? '#888') + 'cc', cells };
+    text = steps === null ? TOO_STEEP : `Diagonal, ${cells.length} cells: ${money(cost)}${grading(steps)}`;
   } else if (drag && (tool.kind === 'path' || tool.kind === 'utility')) {
     const cells = lineCells(drag.x, drag.y, cell.x, cell.y, shiftHeld);
     let cost = 0;
@@ -484,9 +554,20 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
         if (!city.buildingAt[i] && !city.powerLines[i]) cost += 5;
       } else if (!city.waterPipes[i]) cost += 3;
     }
+    let steps: number | null = 0;
+    if (tool.kind === 'path') {
+      // Each leg is graded as the server grades it.
+      const legs = shiftHeld ? [[drag.x, drag.y, drag.x, cell.y], [drag.x, cell.y, cell.x, cell.y]] : [[drag.x, drag.y, cell.x, cell.y]];
+      for (const [x0, y0, x1, y1] of legs) {
+        const s = gradeSteps(city, lCells(x0, y0, x1, y1));
+        steps = s === null || steps === null ? null : steps + s;
+      }
+      if (steps === null) ok = false;
+      cost += (steps ?? 0) * GRADE_COST_PER_STEP;
+    }
     const color = tool.kind === 'path' ? (prof?.color ?? '#888') + 'cc' : tool.utility === 0 ? '#ffd84acc' : '#5ec8ffcc';
     renderer.preview = { kind: 'line', x0: drag.x, y0: drag.y, x1: cell.x, y1: cell.y, ok, color, verticalFirst: shiftHeld };
-    text = `${cells.length} cells: ${money(cost)}`;
+    text = steps === null ? TOO_STEEP : `${cells.length} cells: ${money(cost)}${grading(steps)}`;
   } else if (drag) {
     const w = Math.abs(cell.x - drag.x) + 1;
     const h = Math.abs(cell.y - drag.y) + 1;
@@ -522,6 +603,10 @@ function commit(start: { x: number; y: number }, end: { x: number; y: number }) 
   switch (tool.kind) {
     case 'path':
     case 'utility': {
+      if (tool.kind === 'path' && pathMode === 'diagonal') {
+        act({ path: { x0: start.x, y0: start.y, x1: end.x, y1: end.y, profileId, diagonal: true } }, `Diagonal ${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${start.x},${start.y} to ${end.x},${end.y}`);
+        break;
+      }
       const legs = shiftHeld
         ? [[start.x, start.y, start.x, end.y], [start.x, end.y, end.x, end.y]]
         : [[start.x, start.y, end.x, end.y]];
@@ -623,7 +708,7 @@ window.addEventListener('mouseup', (e) => {
     updatePreview(end, sx, sy);
     return;
   }
-  commit(drag, renderer.cellAt(sx, sy));
+  commit(drag, borderSnap(renderer.cellAt(sx, sy)));
   drag = null;
   updatePreview(renderer.cellAt(sx, sy), sx, sy);
 });
@@ -661,7 +746,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape' && renderer.followed !== null) stopFollowing();
   else if (k === 'escape' && curveEnds) { curveEnds = null; renderer.preview = null; updateHints(); dirty = true; }
   else if (k === 'escape') { drag = null; renderer.preview = null; setTool({ kind: 'query' }); }
-  else if (k === 'a') { pathMode = pathMode === 'curve' ? 'straight' : 'curve'; curveEnds = null; setTool({ kind: 'path' }); }
+  else if (k === 'a') { pathMode = pathMode === 'straight' ? 'diagonal' : pathMode === 'diagonal' ? 'curve' : 'straight'; curveEnds = null; setTool({ kind: 'path' }); }
   else if (k === 'g') { zoneMode = zoneMode === 'block' ? 'area' : 'block'; setTool(tool.kind === 'zone' ? tool : { kind: 'zone', zone: 1 }); }
   else if (k === ' ') { e.preventDefault(); conn.send({ speed: { speed: city.stats.speed === 0 ? 1 : 0 } }); }
   else if (k >= '1' && k <= '3') conn.send({ speed: { speed: Number(k) } });
@@ -1069,21 +1154,30 @@ function renderPresence(p: Msg) {
 
 /** Only admins save, load, found cities and set the speed; everyone else doesn't see the buttons. */
 function updateAdmin() {
-  for (const id of ['#btn-new', '#btn-save', '#btn-load', '#speed']) $(id).classList.toggle('hidden', !conn.admin);
+  for (const id of ['#btn-new', '#btn-save', '#btn-load']) $(id).classList.toggle('hidden', !conn.admin);
+  // Mayors may slow the region's one clock (or pause it for a couple of minutes); admins set it.
+  $('#speed').classList.toggle('hidden', !conn.admin && !region?.isMayor(conn.player));
 }
 
 $('#btn-new').addEventListener('click', () => {
   form.innerHTML = `
-    <h3>New city</h3>
+    <h3>New region or city</h3>
+    <label>Start</label><select name="kind"><option value="region" selected>A region: tiles of open land, your city in the middle</option><option value="city">A single city on its own</option></select>
+    <label>Region size (tiles)</label><select name="tiles"><option value="2">2 × 2</option><option value="3" selected>3 × 3</option><option value="4">4 × 4</option><option value="5">5 × 5</option></select>
     <label>Name</label><input type="text" name="name" value="New City" maxlength="40">
     <label>Seed (blank for random)</label><input type="number" name="seed" min="1">
     <label>Map size</label><select name="size"><option value="64">Small (64 × 64, 1 km)</option><option value="128" selected>Medium (128 × 128, 2 km)</option><option value="256">Large (256 × 256, 4 km)</option></select>
     <label><input type="checkbox" name="starter"> Start with a small working town</label>
-    <label><input type="checkbox" name="benchmark"> Benchmark city: 256 × 256, every block built</label>
-    <div class="actions"><button value="cancel">Cancel</button><button value="ok" class="active">Found city</button></div>`;
+    <label><input type="checkbox" name="benchmark"> Benchmark city: 256 × 256, every block built (a single city)</label>
+    <div class="actions"><button value="cancel">Cancel</button><button value="ok" class="active">Start</button></div>`;
   dlg.onclose = () => {
     if (dlg.returnValue !== 'ok') return;
     const fd = new FormData(form);
+    if (fd.get('kind') === 'region' && fd.get('benchmark') !== 'on') {
+      const n = Number(fd.get('tiles'));
+      conn.send({ newRegion: { name: `${String(fd.get('name') || 'New')} Region`, cityName: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), cols: n, rows: n, tileSize: Number(fd.get('size')), starterTown: fd.get('starter') === 'on' } });
+      return;
+    }
     conn.send({ newCity: { name: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), size: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', benchmark: fd.get('benchmark') === 'on' } });
   };
   dlg.showModal();
@@ -1150,8 +1244,9 @@ transport = new Transport({
     dirty = true;
   },
 });
-emergency = new Emergency({ conn, jumpTo, toast });
+emergency = new Emergency({ conn, jumpTo, toast, cityWidth: () => city.width });
+region = new Region({ conn, toast, onRegion: (r) => { renderer.borders = r.borders ?? []; dirty = true; updateAdmin(); updateTopBar(); } });
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.
-(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport, emergency };
+(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport, emergency, region };

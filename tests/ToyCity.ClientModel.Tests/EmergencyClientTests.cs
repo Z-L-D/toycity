@@ -245,4 +245,55 @@ public class EmergencyClientTests : IClassFixture<ServerFixture>
         em.Handle(new SideGameView { Game = EmergencyModel.Game, Seat = "operator", Payload = v.ToByteString() });
         Assert.Null(em.Pending);
     }
+
+    [Fact]
+    public void ABoxSelectsCrewsTheNewOrdersGoOutAndTheBoardOffersGearShiftsAndCrookedWays()
+    {
+        var sent = new List<Command>();
+        var em = new EmergencyModel(m => { sent.Add(Command.Parser.ParseFrom(m.Action.SideGame.Payload)); return 0; }, () => { });
+        var view = View.Parser.ParseFrom(SceneView().Payload);
+        view.Stations.Add(new StationView { LeaseId = 7, Kind = "police-station", X = 40, Y = 70, Name = "Police station at 40,70" });
+        view.Units.Add(new UnitView { Id = 5, Name = "SWAT 1", Kind = UnitKind.Swat, StationLeaseId = 7, State = "at scene", CallId = 9, Crew = 4 });
+        view.Units[0].StationLeaseId = 7;
+        view.Scenes[0].People.Add(new PersonView { Id = 1_000_003, Role = Role.Officer, X = 12 * 16, Y = 12 * 16, Health = 100, UnitId = 5, State = "ok" });
+        view.Shifts = 3;
+        view.Ratings.Add(new ResponseRating { Kind = "fire", Calls = 4, Minutes = 7, Grade = "B" });
+        view.Crooked = new CrookedView { Allowed = true, SlowWalk = -1, Racket = 2, LookAway = -1 };
+        em.Handle(new SideGameView { Game = EmergencyModel.Game, Seat = "operator", Payload = view.ToByteString() });
+
+        // A box over the firefighter, the officer and the bystander picks the two crew.
+        em.SelectBox(new[] { 1_000_001, 1_000_002, 1_000_003 }, false);
+        Assert.Equal(new[] { 1_000_001, 1_000_003 }, em.Selected);
+        Assert.Contains(EmergencyModel.Order.Breach, em.Orders());
+        em.SelectBox(new[] { 1_000_001 }, false);
+        Assert.DoesNotContain(EmergencyModel.Order.Breach, em.Orders());
+        Assert.DoesNotContain(EmergencyModel.Order.Cordon, em.Orders());
+
+        em.SelectBox(new[] { 1_000_003 }, false);
+        em.Click("em-order:Breach");
+        em.PointerDown(20, 20, null, false);
+        Assert.Equal(TaskKind.Breach, sent[^1].Task.Task);
+        Assert.Equal(new[] { 1_000_003 }, sent[^1].Task.Ids);
+
+        em.Click("em-board");
+        em.Click("em-tab:units");
+        var units = em.Render();
+        Assert.Contains("em-gear:3:breathing-gear", Links(units));
+        Assert.DoesNotContain("em-buy:7:3", Links(units));  // the station has its SWAT team
+        em.Click("em-gear:3:breathing-gear");
+        Assert.Equal("breathing-gear", sent[^1].Gear.Item);
+
+        em.Click("em-tab:settings");
+        var settings = em.Render();
+        Assert.Contains("em-shifts:2", Links(settings));
+        Assert.Contains("em-crooked:racket:0:off", Links(settings));
+        Assert.Contains("em-crooked:slow-walk:", string.Join(" ", Links(settings)));
+        em.Click("em-shifts:2");
+        Assert.Equal(2, sent[^1].Settings.Shifts);
+        em.Click("em-crooked:strike:0:on");
+        Assert.True(sent[^1].Crooked.On);
+        Assert.Equal("strike", sent[^1].Crooked.Kind);
+        em.Click("em-tab:reports");
+        Assert.Contains("Response, last 30 days", em.Render());
+    }
 }

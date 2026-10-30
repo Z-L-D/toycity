@@ -64,6 +64,7 @@ public partial class SignInPanel : CanvasLayer
         centre.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(centre);
         var panel = new PanelContainer { CustomMinimumSize = new Vector2(420, 0) };
+        panel.AddThemeStyleboxOverride("panel", UiTheme.Floating());
         centre.AddChild(panel);
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 6);
@@ -71,7 +72,8 @@ public partial class SignInPanel : CanvasLayer
         _title = new Label();
         _title.AddThemeFontSizeOverride("font_size", 20);
         box.AddChild(_title);
-        _error = new Label { Modulate = new Color(1, 0.55f, 0.5f), AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        _error = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        _error.AddThemeColorOverride("font_color", UiTheme.Bad);
         box.AddChild(_error);
 
         box.AddChild(new Label { Text = "Server" });

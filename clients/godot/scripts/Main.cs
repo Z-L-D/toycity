@@ -40,6 +40,8 @@ public partial class Main : Node
     DisasterView? _disasters;
     Label? _status, _hover;
     bool _smoke, _centred;
+    string? _tile;  // --tile COL,ROW
+    string _cityShown = "";
     string? _user;  // --user, the name signed in with
     string? _shots, _bench;
     bool _frozen;  // the bench city is drawn from a fixed state; the server's deltas would undo it
@@ -66,8 +68,11 @@ public partial class Main : Node
             if (args[i] == "--user" && i + 1 < args.Length) user = args[++i];
             if (args[i] == "--password" && i + 1 < args.Length) password = args[++i];
             if (args[i] == "--new-account") newAccount = true;
+            if (args[i] == "--tile" && i + 1 < args.Length) _tile = args[++i];
         }
         if (!Uri.TryCreate(server, UriKind.Absolute, out var uri)) uri = new Uri(server = "ws://localhost:5180/ws");
+        // --tile COL,ROW opens one city of the region: its own window, as the region map's "Own window" starts it.
+        if (_tile != null) uri = new Uri($"{server}{(server.Contains('?') ? '&' : '?')}tile={Uri.EscapeDataString(_tile)}");
         _user = user;
         var credentials = user != null && password != null ? new Protocol.V0.SignIn { Name = user, Password = password, Create = newAccount } : SignInPanel.StoredCredentials(server);
         _client = new CityClient(uri, credentials: credentials);
@@ -138,7 +143,7 @@ public partial class Main : Node
         };
         if (!_smoke && _bench == null && _gateFile == null && _togetherFile == null) AddChild(signIn);
 
-        _panels = new PanelView(_client) { Tools = _tools, Camera = _camera, City = _view, Map = _map };
+        _panels = new PanelView(_client) { Tools = _tools, Camera = _camera, City = _view, Map = _map, Transitions = _shots == null && _bench == null && _gateFile == null && _togetherFile == null };
         AddChild(_panels);
         var pm = _panels.Model;
         pm.Me = () => _client.Connection.Player is { Length: > 0 } me ? me : "player";
@@ -160,10 +165,16 @@ public partial class Main : Node
         _tools.Queried += (x, y) => pm.Query(x, y);
         _tools.Act = pm.Act;
         _camera.Panned += () => _panels.FollowCam = false;
+        // An emergency scene is played in the city itself.
+        var scene3d = new SceneWorld(pm.Emergency, _view, _camera);
+        AddChild(scene3d);
+        _panels.Scene3D = scene3d;
         _agents = new AgentsView(_client.City, pm, _view);
         AddChild(_agents);
         _streets = new StreetLabels(_client.City, _view);
         AddChild(_streets);
+        AddChild(new BorderView(_client.City, _view));
+        AddChild(new StripsView(_client.City, _view));
         var buses = _buses = new BusLinesView(_client.City, pm, _view);
         AddChild(buses);
         _free = new FreeCamera
@@ -184,6 +195,19 @@ public partial class Main : Node
         LoadGraphics();
         _panels.GraphicsPressed += _graphicsPanel!.Toggle;
         ApplyGraphics();
+        // The region map, over everything while it's open; a city of it can open in a window of its own.
+        AddChild(new RegionScreen(pm.Region, () => pm.Version));
+        pm.Region.OwnWindow += (col, row) => OS.CreateProcess(OS.GetExecutablePath(),
+            OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", server, "--tile", $"{col},{row}" }).ToArray());
+        // A city of the region that another host runs: start again pointed there, as a reconnect is.
+        _client.Message += m =>
+        {
+            if (m.Redirect is not { } rd) return;
+            _tools.Toast("That city is on another host. Moving there…", "info");
+            OS.CreateProcess(OS.GetExecutablePath(),
+                OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", rd.Address, "--tile", $"{rd.Col},{rd.Row}" }).ToArray());
+            GetTree().Quit();
+        };
         pm.Company.OwnWindow += () => OS.CreateProcess(OS.GetExecutablePath(),
             OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", server, "--company" }).ToArray());
     }
@@ -216,6 +240,7 @@ public partial class Main : Node
             _view!.Tick(delta, c.TakeRemoved());
             _camera!.Shake = _disasters!.Shake;
             if (_centred && _camera!.MapWidth != c.Width) _centred = false;  // a new city of another size
+            if (_centred && c.Stats.CityName != _cityShown) _centred = false;  // another city of the region
             if (!_centred)
             {
                 _camera!.MapWidth = c.Width;
@@ -227,6 +252,7 @@ public partial class Main : Node
                 if (built.Count > 0) _camera.CentreOn(built.Average(b => b.X + b.Width / 2f), built.Average(b => b.Y + b.Height / 2f));
                 else _camera.CentreOn(c.Width / 2f, c.Height / 2f);
                 _centred = true;
+                _cityShown = c.Stats.CityName;
             }
             var cell = _camera!.Pick(GetViewport().GetMousePosition(), _view!);
             _view!.Hover(cell);
@@ -313,10 +339,11 @@ public partial class Main : Node
           (0, 2, ViewMode.Classic), (0, 2, ViewMode.Classic),  // the zone and road tools' previews
           (0, 3, ViewMode.Classic),  // a building's Why panel over the land value layer, with street names
           (0, 1, ViewMode.Classic),  // the bus company's view
-          (0, 1, ViewMode.Classic), (0, 1, ViewMode.Classic), (0, 1, ViewMode.Classic),  // the emergency services' screen: the board, a scene, its report
+          (0, 1, ViewMode.Classic), (0, 4, ViewMode.Classic), (0, 3, ViewMode.Classic),  // the emergency services' screen: the board, a scene in the 3D city (close up), its report
+          (0, 1, ViewMode.Classic),  // the region map
           (0, 4, ViewMode.Classic), (0, 3, ViewMode.Classic) };  // the free camera: smoothed buildings up close, then from farther off
     // The views that set something up first, by their place in the list.
-    const int ZoneShot = 8, RoadShot = 9, WhyShot = 10, CompanyShot = 11, BoardShot = 12, SceneShot = 13, ReportShot = 14, FreeShot = 15;
+    const int ZoneShot = 8, RoadShot = 9, WhyShot = 10, CompanyShot = 11, BoardShot = 12, SceneShot = 13, ReportShot = 14, RegionShot = 15, FreeShot = 16;
 
     /// <summary>The smoke test: once the city is drawn, picking at the screen centre must find it at every rotation.</summary>
     void Smoke(CityMirror c, double delta)
@@ -377,6 +404,7 @@ public partial class Main : Node
             {
                 _panels!.Model.Click("co-city");
                 _panels.Model.Click("em-city");
+                _panels.Model.Click("rg-close");
                 var town = c.Buildings.Values.Where(b => !c.IsRoadside(b)).ToList();
                 if (town.Count > 0) _camera.CentreOn(town.Average(b => b.X + b.Width / 2f), town.Average(b => b.Y + b.Height / 2f));
                 _camera.ToggleFree();
@@ -389,15 +417,40 @@ public partial class Main : Node
             _wait = 20;
         }
         else if (at == ZoneShot) { _tools!.SetTool(ToolKind.Zone); _tools.Hold((tx + 4, ty + 3), (tx - 4, ty - 3)); }
-        else if (at == RoadShot) { _tools!.SetTool(ToolKind.Path); _tools.Hold((tx + 6, ty), (tx - 6, ty)); }
+        else if (at == RoadShot)
+        {
+            // A curved road laid south of the town, its strip drawn smoothly over the cells and the ground graded
+            // under it, and a diagonal being drawn, its preview priced with the grading.
+            // It goes on the nearest open land below the town, so nothing is in its way.
+            bool Open(int x, int y) => c.InBounds(x, y) && c.Paths[c.Idx(x, y)] == 0 && c.BuildingAt[c.Idx(x, y)] == 0 && !c.IsWater(c.Idx(x, y));
+            int ay = Enumerable.Range(ty + 4, 40).FirstOrDefault(y => Enumerable.Range(tx - 9, 19).All(x => Enumerable.Range(y - 1, 9).All(yy => Open(x, yy))), ty + 7);
+            _client!.Connection.Act(new Protocol.V0.Action { Path = new Protocol.V0.PlacePath { X0 = tx - 8, Y0 = ay, X1 = tx + 8, Y1 = ay, ProfileId = "road", Curved = true, Cx = tx, Cy = ay + 6 } });
+            _camera!.CentreOn(tx, (ty + ay) / 2f);
+            _tools!.SetTool(ToolKind.Path);
+            _tools.State.Diagonal = true;
+            _tools.Hold((tx + 7, ty - 5), (tx - 7, ty + 3));
+            _wait = 20;
+        }
         else if (at is BoardShot or SceneShot or ReportShot)
         {
             var pm = _panels!.Model;
             // The city held still, so the made-up scene isn't replaced by the service's next day.
             if (at == BoardShot) { pm.Click("co-city"); pm.Click("em-open"); _client!.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } }); }
             // A made-up house fire, as the service would send it, to show a scene and then its report.
-            else pm.Emergency.Handle(SampleScene(pm.Me(), at == ReportShot));
+            else
+            {
+                pm.Emergency.Handle(SampleScene(pm.Me(), at == ReportShot, c, tx - 4, ty - 4));
+                // Two SWAT officers picked, as a player would with a drag of the box.
+                if (at == SceneShot) { pm.Emergency.SelectBox(new[] { 1_000_008, 1_000_009 }, false); pm.Emergency.Click("em-order:Breach"); }
+            }
             _wait = 10;
+        }
+        else if (at == RegionShot)
+        {
+            _panels!.Model.Click("em-city");
+            _panels.Model.Click("rg-open");
+            _panels.Model.Click("rg-pick:2:1");
+            _wait = 15;
         }
         else if (at == CompanyShot)
         {
@@ -422,10 +475,10 @@ public partial class Main : Node
     }
 
     /// <summary>
-    /// A house fire for the screenshots: the service run by this player, with a scene under way, or, once it's over,
-    /// the scene gone and its report card in.
+    /// A house fire with an armed suspect for the screenshots, on the city's own streets at the given cell: the
+    /// service run by this player, with a scene under way, or, once it's over, the scene gone and its report card in.
     /// </summary>
-    static Protocol.V0.SideGameView SampleScene(string me, bool over)
+    static Protocol.V0.SideGameView SampleScene(string me, bool over, CityMirror c, int ox, int oy)
     {
         const int W = 36;
         var tiles = new byte[W * W];
@@ -433,12 +486,12 @@ public partial class Main : Node
         for (int y = 0; y < W; y++)
             for (int x = 0; x < W; x++)
             {
-                int i = y * W + x;
-                tiles[i] = (byte)(y is >= 16 and < 20 || x is >= 16 and < 20 ? 1 : (x / 8 + y / 8) % 3 == 0 ? 4 : 2);
-                if (tiles[i] == 1 && (x % 8 == 3 || y % 8 == 3)) tiles[i] = 1;
-                if (!over && tiles[i] == 2 && x is >= 21 and < 28 && y is >= 8 and < 15) fire[i] = (byte)(40 + (x * 7 + y * 13) % 60);
+                int i = y * W + x, cx = ox + x / 4, cy = oy + y / 4;
+                bool building = c.InBounds(cx, cy) && c.BuildingAtCell(cx, cy) != null;
+                tiles[i] = (byte)(building ? 2 : 0);
+                if (!over && building && x >= 18 && y < 18) fire[i] = (byte)(40 + (x * 7 + y * 13) % 60);
             }
-        var scene = new Emergency.Wire.SceneView { Id = 900, CallId = 900, Kind = "fire", OriginX = 40, OriginY = 40, Width = W, Height = W, Step = 4 * 75, Burning = over ? 0 : 38,
+        var scene = new Emergency.Wire.SceneView { Id = 900, CallId = 900, Kind = "fire", OriginX = ox, OriginY = oy, Width = W, Height = W, Step = 4 * 75, Burning = over ? 0 : 38,
             Tiles = Google.Protobuf.ByteString.CopyFrom(tiles), Fire = Google.Protobuf.ByteString.CopyFrom(fire) };
         scene.Events.Add("Engine 1 arrived.");
         scene.Events.Add("Firefighter 2 is hosing the house on Pebble Lane.");
@@ -448,13 +501,21 @@ public partial class Main : Node
         scene.People.Add(new Emergency.Wire.PersonView { Id = ++id, Role = Emergency.Wire.Role.Casualty, X = 23 * 16, Y = 17 * 16, Health = 45, Down = true, State = "hurt" });
         foreach (var (x, y) in new[] { (10, 18), (12, 19), (30, 17) })
             scene.People.Add(new Emergency.Wire.PersonView { Id = ++id, Role = Emergency.Wire.Role.Bystander, X = x * 16, Y = y * 16, Health = 100, State = "ok" });
+        // A SWAT team stacked up by a building, and a shot from the suspect inside it.
+        foreach (var (x, y) in new[] { (8, 24), (9, 24), (8, 25), (9, 25) })
+            scene.People.Add(new Emergency.Wire.PersonView { Id = ++id, Role = Emergency.Wire.Role.Officer, X = x * 16 + 8, Y = y * 16 + 8, Health = 100, UnitId = 903, State = "ok", Armed = true });
+        scene.People.Add(new Emergency.Wire.PersonView { Id = ++id, Role = Emergency.Wire.Role.Suspect, X = 5 * 16 + 8, Y = 27 * 16 + 8, Health = 100, State = "ok", Armed = true });
+        scene.People.Add(new Emergency.Wire.PersonView { Id = ++id, Role = Emergency.Wire.Role.Hostage, X = 4 * 16 + 8, Y = 28 * 16 + 8, Health = 80, State = "ok" });
+        scene.Shots.Add(new Emergency.Wire.ShotView { FromX = 5 * 16 + 8, FromY = 27 * 16 + 8, ToX = 8 * 16 + 8, ToY = 24 * 16 + 8, Step = scene.Step - 2, Hit = false });
+        scene.Vehicles.Add(new Emergency.Wire.VehicleView { Id = 903, Kind = Emergency.Wire.UnitKind.Swat, X = 12 * 16, Y = 22 * 16 });
         scene.Vehicles.Add(new Emergency.Wire.VehicleView { Id = 901, Kind = Emergency.Wire.UnitKind.Engine, X = 18 * 16, Y = 17 * 16 + 8 });
         scene.Vehicles.Add(new Emergency.Wire.VehicleView { Id = 902, Kind = Emergency.Wire.UnitKind.Ambulance, X = 6 * 16, Y = 18 * 16 });
         var v = new Emergency.Wire.View { Name = "City Emergency Services", Operator = "manual", Owner = me, Style = Emergency.Wire.CommandStyle.SceneCommand, Cash = 18_400, Respect = 12, ServiceQuality = 64 };
         v.Units.Add(new Emergency.Wire.UnitView { Id = 901, Name = "Engine 1", Kind = Emergency.Wire.UnitKind.Engine, State = over ? "ready" : "at scene", CallId = 900, Crew = 3 });
+        v.Units.Add(new Emergency.Wire.UnitView { Id = 903, Name = "SWAT 1", Kind = Emergency.Wire.UnitKind.Swat, State = over ? "ready" : "at scene", CallId = 900, Crew = 4 });
         v.Units.Add(new Emergency.Wire.UnitView { Id = 902, Name = "Ambulance 1", Kind = Emergency.Wire.UnitKind.Ambulance, State = over ? "ready" : "at scene", CallId = 900, Crew = 2 });
         v.Calls.Add(new Emergency.Wire.CallView { Id = 900, Kind = "fire", Text = "House fire on Pebble Lane", X = 44, Y = 44, Severity = 3, Status = over ? "done" : "scene", SceneId = 900, Outcome = over ? "put out" : "" });
-        if (over) v.Cards.Add(new Emergency.Wire.ReportCard { SceneId = 900, Where = "House fire on Pebble Lane", Score = 87, Outcome = "put out", ResponseMinutes = 6, Saved = 1, PropertyLostPercent = 22 });
+        if (over) v.Cards.Add(new Emergency.Wire.ReportCard { SceneId = 900, Where = "House fire on Pebble Lane", Score = 87, Outcome = "put out", ResponseMinutes = 6, Saved = 1, PropertyLostPercent = 22, RulesOfEngagement = 100, HostagesFreed = 1 });
         else v.Scenes.Add(scene);
         return new Protocol.V0.SideGameView { Game = ToyCity.ClientModel.Panels.EmergencyModel.Game, Seat = "operator", Payload = Google.Protobuf.MessageExtensions.ToByteString(v) };
     }

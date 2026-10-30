@@ -79,6 +79,9 @@ export const SIDE_DX = [0, 1, 0, -1];
 export const SIDE_DY = [-1, 0, 1, 0];
 
 /** The client's mirror of the city, kept current from FullState and TickDelta messages. */
+/** An arc or diagonal as drawn: see RoadStrip in the protocol. */
+export interface Strip { path: number; curved: boolean; x0: number; y0: number; x1: number; y1: number; cx: number; cy: number; cells: number[] }
+
 export class City {
   width = 0;
   height = 0;
@@ -100,8 +103,14 @@ export class City {
   streetKinds: string[] = ['Street'];
   /** Placeable building types the mayor may build now (landmarks and reward lots unlock over time). */
   unlocked = new Set<string>();
+  /** Arcs and diagonals as they were drawn (part 9): drawn as one smooth road over their cells. */
+  strips: Strip[] = [];
+  /** Cells drawn by a strip rather than as road cells: every strip cell but its two ends. */
+  underStrip = new Set<number>();
   /** Bumped when terrain changes, so the renderer can rebuild its cached ground layer. */
   terrainVersion = 0;
+  /** Cells whose height changed since the renderer last looked, or null when it should redraw everything. */
+  terrainDirty: number[] | null = null;
   loaded = false;
 
   applyFull(f: Msg) {
@@ -127,6 +136,8 @@ export class City {
     this.buildingAt = new Int32Array(n);
     for (const b of f.buildings as Building[]) this.putBuilding(b);
     this.stats = f.stats;
+    this.setStrips(f.strips ?? []);
+    this.terrainDirty = null;
     this.terrainVersion++;
     this.loaded = true;
   }
@@ -135,7 +146,10 @@ export class City {
     let terrain = false;
     for (const c of d.cells as Msg[]) {
       const i = c.index;
-      if (this.heights[i] !== c.height) terrain = true;
+      if (this.heights[i] !== c.height) {
+        terrain = true;
+        this.terrainDirty?.push(i);
+      }
       this.heights[i] = c.height;
       this.zones[i] = c.zone;
       this.paths[i] = c.path;
@@ -148,7 +162,32 @@ export class City {
       this.putBuilding(b);
     }
     if (d.stats) this.stats = d.stats;
+    if (d.stripsChanged) this.setStrips(d.strips ?? []);
     if (terrain) this.terrainVersion++;
+  }
+
+  private setStrips(strips: Strip[]) {
+    this.strips = strips;
+    this.underStrip = new Set();
+    for (const s of strips) for (let k = 1; k + 1 < s.cells.length; k++) this.underStrip.add(s.cells[k]);
+    for (const s of strips) if (s.cells.length) { this.underStrip.delete(s.cells[0]); this.underStrip.delete(s.cells[s.cells.length - 1]); }
+  }
+
+  /** The zone the open ground under a strip takes: the one most cells around it have, or 0. Mirrors RoadShape.FillZone. */
+  fillZone(i: number): number {
+    const x = i % this.width, y = (i / this.width) | 0;
+    const count = new Array<number>(16).fill(0);
+    let best = 0;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= this.width || ny >= this.height) continue;
+        const j = ny * this.width + nx;
+        const z = this.zones[j];
+        if (z === 0 || z >= 16 || this.paths[j]) continue;
+        if (++count[z] > count[best]) best = z;
+      }
+    return best;
   }
 
   private putBuilding(b: Building) {
@@ -336,6 +375,111 @@ export function curveCells(x0: number, y0: number, cx: number, cy: number, x1: n
     }
   }
   return cells;
+}
+
+/** As World: a road's cut and fill per step a cell, a pad's, and the most a pad levels. */
+export const GRADE_COST_PER_STEP = 10, PAD_COST_PER_STEP = 5, MAX_PAD_RISE = 3;
+
+/** The heights a run of cells is graded to: the same steps as World.Grade. Null when it can't be. */
+export function grade(h: number[], fixed: boolean[], floor: number): number[] | null {
+  const n = h.length, inf = 1 << 20;
+  const under = new Array<number>(n), over = new Array<number>(n), lo = new Array<number>(n), hi = new Array<number>(n);
+  for (let k = 0; k < n; k++) {
+    under[k] = k > 0 ? Math.min(h[k], under[k - 1] + 1) : h[k];
+    over[k] = k > 0 ? Math.max(h[k], over[k - 1] - 1) : h[k];
+    lo[k] = Math.max(fixed[k] ? h[k] : -inf, k > 0 ? lo[k - 1] - 1 : -inf);
+    hi[k] = Math.min(fixed[k] ? h[k] : inf, k > 0 ? hi[k - 1] + 1 : inf);
+  }
+  for (let k = n - 2; k >= 0; k--) {
+    under[k] = Math.min(under[k], under[k + 1] + 1);
+    over[k] = Math.max(over[k], over[k + 1] - 1);
+    lo[k] = Math.max(lo[k], lo[k + 1] - 1);
+    hi[k] = Math.min(hi[k], hi[k + 1] + 1);
+  }
+  const g = new Array<number>(n);
+  for (let k = 0; k < n; k++) {
+    const low = Math.max(lo[k], floor);
+    if (low > hi[k]) return null;
+    g[k] = Math.min(hi[k], Math.max(low, (under[k] + over[k]) >> 1));
+  }
+  return g;
+}
+
+/** Steps of earth a path along these cells moves (road and banks), as the server works it out; null when too steep. */
+export function gradeSteps(c: City, cells: [number, number][]): number | null {
+  if (cells.some(([x, y]) => !c.inBounds(x, y))) return 0;
+  const idx = cells.map(([x, y]) => y * c.width + x);
+  const h = idx.map((i) => c.heights[i]);
+  const g = grade(h, idx.map((i) => !!c.paths[i]), c.waterLevel);
+  if (!g) return null;
+  const road = new Set(idx);
+  const banks = new Map<number, number>();
+  let steps = 0;
+  for (let k = 0; k < idx.length; k++) {
+    if (g[k] === h[k]) continue;
+    steps += Math.abs(g[k] - h[k]);
+    for (let d = 0; d < 4; d++) {
+      const nx = cells[k][0] + [1, -1, 0, 0][d], ny = cells[k][1] + [0, 0, 1, -1][d];
+      if (!c.inBounds(nx, ny)) continue;
+      const j = ny * c.width + nx;
+      if (road.has(j) || c.paths[j] || c.buildingAt[j] || c.isWater(j)) continue;
+      const now = banks.get(j) ?? c.heights[j];
+      const eased = Math.min(g[k] + 1, Math.max(Math.max(g[k] - 1, c.waterLevel), now));
+      if (eased !== now) banks.set(j, eased);
+    }
+  }
+  for (const [j, eh] of banks) steps += Math.abs(eh - c.heights[j]);
+  return steps;
+}
+
+/** A building's pad: the steps of earth it moves, or null when the lot rises more than a pad can level. */
+export function padSteps(c: City, x0: number, y0: number, w: number, h: number): number | null {
+  let lo = Infinity, hi = -Infinity, sum = 0;
+  for (let y = y0; y < y0 + h; y++)
+    for (let x = x0; x < x0 + w; x++) {
+      if (!c.inBounds(x, y)) return 0;
+      const v = c.heights[y * c.width + x];
+      lo = Math.min(lo, v); hi = Math.max(hi, v); sum += v;
+    }
+  if (hi - lo > MAX_PAD_RISE) return null;
+  const n = w * h, level = Math.max(c.waterLevel, Math.floor((2 * sum + n) / (2 * n)));
+  let steps = 0;
+  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) steps += Math.abs(c.heights[y * c.width + x] - level);
+  return steps;
+}
+
+/** Cells of a straight line at any angle, snapped to the grid: the same integer steps as World.LineCells. */
+export function lineCells(x0: number, y0: number, x1: number, y1: number): [number, number][] {
+  const cells: [number, number][] = [[x0, y0]];
+  const n = 4 * (Math.abs(x1 - x0) + Math.abs(y1 - y0)) + 1;
+  const off = 1 << 20;
+  const round = (num: number) => Math.floor((2 * num + n) / (2 * n)) - off;
+  let lx = x0;
+  let ly = y0;
+  for (let k = 1; k <= n; k++) {
+    const x = round((n - k) * (x0 + off) + k * (x1 + off));
+    const y = round((n - k) * (y0 + off) + k * (y1 + off));
+    while (lx !== x || ly !== y) {
+      if (lx !== x) lx += Math.sign(x - lx);
+      else ly += Math.sign(y - ly);
+      cells.push([lx, ly]);
+    }
+  }
+  return cells;
+}
+
+/** Points along a strip in cells (a cell's centre is x + 0.5), about four to a cell. Mirrors RoadShape.Points. */
+export function stripPoints(s: Strip): [number, number][] {
+  const x0 = s.x0 + 0.5, y0 = s.y0 + 0.5, x1 = s.x1 + 0.5, y1 = s.y1 + 0.5;
+  const cx = s.curved ? s.cx + 0.5 : (x0 + x1) / 2, cy = s.curved ? s.cy + 0.5 : (y0 + y1) / 2;
+  const len = Math.hypot(cx - x0, cy - y0) + Math.hypot(x1 - cx, y1 - cy);
+  const n = Math.max(2, Math.ceil(len * 4));
+  const pts: [number, number][] = [];
+  for (let k = 0; k <= n; k++) {
+    const t = k / n, a = (1 - t) * (1 - t), b = 2 * (1 - t) * t, c = t * t;
+    pts.push([a * x0 + b * cx + c * x1, a * y0 + b * cy + c * y1]);
+  }
+  return pts;
 }
 
 export function lCells(x0: number, y0: number, x1: number, y1: number): [number, number][] {

@@ -16,7 +16,7 @@ public sealed class EmergencyModel
 {
     public const string Game = "emergency";
     public static readonly (string Id, string Name)[] Tabs = { ("calls", "Calls"), ("units", "Units"), ("reports", "Reports"), ("settings", "Settings"), ("log", "Log") };
-    public enum Order { Move, Path, Hose, Treat, Warn, Arrest, Taser, Shoot }
+    public enum Order { Move, Path, Hose, Treat, Warn, Arrest, Taser, Shoot, Cordon, Search, Breach }
     static readonly string[] Styles = { "Full command", "Scene command", "Focus" };
     static readonly string[] StyleHelp =
     {
@@ -24,9 +24,27 @@ public sealed class EmergencyModel
         "The computer picks who goes to each call; you run every scene they reach.",
         "The computer picks who goes and settles each call as it would without you. You step into only the scenes you choose (Take scene on the call).",
     };
-    static readonly string[] UnitIcon = { "🚒", "🚓", "🚑" };
-    static readonly string[] UnitWord = { "engine", "patrol car", "ambulance" };
-    public static readonly string[] RoleName = { "firefighter", "paramedic", "officer", "bystander", "casualty", "suspect" };
+    static readonly string[] UnitIcon = { "🚒", "🚓", "🚑", "🛡" };
+    static readonly string[] UnitWord = { "engine", "patrol car", "ambulance", "SWAT team" };
+    public static readonly string[] RoleName = { "firefighter", "paramedic", "officer", "bystander", "casualty", "suspect", "hostage" };
+    /// <summary>The equipment each kind of unit can carry, as the service sells it.</summary>
+    public static readonly (string Item, UnitKind Kind, string Name, string Does)[] GearList =
+    {
+        ("breathing-gear", UnitKind.Engine, "breathing gear", "hoses harder and works in the smoke unhurt"),
+        ("body-armour", UnitKind.Patrol, "body armour", "officers shrug off most of a gunshot"),
+        ("defibrillator", UnitKind.Ambulance, "a defibrillator", "paramedics treat twice as fast"),
+    };
+    public const int GearPrice = 1500;
+    /// <summary>The city's cells across, for naming districts (32 cells square, as the city has them).</summary>
+    public Func<int> CityWidth { get; set; } = () => 128;
+    static readonly (string Kind, string Name, string Note, bool District)[] CrookedWays =
+    {
+        ("slow-walk", "Slow-walk a district", "calls there wait 12 more minutes; the papers may notice", true),
+        ("racket", "Protection racket", "the district's shops pay the service each month, or else", true),
+        ("look-away", "Look the other way", "officers let crime in the district go, for a cut", true),
+        ("overtime", "Overtime fires", "fires spread further and every one pays the crews overtime", false),
+        ("strike", "Strike", "every crew walks out until it ends", false),
+    };
 
     readonly Func<ClientMessage, uint> _send;
     readonly System.Action _changed;
@@ -215,6 +233,9 @@ public sealed class EmergencyModel
             case "em-order": Current = Enum.Parse<Order>(a[1]); break;
             case "em-buy": Command(new Command { Buy = new BuyUnit { LeaseId = I(1), Kind = (UnitKind)I(2) } }); return;
             case "em-sell": Command(new Command { Sell = new SellUnit { UnitId = I(1) } }); return;
+            case "em-gear": Command(new Command { Gear = new BuyGear { UnitId = I(1), Item = a[2] } }); return;
+            case "em-shifts": Settings(s => s.Shifts = I(1)); return;
+            case "em-crooked": Command(new Command { Crooked = new Crooked { Kind = a[1], District = I(2), On = a.Length > 3 && a[3] == "on" } }); return;
             case "em-style": Settings(s => s.Style = (CommandStyle)I(1)); return;
             case "em-switch": Settings(s =>
             {
@@ -247,7 +268,7 @@ public sealed class EmergencyModel
     void Settings(Action<Settings> change)
     {
         if (View == null) return;
-        var s = new Settings { Style = View.Style, PickResponders = View.PickResponders, CrewsUseHeads = View.CrewsUseHeads, DriversWatchOut = View.DriversWatchOut };
+        var s = new Settings { Style = View.Style, PickResponders = View.PickResponders, CrewsUseHeads = View.CrewsUseHeads, DriversWatchOut = View.DriversWatchOut, Shifts = View.Shifts };
         change(s);
         Command(new Command { Settings = s });
     }
@@ -274,7 +295,8 @@ public sealed class EmergencyModel
     {
         var v = View!;
         if (v.Calls.Count == 0) return Dim("No calls. Fires, crimes and injuries in the city come in here.") + "\n";
-        var sb = new StringBuilder();
+        var sb = new StringBuilder(RenderRatings()).Append('\n');
+        if (v.Crooked is { Strike: true }) sb.Append(Col(Neg, "[b]The crews are on strike.[/b] Nobody answers calls until it ends.")).Append("\n\n");
         foreach (var c in v.Calls.OrderBy(c => c.Status == "done").ThenByDescending(c => c.Id))
         {
             string icon = c.Kind switch { "fire" => "🔥", "crime" => "🚨", _ => "🩹" };
@@ -325,23 +347,39 @@ public sealed class EmergencyModel
                 sb.Append($"{UnitIcon[(int)u.Kind]} {Esc(u.Name)} ").Append(Dim($"{u.Crew} crew · {u.State}{(u.BackInDays > 0 ? $" ({u.BackInDays}d)" : "")}"));
                 if (Mine && u.State == "ready") sb.Append("  ").Append(Link($"em-sell:{u.Id}", "Sell"));
                 sb.Append('\n');
+                foreach (var g in GearList.Where(g => g.Kind == u.Kind))
+                {
+                    if (u.Gear.Contains(g.Item)) sb.Append(Small($"  ✓ {g.Name}")).Append(Small(Dim($": {g.Does}"))).Append('\n');
+                    else if (Mine) sb.Append(Small("  ")).Append(Small(Link($"em-gear:{u.Id}:{g.Item}", $"Fit {g.Name} ({Money(GearPrice)})"))).Append(Small(Dim($": {g.Does}"))).Append('\n');
+                }
             }
             if (Mine) sb.Append(Link($"em-buy:{s.LeaseId}:{kind}", $"Buy {UnitWord[kind]}")).Append('\n');
+            if (Mine && kind == 1 && v.Units.All(u => u.StationLeaseId != s.LeaseId || u.Kind != UnitKind.Swat))
+                sb.Append(Link($"em-buy:{s.LeaseId}:3", "Buy a SWAT team")).Append(' ').Append(Small(Dim("four officers in armour: they breach buildings and end hostage scenes"))).Append('\n');
             sb.Append('\n');
         }
         return sb.ToString();
     }
 
+    /// <summary>Response-time grades over the last thirty days, by kind of call: they count toward the service's rating.</summary>
+    public string RenderRatings()
+    {
+        var v = View!;
+        if (v.Ratings.All(r => r.Calls == 0)) return Small(Dim("Response ratings: no calls answered in the last 30 days.")) + "\n";
+        return "[b]Response, last 30 days[/b]  " + string.Join("   ", v.Ratings.Where(r => r.Calls > 0).Select(r =>
+            $"{Esc(r.Kind)} " + Col(r.Grade is "A" or "B" ? Pos : r.Grade is "C" ? Warn : Neg, $"[b]{r.Grade}[/b]") + Dim($" {r.Minutes} min · {r.Calls}"))) + "\n";
+    }
+
     string RenderReports()
     {
-        if (Public) return Dim("Scene reports are the service's own business.") + "\n";
         var v = View!;
-        if (v.Cards.Count == 0) return Dim("Each scene you run gets a report card here. Lives saved count for most; harm your crews cause costs more than a slow response.") + "\n";
-        var sb = new StringBuilder();
+        if (Public) return RenderRatings() + "\n" + Dim("Scene reports are the service's own business.") + "\n";
+        if (v.Cards.Count == 0) return RenderRatings() + "\n" + Dim("Each scene you run gets a report card here. Lives saved count for most; harm your crews cause costs more than a slow response.") + "\n";
+        var sb = new StringBuilder(RenderRatings()).Append('\n');
         foreach (var c in v.Cards.Reverse())
         {
             sb.Append($"[b]{Esc(c.Where)}[/b]  ").Append(Col(c.Score < 40 ? Neg : Pos, $"[b]{c.Score}[/b]")).Append("  ").Append(Dim(c.Outcome)).Append('\n');
-            sb.Append(Small(Dim($"{c.ResponseMinutes} min response · {c.Saved} saved · {c.Lost} lost · {c.HarmedByCrews} hurt by crews · {c.FriendlyFire} friendly fire · {c.UnauthorizedForce} unauthorised force · {c.PropertyLostPercent}% property lost"))).Append('\n');
+            sb.Append(Small(Dim($"{c.ResponseMinutes} min response · {c.Saved} saved · {c.Lost} lost · {c.HarmedByCrews} hurt by crews · {c.FriendlyFire} friendly fire · {c.UnauthorizedForce} unauthorised force · {c.PropertyLostPercent}% property lost · rules of engagement {c.RulesOfEngagement}{(c.HostagesFreed + c.HostagesLost > 0 ? $" · hostages {c.HostagesFreed} freed, {c.HostagesLost} lost" : "")}"))).Append('\n');
             foreach (var n in c.Notes) sb.Append(Small(Esc(n))).Append('\n');
             sb.Append('\n');
         }
@@ -363,6 +401,46 @@ public sealed class EmergencyModel
             .Append(Small(Dim("Crews with no orders do the obvious job nearest them. Off: they stand still until told."))).Append('\n');
         sb.Append(Opt("em-switch:watch", v.DriversWatchOut, "[b]Drivers watch out[/b]")).Append('\n')
             .Append(Small(Dim("Vehicles stop for people in the way. Off: they drive on and hit them. Anyone hit is hurt or killed, the vehicle is off the road for 30 days, and the service's respect and standing fall."))).Append('\n');
+        sb.Append("\n[b]Shifts[/b]  ");
+        for (int n = 1; n <= 3; n++) sb.Append(Opt($"em-shifts:{n}", v.Shifts == n, n == 3 ? "3: round the clock" : $"{n}")).Append("  ");
+        sb.Append('\n').Append(Small(Dim("Wages scale with the shifts worked. With fewer than three, each unit is off some days, staggered so a station is rarely empty."))).Append('\n');
+        sb.Append('\n').Append(RenderCrooked());
+        return sb.ToString();
+    }
+
+    /// <summary>The districts the service works in: where its stations and its calls are.</summary>
+    IEnumerable<int> Districts()
+    {
+        var v = View!;
+        int across = (CityWidth() + 31) / 32;
+        return v.Stations.Select(s => (s.X, s.Y)).Concat(v.Calls.Select(c => (c.X, c.Y))).Select(p => p.Y / 32 * across + p.X / 32).Distinct().Order();
+    }
+
+    /// <summary>
+    /// The crooked ways: only where every player has allowed crooked services (the city's consent screen), and each
+    /// one a risk of the papers finding out, which costs the service respect.
+    /// </summary>
+    public string RenderCrooked()
+    {
+        var v = View!;
+        var k = v.Crooked ?? new CrookedView { SlowWalk = -1, Racket = -1, LookAway = -1 };
+        var sb = new StringBuilder("[b]Crooked ways[/b]");
+        if (k.Exposed > 0) sb.Append("  ").Append(Col(Neg, $"caught out {k.Exposed}×"));
+        sb.Append('\n');
+        if (!k.Allowed)
+            return sb.Append(Small(Dim(k.WhyNot.Length > 0 ? Esc(k.WhyNot) : "Not allowed here: every player must allow crooked services first."))).Append('\n').ToString();
+        foreach (var (kind, name, note, district) in CrookedWays)
+        {
+            int at = kind switch { "slow-walk" => k.SlowWalk, "racket" => k.Racket, "look-away" => k.LookAway, _ => -1 };
+            bool on = district ? at >= 0 : kind == "overtime" ? k.Overtime : k.Strike;
+            sb.Append(on ? Col(Warn, $"[b]{name}[/b]") : $"[b]{name}[/b]").Append(' ').Append(Small(Dim(note))).Append('\n');
+            if (!Mine) { if (on) sb.Append(Small(district ? $"  on, in district {at + 1}" : "  on")).Append('\n'); continue; }
+            sb.Append("  ");
+            if (on) sb.Append(Link($"em-crooked:{kind}:0:off", district ? $"Stop (district {at + 1})" : "Stop"));
+            else if (district) sb.Append(string.Join("  ", Districts().Select(d => Link($"em-crooked:{kind}:{d}:on", $"district {d + 1}"))));
+            else sb.Append(Link($"em-crooked:{kind}:0:on", "Start"));
+            sb.Append('\n');
+        }
         return sb.ToString();
     }
 
@@ -383,7 +461,7 @@ public sealed class EmergencyModel
         if (Mine)
         {
             sb.Append(Link("em-run", Running ? "⏸ Hold" : "▶ Run")).Append("  ").Append(Link("em-leave", "Hand to crews")).Append("  ").Append(Link("em-locate", "📍 Where is this?")).Append('\n');
-            sb.Append(string.Join("  ", Enum.GetValues<Order>().Select(o => o == Current ? $"[b]{o}[/b]" : Link($"em-order:{o}", o.ToString())))).Append('\n');
+            sb.Append(string.Join("  ", Orders().Select(o => o == Current ? $"[b]{o}[/b]" : Link($"em-order:{o}", o.ToString())))).Append('\n');
             sb.Append(Small(Dim(OrderHint))).Append('\n');
         }
         else sb.Append(Small(Dim("Watching."))).Append("  ").Append(Link("em-locate", "📍 Where is this?")).Append('\n');
@@ -402,7 +480,11 @@ public sealed class EmergencyModel
     /// <summary>How to give the order picked.</summary>
     public string OrderHint => "Click to select (shift adds), then " + Current switch
     {
-        Order.Move => "right-click where to go.", Order.Path => "drag a path from the selected one.", _ => "click the target.",
+        Order.Move => "right-click where to go (drag a box to pick several).", Order.Path => "drag a path from the selected one.",
+        Order.Cordon => "click the spot to hold: onlookers keep back and a suspect can't slip past.",
+        Order.Search => "click where to look: officers search around it for anyone hiding.",
+        Order.Breach => "click the building: SWAT goes in together, and two or more stun whoever is inside.",
+        _ => "click the target.",
     };
 
     /// <summary>Who is selected, what just happened at the scene, and who is on the way.</summary>
@@ -427,8 +509,8 @@ public sealed class EmergencyModel
         {
             ("Response", $"{c.ResponseMinutes} min"), ("Lives saved", Num(c.Saved)), ("Lives lost", Num(c.Lost)),
             ("Hurt by crews", Num(c.HarmedByCrews)), ("Friendly fire", Num(c.FriendlyFire)), ("Unauthorised force", Num(c.UnauthorizedForce)),
-            ("Property lost", $"{c.PropertyLostPercent}%"),
-        }.Select(r => (Dim(r.Item1), r.Item2))));
+            ("Property lost", $"{c.PropertyLostPercent}%"), ("Rules of engagement", $"{c.RulesOfEngagement} / 100"),
+        }.Concat(c.HostagesFreed + c.HostagesLost > 0 ? new[] { ("Hostages", $"{c.HostagesFreed} freed, {c.HostagesLost} lost") } : Array.Empty<(string, string)>()).Select(r => (Dim(r.Item1), r.Item2))));
         foreach (var n in c.Notes) sb.Append(Small(Esc(n))).Append('\n');
         if (NextScene != 0) sb.Append('\n').Append(Col(Warn, "Another scene of yours is waiting.")).Append(' ').Append(Link("em-next", "Go to it")).Append('\n');
         return sb.ToString();
@@ -466,7 +548,7 @@ public sealed class EmergencyModel
         if (SceneOver) scene.Add(("em-report", ReportOpen ? "Close report" : "Show report", ReportOpen));
         else if (Mine) { scene.Add(("em-run", Running ? "⏸ Hold" : "▶ Run", !Running)); scene.Add(("em-leave", "Hand to crews", false)); }
         list.Add(("Scene", scene));
-        if (Mine && !SceneOver) list.Add(("Orders", Enum.GetValues<Order>().Select(o => ($"em-order:{o}", o.ToString(), o == Current)).ToList()));
+        if (Mine && !SceneOver) list.Add(("Orders", Orders().Select(o => ($"em-order:{o}", o.ToString(), o == Current)).ToList()));
         return list;
     }
 
@@ -511,11 +593,16 @@ public sealed class EmergencyModel
         return p != null ? (int)p.Role <= 2 : s.Vehicles.Any(v => v.Id == id);
     }
 
-    public void PointerDown(int x, int y, bool add)
+    public void PointerDown(int x, int y, bool add) => PointerDown(x, y, HitAt(x, y), add);
+
+    /// <summary>
+    /// A click on a scene tile, with who was under the pointer as the front end found them (the 3D view picks people
+    /// on screen, not by tile): selects crews, or gives the picked order at the tile or to the person.
+    /// </summary>
+    public void PointerDown(int x, int y, int? hit, bool add)
     {
         var s = Scene;
         if (s == null || !Mine || SceneOver) return;
-        var hit = HitAt(x, y);
         if (Current == Order.Path && Selected.Count == 1 && (hit == null || hit == Selected[0])) { Drawing = new List<int> { y * s.Width + x }; SceneVersion++; return; }
         bool targets = Current is Order.Treat or Order.Warn or Order.Arrest;
         if (Current is Order.Move or Order.Path || hit is { } h0 && CrewOrVehicle(h0) && !targets)
@@ -530,10 +617,41 @@ public sealed class EmergencyModel
         var t = new TaskOrder { SceneId = s.Id, X = x, Y = y, TargetId = hit ?? 0, Task = Current switch
         {
             Order.Hose => TaskKind.Hose, Order.Treat => TaskKind.Treat, Order.Warn => TaskKind.Warn, Order.Arrest => TaskKind.Arrest,
-            Order.Taser => TaskKind.Taser, _ => TaskKind.Shoot,
+            Order.Taser => TaskKind.Taser, Order.Cordon => TaskKind.Cordon, Order.Search => TaskKind.Search, Order.Breach => TaskKind.Breach,
+            _ => TaskKind.Shoot,
         } };
         t.Ids.AddRange(Selected);
         Command(new Command { Task = t });
+    }
+
+    /// <summary>A box dragged over the scene: these crews and vehicles become the selection (shift adds).</summary>
+    public void SelectBox(IEnumerable<int> ids, bool add)
+    {
+        if (Scene == null || !Mine || SceneOver) return;
+        if (!add) Selected.Clear();
+        foreach (var id in ids) if (CrewOrVehicle(id) && !Selected.Contains(id)) Selected.Add(id);
+        SceneVersion++;
+        _changed();
+    }
+
+    /// <summary>The orders that make sense for who is selected: all of them with nobody picked.</summary>
+    public IEnumerable<Order> Orders()
+    {
+        var s = Scene;
+        var roles = s == null ? new HashSet<Role>() : Selected.Select(id => s.People.FirstOrDefault(p => p.Id == id)?.Role).OfType<Role>().ToHashSet();
+        bool swat = s != null && Selected.Any(id => s.People.FirstOrDefault(p => p.Id == id) is { } p && Unit(p.UnitId)?.Kind == UnitKind.Swat);
+        foreach (var o in Enum.GetValues<Order>())
+        {
+            bool fits = roles.Count == 0 || o switch
+            {
+                Order.Hose => roles.Contains(Role.Firefighter),
+                Order.Treat => roles.Contains(Role.Paramedic),
+                Order.Warn or Order.Arrest or Order.Taser or Order.Shoot or Order.Cordon or Order.Search => roles.Contains(Role.Officer),
+                Order.Breach => swat,
+                _ => true,
+            };
+            if (fits) yield return o;
+        }
     }
 
     public void PointerMove(int x, int y)

@@ -17,7 +17,8 @@ public sealed partial class SimHost
             _awayTimer = new Timer(_ => CheckAway(), null, 1000, 1000);
     }
 
-    bool Online(string player) => _clients.Any(c => c.Player == player);
+    /// <summary>Online anywhere in the region: a mayor looking at a neighbour's city hasn't left their own.</summary>
+    bool Online(string player) => _region.Online(player);
 
     /// <summary>A player's connection closed. Caller holds the gate.</summary>
     void Left(Client c)
@@ -68,7 +69,7 @@ public sealed partial class SimHost
     {
         if (!_host.Dedicated || _accounts == null) return;
         string owner = _world.MayorSeat.Owner;
-        if (_accounts.Exists(owner)) return;
+        if (_accounts.Exists(owner) || World.IsComputer(owner)) return;
         string? to = admin ?? _host.Admins.Select(a => _accounts.Canonical(a)).FirstOrDefault(a => a != null);
         if (to == null) return;
         _world.Enqueue(new RenameOwnerAction(owner, to));
@@ -100,7 +101,8 @@ public sealed partial class SimHost
         string sig = p.ToString();
         if (sig == _presenceSig) yield break;
         _presenceSig = sig;
-        foreach (var c in _clients) yield return (c, new P.ServerMessage { Presence = p });
+        ulong order = NextOrder();
+        foreach (var c in _clients) yield return (c, new P.ServerMessage { Presence = p, Order = order });
     }
 }
 
@@ -110,7 +112,7 @@ public sealed partial class SimHost
     /// A city has just been loaded or founded by an admin: it gets a real mayor, the host's minimums, and the consent
     /// settings of everyone here. Caller holds the gate.
     /// </summary>
-    void Arrived(string admin)
+    internal void Arrived(string admin)
     {
         EnsureMayor(admin);
         ApplyHostRules();

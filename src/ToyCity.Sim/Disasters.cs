@@ -139,6 +139,7 @@ public sealed partial class World
     /// <summary>Daily: flames spread or go out, movers move, finished disasters report their toll.</summary>
     void RunDisasters()
     {
+        CatchFireAcrossBorders();
         RunFires();
         foreach (var d in Disasters)
         {
@@ -167,7 +168,11 @@ public sealed partial class World
                     d.DaysLeft--;
                     break;
             }
-            if (d.CellX < 0 || d.CellY < 0 || d.CellX >= Width || d.CellY >= HeightCells) d.DaysLeft = 0;
+            if (d.CellX < 0 || d.CellY < 0 || d.CellX >= Width || d.CellY >= HeightCells)
+            {
+                Depart(d);
+                d.DaysLeft = 0;
+            }
         }
         foreach (var d in Disasters.Where(d => d.DaysLeft <= 0).ToList())
         {
@@ -235,6 +240,7 @@ public sealed partial class World
             }
             // Spread to neighbours touching this footprint.
             int spread = (int)(Math.Max(2, 14 - cov / 8) * Math.Max(0, 100 + Mod(ModKey.FireSpread)) / 100);
+            spread = spread * WeatherFirePct / 100;
             var near = new SortedSet<int>();
             for (int y = b.Y - 1; y <= b.Y + b.H; y++)
             for (int x = b.X - 1; x <= b.X + b.W; x++)
@@ -253,7 +259,7 @@ public sealed partial class World
     void RollDisaster()
     {
         // A young town gets a grace period: nothing happens by itself in the first three years or under 1,000 people.
-        if (DisasterSetting == DisasterSetting.Off || Population < 1000 || Tick < 3 * MonthsPerYear * DaysPerMonth) return;
+        if (DisasterSetting == DisasterSetting.Off || Population < 1000 || Age < 3 * MonthsPerYear * DaysPerMonth) return;
         int oneIn = DisasterSetting == DisasterSetting.Rare ? 120 : 36;
         if (Rng.Next(oneIn) != 0) return;
         var built = Buildings.Where(b => b is { ConstructionLeft: 0 }).Select(b => b!).ToList();

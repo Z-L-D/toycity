@@ -15,7 +15,7 @@ public static class Mapping
     /// <summary>Wire action to sim action. Returns null for an empty or unknown action.</summary>
     public static SimAction? ToSim(P.Action a) => a.KindCase switch
     {
-        P.Action.KindOneofCase.Path => new PlacePathAction(a.Path.X0, a.Path.Y0, a.Path.X1, a.Path.Y1, a.Path.ProfileId, a.Path.Curved, a.Path.Cx, a.Path.Cy),
+        P.Action.KindOneofCase.Path => new PlacePathAction(a.Path.X0, a.Path.Y0, a.Path.X1, a.Path.Y1, a.Path.ProfileId, a.Path.Curved, a.Path.Cx, a.Path.Cy, a.Path.Diagonal),
         P.Action.KindOneofCase.Block => new ZoneBlockAction(a.Block.X, a.Block.Y, (Zone)(int)a.Block.Zone, (Level)(int)a.Block.Density, (Leftover)(int)a.Block.Leftover),
         P.Action.KindOneofCase.Zone => new PaintZoneAction(Rect(a.Zone.Area), (Zone)(int)a.Zone.Zone, (Level)(int)a.Zone.Density),
         P.Action.KindOneofCase.Building => new PlaceBuildingAction(a.Building.X, a.Building.Y, a.Building.TypeId, a.Building.Side - 1),
@@ -58,7 +58,7 @@ public static class Mapping
 
     public static P.Action ToProto(SimAction a) => a switch
     {
-        PlacePathAction x => new P.Action { Path = new P.PlacePath { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, ProfileId = x.ProfileId, Curved = x.Curved, Cx = x.CX, Cy = x.CY } },
+        PlacePathAction x => new P.Action { Path = new P.PlacePath { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, ProfileId = x.ProfileId, Curved = x.Curved, Cx = x.CX, Cy = x.CY, Diagonal = x.Diagonal } },
         ZoneBlockAction x => new P.Action { Block = new P.ZoneBlock { X = x.X, Y = x.Y, Zone = (P.ZoneKind)(int)x.Zone, Density = (P.Density)(int)x.Density, Leftover = (P.Leftover)(int)x.Leftover } },
         PaintZoneAction x => new P.Action { Zone = new P.PaintZone { Area = Rect(x.Area), Zone = (P.ZoneKind)(int)x.Zone, Density = (P.Density)(int)x.Density } },
         PlaceBuildingAction x => new P.Action { Building = new P.PlaceBuilding { X = x.X, Y = x.Y, TypeId = x.TypeId, Side = x.Side + 1 } },
@@ -174,6 +174,7 @@ public static class Mapping
         s.TaxTenths.AddRange(w.TaxTenths);
         s.DisasterSetting = (P.DisasterSetting)(int)w.DisasterSetting;
         s.TransitBoardings = w.TransitBoardings;
+        if (w.Weather != WeatherKind.Clear) s.Weather = $"{World.WeatherIcon(w.Weather)} {World.WeatherName(w.Weather, w.WeatherStrength)}";
         foreach (var d in w.Disasters)
             s.Disasters.Add(new P.Disaster { Id = d.Id, Kind = (P.DisasterKind)(int)d.Kind, X = d.X, Y = d.Y, DaysLeft = d.DaysLeft, Destroyed = d.Destroyed, Damaged = d.Damaged });
         foreach (var (label, amount) in w.LastBudget) s.Budget.Add(new P.BudgetLine { Label = label, Amount = amount });
@@ -197,8 +198,15 @@ public static class Mapping
             Stats = Stats(w, speed), Catalog = Catalog(w.Content), Seed = w.Seed,
         };
         foreach (var b in w.Buildings) if (b != null) f.Buildings.Add(Building(w, b));
+        f.Strips.AddRange(Strips(w));
         return f;
     }
+
+    /// <summary>The city's arcs and diagonals, as clients draw them.</summary>
+    public static IEnumerable<P.RoadStrip> Strips(World w) => w.Strips.Select(s => new P.RoadStrip
+    {
+        Path = s.Code, Curved = s.Curved, X0 = s.X0, Y0 = s.Y0, X1 = s.X1, Y1 = s.Y1, Cx = s.CX, Cy = s.CY, Cells = { s.Cells },
+    });
 
     public static P.Notice Notice(SimNotice n) => new() { Text = n.Text, Severity = n.Severity, X = n.X, Y = n.Y };
 
@@ -490,34 +498,59 @@ public static class Mapping
             FormatVersion = World.FormatVersion, CityName = w.Name, Seed = w.Seed, Width = w.Width, Height = w.HeightCells,
             Tick = w.Tick, World = ByteString.CopyFrom(w.Snapshot()),
         };
-        foreach (var l in w.Log)
-            s.Log.Add(l.Action switch
+        foreach (var l in w.Log) s.Log.Add(Record(l));
+        return s.ToByteArray();
+    }
+
+    /// <summary>A logged action as a save or the federated link carries it.</summary>
+    public static P.ActionRecord Record(LoggedAction l) => l.Action switch
             {
                 SeatAwayAction sa => new P.ActionRecord { Tick = l.Tick, By = sa.By, Away = new P.SeatAway { Seat = sa.SeatId, Away = sa.Away } },
                 SideGameMissedAction ms => new P.ActionRecord { Tick = l.Tick, By = ms.By, Missed = new P.SideGameMissed { Game = ms.GameId, What = ms.What } },
                 RenameOwnerAction rn => new P.ActionRecord { Tick = l.Tick, By = rn.By, Rename = new P.RenameOwner { From = rn.From, To = rn.To } },
                 ForkAction fk => new P.ActionRecord { Tick = l.Tick, By = fk.By, Fork = new P.Fork { Player = fk.Player, HomeName = fk.HomeName } },
+                NeighbourEdgeAction ne => new P.ActionRecord { Tick = l.Tick, By = ne.By, Neighbour = Edge(ne) },
+                WeatherAction wa => new P.ActionRecord { Tick = l.Tick, By = wa.By, Weather = new P.RegionWeather { Kind = (P.WeatherKind)(int)wa.Kind, Strength = wa.Strength } },
+                CityDealAction cd => new P.ActionRecord
+                {
+                    Tick = l.Tick, By = cd.By,
+                    Deal = new P.CityDeal { Id = cd.Id, Kind = (P.DealKind)(int)cd.Kind, Selling = cd.Selling, Side = cd.Side, Other = cd.Other, Amount = cd.Amount, Price = cd.Price, End = cd.End, Why = cd.Why },
+                },
                 SetHostRulesAction hr => new P.ActionRecord { Tick = l.Tick, By = hr.By, HostRules = new P.HostRules { Forbidden = { hr.Forbidden.Select(m => (P.Mechanic)(int)m) } } },
                 _ => new P.ActionRecord { Tick = l.Tick, By = l.Action.By, Action = ToProto(l.Action) },
-            });
-        return s.ToByteArray();
+            };
+
+    public static P.NeighbourEdge Edge(NeighbourEdgeAction a) => new()
+    {
+        Side = a.Side, Name = a.Name, Mayor = a.Mayor, Paths = { a.Paths }, Power = { a.Power }, Pipes = { a.Pipes }, Stats = { a.Stats ?? Array.Empty<int>() },
+        Fire = { a.Fire ?? Array.Empty<int>() }, Movers = { a.Movers ?? Array.Empty<int>() },
+    };
+
+    public static NeighbourEdgeAction Edge(P.NeighbourEdge e) =>
+        new(e.Side, e.Name, e.Mayor, e.Paths.ToArray(), e.Power.ToArray(), e.Pipes.ToArray(), e.Stats.ToArray(), e.Fire.ToArray(), e.Movers.ToArray());
+
+    /// <summary>The action a record holds, with who sent it, or null for one this build doesn't know.</summary>
+    public static SimAction? Action(P.ActionRecord r)
+    {
+        SimAction? a = r.Away != null ? new SeatAwayAction(r.Away.Seat, r.Away.Away)
+                : r.Missed != null ? new SideGameMissedAction(r.Missed.Game, r.Missed.What)
+                : r.Rename != null ? new RenameOwnerAction(r.Rename.From, r.Rename.To)
+                : r.Fork != null ? new ForkAction(r.Fork.Player, r.Fork.HomeName)
+                : r.Neighbour != null ? Edge(r.Neighbour)
+                : r.Weather is { } wr ? new WeatherAction((WeatherKind)(int)wr.Kind, wr.Strength)
+                : r.Deal is { } d ? new CityDealAction(d.Id, (DealKind)(int)d.Kind, d.Selling, d.Side, d.Other, d.Amount, d.Price, d.End, d.Why)
+                : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
+                : r.Action == null ? null : ToSim(r.Action);
+        return a == null ? null : a with { By = r.By };
     }
 
     public static World Load(ContentDb content, byte[] data)
     {
         var s = P.SaveGame.Parser.ParseFrom(data);
-        if (s.FormatVersion != World.FormatVersion) throw new InvalidDataException($"save format {s.FormatVersion} is not supported");
+        if (s.FormatVersion is < 5 or > World.FormatVersion) throw new InvalidDataException($"save format {s.FormatVersion} is not supported");
         var w = World.FromSnapshot(content, s.World.ToByteArray());
         foreach (var r in s.Log)
-        {
-            SimAction? a = r.Away != null ? new SeatAwayAction(r.Away.Seat, r.Away.Away)
-                : r.Missed != null ? new SideGameMissedAction(r.Missed.Game, r.Missed.What)
-                : r.Rename != null ? new RenameOwnerAction(r.Rename.From, r.Rename.To)
-                : r.Fork != null ? new ForkAction(r.Fork.Player, r.Fork.HomeName)
-                : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
-                : r.Action == null ? null : ToSim(r.Action);
-            if (a != null) w.Log.Add(new LoggedAction(r.Tick, a with { By = r.By }));
-        }
+            if (Action(r) is { } a) w.Log.Add(new LoggedAction(r.Tick, a));
         return w;
     }
 }
@@ -527,6 +560,7 @@ public sealed class DeltaTracker
 {
     byte[] _heights = Array.Empty<byte>(), _zones = Array.Empty<byte>(), _lines = Array.Empty<byte>(), _pipes = Array.Empty<byte>();
     ushort[] _paths = Array.Empty<ushort>();
+    int _strips;
     readonly Dictionary<int, P.BuildingState> _buildings = new();
 
     /// <summary>Records the state just sent in a FullState.</summary>
@@ -537,6 +571,7 @@ public sealed class DeltaTracker
         _lines = (byte[])w.PowerLine.Clone();
         _pipes = (byte[])w.WaterPipe.Clone();
         _paths = (ushort[])w.Path.Clone();
+        _strips = w.StripsVersion;
         _buildings.Clear();
         foreach (var b in w.Buildings) if (b != null) _buildings[b.Id] = Mapping.Building(w, b);
     }
@@ -545,6 +580,12 @@ public sealed class DeltaTracker
     {
         var d = new P.TickDelta { Stats = Mapping.Stats(w, speed) };
         if (_heights.Length != w.N) Reset(w);
+        if (_strips != w.StripsVersion)
+        {
+            _strips = w.StripsVersion;
+            d.StripsChanged = true;
+            d.Strips.AddRange(Mapping.Strips(w));
+        }
         for (int i = 0; i < w.N; i++)
         {
             if (_heights[i] == w.Height[i] && _zones[i] == w.ZoneCode[i] && _paths[i] == w.Path[i] && _lines[i] == w.PowerLine[i] && _pipes[i] == w.WaterPipe[i]) continue;

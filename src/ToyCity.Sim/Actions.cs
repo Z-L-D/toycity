@@ -9,7 +9,8 @@ public readonly record struct CellRect(int X0, int Y0, int X1, int Y1)
     public int MaxY => Math.Max(Y0, Y1);
 }
 
-public enum TerraformMode : byte { Raise = 0, Lower = 1, Level = 2 }
+/// <summary>Smooth evens each cell toward its neighbours' average, wearing steps down into slopes.</summary>
+public enum TerraformMode : byte { Raise = 0, Lower = 1, Level = 2, Smooth = 3 }
 
 public enum UtilityKind : byte { PowerLine = 0, WaterPipe = 1 }
 
@@ -24,9 +25,10 @@ public abstract record SimAction
 
 /// <summary>
 /// A straight or L-shaped run, horizontal first; or, when <c>Curved</c>, an arc from (X0,Y0) to (X1,Y1) bent toward
-/// the control cell (CX,CY), snapped to the grid.
+/// the control cell (CX,CY), snapped to the grid; or, when <c>Diagonal</c>, a straight line at any angle, snapped to
+/// the grid. Arcs and diagonals are remembered as the line drawn (<see cref="RoadStrip"/>), so clients draw them smooth.
 /// </summary>
-public sealed record PlacePathAction(int X0, int Y0, int X1, int Y1, string ProfileId, bool Curved = false, int CX = 0, int CY = 0) : SimAction;
+public sealed record PlacePathAction(int X0, int Y0, int X1, int Y1, string ProfileId, bool Curved = false, int CX = 0, int CY = 0, bool Diagonal = false) : SimAction;
 public sealed record PaintZoneAction(CellRect Area, Zone Zone, Level Density) : SimAction;
 
 /// <summary>What block zoning does with cells too deep in the block for any lot to reach a road.</summary>

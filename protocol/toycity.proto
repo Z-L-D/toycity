@@ -28,6 +28,12 @@ message ClientMessage {
     OrdinancesRequest ordinances = 14;
     AdvisorsRequest advisors = 15;
     SignIn sign_in = 16;
+    FoundCity found_city = 17;
+    NewRegionRequest new_region = 18;
+    RegionRequest region = 19;
+    GoToCity go_to = 20;
+    DealRequest deal = 21;
+    MayorRequest mayor = 22;
   }
 }
 
@@ -172,6 +178,7 @@ enum Mechanic {
   MECH_HOSTILE_EVICTIONS = 3;
   MECH_ABSURD_DISASTERS = 4;
   MECH_TARGETED_CRIME = 5;
+  MECH_CROOKED_SERVICES = 6;  // the emergency services may slow-walk, run rackets, look away, start fires, strike
 }
 
 // A player switches a mechanic on or off for themselves. It is on in the city only while every seat owner allows it.
@@ -318,6 +325,7 @@ message PlacePath {
   bool curved = 6;  // an arc bent toward (cx, cy), snapped to the grid
   int32 cx = 7;
   int32 cy = 8;
+  bool diagonal = 9;  // a straight line at any angle, snapped to the grid
 }
 
 enum Leftover {
@@ -382,6 +390,7 @@ enum TerraformMode {
   TERRAFORM_RAISE = 0;
   TERRAFORM_LOWER = 1;
   TERRAFORM_LEVEL = 2;
+  TERRAFORM_SMOOTH = 3;  // each cell toward its neighbours' average
 }
 
 message Terraform {
@@ -471,6 +480,208 @@ message NewCityRequest {
   bool benchmark = 5;  // the benchmark city: 256 cells a side with every dry block built up (ignores size and starter_town)
 }
 
+// Beta 3: founds a city on an open tile of this region. The founder is its mayor. The reply is the new RegionState;
+// the client then opens the city by connecting with ?tile=COL,ROW.
+message FoundCity {
+  int32 col = 1;
+  int32 row = 2;
+  string name = 3;
+  bool starter_town = 4;
+  string computer = 5;  // a temperament ("growth", "green", "careful") for a computer mayor; empty to be its mayor yourself
+}
+
+// A player takes over a computer mayor's city, or a mayor hands their city to a computer mayor of a temperament.
+message MayorRequest {
+  int32 col = 1;
+  int32 row = 2;
+  bool take_over = 3;
+  string computer = 4;  // the temperament, when handing over
+}
+
+// Beta 3, admins only: a new region of open land, with a starter city on the middle tile when starter_town is set.
+message NewRegionRequest {
+  string name = 1;
+  uint64 seed = 2;
+  int32 cols = 3;       // 1..8
+  int32 rows = 4;       // 1..8
+  int32 tile_size = 5;  // 64, 128 or 256
+  bool starter_town = 6;
+  string city_name = 7;  // the middle tile's city
+}
+
+// Moves this connection to another founded city of the region. The server answers with that city's FullState and
+// the rest of what a joining client gets, then a RegionState; or, for a city served elsewhere, a RegionState whose
+// tile carries its address, to connect to.
+message GoToCity {
+  int32 col = 1;
+  int32 row = 2;
+}
+
+// Asks for the region state now (it also comes unasked).
+message RegionRequest {}
+
+// The region map: every tile, founded or open, with a small picture of it.
+message RegionState {
+  string name = 1;
+  int32 cols = 2;
+  int32 rows = 3;
+  int32 tile_size = 4;
+  int64 tick = 5;
+  repeated RegionTileState tiles = 6;  // row by row
+  int32 here_col = 7;  // the tile this connection is in
+  int32 here_row = 8;
+  int32 speed = 9;     // the region's speed, the slowest any mayor here asked for
+  string speed_set_by = 10;  // who holds it there, when it's slower than the host's choice
+  repeated NeighbourEdge borders = 11;  // what the neighbours of this connection's city show across its sides
+  repeated Deal deals = 12;  // this city's deals with its neighbours, offered or running
+  string waiting = 13;       // the region is held waiting for a tile's host ("Waiting for Eastfield's host")
+  string stopped = 14;       // the region stopped: a tile's host and its check copy disagreed (a desync), or the border ledgers didn't balance
+  int32 ledger_months = 15;  // months in a row this host has checked every border ledger in the region and found it balanced
+  int32 cross_border = 16;   // people and tons of goods crossing borders in the region each day this month, from the ledgers
+}
+
+// Go to another host for that city (federated regions): address is its /ws URL.
+message Redirect {
+  string address = 1;
+  int32 col = 2;
+  int32 row = 3;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Federated hosting (Beta 3 part 8): a tile host runs one city of a region whose clock another host (the region's
+// host) keeps. They talk over /tile-link. Each day the region's host sends DayStart with what the region says to the
+// city; the tile host steps it and answers DayEnd with everything the city applied that day, which the region's
+// host replays on its check copy. Monthly hashes must agree.
+// ---------------------------------------------------------------------------------------------------------------
+
+// Tile host to region host.
+message LinkMessage {
+  uint32 seq = 1;
+  oneof body {
+    TileHello hello = 2;
+    DayEnd day_end = 3;
+    SignIn sign_in = 4;        // a player signing in on the tile host: the region's accounts answer
+    LinkForward forward = 5;   // a player's region-wide message (deals, founding, the clock, moving)
+  }
+}
+
+// Region host to tile host.
+message LeaderMessage {
+  uint32 reply_to = 1;
+  oneof body {
+    TileWelcome welcome = 2;
+    DayStart day_start = 3;
+    SignedIn signed_in = 4;    // answers sign_in
+    Error error = 5;           // answers sign_in when it fails
+    LinkReply reply = 6;       // what the region host says to a forwarded player's connection
+    RegionState region = 7;    // the region map, from this tile
+  }
+}
+
+message TileHello {
+  int32 col = 1;
+  int32 row = 2;
+  string key = 3;       // the region host's link key
+  string address = 4;   // where players reach this tile host's /ws
+}
+
+message TileWelcome {
+  string error = 1;     // set when the region host won't take this tile host
+  string name = 2;
+  uint64 seed = 3;
+  int32 cols = 4;
+  int32 rows = 5;
+  int32 tile_size = 6;
+  int64 tick = 7;
+  bytes save = 8;       // the city as the region host has it: a SaveGame
+  string leader_address = 9;  // where players reach the region host's /ws, if it knows
+}
+
+message DayStart {
+  int64 tick = 1;
+  repeated ActionRecord actions = 2;  // what the region tells the city today
+  repeated Notice notices = 3;        // news for the city from its neighbours' mayors
+  int32 speed = 4;
+}
+
+message DayEnd {
+  int64 tick = 1;
+  repeated ActionRecord log = 2;  // every action the city applied that day, in order
+  uint64 hash = 3;                // the city's state hash after the day, on the first of the month
+  bool monthly = 4;
+  repeated string online = 5;     // players on the tile host now
+}
+
+message LinkForward {
+  int32 conn = 1;       // the tile host's number for the connection
+  string player = 2;
+  bool admin = 3;
+  ClientMessage message = 4;
+}
+
+message LinkReply {
+  int32 conn = 1;
+  ServerMessage message = 2;
+}
+
+enum DealKind {
+  DEAL_POWER = 0;    // kW over power lines that meet
+  DEAL_WATER = 1;    // water over pipes that meet
+  DEAL_GARBAGE = 2;  // garbage the seller takes in, over roads that meet
+  DEAL_TRANSIT = 3;  // a shuttle the seller runs, vehicles an hour, over roads that meet
+}
+
+// A deal between two neighbouring cities, on the region's books.
+message Deal {
+  int32 id = 1;
+  DealKind kind = 2;
+  int32 seller_col = 3;
+  int32 seller_row = 4;
+  int32 buyer_col = 5;
+  int32 buyer_row = 6;
+  string seller = 7;   // the cities' names
+  string buyer = 8;
+  int32 amount = 9;
+  int32 price = 10;    // a month, paid by the buyer to the seller
+  bool active = 11;    // false while it waits for an answer
+  bool offered_by_seller = 12;
+  int32 round = 13;    // how many times it's been countered
+}
+
+// A mayor offers a deal to the neighbour across a side of their city, answers one offered to them, or withdraws or
+// ends one. The answer is a RegionState, or an Error.
+message DealRequest {
+  enum Op {
+    OFFER = 0;
+    ACCEPT = 1;
+    DECLINE = 2;
+    END = 3;
+    COUNTER = 4;      // answer an offer with other terms (amount, price)
+  }
+  Op op = 1;
+  int32 id = 2;       // accept, decline, end, counter
+  int32 side = 3;     // offer: the side the neighbour is on
+  DealKind kind = 4;
+  int32 amount = 5;
+  int32 price = 6;
+  bool selling = 7;   // offer: true to sell to the neighbour, false to buy from it
+}
+
+message RegionTileState {
+  int32 col = 1;
+  int32 row = 2;
+  bool founded = 3;
+  string name = 4;
+  string mayor = 5;
+  int32 population = 6;
+  bytes picture = 7;   // RegionPictureSize^2 RGB triples, row-major, north up
+  repeated string players = 8;  // players in this city now
+  int64 funds = 9;
+  string address = 10;  // where this tile's city is served, when not by the server this came from (federated)
+  string computer = 11; // a computer mayor's temperament ("growth-hungry", "green", "careful"); empty for a player
+  string weather = 12;  // today's weather over it, as in CityStats.weather
+}
+
 message SetSpeed {
   int32 speed = 1;  // 0 = paused, 1..3
 }
@@ -517,7 +728,12 @@ message ServerMessage {
     SignedIn signed_in = 20;
     Presence presence = 21;  // who is here; sent when someone joins or leaves
     DelinkCopy delink_copy = 22;  // to a player who just de-linked: their copy of the city, as a save
+    RegionState region = 23;  // the region this city is in: sent on joining, monthly, and when a tile changes hands
+    Redirect redirect = 24;   // the city asked for is served by another host: connect there
   }
+  // On presence, alerts, civic and agents: when the server built this snapshot, rising over the connection. Several
+  // players acting at once can have their snapshots overtake each other on the way out; a client keeps the latest.
+  uint64 order = 25;
 }
 
 // The copy a de-linked player takes with them. The server also keeps it in its saves under this name.
@@ -673,6 +889,7 @@ message CityStats {
   repeated Disaster disasters = 24;
   DisasterSetting disaster_setting = 25;
   int32 transit_boardings = 26;  // a day, from last month's commutes
+  string weather = 27;           // today's weather over the city with its icon ("🌧 Heavy rain"); empty when clear
 }
 
 message BudgetLine {
@@ -693,6 +910,21 @@ message FullState {
   CityStats stats = 10;
   Catalog catalog = 11;
   uint64 seed = 12;
+  repeated RoadStrip strips = 13;
+}
+
+// An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
+// when curved a quadratic arc bent toward (cx,cy), through the cells' centres.
+message RoadStrip {
+  int32 path = 1;  // profile index + 1, as in FullState.paths
+  bool curved = 2;
+  int32 x0 = 3;
+  int32 y0 = 4;
+  int32 x1 = 5;
+  int32 y1 = 6;
+  int32 cx = 7;
+  int32 cy = 8;
+  repeated int32 cells = 9;  // the cells it runs through, as indexes
 }
 
 message CellUpdate {
@@ -710,6 +942,8 @@ message TickDelta {
   repeated int32 removed_buildings = 3;
   CityStats stats = 4;
   repeated Notice notices = 5;
+  bool strips_changed = 6;           // the city's road strips changed: strips is the whole new list
+  repeated RoadStrip strips = 7;
 }
 
 message Requirement {
@@ -1216,6 +1450,25 @@ message SaveGame {
   repeated ActionRecord log = 8;
 }
 
+// A region save: the region's shape and day, and a SaveGame for each founded city.
+message RegionSave {
+  uint32 format_version = 1;
+  string name = 2;
+  uint64 seed = 3;
+  int32 cols = 4;
+  int32 rows = 5;
+  int32 tile_size = 6;
+  int64 tick = 7;
+  repeated RegionSavedCity cities = 8;
+  repeated Deal offers = 9;  // deals offered and not yet answered; running ones are in the cities
+}
+
+message RegionSavedCity {
+  int32 col = 1;
+  int32 row = 2;
+  bytes save = 3;  // a SaveGame
+}
+
 message ActionRecord {
   int64 tick = 1;
   Action action = 2;
@@ -1225,6 +1478,49 @@ message ActionRecord {
   RenameOwner rename = 6;    // set instead of action: the server gave one player's seats to another
   SideGameMissed missed = 7; // set instead of action: a side game hosted elsewhere missed its deadline
   Fork fork = 8;             // set instead of action: this city is a copy a player took when they de-linked
+  NeighbourEdge neighbour = 9;  // set instead of action: the region said what a neighbouring city shows across a border
+  CityDeal deal = 10;           // set instead of action: the region started or ended a deal with a neighbour
+  RegionWeather weather = 11;   // set instead of action: the region's weather over the city changed
+}
+
+enum WeatherKind {
+  WEATHER_CLEAR = 0;
+  WEATHER_RAIN = 1;
+  WEATHER_SNOW = 2;
+  WEATHER_HEAT = 3;
+  WEATHER_WIND = 4;
+}
+
+message RegionWeather {
+  WeatherKind kind = 1;
+  int32 strength = 2;  // 1 light .. 3 severe
+}
+
+// A deal as one of its two cities keeps it.
+message CityDeal {
+  int32 id = 1;
+  DealKind kind = 2;
+  bool selling = 3;
+  int32 side = 4;    // the side the other city is on
+  string other = 5;
+  int32 amount = 6;
+  int32 price = 7;
+  bool end = 8;
+  string why = 9;
+}
+
+// What a neighbouring city shows across one side of this one (0 north, 1 east, 2 south, 3 west). Cell k runs along
+// the side: x on the north and south, y on the east and west. An empty name means no city there.
+message NeighbourEdge {
+  int32 side = 1;
+  string name = 2;
+  string mayor = 3;
+  repeated int32 paths = 4;  // pairs: cell, path profile index + 1
+  repeated int32 power = 5;  // cells with a power line
+  repeated int32 pipes = 6;  // cells with a water pipe
+  repeated int32 stats = 7;  // the neighbour's published numbers at the start of its month (World.Published)
+  repeated int32 fire = 8;   // cells where the neighbour has a building on fire at the border
+  repeated int32 movers = 9; // disasters walking over the border into this city: kind, cell, dx, dy, days left
 }
 
 message Fork {

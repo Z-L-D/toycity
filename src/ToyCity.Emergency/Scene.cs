@@ -24,6 +24,8 @@ sealed class Scene
         public int TaskX, TaskY, Target;
         public int Unit;
         public bool Armed, Warned, Surrendered, Cuffed, Escaped, Stable;
+        /// <summary>A suspect hiding: not shown to the player until an officer sees them or searches near them.</summary>
+        public bool Hidden;
         public int StunnedUntil, ShotAt = -1000, LastShot = -1000;
         public List<int> Path = new();
         public bool Dead => Health <= 0;
@@ -56,6 +58,13 @@ sealed class Scene
     public readonly List<string> Events = new();
     public int Entry;
     public int BuildingTiles, Harmed, FriendlyFire, Unauthorized;
+    /// <summary>Part 11: a hostage scene, hostages the suspect hurt, breaches made, and each unit's equipment bits.</summary>
+    public bool Hostages;
+    public int HostagesHurt, Breaches;
+    public readonly SortedDictionary<int, int> Gear = new();
+    /// <summary>The last shots fired, for the lines of fire the clients draw.</summary>
+    public readonly List<(int Step, int FromX, int FromY, int ToX, int ToY, bool Hit, bool Taser, bool Police)> Shots = new();
+    public const int BreathingGear = 1, BodyArmour = 2, Defibrillator = 4;
     public readonly List<string> Notes = new();
     ulong _rng;
     /// <summary>People's ids start here, so they never clash with the unit ids vehicles go by.</summary>
@@ -90,10 +99,25 @@ sealed class Scene
             if (s.Fire.All(f => f == 0)) s.Fire[(c + 1) * Size + c + 1] = 50;
             if (s.Severity >= 2) s.Add(W.Role.Casualty, c + 1, c + 1, health: 70 - 15 * s.Severity);
         }
+        else if (kind == "crime" && s.Severity >= 3 && s.InsideAt(c, c) is { } inside && s.Chance(60))
+        {
+            // A hostage situation: an armed suspect holed up in the building at the call, holding people inside.
+            s.Hostages = true;
+            var (ix, iy) = inside;
+            s.Add(W.Role.Suspect, ix, iy).Armed = true;
+            foreach (var (hx, hy) in s.InsideNear(ix, iy).Take(2)) s.Add(W.Role.Hostage, hx, hy);
+        }
         else if (kind == "crime")
         {
             var (sx, sy) = s.Open(c + 1, c + 1);
-            s.Add(W.Role.Suspect, sx, sy).Armed = s.Severity == 3;
+            var suspect = s.Add(W.Role.Suspect, sx, sy);
+            suspect.Armed = s.Severity == 3;
+            // A suspect at a lesser crime may have gone to ground nearby.
+            if (s.Severity == 2 && s.Chance(50))
+            {
+                var (hx, hy) = s.Open(c + 1 + (int)(s.Next() % 9) - 4, c + 1 + (int)(s.Next() % 9) - 4);
+                (suspect.X, suspect.Y, suspect.Hidden) = (hx, hy, true);
+            }
             if (s.Severity >= 2) { var (vx, vy) = s.Open(c + 2, c); s.Add(W.Role.Casualty, vx, vy, health: 80 - 10 * s.Severity); }
         }
         else
@@ -110,6 +134,35 @@ sealed class Scene
         }
         s.Entry = s.EdgeTile(entryX, entryY);
         return s;
+    }
+
+    /// <summary>A building tile at or near a spot, or null when there is none close.</summary>
+    (int, int)? InsideAt(int x, int y)
+    {
+        for (int r = 0; r < TilesPerCell * 2; r++)
+            for (int dy = -r; dy <= r; dy++)
+            for (int dx = -r; dx <= r; dx++)
+                if (Math.Max(Math.Abs(dx), Math.Abs(dy)) == r && TileAt(x + dx, y + dy) == (byte)CellKind.Building) return (x + dx, y + dy);
+        return null;
+    }
+
+    /// <summary>Building tiles joined to this one, nearest first, not counting it.</summary>
+    IEnumerable<(int X, int Y)> InsideNear(int x, int y) => Building(x, y).Where(t => t != (x, y)).OrderBy(t => Dist(t.X, t.Y, x, y)).ThenBy(t => t.Y).ThenBy(t => t.X);
+
+    /// <summary>The building a tile is part of: its tiles joined edge to edge.</summary>
+    List<(int X, int Y)> Building(int x, int y)
+    {
+        var list = new List<(int, int)>();
+        if (TileAt(x, y) != (byte)CellKind.Building) return list;
+        var seen = new HashSet<(int, int)> { (x, y) };
+        list.Add((x, y));
+        for (int q = 0; q < list.Count && list.Count < 256; q++)
+        {
+            var (cx, cy) = list[q];
+            foreach (var n in new[] { (cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1) })
+                if (TileAt(n.Item1, n.Item2) == (byte)CellKind.Building && seen.Add(n)) list.Add(n);
+        }
+        return list;
     }
 
     Person Add(W.Role role, int x, int y, int health = 100)
@@ -178,7 +231,8 @@ sealed class Scene
     public bool Done =>
         Step > 0 && Arriving.Count == 0 && Vehicles.Count > 0 && Fire.All(f => f == 0)
         && People.Where(p => p.Role == W.Role.Casualty).All(p => p.Stable || p.Dead)
-        && People.Where(p => p.Role == W.Role.Suspect).All(p => p.Cuffed || p.Escaped || p.Dead);
+        && People.Where(p => p.Role == W.Role.Suspect).All(p => p.Cuffed || p.Escaped || p.Dead)
+        && People.Where(p => p.Role == W.Role.Hostage).All(p => p.Stable || p.Dead);
 
     public void Run(int steps, Settings settings, Func<int, string> unitName)
     {
@@ -209,6 +263,8 @@ sealed class Scene
             if (p.Task == W.TaskKind.None && settings.CrewsUseHeads) Think(p);
             Work(p, unitName);
         }
+        Spot();
+        HoldHostages(unitName);
         Suspects();
         Bystanders();
         if (Step % 4 == 0) BurnAndSpread();
@@ -294,16 +350,22 @@ sealed class Scene
         {
             W.TaskKind.Hose => p.Role == W.Role.Firefighter,
             W.TaskKind.Treat => p.Role == W.Role.Paramedic,
-            W.TaskKind.Arrest or W.TaskKind.Warn or W.TaskKind.Shoot or W.TaskKind.Taser => p.Role == W.Role.Officer,
+            W.TaskKind.Arrest or W.TaskKind.Warn or W.TaskKind.Shoot or W.TaskKind.Taser or W.TaskKind.Cordon or W.TaskKind.Search => p.Role == W.Role.Officer,
+            W.TaskKind.Breach => p.Role == W.Role.Officer && VehicleKind(p.Unit) == W.UnitKind.Swat,
             _ => true,
         };
-        if (!fits) { Event($"A {p.Role.ToString().ToLowerInvariant()} can't do that."); return; }
+        if (!fits) { Event(task == W.TaskKind.Breach && p.Role == W.Role.Officer ? "Only a SWAT team breaches." : $"A {p.Role.ToString().ToLowerInvariant()} can't do that."); return; }
         p.Task = task;
         p.TaskX = Math.Clamp(x, 0, Size - 1);
         p.TaskY = Math.Clamp(y, 0, Size - 1);
         p.Target = target;
         p.Path.Clear();
     }
+
+    W.UnitKind? VehicleKind(int unit) =>
+        Vehicles.FirstOrDefault(v => v.Unit == unit)?.Kind ?? (Arriving.Any(a => a.Unit == unit) ? Arriving.First(a => a.Unit == unit).Kind : null);
+
+    bool Has(int unit, int bit) => Gear.TryGetValue(unit, out var g) && (g & bit) != 0;
 
     /// <summary>Crews left to themselves do the obvious job nearest them.</summary>
     void Think(Person p)
@@ -323,7 +385,9 @@ sealed class Scene
                 { p.Task = W.TaskKind.Treat; p.Target = hurt.Id; }
                 break;
             case W.Role.Officer:
-                if (People.Where(c => c.Role == W.Role.Suspect && !c.Down(Step)).OrderBy(c => Dist(p.X, p.Y, c.X, c.Y)).ThenBy(c => c.Id).FirstOrDefault() is { } s)
+                // Nobody rushes a hostage-taker by themselves: that waits for the player's order.
+                if (People.Where(c => c.Role == W.Role.Suspect && !c.Down(Step) && !c.Hidden && !(Hostages && c.Armed && !c.Surrendered))
+                        .OrderBy(c => Dist(p.X, p.Y, c.X, c.Y)).ThenBy(c => c.Id).FirstOrDefault() is { } s)
                 { p.Task = s.Armed && !s.Warned ? W.TaskKind.Warn : W.TaskKind.Arrest; p.Target = s.Id; }
                 break;
         }
@@ -346,13 +410,18 @@ sealed class Scene
                 p.Path.Clear();
                 for (int dy = -1; dy <= 1; dy++)
                 for (int dx = -1; dx <= 1; dx++)
-                    if (In(p.TaskX + dx, p.TaskY + dy)) { int i = (p.TaskY + dy) * Size + p.TaskX + dx; Fire[i] = (byte)Math.Max(0, Fire[i] - (dx == 0 && dy == 0 ? 5 : 3)); }
+                    if (In(p.TaskX + dx, p.TaskY + dy))
+                    {
+                        // Breathing gear lets a crew work closer in, and harder.
+                        int i = (p.TaskY + dy) * Size + p.TaskX + dx, k = Has(p.Unit, BreathingGear) ? 2 : 0;
+                        Fire[i] = (byte)Math.Max(0, Fire[i] - (dx == 0 && dy == 0 ? 5 + k : 3 + k / 2));
+                    }
                 break;
             case W.TaskKind.Treat:
                 if (target == null || target.Dead || target.Stable) { p.Task = W.TaskKind.None; break; }
                 if (Dist(p.X, p.Y, target.X, target.Y) > 1) { Approach(p, target.X, target.Y); break; }
                 p.Path.Clear();
-                target.Health = Math.Min(100, target.Health + 2);
+                target.Health = Math.Min(100, target.Health + (Has(p.Unit, Defibrillator) ? 4 : 2));
                 if (target.Health >= 70) { target.Stable = true; p.Task = W.TaskKind.None; Event($"{unitName(p.Unit)}'s paramedic has a casualty stable."); }
                 break;
             case W.TaskKind.Warn:
@@ -373,6 +442,21 @@ sealed class Scene
                     p.Task = W.TaskKind.None;
                     Event($"{unitName(p.Unit)} made an arrest.");
                 }
+                break;
+            case W.TaskKind.Breach:
+                Breach(p, unitName);
+                break;
+            case W.TaskKind.Cordon:
+                // Hold the spot: the cordon works by standing there.
+                if (p.X != p.TaskX || p.Y != p.TaskY) Approach(p, p.TaskX, p.TaskY);
+                break;
+            case W.TaskKind.Search:
+                if (Dist(p.X, p.Y, p.TaskX, p.TaskY) > 1) { Approach(p, p.TaskX, p.TaskY); break; }
+                p.Path.Clear();
+                int found = 0;
+                foreach (var h in People.Where(h => h.Hidden && Dist(h.X, h.Y, p.X, p.Y) <= 8)) { h.Hidden = false; found++; }
+                Event(found > 0 ? $"{unitName(p.Unit)} found someone hiding." : $"{unitName(p.Unit)} searched and found nobody.");
+                p.Task = W.TaskKind.None;
                 break;
             case W.TaskKind.Shoot or W.TaskKind.Taser:
                 if (Step - p.LastShot < 6) break;
@@ -423,20 +507,29 @@ sealed class Scene
     {
         int range = taser ? 5 : 14;
         Person? hit = null;
+        int ex = shooter.X, ey = shooter.Y;
+        // Inside a building, a shot carries only within it; outside, walls stop it.
+        bool inside = TileAt(shooter.X, shooter.Y) == (byte)CellKind.Building;
         foreach (var (x, y) in Line(shooter.X, shooter.Y, tx, ty, range))
         {
-            if (TileAt(x, y) == (byte)CellKind.Building) break;
-            hit = People.Where(p => p != shooter && p.X == x && p.Y == y && !p.Dead && !p.Escaped).OrderBy(p => p.Id).FirstOrDefault();
+            if ((TileAt(x, y) == (byte)CellKind.Building) != inside) break;
+            (ex, ey) = (x, y);
+            hit = People.Where(p => p != shooter && p.X == x && p.Y == y && !p.Dead && !p.Escaped && !p.Hidden).OrderBy(p => p.Id).FirstOrDefault();
             if (hit != null) break;
         }
-        string who = shooter.Role == W.Role.Officer ? $"An officer from {unitName(shooter.Unit)}" : "The suspect";
+        bool police = shooter.Role == W.Role.Officer;
+        Shots.Add((Step, shooter.X, shooter.Y, ex, ey, hit != null, taser, police));
+        if (Shots.Count > 8) Shots.RemoveAt(0);
+        string who = police ? $"An officer from {unitName(shooter.Unit)}" : "The suspect";
         if (hit == null) { Event($"{who} fired and missed."); return; }
         if (taser) hit.StunnedUntil = Step + 40;
-        else hit.Health -= 60;
+        else hit.Health -= IsCrew(hit) && (Has(hit.Unit, BodyArmour) || VehicleKind(hit.Unit) == W.UnitKind.Swat) ? 25 : 60;
+        if (hit.Role == W.Role.Hostage && !police) { HostagesHurt++; Notes.Add("The suspect shot a hostage."); }
         string what = hit.Role switch
         {
             W.Role.Suspect => "the suspect",
             W.Role.Bystander => "a bystander",
+            W.Role.Hostage => "a hostage",
             W.Role.Casualty => "a casualty",
             _ => $"one of {unitName(hit.Unit)}'s own crew",
         };
@@ -498,7 +591,7 @@ sealed class Scene
 
     void Suspects()
     {
-        foreach (var s in People.Where(p => p.Role == W.Role.Suspect && !p.Down(Step) && !p.Surrendered))
+        foreach (var s in People.Where(p => p.Role == W.Role.Suspect && !p.Down(Step) && !p.Surrendered && !p.Hidden))
         {
             var cop = People.Where(p => p.Role == W.Role.Officer && !p.Down(Step)).OrderBy(p => Dist(p.X, p.Y, s.X, s.Y)).ThenBy(p => p.Id).FirstOrDefault();
             if (cop == null) continue;
@@ -509,13 +602,98 @@ sealed class Scene
                 Shoot(s, cop.X, cop.Y, taser: false, _ => "");
                 continue;
             }
-            if (d > 10 || Step % 3 != 0) continue;
+            // A hostage-taker stays put with the hostages.
+            if (Hostages || d > 10 || Step % 3 != 0) continue;
             // Run: the open neighbouring tile furthest from the officer.
             var (bx, by) = (s.X, s.Y);
             foreach (var (nx, ny) in new[] { (s.X + 1, s.Y), (s.X - 1, s.Y), (s.X, s.Y + 1), (s.X, s.Y - 1) })
                 if (Walkable(nx, ny, false) && Dist(nx, ny, cop.X, cop.Y) > Dist(bx, by, cop.X, cop.Y)) (bx, by) = (nx, ny);
             s.X = bx; s.Y = by;
-            if (s.X == 0 || s.Y == 0 || s.X == Size - 1 || s.Y == Size - 1) { s.Escaped = true; Event("The suspect got away."); }
+            if (People.Any(o => o.Task == W.TaskKind.Cordon && o.Role == W.Role.Officer && !o.Down(Step) && Dist(o.X, o.Y, s.X, s.Y) <= 2))
+            {
+                s.Cuffed = true;
+                Event("The suspect ran into the cordon and was caught.");
+            }
+            else if (s.X == 0 || s.Y == 0 || s.X == Size - 1 || s.Y == Size - 1) { s.Escaped = true; Event("The suspect got away."); }
+        }
+    }
+
+    /// <summary>An officer who comes within three tiles of someone hiding, with nothing in the way, sees them.</summary>
+    void Spot()
+    {
+        foreach (var h in People.Where(h => h.Hidden))
+            if (People.Any(o => o.Role == W.Role.Officer && !o.Down(Step) && Dist(o.X, o.Y, h.X, h.Y) <= 3 && Clear(o.X, o.Y, h.X, h.Y)))
+            {
+                h.Hidden = false;
+                Event("An officer spotted the suspect hiding.");
+            }
+    }
+
+    /// <summary>
+    /// A hostage-taker with police close around and nobody going in grows desperate: now and then they hurt a hostage.
+    /// Hostages go free once the suspect is down.
+    /// </summary>
+    void HoldHostages(Func<int, string> unitName)
+    {
+        if (!Hostages) return;
+        var taker = People.FirstOrDefault(p => p.Role == W.Role.Suspect && p.Armed);
+        bool held = taker != null && !taker.Down(Step) && !taker.Surrendered;
+        foreach (var h in People.Where(h => h.Role == W.Role.Hostage && !h.Dead && !h.Stable))
+        {
+            if (!held) { h.Stable = true; Event("A hostage is free."); continue; }
+            if (Step % 20 != 0) continue;
+            int near = People.Count(o => o.Role == W.Role.Officer && !o.Down(Step) && Dist(o.X, o.Y, taker!.X, taker.Y) <= 6 && o.Task != W.TaskKind.Breach);
+            if (near > 0 && Chance(6 + 2 * near))
+            {
+                h.Health -= 60;
+                HostagesHurt++;
+                Event(h.Dead ? "A hostage has been killed." : "The suspect hurt a hostage.");
+                Notes.Add("The suspect hurt a hostage while officers closed in without going in.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// A SWAT officer goes in: up to the building, then into it. Two or more going in together at the same step
+    /// stun everyone inside for a moment; one alone gives the suspect a chance to fire first.
+    /// </summary>
+    void Breach(Person p, Func<int, string> unitName)
+    {
+        if (TileAt(p.TaskX, p.TaskY) != (byte)CellKind.Building) { p.Task = W.TaskKind.None; return; }
+        var building = Building(p.TaskX, p.TaskY).Select(c => (X: c.Item1, Y: c.Item2)).ToHashSet();
+        // A block of buildings can run on a long way: the walls that count are the ones near the target.
+        var walls = building.Where(c => Dist(c.X, c.Y, p.TaskX, p.TaskY) <= 3).ToList();
+        // The team stacks up beside the building's walls: anywhere next to it will do for a door.
+        bool AtWall(Person o) => walls.Any(c => Dist(o.X, o.Y, c.X, c.Y) <= 1);
+        if (!AtWall(p))
+        {
+            if (p.Path.Count > 0 && walls.Any(c => Dist(p.Path[^1] % Size, p.Path[^1] / Size, c.X, c.Y) <= 1)) return;
+            var door = walls.SelectMany(c => Enumerable.Range(0, 9).Select(k => (X: c.X + k % 3 - 1, Y: c.Y + k / 3 - 1)))
+                .Where(t => In(t.X, t.Y) && Walkable(t.X, t.Y, crew: true))
+                .Distinct().OrderBy(t => Dist(p.X, p.Y, t.X, t.Y)).ThenBy(t => t.Y).ThenBy(t => t.X).FirstOrDefault((X: -1, Y: -1));
+            if (door.X < 0) { p.Task = W.TaskKind.None; return; }
+            p.Path = FindPath(p.X, p.Y, door.X, door.Y, (tx, ty) => Walkable(tx, ty, crew: true));
+            return;
+        }
+        p.Path.Clear();
+        var team = People.Where(o => o.Task == W.TaskKind.Breach && !o.Down(Step) && o.TaskX == p.TaskX && o.TaskY == p.TaskY && AtWall(o)).ToList();
+        // The team goes in on its first member's step; the rest wait for them.
+        if (team.Count == 0 || team.Min(o => o.Id) != p.Id) return;
+        Breaches++;
+        foreach (var o in team) { o.X = p.TaskX; o.Y = p.TaskY; o.Task = W.TaskKind.None; o.Path.Clear(); }
+        var inside = People.Where(o => o.Role == W.Role.Suspect && !o.Down(Step) && building.Contains((X: o.X, Y: o.Y))).ToList();
+        if (team.Count >= 2)
+        {
+            foreach (var s in inside) { s.StunnedUntil = Step + 30; s.Hidden = false; }
+            Event($"{unitName(p.Unit)} breached: flashbangs, and everyone inside is stunned.");
+            Notes.Add($"{unitName(p.Unit)} breached with {team.Count} officers.");
+            foreach (var o in team) if (inside.FirstOrDefault() is { } s) { o.Task = W.TaskKind.Arrest; o.Target = s.Id; }
+        }
+        else
+        {
+            Event($"{unitName(p.Unit)} went in alone.");
+            Notes.Add($"{unitName(p.Unit)} went in alone.");
+            foreach (var s in inside.Where(s => s.Armed && Chance(50))) { s.LastShot = Step; Shoot(s, p.X, p.Y, taser: false, _ => ""); }
         }
     }
 
@@ -529,6 +707,15 @@ sealed class Scene
             for (int dx = -2; dx <= 2 && !fireNear; dx++)
                 fireNear = In(b.X + dx, b.Y + dy) && Fire[(b.Y + dy) * Size + b.X + dx] > 0;
             int dir = (int)(Next() % 8);
+            // A cordon moves onlookers back from it.
+            var cordon = People.Where(o => o.Task == W.TaskKind.Cordon && !o.Down(Step) && Dist(o.X, o.Y, b.X, b.Y) <= 6).OrderBy(o => o.Id).FirstOrDefault();
+            if (cordon != null)
+            {
+                int ax = Math.Sign(b.X - cordon.X), ay = Math.Sign(b.Y - cordon.Y);
+                if (ax == 0 && ay == 0) ax = 1;
+                if (Walkable(b.X + ax, b.Y, false) && ax != 0) { b.X += ax; continue; }
+                if (Walkable(b.X, b.Y + ay, false) && ay != 0) { b.Y += ay; continue; }
+            }
             if (!fireNear && dir >= 4) continue;
             var (nx, ny) = (dir % 4) switch { 0 => (b.X + 1, b.Y), 1 => (b.X - 1, b.Y), 2 => (b.X, b.Y + 1), _ => (b.X, b.Y - 1) };
             if (Walkable(nx, ny, false)) { b.X = nx; b.Y = ny; }
@@ -557,9 +744,9 @@ sealed class Scene
         foreach (var p in People)
         {
             if (p.Dead || p.Escaped) continue;
-            if (Fire[p.Y * Size + p.X] > 30 && (IsCrew(p) ? Step % 2 == 0 : true)) p.Health--;
+            if (Fire[p.Y * Size + p.X] > 30 && (IsCrew(p) ? Step % 2 == 0 && !Has(p.Unit, BreathingGear) : true)) p.Health--;
             if (p.Role == W.Role.Casualty && !p.Stable && Step % (12 - 3 * Severity) == 0) p.Health--;
-            if (p.Dead && p.Role is W.Role.Casualty or W.Role.Bystander) Event("Someone at the scene has died.");
+            if (p.Dead && p.Role is W.Role.Casualty or W.Role.Bystander or W.Role.Hostage) Event("Someone at the scene has died.");
         }
     }
 
@@ -572,7 +759,8 @@ sealed class Scene
     {
         bool engines = Vehicles.Any(v => v.Kind == W.UnitKind.Engine) || Arriving.Any(a => a.Kind == W.UnitKind.Engine);
         bool medics = Vehicles.Any(v => v.Kind == W.UnitKind.Ambulance) || Arriving.Any(a => a.Kind == W.UnitKind.Ambulance);
-        bool police = Vehicles.Any(v => v.Kind == W.UnitKind.Patrol) || Arriving.Any(a => a.Kind == W.UnitKind.Patrol);
+        bool police = Vehicles.Any(v => v.Kind is W.UnitKind.Patrol or W.UnitKind.Swat) || Arriving.Any(a => a.Kind is W.UnitKind.Patrol or W.UnitKind.Swat);
+        bool swat = Vehicles.Any(v => v.Kind == W.UnitKind.Swat) || Arriving.Any(a => a.Kind == W.UnitKind.Swat);
         for (int i = 0; i < Fire.Length; i++)
             if (Fire[i] > 0)
             {
@@ -582,20 +770,28 @@ sealed class Scene
         foreach (var p in People.Where(p => p.Role == W.Role.Casualty && !p.Stable && !p.Dead))
             if (medics && Chance(85)) p.Stable = true; else p.Health = 0;
         foreach (var p in People.Where(p => p.Role == W.Role.Suspect && !p.Cuffed && !p.Escaped && !p.Dead))
-            if (police && Chance(55)) p.Cuffed = true; else p.Escaped = true;
+            if (police && Chance(Hostages ? (swat ? 75 : 35) : 55)) p.Cuffed = true; else p.Escaped = true;
+        // The crews' own way with a hostage-taker: SWAT usually gets everyone out; without them it goes worse.
+        foreach (var h in People.Where(h => h.Role == W.Role.Hostage && !h.Stable && !h.Dead))
+            if (Chance(swat ? 85 : 55)) h.Stable = true; else { h.Health = 0; HostagesHurt++; }
         Arriving.Clear();
     }
 
     public int Burned => Tiles.Count(t => t == Burnt);
     public int PropertyLostPercent => BuildingTiles == 0 ? 0 : Math.Min(100, Burned * 100 / BuildingTiles);
-    public int Saved => People.Count(p => p.Role == W.Role.Casualty && p.Stable && !p.Dead);
-    public int Lost => People.Count(p => p.Role is W.Role.Casualty or W.Role.Bystander && p.Dead);
+    public int Saved => People.Count(p => p.Role is W.Role.Casualty or W.Role.Hostage && p.Stable && !p.Dead);
+    public int Lost => People.Count(p => p.Role is W.Role.Casualty or W.Role.Bystander or W.Role.Hostage && p.Dead);
+    public int HostagesFreed => People.Count(p => p.Role == W.Role.Hostage && p.Stable && !p.Dead);
+    public int HostagesLost => People.Count(p => p.Role == W.Role.Hostage && p.Dead);
+    /// <summary>How well force kept to the rules, 0..100: unauthorised force and friendly fire count most, then harm to anyone else.</summary>
+    public int RulesOfEngagement => Math.Clamp(100 - 25 * Unauthorized - 30 * FriendlyFire - 20 * Harmed, 0, 100);
 
     /// <summary>How the call ended, in the city's terms (contract v1.1).</summary>
     public string Outcome => Kind switch
     {
         "fire" => PropertyLostPercent > 40 || Burned > 2 * TilesPerCell * TilesPerCell ? "spread" : "out",
-        "crime" => People.Where(p => p.Role == W.Role.Suspect).All(p => p.Cuffed || p.Dead) ? "arrest" : "escaped",
+        "crime" => People.Where(p => p.Role == W.Role.Suspect).All(p => p.Cuffed || p.Dead) && HostagesLost == 0 ? "arrest"
+            : People.Where(p => p.Role == W.Role.Suspect).All(p => p.Cuffed || p.Dead) ? "died" : "escaped",
         _ => Lost > 0 ? "died" : "treated",
     };
 
@@ -610,7 +806,8 @@ sealed class Scene
         {
             SceneId = Id, Kind = Kind, Where = Where, ResponseMinutes = Minutes, Saved = Saved, Lost = Lost, HarmedByCrews = Harmed,
             FriendlyFire = FriendlyFire, UnauthorizedForce = Unauthorized, PropertyLostPercent = PropertyLostPercent,
-            Score = Math.Clamp(score, -100, 100), Outcome = Outcome,
+            Score = Math.Clamp(score, -100, 100), Outcome = Outcome, RulesOfEngagement = RulesOfEngagement,
+            HostagesFreed = HostagesFreed, HostagesLost = HostagesLost,
         };
         c.Notes.AddRange(Notes.Take(12));
         return c;
@@ -630,11 +827,13 @@ sealed class Scene
         };
         foreach (var p in People)
         {
+            if (p.Hidden) continue;
             var pv = new W.PersonView
             {
                 Id = p.Id, Role = p.Role, X = p.X * 16 + 8, Y = p.Y * 16 + 8, Health = Math.Max(0, p.Health), Task = p.Task, UnitId = p.Unit, Armed = p.Armed,
                 Down = p.Down(Step),
-                State = p.Dead ? "dead" : p.Escaped ? "escaped" : p.Cuffed ? "cuffed" : p.StunnedUntil > Step ? "stunned" : p.Stable ? "stable" : p.Surrendered ? "surrendered" : "ok",
+                State = p.Dead ? "dead" : p.Escaped ? "escaped" : p.Cuffed ? "cuffed" : p.StunnedUntil > Step ? "stunned"
+                    : p.Stable ? (p.Role == W.Role.Hostage ? "freed" : "stable") : p.Surrendered ? "surrendered" : "ok",
             };
             pv.Path.AddRange(p.Path.Take(60));
             v.People.Add(pv);
@@ -647,6 +846,8 @@ sealed class Scene
         }
         foreach (var a in Arriving) v.Arriving.Add(new W.Arrival { UnitId = a.Unit, AtStep = a.AtStep });
         v.Events.AddRange(Events);
+        foreach (var sh in Shots.Where(sh => Step - sh.Step <= 12))
+            v.Shots.Add(new W.ShotView { FromX = sh.FromX * 16 + 8, FromY = sh.FromY * 16 + 8, ToX = sh.ToX * 16 + 8, ToY = sh.ToY * 16 + 8, Step = sh.Step, Hit = sh.Hit, Taser = sh.Taser, Police = sh.Police });
         return v;
     }
 
@@ -674,6 +875,25 @@ sealed class Scene
         foreach (var a in Arriving) { w.Write(a.Unit); w.Write((int)a.Kind); w.Write(a.Crew); w.Write(a.AtStep); }
         w.Write(Events.Count); foreach (var e in Events) w.Write(e);
         w.Write(Notes.Count); foreach (var n in Notes) w.Write(n);
+    }
+
+    /// <summary>What part 11 added, saved after the rest of the service so older saves still load.</summary>
+    public void SaveMore(BinaryWriter w)
+    {
+        w.Write(Hostages); w.Write(HostagesHurt); w.Write(Breaches);
+        w.Write(Gear.Count); foreach (var (u, g) in Gear) { w.Write(u); w.Write(g); }
+        foreach (var p in People) w.Write(p.Hidden);
+        w.Write(Shots.Count);
+        foreach (var sh in Shots) { w.Write(sh.Step); w.Write(sh.FromX); w.Write(sh.FromY); w.Write(sh.ToX); w.Write(sh.ToY); w.Write(sh.Hit); w.Write(sh.Taser); w.Write(sh.Police); }
+    }
+
+    public void LoadMore(BinaryReader r)
+    {
+        Hostages = r.ReadBoolean(); HostagesHurt = r.ReadInt32(); Breaches = r.ReadInt32();
+        int ng = r.ReadInt32(); for (int i = 0; i < ng; i++) Gear[r.ReadInt32()] = r.ReadInt32();
+        foreach (var p in People) p.Hidden = r.ReadBoolean();
+        int ns = r.ReadInt32();
+        for (int i = 0; i < ns; i++) Shots.Add((r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadBoolean(), r.ReadBoolean(), r.ReadBoolean()));
     }
 
     public static Scene Load(BinaryReader r)

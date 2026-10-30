@@ -31,9 +31,11 @@ public static class Palette
     /// <summary>A cell's ground as drawn: road, a zone's tint over the ground, or bare ground.</summary>
     public static Color Cell(CityMirror c, int i)
     {
-        if (c.Paths[i] != 0) return Road;
+        bool strip = RoadShape.UnderStrip(c, i);
+        if (c.Paths[i] != 0 && !strip) return Road;
         var g = Ground(c.Heights[i], c.WaterLevel);
-        int z = c.Zones[i];
+        // Under an arc or diagonal: open ground, with the zone beside it filling the triangles (the road is drawn over it).
+        int z = strip ? RoadShape.FillZone(c, i) : c.Zones[i];
         return z != 0 && c.BuildingAt[i] == 0 ? g.Lerp(Zone[z / 3 % 4], 0.28f + z % 3 * 0.1f) : g;
     }
 

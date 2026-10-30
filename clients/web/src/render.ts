@@ -1,4 +1,4 @@
-import { City, lCells, SIDE_DX, SIDE_DY } from './state';
+import { City, lCells, SIDE_DX, SIDE_DY, stripPoints } from './state';
 import type { Building, BuildingType } from './state';
 
 export interface Preview {
@@ -30,6 +30,9 @@ const CIVIC_LABEL: Record<string, string> = {
   power: '⚡', water: '💧', garbage: '🗑', police: 'P', fire: 'F', health: '+', education: 'E', park: '',
 };
 const TRANSIT_LABEL: Record<string, string> = { bus: '🚌', tram: '🚋', rail: '🚆' };
+
+/** Pixels to a cell in the ground layer. */
+const TERRAIN_DETAIL = 4;
 
 function terrainColor(h: number, water: number): [number, number, number] {
   if (h < water) {
@@ -145,6 +148,8 @@ export class Renderer {
    * walking reach of its stops when asked for.
    */
   company: CompanyMap | null = null;
+  /** What the neighbouring cities show across each side: roads, power lines and pipes, with their names. */
+  borders: { side: number; name: string; paths: number[]; power: number[]; pipes: number[] }[] = [];
   private terrain: HTMLCanvasElement = document.createElement('canvas');
   private terrainVersion = -1;
   private blink = false;
@@ -197,28 +202,62 @@ export class Renderer {
     return { x: Math.floor((sx - this.offX) / this.scale), y: Math.floor((sy - this.offY) / this.scale) };
   }
 
+  /**
+   * The ground layer, four pixels to a cell: heights blend between cell centres so hills shade smoothly, and the
+   * shore is drawn where the blend of wet and dry cells crosses half, so coasts and lakes curve instead of stepping
+   * (part 9). At a cell's centre the picture still agrees with the sim: water where the cell is water.
+   */
   private rebuildTerrain() {
     const c = this.city;
-    this.terrain.width = c.width;
-    this.terrain.height = c.height;
-    const tctx = this.terrain.getContext('2d')!;
-    const img = tctx.createImageData(c.width, c.height);
-    for (let i = 0; i < c.width * c.height; i++) {
-      let [r, g, b] = terrainColor(c.heights[i], c.waterLevel);
-      // Hillshade: brighter on slopes facing north-west.
-      const x = i % c.width;
-      const y = (i / c.width) | 0;
-      if (c.heights[i] >= c.waterLevel && x > 0 && y > 0) {
-        const d = c.heights[i] - (c.heights[i - 1] + c.heights[i - c.width]) / 2;
-        r += d * 8; g += d * 8; b += d * 6;
-      }
-      img.data[4 * i] = r;
-      img.data[4 * i + 1] = g;
-      img.data[4 * i + 2] = b;
-      img.data[4 * i + 3] = 255;
-    }
-    tctx.putImageData(img, 0, 0);
+    const K = TERRAIN_DETAIL;
+    const dirty = c.terrainDirty;
+    c.terrainDirty = [];
     this.terrainVersion = c.terrainVersion;
+    if (dirty && this.terrain.width === c.width * K && this.terrain.height === c.height * K && dirty.length < 400) {
+      // A few cells changed (a road graded, a pad levelled): redraw just around them.
+      for (const i of dirty) this.paintTerrain((i % c.width) - 1, ((i / c.width) | 0) - 1, (i % c.width) + 1, ((i / c.width) | 0) + 1);
+      return;
+    }
+    this.terrain.width = c.width * K;
+    this.terrain.height = c.height * K;
+    this.paintTerrain(0, 0, c.width - 1, c.height - 1);
+  }
+
+  /** Paints the ground layer for a range of cells, inclusive. */
+  private paintTerrain(cx0: number, cy0: number, cx1: number, cy1: number) {
+    const c = this.city;
+    const K = TERRAIN_DETAIL;
+    cx0 = Math.max(0, cx0); cy0 = Math.max(0, cy0); cx1 = Math.min(c.width - 1, cx1); cy1 = Math.min(c.height - 1, cy1);
+    const W = (cx1 - cx0 + 1) * K, H = (cy1 - cy0 + 1) * K;
+    const tctx = this.terrain.getContext('2d')!;
+    const img = tctx.createImageData(W, H);
+    const at = (x: number, y: number) => c.heights[Math.min(c.height - 1, Math.max(0, y)) * c.width + Math.min(c.width - 1, Math.max(0, x))];
+    // Blends a per-cell value at a point measured in cells, between the four nearest centres.
+    const blend = (f: (x: number, y: number) => number, fx: number, fy: number) => {
+      const gx = fx - 0.5, gy = fy - 0.5;
+      const x = Math.floor(gx), y = Math.floor(gy), u = gx - x, v = gy - y;
+      return (f(x, y) * (1 - u) + f(x + 1, y) * u) * (1 - v) + (f(x, y + 1) * (1 - u) + f(x + 1, y + 1) * u) * v;
+    };
+    const wet = (x: number, y: number) => (at(x, y) < c.waterLevel ? 1 : 0);
+    for (let py = 0; py < H; py++)
+      for (let px = 0; px < W; px++) {
+        const fx = cx0 + (px + 0.5) / K, fy = cy0 + (py + 0.5) / K;
+        const h = blend(at, fx, fy);
+        const water = blend(wet, fx, fy) > 0.5;
+        // On the land side of a shore the blended height can dip under the waterline: keep it on the shore.
+        let [r, g, b] = terrainColor(water ? Math.min(h, c.waterLevel - 0.01) : Math.max(h, c.waterLevel), c.waterLevel);
+        if (!water) {
+          // Hillshade: brighter on slopes facing north-west.
+          const d = h - (blend(at, fx - 1 / K, fy) + blend(at, fx, fy - 1 / K)) / 2;
+          r += d * 8 * K; g += d * 8 * K; b += d * 6 * K;
+        }
+        const o = 4 * (py * W + px);
+        img.data[o] = r;
+        img.data[o + 1] = g;
+        img.data[o + 2] = b;
+        img.data[o + 3] = 255;
+      }
+    tctx.putImageData(img, cx0 * K, cy0 * K);
   }
 
   draw() {
@@ -256,6 +295,7 @@ export class Renderer {
       this.drawBuildings(x0, y0, x1, y1, px, py);
       this.drawPowerLines(x0, y0, x1, y1, px, py);
       this.drawDisasters(px, py);
+      this.drawBorders(px, py);
       if (this.company) this.drawCompany(px, py, r.width, r.height);
       if (this.company || this.showRoutes) this.drawBusLines(px, py);
       if (!this.company) this.drawAgents(px, py, x0, y0, x1, y1);
@@ -503,6 +543,61 @@ export class Renderer {
   private pausedAt: number | null = null;
 
   /** Where the followed citizen is now, and what they're doing; null when nobody is followed or they aren't drawn. */
+  /**
+   * Just past each edge with a neighbouring city: its roads as stubs (a road of yours meets it there), its power
+   * lines and pipes as short marks, and its name.
+   */
+  private drawBorders(px: (x: number) => number, py: (y: number) => number) {
+    const c = this.city, ctx = this.ctx, s = this.scale;
+    const depth = Math.max(6, s * 1.5);
+    for (const b of this.borders) {
+      const along = b.side === 0 || b.side === 2;
+      // Where cell k of this side is on screen, and which way is outward.
+      const at = (k: number): [number, number, number, number] => {
+        if (b.side === 0) return [px(k), py(0) - depth, s, depth];
+        if (b.side === 2) return [px(k), py(c.height), s, depth];
+        if (b.side === 1) return [px(c.width), py(k), depth, s];
+        return [px(0) - depth, py(k), depth, s];
+      };
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      const len = along ? c.width : c.height;
+      const [ax, ay] = at(0), [bx, by, bw, bh] = at(len - 1);
+      ctx.fillRect(ax, ay, bx + bw - ax, by + bh - ay);
+      for (let j = 0; j + 1 < b.paths.length; j += 2) {
+        const [x, y, w, h] = at(b.paths[j]);
+        ctx.fillStyle = '#8a8f99';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = '#f0c030';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      }
+      const mark = (ks: number[], colour: string, off: number) => {
+        ctx.fillStyle = colour;
+        for (const k of ks) {
+          const [x, y, w, h] = at(k);
+          if (along) ctx.fillRect(x + w / 2 - 1 + off, y, 2, h); else ctx.fillRect(x, y + h / 2 - 1 + off, w, 2);
+        }
+      };
+      mark(b.power, '#ffd84a', -2);
+      mark(b.pipes, '#5ec8ff', 2);
+      const [mx, my, mw, mh] = at(Math.floor(len / 2));
+      ctx.font = 'bold 12px system-ui, sans-serif';
+      ctx.fillStyle = '#ffffffcc';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const label = `${['↑', '→', '↓', '←'][b.side]} ${b.name}`;
+      if (along) ctx.fillText(label, mx + mw / 2, b.side === 0 ? my - 10 : my + mh + 10);
+      else {
+        ctx.save();
+        ctx.translate(b.side === 1 ? mx + mw + 10 : mx - 10, my + mh / 2);
+        ctx.rotate(b.side === 1 ? Math.PI / 2 : -Math.PI / 2);
+        ctx.fillText(label, 0, 0);
+        ctx.restore();
+      }
+      ctx.textAlign = 'start';
+    }
+  }
+
   followedNow(): { x: number; y: number; status: string; minute: number } | null {
     const t = this.agents.find((a) => a.id === this.followed);
     if (!t) return null;
@@ -553,8 +648,17 @@ export class Renderer {
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         const i = y * c.width + x;
-        const z = c.zones[i];
+        // Under an arc or diagonal, the zone beside it fills the triangles the road leaves.
+        const strip = c.underStrip.has(i);
+        const z = strip ? c.fillZone(i) : c.zones[i];
         if (!z || c.buildingAt[i]) continue;
+        if (strip) {
+          ctx.fillStyle = ZONE_COLORS[Math.floor(z / 3)];
+          ctx.globalAlpha = 0.28 + (z % 3) * 0.1;
+          ctx.fillRect(px(x), py(y), s, s);
+          ctx.globalAlpha = 1;
+          continue;
+        }
         const kind = Math.floor(z / 3);
         const density = z % 3;
         ctx.fillStyle = ZONE_COLORS[kind];
@@ -592,13 +696,13 @@ export class Renderer {
       for (let x = x0; x <= x1; x++) {
         const i = y * c.width + x;
         const p = c.profileAt(i);
-        if (!p) continue;
+        if (!p || c.underStrip.has(i)) continue;
         const w = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
         const half = w / 2;
         const cx = px(x) + s / 2;
         const cy = py(y) + s / 2;
         // Rail lines only join rail; everything else joins everything but rail (no level crossings yet).
-        const joins = (j: number) => !!c.paths[j] && (c.profileAt(j)?.rail ?? false) === p.rail;
+        const joins = (j: number) => !!c.paths[j] && !c.underStrip.has(j) && (c.profileAt(j)?.rail ?? false) === p.rail;
         const east = x + 1 < c.width && joins(i + 1);
         const south = y + 1 < c.height && joins(i + c.width);
         const west = x > 0 && joins(i - 1);
@@ -634,6 +738,49 @@ export class Renderer {
           if (vert) for (const o of [-gauge / 2, gauge / 2]) ctx.fillRect(cx + o - lw / 2, Math.min(ly0, cy - half), lw, Math.max(ly1, cy + half) - Math.min(ly0, cy - half));
         }
       }
+    this.drawStrips(px, py);
+  }
+
+  /** Arcs and diagonals as the line the player drew, over the cells the sim runs them on. */
+  private drawStrips(px: (x: number) => number, py: (y: number) => number) {
+    const c = this.city;
+    const ctx = this.ctx;
+    const s = this.scale;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const st of c.strips) {
+      const p = c.profiles[st.path - 1];
+      if (!p) continue;
+      const pts = stripPoints(st);
+      const trace = () => {
+        ctx.beginPath();
+        pts.forEach(([x, y], k) => (k ? ctx.lineTo(px(x), py(y)) : ctx.moveTo(px(x), py(y))));
+      };
+      const w = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
+      trace();
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = w;
+      ctx.stroke();
+      if (p.rail || p.tram) {
+        // Two rails: a wide stroke in the rails' colour with the bed's colour down its middle.
+        const gauge = Math.max(1.5, w * (p.rail ? 0.32 : 0.22));
+        const lw = Math.max(1, s / 14);
+        ctx.strokeStyle = p.rail ? '#c9ccd2' : 'rgba(225,225,235,0.85)';
+        ctx.lineWidth = gauge + lw;
+        ctx.stroke();
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = Math.max(0.5, gauge - lw);
+        ctx.stroke();
+      } else if (s >= 12 && p.cars) {
+        ctx.strokeStyle = p.id.startsWith('highway') ? '#e8d36a' : 'rgba(255,255,255,0.55)';
+        ctx.lineWidth = Math.max(1, s / 12);
+        ctx.setLineDash([s * 0.4, s * 0.6]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    ctx.restore();
   }
 
   private drawPowerLines(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {

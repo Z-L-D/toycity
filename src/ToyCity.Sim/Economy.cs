@@ -52,7 +52,7 @@ public sealed partial class World
         JobsCommercial = jobsC;
         JobsIndustrial = jobsI;
         JobsCivic = jobsCivic;
-        Attraction = (int)Math.Max(0, attraction + Mod(ModKey.Attraction));
+        Attraction = (int)Math.Max(0, (attraction + Mod(ModKey.Attraction)) * WeatherTourismPct / 100);
         ComputeDemand();
 
         while (MilestoneIndex < Milestones.Length && pop >= Milestones[MilestoneIndex])
@@ -130,6 +130,7 @@ public sealed partial class World
             if (b != null && b.Operating && TypeOf(b).Income > 0) dealIncome += TypeOf(b).Income;
         Line("Deals and reward lots", dealIncome);
         Line("Transit fares", TransitFares());
+        foreach (var d in Deals) BookDeal(d, Line);
         foreach (var (cat, amount) in civic) Line(BudgetLabel((Category)cat), -amount);
         if (Debt > 0)
         {

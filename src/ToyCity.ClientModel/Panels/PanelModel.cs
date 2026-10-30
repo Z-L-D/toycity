@@ -36,6 +36,7 @@ public sealed partial class PanelModel
         Company.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Company.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
         Emergency = new EmergencyModel(send, Changed) { Me = () => Me() };
+        Region = new RegionModel(send, Changed) { Me = () => Me() };
         Emergency.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Emergency.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
         Emergency.Flash += (x0, y0, x1, y1) => Flash?.Invoke(new Rect { X0 = x0, Y0 = y0, X1 = x1, Y1 = y1 });
@@ -45,6 +46,8 @@ public sealed partial class PanelModel
 
     /// <summary>The bus company's own view, which can take the panel's place.</summary>
     public readonly CompanyModel Company;
+    /// <summary>The region map, which takes the whole screen while it's open.</summary>
+    public readonly RegionModel Region;
     /// <summary>The emergency services' dispatch board, shown in the "dispatch" dialog.</summary>
     public readonly EmergencyModel Emergency;
 
@@ -103,13 +106,31 @@ public sealed partial class PanelModel
 
     int _lastOverlayMonth = -1;
 
+    /// <summary>
+    /// A long action under way that the player has to wait on (a new city, a save, a load), shown from the moment
+    /// it's asked for until the server answers. Null when nothing is.
+    /// </summary>
+    public string? Working { get; private set; }
+    double _workingFor;
+
+    void StartWorking(string what)
+    {
+        (Working, _workingFor) = (what, 0);
+        Changed();
+    }
+
     /// <summary>Takes one message from the server. Call for every message, after the city mirror has applied it.</summary>
     public void Handle(ServerMessage m)
     {
+        Region.Handle(m);
         switch (m.BodyCase)
         {
             case ServerMessage.BodyOneofCase.Full:
+                if (Working != null && !Working.StartsWith("Saving")) Working = null;
                 if (ActiveOverlay != 0) RequestOverlay();
+                break;
+            case ServerMessage.BodyOneofCase.Notice when Working != null && Working.StartsWith("Saving") && m.Notice.Text.StartsWith("Saved"):
+                Working = null;
                 break;
             case ServerMessage.BodyOneofCase.Delta:
                 if (_city.Stats.Day == 1)
@@ -149,7 +170,11 @@ public sealed partial class PanelModel
             case ServerMessage.BodyOneofCase.Saves: Saves = m.Saves.Names; break;
             case ServerMessage.BodyOneofCase.SideGame: Company.Handle(m.SideGame); Emergency.Handle(m.SideGame); return;
             // A refusal ends whatever the board was waiting on; the tools show why.
-            case ServerMessage.BodyOneofCase.Error: Emergency.Refused(); return;
+            case ServerMessage.BodyOneofCase.Error:
+                Emergency.Refused();
+                Company.Refused();
+                if (Working != null) { Working = null; Changed(); }
+                return;
             default: return;
         }
         Changed();
@@ -388,6 +413,8 @@ public sealed partial class PanelModel
         // One side game's screen at a time.
         if (meta == "co-open" && Emergency.Active) Emergency.SetActive(false);
         if (meta == "em-open") { if (Company.Active) Company.SetActive(false); Dialog = null; }
+        if (meta == "rg-open") { Company.SetActive(false); Emergency.SetActive(false); Dialog = null; }
+        if (meta.StartsWith("rg-")) { Region.Click(meta); return; }
         if (meta.StartsWith("co-")) { Company.Click(meta); return; }
         if (meta.StartsWith("em-")) { Emergency.Click(meta); return; }
         var a = meta.Split(':');
@@ -645,17 +672,29 @@ public sealed partial class PanelModel
             case "starter": _newStarter = !_newStarter; Changed(); return;
             case "bench": _newBench = !_newBench; Changed(); return;
             case "new-ok":
-                _send(new ClientMessage { NewCity = new NewCityRequest { Name = Input.Trim() is { Length: > 0 } n ? n : "New City", Size = _newSize, StarterTown = _newStarter, Benchmark = _newBench } });
+            {
+                string name = Input.Trim() is { Length: > 0 } n ? n : "New City";
+                _send(new ClientMessage { NewCity = new NewCityRequest { Name = name, Size = _newSize, StarterTown = _newStarter, Benchmark = _newBench } });
                 CloseDialog();
+                StartWorking($"Building {name}…");
                 return;
+            }
             case "save-ok":
-                _send(new ClientMessage { Save = new SaveRequest { Name = Input.Trim() is { Length: > 0 } sn ? sn : "city" } });
+            {
+                string name = Input.Trim() is { Length: > 0 } sn ? sn : "city";
+                _send(new ClientMessage { Save = new SaveRequest { Name = name } });
                 CloseDialog();
+                StartWorking($"Saving \"{name}\"…");
                 return;
+            }
             case "load":
-                _send(new ClientMessage { Load = new LoadRequest { Name = Uri.UnescapeDataString(a[1]) } });
+            {
+                string name = Uri.UnescapeDataString(a[1]);
+                _send(new ClientMessage { Load = new LoadRequest { Name = name } });
                 CloseDialog();
+                StartWorking($"Loading \"{name}\"…");
                 return;
+            }
         }
     }
 
@@ -667,6 +706,8 @@ public sealed partial class PanelModel
     public void Tick(double dt)
     {
         Emergency.Tick(dt);
+        // A server that never answers shouldn't leave the card up for good.
+        if (Working != null && (_workingFor += dt) > 60) { Working = null; Changed(); }
         if (_requeryIn < 0) return;
         _requeryIn -= dt;
         if (_requeryIn < 0 && Selected is { } s) Query(s.X, s.Y, false);

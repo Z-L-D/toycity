@@ -77,6 +77,12 @@ public sealed partial class World
             string why = gate is { } m ? WhyOff(m, SeatOf(hg.Id)?.Owner ?? "", MayorSeat.Owner) ?? "" : "";
             input.Offers.Add(new PaidActionOffer(kind, name, cost, why.Length == 0, why));
         }
+        // The emergency services' crooked ways cost nothing up front; they're only on when everyone allows them.
+        if (hg.Game.Manifest.LotKinds.Contains("police-station"))
+        {
+            string why = WhyOff(Mechanic.CrookedServices, SeatOf(hg.Id)?.Owner ?? "", MayorSeat.Owner) ?? "";
+            input.Offers.Add(new PaidActionOffer("crooked", MechanicName(Mechanic.CrookedServices), 0, why.Length == 0, why));
+        }
         foreach (var (id, r) in results) if (id == hg.Id) input.AuthorityResults.Add(r);
     }
 

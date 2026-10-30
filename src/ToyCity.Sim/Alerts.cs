@@ -37,6 +37,15 @@ public sealed partial class World
             Add($"disaster-{d.Id}", "danger", text, at, 1, "disasters");
         }
 
+        // A road to a neighbour's border that the neighbour hasn't met: half a connection, carrying nobody.
+        foreach (var g in UnmetCrossings().GroupBy(c => c.Side))
+        {
+            var (side, k) = g.First();
+            string who = NextDoor[side]!.Name;
+            Add($"border-{side}", "info", $"{(g.Count() == 1 ? "A road" : $"{g.Count()} roads")} to {who} end{(g.Count() == 1 ? "s" : "")} at the border: {who} has no road there yet. Ask its mayor to meet it, or move yours to one of theirs.",
+                SideCell(side, k), g.Count(), "neighbors");
+        }
+
         if (Funds < 0)
             Add("treasury", "danger", $"The treasury is ${-Funds:N0} in the red. Raise taxes, cut funding or take a loan.", -1, 1, "budget");
 

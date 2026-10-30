@@ -101,9 +101,9 @@ public partial class Main
         using (var f = global::Godot.FileAccess.Open(_togetherFile, global::Godot.FileAccess.ModeFlags.Write)) f.StoreString(json.ToString());
         foreach (var (check, ok, seen) in _together.Checks) GD.Print($"TOGETHER {(ok ? "ok" : "FAILED")}  {check}: {seen}");
         GD.Print($"TOGETHER {t.Count} frames over {_togetherClock:F0} s, avg {avg:F1} ms, p95 {p95:F1} ms, peak process memory {_togetherPeakMB:F0} MB");
-        _together.Dispose();
-        if (failure != null) GD.PrintErr($"TOGETHER FAILED in {_together.Phase}: {failure.Message}");
+        if (failure != null) GD.PrintErr($"TOGETHER FAILED in {_together.Phase}: {failure.Message}\n{_together.Diagnosis()}");
         else GD.Print($"TOGETHER OK, wrote {_togetherFile}");
+        _together.Dispose();
         GetTree().Quit(failure == null ? 0 : 1);
     }
 }

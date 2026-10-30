@@ -32,7 +32,8 @@
         <button id="btn-company" class="hidden" title="Switch to the bus company's own view">🚌 Bus company</button>
         <button id="btn-emergency" class="hidden" title="The emergency services' dispatch board">🚒 Dispatch</button>
         <div class="spacer"></div>
-        <button id="btn-new">New city</button>
+        <button id="btn-region" title="The region map: the cities around this one, and open land to found more">🗺 Region</button>
+        <button id="btn-new">New</button>
         <button id="btn-save">Save</button>
         <button id="btn-load">Load</button>
         <div id="players" class="players hidden"></div>
@@ -104,6 +105,10 @@
         </nav>
         <div id="co-body"></div>
       </aside>
+    </div>
+    <div id="region" class="hidden">
+      <header class="rg-head"><div id="rg-title" class="brand"></div><div class="spacer"></div><button id="rg-close" title="Back to the city">🏙 City</button></header>
+      <div id="rg-body"></div>
     </div>
     <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
     <script type="module" src="/src/main.ts"></script>
