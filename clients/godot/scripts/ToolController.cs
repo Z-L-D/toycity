@@ -173,7 +173,8 @@ public partial class ToolController : Node
         State.Kind = kind;
         State.CurveEnds = null;
         _drag = null;
-        if (_buttons.TryGetValue(kind, out var b)) b.SetPressedNoSignal(true);
+        // Without a signal the group doesn't let go of the last tool, so each button is set.
+        foreach (var (k, b) in _buttons) b.SetPressedNoSignal(k == kind);
         BuildOptions();
     }
 
@@ -336,7 +337,7 @@ public partial class ToolController : Node
         foreach (var (key, what) in per.Concat(common))
         {
             // A dark tag with the key in a key cap, as the web client's hints.
-            var tag = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+            var tag = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore, SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin };
             tag.AddThemeStyleboxOverride("panel", UiTheme.ChipBox());
             var r = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
             r.AddThemeConstantOverride("separation", 6);

@@ -230,7 +230,8 @@ public partial class Main : Node
             }
             var cell = _camera!.Pick(GetViewport().GetMousePosition(), _view!);
             _view!.Hover(cell);
-            _hover!.Text = cell is { } h ? Describe(c, h.X, h.Y) : "";
+            // Only the city's screen says what's under the pointer; a side game's has its own.
+            _hover!.Text = cell is { } h && _tools!.Enabled ? Describe(c, h.X, h.Y) : "";
             _map!.Marker = _camera.IsFree ? new System.Numerics.Vector2(_free!.Target.X, _free.Target.Z) : _camera.View.Target;
             UpdateDetail();
         }
@@ -392,7 +393,8 @@ public partial class Main : Node
         else if (at is BoardShot or SceneShot or ReportShot)
         {
             var pm = _panels!.Model;
-            if (at == BoardShot) { pm.Click("co-city"); pm.Click("em-open"); }
+            // The city held still, so the made-up scene isn't replaced by the service's next day.
+            if (at == BoardShot) { pm.Click("co-city"); pm.Click("em-open"); _client!.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } }); }
             // A made-up house fire, as the service would send it, to show a scene and then its report.
             else pm.Emergency.Handle(SampleScene(pm.Me(), at == ReportShot));
             _wait = 10;

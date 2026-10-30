@@ -114,6 +114,8 @@ public partial class PanelView : CanvasLayer
         var row = new HBoxContainer { Visible = visible, SizeFlagsVertical = Control.SizeFlags.ExpandFill, Alignment = BoxContainer.AlignmentMode.Begin };
         row.AddThemeConstantOverride("separation", 14);
         bars.AddChild(row);
+        // Buttons keep their own height in the middle of the bar, as the web's do.
+        row.ChildEnteredTree += n => { if (n is Control c) c.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter; };
         return row;
     }
 

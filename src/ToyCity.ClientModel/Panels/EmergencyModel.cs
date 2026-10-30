@@ -56,6 +56,7 @@ public sealed class EmergencyModel
     /// the calls. A scene that just closes looks like the board broke.
     /// </summary>
     public SceneView? Ended { get; private set; }
+    string? _endedCall;
     /// <summary>Whether the ended scene's report card is over it; closing it shows the scene as it finished.</summary>
     public bool ReportOpen { get; private set; }
     /// <summary>Whether the scene is over and its orders are done with.</summary>
@@ -110,6 +111,7 @@ public sealed class EmergencyModel
         if (SceneId != 0 && !SceneOver && View.Scenes.All(s => s.Id != SceneId) && before?.Scenes.FirstOrDefault(s => s.Id == SceneId) is { } gone)
         {
             (Ended, ReportOpen, SceneHidden) = (gone, true, false);
+            _endedCall = before.Calls.FirstOrDefault(c => c.Id == gone.CallId)?.Text;
             Selected.Clear();
             Drawing = null;
         }
@@ -394,7 +396,7 @@ public sealed class EmergencyModel
         var s = Scene!;
         var call = View!.Calls.FirstOrDefault(c => c.Id == s.CallId);
         int secs = s.Step / 4;
-        return $"[b]{Esc(call?.Text ?? s.Kind)}[/b]  " + Dim(SceneOver ? $"over after {secs / 60}:{secs % 60:00}" : $"{secs / 60}:{secs % 60:00} · {s.Burning} alight");
+        return $"[b]{Esc(call?.Text ?? (SceneOver ? _endedCall : null) ?? s.Kind)}[/b]  " + Dim(SceneOver ? $"over after {secs / 60}:{secs % 60:00}" : $"{secs / 60}:{secs % 60:00} · {s.Burning} alight");
     }
 
     /// <summary>How to give the order picked.</summary>
