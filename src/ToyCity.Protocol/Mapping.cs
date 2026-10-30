@@ -497,11 +497,19 @@ public static class Mapping
                 SideGameMissedAction ms => new P.ActionRecord { Tick = l.Tick, By = ms.By, Missed = new P.SideGameMissed { Game = ms.GameId, What = ms.What } },
                 RenameOwnerAction rn => new P.ActionRecord { Tick = l.Tick, By = rn.By, Rename = new P.RenameOwner { From = rn.From, To = rn.To } },
                 ForkAction fk => new P.ActionRecord { Tick = l.Tick, By = fk.By, Fork = new P.Fork { Player = fk.Player, HomeName = fk.HomeName } },
+                NeighbourEdgeAction ne => new P.ActionRecord { Tick = l.Tick, By = ne.By, Neighbour = Edge(ne) },
                 SetHostRulesAction hr => new P.ActionRecord { Tick = l.Tick, By = hr.By, HostRules = new P.HostRules { Forbidden = { hr.Forbidden.Select(m => (P.Mechanic)(int)m) } } },
                 _ => new P.ActionRecord { Tick = l.Tick, By = l.Action.By, Action = ToProto(l.Action) },
             });
         return s.ToByteArray();
     }
+
+    public static P.NeighbourEdge Edge(NeighbourEdgeAction a) => new()
+    {
+        Side = a.Side, Name = a.Name, Mayor = a.Mayor, Paths = { a.Paths }, Power = { a.Power }, Pipes = { a.Pipes },
+    };
+
+    public static NeighbourEdgeAction Edge(P.NeighbourEdge e) => new(e.Side, e.Name, e.Mayor, e.Paths.ToArray(), e.Power.ToArray(), e.Pipes.ToArray());
 
     public static World Load(ContentDb content, byte[] data)
     {
@@ -514,6 +522,7 @@ public static class Mapping
                 : r.Missed != null ? new SideGameMissedAction(r.Missed.Game, r.Missed.What)
                 : r.Rename != null ? new RenameOwnerAction(r.Rename.From, r.Rename.To)
                 : r.Fork != null ? new ForkAction(r.Fork.Player, r.Fork.HomeName)
+                : r.Neighbour != null ? Edge(r.Neighbour)
                 : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
                 : r.Action == null ? null : ToSim(r.Action);
             if (a != null) w.Log.Add(new LoggedAction(r.Tick, a with { By = r.By }));

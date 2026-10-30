@@ -518,6 +518,7 @@ message RegionState {
   int32 here_row = 8;
   int32 speed = 9;     // the region's speed, the slowest any mayor here asked for
   string speed_set_by = 10;  // who holds it there, when it's slower than the host's choice
+  repeated NeighbourEdge borders = 11;  // what the neighbours of this connection's city show across its sides
 }
 
 message RegionTileState {
@@ -1306,6 +1307,18 @@ message ActionRecord {
   RenameOwner rename = 6;    // set instead of action: the server gave one player's seats to another
   SideGameMissed missed = 7; // set instead of action: a side game hosted elsewhere missed its deadline
   Fork fork = 8;             // set instead of action: this city is a copy a player took when they de-linked
+  NeighbourEdge neighbour = 9;  // set instead of action: the region said what a neighbouring city shows across a border
+}
+
+// What a neighbouring city shows across one side of this one (0 north, 1 east, 2 south, 3 west). Cell k runs along
+// the side: x on the north and south, y on the east and west. An empty name means no city there.
+message NeighbourEdge {
+  int32 side = 1;
+  string name = 2;
+  string mayor = 3;
+  repeated int32 paths = 4;  // pairs: cell, path profile index + 1
+  repeated int32 power = 5;  // cells with a power line
+  repeated int32 pipes = 6;  // cells with a water pipe
 }
 
 message Fork {

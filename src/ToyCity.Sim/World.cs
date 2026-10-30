@@ -396,6 +396,7 @@ public sealed partial class World
             WriteAuthority(w);
             WriteRoles(w);
             w.Write(FoundedTick);
+            WriteNeighbours(w);
         }
         return ms.ToArray();
     }
@@ -473,7 +474,11 @@ public sealed partial class World
         w.ReadLeases(r);
         w.ReadAuthority(r);
         w.ReadRoles(r);
-        if (version >= 6) w.FoundedTick = r.ReadInt64();
+        if (version >= 6)
+        {
+            w.FoundedTick = r.ReadInt64();
+            w.ReadNeighbours(r);
+        }
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

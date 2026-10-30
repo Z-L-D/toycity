@@ -71,6 +71,7 @@ public sealed partial class World
             }
         }
         int cap = 0, first = -1;
+        Array.Clear(SideCapacity);
         for (int i = 0; i < N; i++)
         {
             if (!seen[i]) continue;
@@ -78,7 +79,11 @@ public sealed partial class World
             // A crossing is a border cell whose path runs off the map: the next cell inward is a path too.
             int inward = x == 0 ? i + 1 : x == Width - 1 ? i - 1 : y == 0 ? i + Width : y == HeightCells - 1 ? i - Width : -1;
             if (inward < 0 || Path[inward] == 0) continue;
-            cap += Content.Profiles[Path[i] - 1].CapacityPerHour;
+            // Toward a neighbouring city, only where its road meets this one.
+            if (!CrossingMeets(i)) continue;
+            int c = Content.Profiles[Path[i] - 1].CapacityPerHour;
+            cap += c;
+            if (SideOf(i).Side is >= 0 and var side) SideCapacity[side] += c;
             if (first < 0) first = i;
         }
         EdgeCapacity = cap;

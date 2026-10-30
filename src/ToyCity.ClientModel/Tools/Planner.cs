@@ -79,13 +79,39 @@ public static class Planner
                 if (!c.InBounds(p.X, p.Y)) return null;
                 return new Preview(new() { (p.X, p.Y, Tint.Bad) }, true, $"{DisasterNames[(int)t.Disaster]} here",
                     new() { new PAction { Disaster = new TriggerDisaster { Kind = t.Disaster, X = p.X, Y = p.Y } } }, $"{DisasterNames[(int)t.Disaster]} at {p.X},{p.Y}");
-            case ToolKind.Path or ToolKind.Utility when p.DragStart is { } s:
+            case ToolKind.Path when p.DragStart is { } s:
+                var (bx, by) = BorderSnap(c, p.X, p.Y);
+                return Line(c, t, s, p with { X = bx, Y = by, Free = p.Free || (bx, by) != (p.X, p.Y) });
+            case ToolKind.Utility when p.DragStart is { } s:
                 return Line(c, t, s, p);
             case ToolKind.Zone or ToolKind.Dezone or ToolKind.Bulldoze or ToolKind.Terraform when p.DragStart is { } s:
                 return Area(c, t, s, p);
             default:
                 return null;
         }
+    }
+
+    /// <summary>
+    /// A road drawn to the map's edge near a neighbouring city's road snaps onto it, so the two meet cell for cell:
+    /// within two cells of the edge and three along it. Otherwise the cell as it is.
+    /// </summary>
+    public static (int X, int Y) BorderSnap(CityMirror c, int x, int y)
+    {
+        (int X, int Y, int D)? best = null;
+        foreach (var b in c.Borders)
+        {
+            bool along = b.Side is 0 or 2;
+            int outward = b.Side switch { 0 => y, 2 => c.Height - 1 - y, 1 => c.Width - 1 - x, _ => x };
+            if (outward > 2) continue;
+            int pos = along ? x : y;
+            for (int j = 0; j + 1 < b.Paths.Count; j += 2)
+            {
+                int k = b.Paths[j], d = Math.Abs(k - pos);
+                if (d > 3 || best is { } bb && bb.D <= d) continue;
+                best = along ? (k, b.Side == 0 ? 0 : c.Height - 1, d) : (b.Side == 1 ? c.Width - 1 : 0, k, d);
+            }
+        }
+        return best is { } s ? (s.X, s.Y) : (x, y);
     }
 
     /// <summary>The end of a straight run: snapped to the drag's longer side unless placement is free.</summary>

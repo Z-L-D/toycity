@@ -61,6 +61,11 @@ public static class RegionMapping
             ts.Players.AddRange(playersIn(t));
             s.Tiles.Add(ts);
         }
+        // Across each side of this city: what the neighbour shows there, for markers on the map's edge.
+        if (r.TileAt(hereCol, hereRow) is { } here)
+            for (int side = 0; side < 4; side++)
+                if (r.Across(here, side)?.City is { } n)
+                    s.Borders.Add(Mapping.Edge(n.EdgeOut(World.Opposite(side))));
         return s;
     }
 

@@ -25,6 +25,7 @@ public sealed class CityClient : IDisposable
         {
             case ServerMessage.BodyOneofCase.Full: City.ApplyFull(m.Full); break;
             case ServerMessage.BodyOneofCase.Delta: City.ApplyDelta(m.Delta); break;
+            case ServerMessage.BodyOneofCase.Region: City.Borders = m.Region.Borders.ToList(); break;
         }
         Message?.Invoke(m);
     });

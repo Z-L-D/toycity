@@ -26,6 +26,8 @@ public sealed class CityMirror
     public readonly Dictionary<string, BuildingTypeInfo> TypeById = new();
     /// <summary>The deepest lot a zoned building grows on, by density.</summary>
     public int[] LotDepth { get; private set; } = { 2, 3, 4 };
+    /// <summary>What the neighbouring cities of the region show across this one's sides, from the region state.</summary>
+    public IReadOnlyList<NeighbourEdge> Borders = Array.Empty<NeighbourEdge>();
     /// <summary>The landmarks and reward lots this city has unlocked, from the server's civic state.</summary>
     public HashSet<string> Unlocked = new();
     public StreetNamer Streets { get; private set; } = new(new[] { "Main" }, new[] { "Street" });

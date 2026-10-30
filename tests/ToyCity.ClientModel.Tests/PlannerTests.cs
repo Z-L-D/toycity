@@ -32,6 +32,17 @@ public class PlannerTests
     }
 
     [Fact]
+    public void ARoadDrawnToTheBorderSnapsOntoTheNeighboursRoad()
+    {
+        var (_, c) = Town();
+        c.Borders = new[] { new ToyCity.Protocol.V0.NeighbourEdge { Side = 1, Name = "Eastfield", Paths = { 40, 1, 90, 1 } } };
+        Assert.Equal((127, 40), Planner.BorderSnap(c, 126, 42));   // near the edge, two cells off along it
+        Assert.Equal((125, 44), Planner.BorderSnap(c, 125, 44));   // four cells along: too far
+        Assert.Equal((100, 40), Planner.BorderSnap(c, 100, 40));   // nowhere near the edge
+        Assert.Equal((0, 40), Planner.BorderSnap(c, 0, 40));       // no neighbour to the west
+    }
+
+    [Fact]
     public void ARunSnapsStraightUnlessHeldFree()
     {
         Assert.Equal((9, 2), Planner.SnapEnd((2, 2), 9, 4, free: false));

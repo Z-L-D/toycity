@@ -169,6 +169,7 @@ public partial class Main : Node
         AddChild(_agents);
         _streets = new StreetLabels(_client.City, _view);
         AddChild(_streets);
+        AddChild(new BorderView(_client.City, _view));
         var buses = _buses = new BusLinesView(_client.City, pm, _view);
         AddChild(buses);
         _free = new FreeCamera

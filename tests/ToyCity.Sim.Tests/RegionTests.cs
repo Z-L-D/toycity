@@ -114,4 +114,58 @@ public class RegionTests
         Assert.True(s.Tiles[1].Population > 0);
         Assert.Equal("Open land", s.Tiles[0].Name);
     }
+
+    /// <summary>A road from a city's town out to its east edge, along row y, levelled first so it never hits a slope.</summary>
+    static void RoadEast(World w, int fromX, int y)
+    {
+        w.Enqueue(new TerraformAction(new CellRect(fromX, y - 1, w.Width - 1, y + 1), TerraformMode.Level));
+        w.Enqueue(new PlacePathAction(fromX, y, w.Width - 1, y, "road"));
+        w.ApplyPending();
+    }
+
+    static void RoadWest(World w, int toX, int y)
+    {
+        w.Enqueue(new TerraformAction(new CellRect(0, y - 1, toX, y + 1), TerraformMode.Level));
+        w.Enqueue(new PlacePathAction(0, y, toX, y, "road"));
+        w.ApplyPending();
+    }
+
+    [Fact]
+    public void ARoadToTheBorderWorksOnlyWhereTheNeighboursRoadMeetsIt()
+    {
+        using var r = Region.Create(Fixture.Content, "Pair", 17, 2, 1, 128);
+        var west = r.Found(0, 0, "Westbrook", "May", starter: true);
+        r.Run(5);
+        var townRoad = west.Buildings.Where(b => b != null).Select(b => b!).First(b => west.TypeOf(b).Id == "coal-plant");
+        int y = townRoad.Y - 1;
+        // The starter town's roads end short of the edge: run one out east, joined to the town.
+        int x0 = Enumerable.Range(0, west.Width).Last(x => west.Path[west.Idx(x, y)] != 0 && x < west.Width - 2);
+        RoadEast(west, x0, y);
+        r.Run(31);
+        // Open land to the east: the wider world takes the road, as before regions.
+        Assert.True(west.SideCapacity[1] > 0);
+        Assert.Null(west.NextDoor[1]);
+
+        var east = r.Found(1, 0, "Eastfield", "Tess");
+        r.Run(2);
+        Assert.Equal("Eastfield", west.NextDoor[1]!.Name);
+        Assert.Equal("Westbrook", east.NextDoor[3]!.Name);
+        Assert.True(east.NextDoor[3]!.Path[y] != 0, "Eastfield sees Westbrook's road at its west edge");
+        r.Run(31);
+        Assert.Equal(0, west.SideCapacity[1]);
+        Assert.Contains((1, y), west.UnmetCrossings());
+
+        // Eastfield builds to meet it, and the next month's count has the connection.
+        RoadWest(east, 20, y);
+        r.Run(32);
+        Assert.True(west.SideCapacity[1] > 0, "the roads meet");
+        Assert.DoesNotContain((1, y), west.UnmetCrossings());
+
+        // Each city's log has what it heard across the border, so it replays alone.
+        foreach (var t in r.Tiles)
+        {
+            using var replay = r.ReplayTile(t, r.Tick);
+            Assert.Equal(t.City!.StateHash(), replay.StateHash());
+        }
+    }
 }

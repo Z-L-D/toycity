@@ -82,3 +82,37 @@ The Godot screen's logic is `ClientModel/Panels/RegionModel`, tested without the
 player founds Eastfield from the region screen, opens it on the same connection and the first player's map shows
 her move; opening open land and founding twice are refused; a mayor's pause holds both cities on the same day and
 an admin's play starts them again.
+
+## Part 3: border connections
+
+### Across the border
+
+Each city knows what its neighbours show across each of its four sides (`World.NextDoor`, 0 north, 1 east, 2 south,
+3 west): the neighbour's name and mayor, and which of its edge cells carry a path, a power line or a pipe. Before
+every day the region compares what each city shows against what its neighbours last heard and, where it changed,
+tells them with a `NeighbourEdgeAction` (`Region.ExchangeBorders`). Everyone hears before anyone steps, so every city
+reads its neighbours' previous day whatever order the cities run in. The action is logged in the city that hears it,
+so a city's log replays it alone, without its neighbours: what the federated hosts of part 8 rely on.
+
+### When a road connects
+
+A path that leaves the map and is joined to the city is a neighbour connection, as before. Toward open land, or past
+the region's edge, the wider world takes it as before. Toward a neighbouring city, it works only where that city's
+path meets it, cell for cell. `World.SideCapacity` counts each side's working capacity.
+
+A road that reaches a neighbour where they have none is half a connection and carries nobody. An info alert says so
+("A road to Eastfield ends at the border: Eastfield has no road there yet"), and the encyclopedia's neighbour
+connections article explains the rule.
+
+### In the clients
+
+The region state carries what the neighbours show across this city's sides (`RegionState.borders`). Both clients
+draw it just past the map's edge: road stubs, power and pipe marks, and the neighbour's name. Drawing a road to
+within two cells of the edge and three cells along it from a neighbour's road snaps the end onto it
+(`Planner.BorderSnap`; `borderSnap` in the web client), so the two meet.
+
+### Tests
+
+`RegionTests.ARoadToTheBorderWorksOnlyWhereTheNeighboursRoadMeetsIt`: a road out to open land connects; once a city
+is founded next door, it doesn't until that city builds a road to meet it, and the alert lists it meanwhile; each
+city's log, borders included, replays alone to the same hash. `PlannerTests` checks the snapping.

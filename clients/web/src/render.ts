@@ -145,6 +145,8 @@ export class Renderer {
    * walking reach of its stops when asked for.
    */
   company: CompanyMap | null = null;
+  /** What the neighbouring cities show across each side: roads, power lines and pipes, with their names. */
+  borders: { side: number; name: string; paths: number[]; power: number[]; pipes: number[] }[] = [];
   private terrain: HTMLCanvasElement = document.createElement('canvas');
   private terrainVersion = -1;
   private blink = false;
@@ -256,6 +258,7 @@ export class Renderer {
       this.drawBuildings(x0, y0, x1, y1, px, py);
       this.drawPowerLines(x0, y0, x1, y1, px, py);
       this.drawDisasters(px, py);
+      this.drawBorders(px, py);
       if (this.company) this.drawCompany(px, py, r.width, r.height);
       if (this.company || this.showRoutes) this.drawBusLines(px, py);
       if (!this.company) this.drawAgents(px, py, x0, y0, x1, y1);
@@ -503,6 +506,61 @@ export class Renderer {
   private pausedAt: number | null = null;
 
   /** Where the followed citizen is now, and what they're doing; null when nobody is followed or they aren't drawn. */
+  /**
+   * Just past each edge with a neighbouring city: its roads as stubs (a road of yours meets it there), its power
+   * lines and pipes as short marks, and its name.
+   */
+  private drawBorders(px: (x: number) => number, py: (y: number) => number) {
+    const c = this.city, ctx = this.ctx, s = this.scale;
+    const depth = Math.max(6, s * 1.5);
+    for (const b of this.borders) {
+      const along = b.side === 0 || b.side === 2;
+      // Where cell k of this side is on screen, and which way is outward.
+      const at = (k: number): [number, number, number, number] => {
+        if (b.side === 0) return [px(k), py(0) - depth, s, depth];
+        if (b.side === 2) return [px(k), py(c.height), s, depth];
+        if (b.side === 1) return [px(c.width), py(k), depth, s];
+        return [px(0) - depth, py(k), depth, s];
+      };
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      const len = along ? c.width : c.height;
+      const [ax, ay] = at(0), [bx, by, bw, bh] = at(len - 1);
+      ctx.fillRect(ax, ay, bx + bw - ax, by + bh - ay);
+      for (let j = 0; j + 1 < b.paths.length; j += 2) {
+        const [x, y, w, h] = at(b.paths[j]);
+        ctx.fillStyle = '#8a8f99';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = '#f0c030';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      }
+      const mark = (ks: number[], colour: string, off: number) => {
+        ctx.fillStyle = colour;
+        for (const k of ks) {
+          const [x, y, w, h] = at(k);
+          if (along) ctx.fillRect(x + w / 2 - 1 + off, y, 2, h); else ctx.fillRect(x, y + h / 2 - 1 + off, w, 2);
+        }
+      };
+      mark(b.power, '#ffd84a', -2);
+      mark(b.pipes, '#5ec8ff', 2);
+      const [mx, my, mw, mh] = at(Math.floor(len / 2));
+      ctx.font = 'bold 12px system-ui, sans-serif';
+      ctx.fillStyle = '#ffffffcc';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const label = `${['↑', '→', '↓', '←'][b.side]} ${b.name}`;
+      if (along) ctx.fillText(label, mx + mw / 2, b.side === 0 ? my - 10 : my + mh + 10);
+      else {
+        ctx.save();
+        ctx.translate(b.side === 1 ? mx + mw + 10 : mx - 10, my + mh / 2);
+        ctx.rotate(b.side === 1 ? Math.PI / 2 : -Math.PI / 2);
+        ctx.fillText(label, 0, 0);
+        ctx.restore();
+      }
+      ctx.textAlign = 'start';
+    }
+  }
+
   followedNow(): { x: number; y: number; status: string; minute: number } | null {
     const t = this.agents.find((a) => a.id === this.followed);
     if (!t) return null;

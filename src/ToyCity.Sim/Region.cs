@@ -150,10 +150,39 @@ public sealed class Region : IDisposable
     /// </summary>
     public void Step()
     {
+        ExchangeBorders();
         var cities = Cities.ToArray();
         if (cities.Length > 1) Parallel.ForEach(cities, c => c.Step());
         else foreach (var c in cities) c.Step();
         Tick++;
+    }
+
+    /// <summary>The tile across a side of this one (0 north, 1 east, 2 south, 3 west), or null past the region's edge.</summary>
+    public RegionTile? Across(RegionTile t, int side) => side switch
+    {
+        0 => TileAt(t.Col, t.Row - 1),
+        1 => TileAt(t.Col + 1, t.Row),
+        2 => TileAt(t.Col, t.Row + 1),
+        _ => TileAt(t.Col - 1, t.Row),
+    };
+
+    /// <summary>
+    /// Tells each city what its neighbours show across their shared edges, as they stand now: before anyone steps, so
+    /// every city reads the others' previous day whatever order they run in. Sent as logged actions, only on change.
+    /// </summary>
+    public void ExchangeBorders()
+    {
+        var sends = new List<(World, NeighbourEdgeAction)>();
+        foreach (var t in Tiles)
+        {
+            if (t.City is not { } w) continue;
+            for (int side = 0; side < 4; side++)
+            {
+                var a = Across(t, side)?.City is { } n ? n.EdgeOut(World.Opposite(side)) : new NeighbourEdgeAction(side, "", "", Array.Empty<int>(), Array.Empty<int>(), Array.Empty<int>());
+                if (w.EdgeDiffers(a)) sends.Add((w, a));
+            }
+        }
+        foreach (var (w, a) in sends) w.Enqueue(a);
     }
 
     public void Run(int days)

@@ -40,6 +40,7 @@ public sealed partial class World
         Add("neighbors", "Neighbour connections", "Rules", new()
         {
             "A path that runs off the edge of the map and is joined to your city is a neighbour connection. The region sends people, shoppers and freight over it.",
+            "Where a neighbouring city of your region lies across the edge, a road there works only where theirs meets it, cell for cell. Markers on the map's edge show their roads, power lines and pipes; drawing a road onto one snaps to it.",
             "Without one, people still trickle in by back roads, but regional pull halves at 2,000 people. Each connection's capacity (vehicles an hour) pushes that out, and adds regional shoppers and export jobs.",
         }, new()
         {

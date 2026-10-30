@@ -405,7 +405,31 @@ function kerbSpot(t: BuildingType, cell: { x: number; y: number }, sx: number, s
 }
 
 /** Updates the tool preview and the cost tag under the cursor. */
+/**
+ * A road drawn to the map's edge near a neighbouring city's road snaps onto it, so the two meet cell for cell: within
+ * two cells of the edge and three along it.
+ */
+function borderSnap(cell: { x: number; y: number }): { x: number; y: number } {
+  if (tool.kind !== 'path' || !city.loaded) return cell;
+  let best: { x: number; y: number; d: number } | null = null;
+  for (const b of renderer.borders) {
+    const along = b.side === 0 || b.side === 2;
+    const out = b.side === 0 ? cell.y : b.side === 2 ? city.height - 1 - cell.y : b.side === 1 ? city.width - 1 - cell.x : cell.x;
+    if (out > 2) continue;
+    const pos = along ? cell.x : cell.y;
+    for (let j = 0; j + 1 < b.paths.length; j += 2) {
+      const k = b.paths[j], d = Math.abs(k - pos);
+      if (d > 3 || (best && best.d <= d)) continue;
+      const x = along ? k : b.side === 1 ? city.width - 1 : 0;
+      const y = along ? (b.side === 0 ? 0 : city.height - 1) : k;
+      best = { x, y, d };
+    }
+  }
+  return best ? { x: best.x, y: best.y } : cell;
+}
+
 function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
+  cell = borderSnap(cell);
   renderer.hover = city.inBounds(cell.x, cell.y) ? cell : null;
   const costEl = $('#cost');
   let text = '';
@@ -631,7 +655,7 @@ window.addEventListener('mouseup', (e) => {
     updatePreview(end, sx, sy);
     return;
   }
-  commit(drag, renderer.cellAt(sx, sy));
+  commit(drag, borderSnap(renderer.cellAt(sx, sy)));
   drag = null;
   updatePreview(renderer.cellAt(sx, sy), sx, sy);
 });
@@ -1168,7 +1192,7 @@ transport = new Transport({
   },
 });
 emergency = new Emergency({ conn, jumpTo, toast });
-region = new Region({ conn, toast, onRegion: () => { updateAdmin(); updateTopBar(); } });
+region = new Region({ conn, toast, onRegion: (r) => { renderer.borders = r.borders ?? []; dirty = true; updateAdmin(); updateTopBar(); } });
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.
