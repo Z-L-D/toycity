@@ -19,7 +19,7 @@ jobs:
         run: |
           dotnet test tests/ToyCity.ClientModel.Tests -c Release --no-build --filter "Category=Gate" --logger "console;verbosity=detailed" | tee region-gate.log
           { echo '### Region gate (Beta 3)'; echo; grep -o 'GATE .*' region-gate.log | sed 's/^GATE /- /'; } >> "$GITHUB_STEP_SUMMARY"
-          grep -q "Passed!" region-gate.log
+          grep -q "Test Run Successful" region-gate.log
       - name: Headless run (5 years)
         run: dotnet run --project tools/ToyCity.Bench -c Release --no-build -- 5
       - name: Agent tiers on this runner
