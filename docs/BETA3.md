@@ -116,3 +116,36 @@ within two cells of the edge and three cells along it from a neighbour's road sn
 `RegionTests.ARoadToTheBorderWorksOnlyWhereTheNeighboursRoadMeetsIt`: a road out to open land connects; once a city
 is founded next door, it doesn't until that city builds a road to meet it, and the alert lists it meanwhile; each
 city's log, borders included, replays alone to the same hash. `PlannerTests` checks the snapping.
+
+## Part 4: commuters, shoppers, tourists and freight across borders
+
+### Published numbers
+
+At the start of each month every city publishes a handful of numbers (`World.Published`): people, job seekers,
+spare jobs, shop jobs, attraction, goods it makes for sale, goods it wants, and each side's working road capacity.
+They reach its neighbours with the border (part 3), so each neighbour knows them from the next day.
+
+### Flows
+
+At the start of the next month each city works out what crosses each border to a neighbouring city
+(`World.Flows`, `World.Flow`): commuters each way, shoppers each way, visitors each way, and goods each way, each
+limited by its share of the connection's capacity (the lesser of the two sides'). Both cities use the same formula
+on the same two sets of published numbers, so what one sends the other receives: the ledgers balance exactly. A
+border with no working connection carries nothing.
+
+- **Residential.** Residents who work next door have jobs; jobs here taken by the neighbours' commuters don't. Spare
+  jobs across a connected border pull people in (on top of the abstract region's pull, which the open sides keep).
+- **Commercial.** Shoppers and visitors from next door add regional demand; residents who shop next door take some
+  away. Roads to open land still bring the abstract region's shoppers.
+- **Industrial.** Neighbours' commuters add to the workforce factories hire from, and goods sold next door add to
+  exports.
+- **Traffic.** Each border's vehicles load the crossing roads and fade over the first eight cells inward.
+
+The demand panel names the neighbours: "620 of your residents work in Eastfield", "140 shoppers a day come from
+Westbrook", "60 tons of goods a day go to Eastfield".
+
+### Tests
+
+`RegionTests.CommutersShoppersAndGoodsCrossAndBothLedgersAgree`: two starter towns joined by one road; every month for
+a year each city's flows mirror the other's exactly, something crosses, the crossing has traffic, and the demand panel
+names the neighbour.

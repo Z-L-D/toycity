@@ -12,6 +12,8 @@ public sealed class NeighbourEdge
     public ushort[] Path = Array.Empty<ushort>();
     public bool[] Power = Array.Empty<bool>();
     public bool[] Pipe = Array.Empty<bool>();
+    /// <summary>The neighbour's published numbers (<see cref="World.Published"/>), as of the start of its month.</summary>
+    public int[] Stats = Array.Empty<int>();
     /// <summary>Equal signatures, equal edges: the region sends an edge again only when it changed.</summary>
     public string Sig = "";
 }
@@ -21,7 +23,7 @@ public sealed class NeighbourEdge
 /// neighbour's previous day. Paths are pairs of (cell, profile index + 1); Power and Pipes list cells. An empty Name
 /// means no city there (open land, or the region's edge). Logged, so a city's log replays it without its neighbours.
 /// </summary>
-public sealed record NeighbourEdgeAction(int Side, string Name, string Mayor, int[] Paths, int[] Power, int[] Pipes) : SimAction;
+public sealed record NeighbourEdgeAction(int Side, string Name, string Mayor, int[] Paths, int[] Power, int[] Pipes, int[]? Stats = null) : SimAction;
 
 public sealed partial class World
 {
@@ -67,11 +69,11 @@ public sealed partial class World
             if (WaterPipe[i] != 0) pipes.Add(k);
         }
         // The neighbour hears of this city across its own opposite side.
-        return new NeighbourEdgeAction(Opposite(side), Name, MayorSeat.Owner, paths.ToArray(), power.ToArray(), pipes.ToArray());
+        return new NeighbourEdgeAction(Opposite(side), Name, MayorSeat.Owner, paths.ToArray(), power.ToArray(), pipes.ToArray(), (int[])Published.Clone());
     }
 
     static string EdgeSig(NeighbourEdgeAction a) =>
-        $"{a.Name}|{a.Mayor}|{string.Join(",", a.Paths)}|{string.Join(",", a.Power)}|{string.Join(",", a.Pipes)}";
+        $"{a.Name}|{a.Mayor}|{string.Join(",", a.Paths)}|{string.Join(",", a.Power)}|{string.Join(",", a.Pipes)}|{string.Join(",", a.Stats ?? Array.Empty<int>())}";
 
     /// <summary>True when this action would change what the city knows of that side.</summary>
     public bool EdgeDiffers(NeighbourEdgeAction a) =>
@@ -81,7 +83,7 @@ public sealed partial class World
     {
         if (a.Name.Length == 0) { NextDoor[a.Side] = null; _edgeDirty = true; return; }
         int len = SideLength(a.Side);
-        var e = new NeighbourEdge { Name = a.Name, Mayor = a.Mayor, Path = new ushort[len], Power = new bool[len], Pipe = new bool[len], Sig = EdgeSig(a) };
+        var e = new NeighbourEdge { Name = a.Name, Mayor = a.Mayor, Path = new ushort[len], Power = new bool[len], Pipe = new bool[len], Sig = EdgeSig(a), Stats = (int[]?)a.Stats?.Clone() ?? Array.Empty<int>() };
         for (int j = 0; j + 1 < a.Paths.Length; j += 2)
             if (a.Paths[j] >= 0 && a.Paths[j] < len) e.Path[a.Paths[j]] = (ushort)a.Paths[j + 1];
         foreach (int k in a.Power) if (k >= 0 && k < len) e.Power[k] = true;
@@ -126,8 +128,11 @@ public sealed partial class World
             foreach (var v in n.Path) w.Write(v);
             foreach (var v in n.Power) w.Write(v);
             foreach (var v in n.Pipe) w.Write(v);
+            w.Write(n.Stats.Length);
+            foreach (var v in n.Stats) w.Write(v);
         }
         foreach (var c in SideCapacity) w.Write(c);
+        WriteFlows(w);
     }
 
     void ReadNeighbours(BinaryReader r)
@@ -140,8 +145,11 @@ public sealed partial class World
             for (int k = 0; k < len; k++) n.Path[k] = r.ReadUInt16();
             for (int k = 0; k < len; k++) n.Power[k] = r.ReadBoolean();
             for (int k = 0; k < len; k++) n.Pipe[k] = r.ReadBoolean();
+            n.Stats = new int[r.ReadInt32()];
+            for (int k = 0; k < n.Stats.Length; k++) n.Stats[k] = r.ReadInt32();
             NextDoor[s] = n;
         }
         for (int s = 0; s < 4; s++) SideCapacity[s] = r.ReadInt32();
+        ReadFlows(r);
     }
 }

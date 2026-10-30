@@ -1319,6 +1319,7 @@ message NeighbourEdge {
   repeated int32 paths = 4;  // pairs: cell, path profile index + 1
   repeated int32 power = 5;  // cells with a power line
   repeated int32 pipes = 6;  // cells with a water pipe
+  repeated int32 stats = 7;  // the neighbour's published numbers at the start of its month (World.Published)
 }
 
 message Fork {

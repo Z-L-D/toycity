@@ -311,6 +311,7 @@ public sealed partial class World
         }
         UpdateOrdinances();
         RunNeighborConnections();
+        RunBorderFlows();
         RecountWorkers();
         RunPollutionAndNoise();
         RunCoverage();

@@ -261,6 +261,7 @@ public sealed partial class World
         }
         // A bus carries about twenty commuters: it adds that much less to the traffic than their cars would.
         for (int i = 0; i < N; i++) if (bus[i] > 0) Trips[i] += Math.Max(1, bus[i] / 20);
+        AddBorderTraffic();
         if (Mod(ModKey.Traffic) != 0)
             for (int i = 0; i < N; i++) if (Trips[i] > 0) Trips[i] = Scaled(Trips[i], ModKey.Traffic);
         for (int i = 0; i < N; i++)

@@ -168,4 +168,56 @@ public class RegionTests
             Assert.Equal(t.City!.StateHash(), replay.StateHash());
         }
     }
+
+    [Fact]
+    public void CommutersShoppersAndGoodsCrossAndBothLedgersAgree()
+    {
+        using var r = Region.Create(Fixture.Content, "Twins", 23, 2, 1, 128);
+        var west = r.Found(0, 0, "Westbrook", "May", starter: true);
+        var east = r.Found(1, 0, "Eastfield", "Tess", starter: true);
+        r.Run(5);
+        // One road straight across the border, joined to both towns' street grids.
+        var wPlant = west.Buildings.First(b => b != null && west.TypeOf(b).Id == "coal-plant")!;
+        int y = wPlant.Y - 1;
+        int wx = Enumerable.Range(0, west.Width).Last(x => west.Path[west.Idx(x, y)] != 0 && x < west.Width - 2);
+        RoadEast(west, wx, y);
+        int ex = Enumerable.Range(0, east.Width).FirstOrDefault(x => x > 1 && east.Path[east.Idx(x, y)] != 0, -1);
+        if (ex < 0)
+        {
+            // Eastfield's grid doesn't reach that row: a road down to it from its own streets.
+            var any = Enumerable.Range(0, east.N).First(i => east.Path[i] != 0);
+            int ax = any % east.Width, ay = any / east.Width;
+            east.Enqueue(new TerraformAction(new CellRect(Math.Min(ax, 0), Math.Min(ay, y) - 1, ax + 1, Math.Max(ay, y) + 1), TerraformMode.Level));
+            east.Enqueue(new PlacePathAction(ax, ay, ax, y, "road"));
+            east.ApplyPending();
+            ex = ax;
+        }
+        // Flatten the way at the town's own height (not logged: this test doesn't replay).
+        byte h = east.Height[east.Idx(ex, y)];
+        for (int x = 0; x <= ex; x++) for (int yy = y - 1; yy <= y + 1; yy++) if (east.BuildingAt[east.Idx(x, yy)] == 0) east.Height[east.Idx(x, yy)] = h;
+        east.Enqueue(new PlacePathAction(0, y, ex, y, "road"));
+        east.ApplyPending();
+        r.Run(400);
+        Assert.True(west.Flows[1].Capacity > 0, $"the border is open: w cap {west.SideCapacity[1]} e cap {east.SideCapacity[3]} wpath {west.Path[west.SideCell(1, y)]} epath {east.Path[east.SideCell(3, y)]} ex {ex} y {y} pubW {string.Join(",", west.Published)} statsE {string.Join(",", west.NextDoor[1]?.Stats ?? new int[0])} rej {string.Join(" / ", west.Notices.Concat(east.Notices).Select(n => n.Text).Where(t => t.Contains("steep") || t.Contains("Can")).Take(4))}");
+        int crossings = 0;
+        for (int m = 0; m < 12; m++)
+        {
+            var a = west.Flows[1];
+            var b = east.Flows[3];
+            Assert.Equal(a.Capacity, b.Capacity);
+            Assert.Equal(a.CommuteOut, b.CommuteIn);
+            Assert.Equal(a.CommuteIn, b.CommuteOut);
+            Assert.Equal(a.ShoppersOut, b.ShoppersIn);
+            Assert.Equal(a.ShoppersIn, b.ShoppersOut);
+            Assert.Equal(a.TouristsOut, b.TouristsIn);
+            Assert.Equal(a.FreightOut, b.FreightIn);
+            Assert.Equal(a.FreightIn, b.FreightOut);
+            crossings += a.Vehicles;
+            r.Run(30);
+        }
+        Assert.True(crossings > 0, "something crossed in a year");
+        Assert.True(west.Trips[west.SideCell(1, y)] > 0, "the crossing has traffic");
+        var line = west.DemandReport()[1].Sources.First(l => l.Key == "regional").Detail;
+        Assert.Contains("Eastfield", line + west.DemandReport()[0].Sources.First(l => l.Key == "regional").Detail);
+    }
 }

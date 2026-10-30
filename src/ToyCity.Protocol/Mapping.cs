@@ -506,10 +506,10 @@ public static class Mapping
 
     public static P.NeighbourEdge Edge(NeighbourEdgeAction a) => new()
     {
-        Side = a.Side, Name = a.Name, Mayor = a.Mayor, Paths = { a.Paths }, Power = { a.Power }, Pipes = { a.Pipes },
+        Side = a.Side, Name = a.Name, Mayor = a.Mayor, Paths = { a.Paths }, Power = { a.Power }, Pipes = { a.Pipes }, Stats = { a.Stats ?? Array.Empty<int>() },
     };
 
-    public static NeighbourEdgeAction Edge(P.NeighbourEdge e) => new(e.Side, e.Name, e.Mayor, e.Paths.ToArray(), e.Power.ToArray(), e.Pipes.ToArray());
+    public static NeighbourEdgeAction Edge(P.NeighbourEdge e) => new(e.Side, e.Name, e.Mayor, e.Paths.ToArray(), e.Power.ToArray(), e.Pipes.ToArray(), e.Stats.ToArray());
 
     public static World Load(ContentDb content, byte[] data)
     {

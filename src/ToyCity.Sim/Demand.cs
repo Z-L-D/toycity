@@ -100,21 +100,35 @@ public sealed partial class World
         int l = p / 2;
         int jobs = JobsCommercial + JobsIndustrial + JobsCivic;
         bool connected = EdgeCapacity > 0;
+        // Roads to open land and past the region's edge reach the abstract region; roads to a neighbouring city carry
+        // its real commuters, shoppers, visitors and goods instead (BorderFlows).
+        int openCap = EdgeCapacity - Enumerable.Range(0, 4).Where(s => NextDoor[s] != null).Sum(s => SideCapacity[s]);
+        int jobsNextDoor = 0, shoppersIn = 0, shoppersOut = 0, freightOut = 0;
+        for (int s = 0; s < 4; s++)
+        {
+            var f = Flows[s];
+            if (f.Capacity == 0 || NextDoor[s] is not { Stats.Length: PubCount } n) continue;
+            jobsNextDoor += Math.Min(n.Stats[PubSpareJobs] / 2, f.Capacity / 4);
+            shoppersIn += f.ShoppersIn + f.TouristsIn;
+            shoppersOut += f.ShoppersOut;
+            freightOut += f.FreightOut;
+        }
 
-        // Residential: points straight from each source.
-        _sourcePoints[0, 0] = 60 * (jobs - l) / Math.Max(l, 100);
-        _sourcePoints[0, 1] = 40 * RegionalScale / (RegionalScale + p);
+        // Residential: points straight from each source. Residents who work next door have jobs; jobs here taken by
+        // the neighbours' commuters don't.
+        _sourcePoints[0, 0] = 60 * (jobs - CommuteInTotal + CommuteOutTotal - l) / Math.Max(l, 100);
+        _sourcePoints[0, 1] = 40 * RegionalScale / (RegionalScale + p) + Math.Min(30, 60 * Math.Max(0, jobsNextDoor - CommuteOutTotal) / Math.Max(l, 100));
         _sourcePoints[0, 2] = Math.Min(15, Attraction);
         _existingPoints[0] = 0;
 
         // Commercial and industrial: each source asks for a number of jobs; demand is the gap to jobs that exist.
-        int cLocal = p / 4;
-        int cRegional = connected ? Math.Min(p / 10, EdgeCapacity / 4) : 0;
+        int cLocal = Math.Max(0, p / 4 - shoppersOut / 2);
+        int cRegional = (connected ? Math.Min(p / 10, Math.Max(0, openCap) / 4) : 0) + shoppersIn / 2;
         int cExternal = Attraction * 10;
         SplitTargets(1, cLocal, cRegional, cExternal, JobsCommercial, 40);
 
-        int iLocal = l * 45 / 100;
-        int iExternal = 50 + (connected ? Math.Min(EdgeCapacity / 8, 1000) : 0);
+        int iLocal = (l + CommuteInTotal) * 45 / 100;
+        int iExternal = 50 + (connected ? Math.Min(Math.Max(0, openCap) / 8, 1000) : 0) + Math.Min(freightOut * 2, 1000);
         // Goods a transit company carries out to the edge are sold abroad, and factories want to make more of them.
         iExternal += Math.Min(FreightExportDaily * 2, 600);
         SplitTargets(2, iLocal, 0, iExternal, JobsIndustrial, 50);
@@ -185,6 +199,13 @@ public sealed partial class World
             : "No road leaves the map, so the region reaches you only by back roads. Build a road to the map edge.";
         var room = GrowableLots();
         int[] bias = WealthBias(EducationIndex, p);
+        // What crosses each border to a neighbouring city, named, for the panel's lines.
+        string Across(Func<BorderFlow, int> pick, string what)
+        {
+            var parts = Enumerable.Range(0, 4).Where(s => NextDoor[s] != null && pick(Flows[s]) > 0)
+                .Select(s => $"{pick(Flows[s]):N0} {what} {NextDoor[s]!.Name}").ToList();
+            return parts.Count == 0 ? "" : " " + string.Join("; ", parts) + ".";
+        }
 
         for (int z = 0; z < 3; z++)
         {
@@ -201,7 +222,8 @@ public sealed partial class World
                         jobs >= l ? $"{jobs:N0} jobs for {l:N0} workers: people move in to fill them."
                                   : $"{l:N0} workers for {jobs:N0} jobs: newcomers would have nowhere to work."));
                     sources.Add(new DemandLine("regional", "Pull from the region", Same(_sourcePoints[0, 1]),
-                        $"Small towns draw people from the region; the pull halves by {RegionalScale:N0} people. {edgeNote}"));
+                        $"Small towns draw people from the region; the pull halves by {RegionalScale:N0} people. {edgeNote}"
+                        + Across(f => f.CommuteOut, "of your residents work in") + Across(f => f.CommuteIn, "people commute here from")));
                     sources.Add(new DemandLine("external", "Sights", Same(_sourcePoints[0, 2]),
                         Attraction > 0 ? $"Parks and landmarks (attraction {Attraction}) draw people who stay." : "No parks or landmarks to draw people yet."));
                     adjustments.Add(new DemandLine("education", "Education", new[] { bias[0], bias[1], bias[2] },
@@ -210,7 +232,8 @@ public sealed partial class World
                 case Zone.Commercial:
                     sources.Add(new DemandLine("local", "Shoppers in town", Same(_sourcePoints[1, 0]), $"{p:N0} residents support about {p / 4:N0} shop jobs."));
                     sources.Add(new DemandLine("regional", "Shoppers from the region", Same(_sourcePoints[1, 1]),
-                        EdgeCapacity > 0 ? $"Neighbours drive in to shop. {edgeNote}" : edgeNote));
+                        (EdgeCapacity > 0 ? $"Neighbours drive in to shop. {edgeNote}" : edgeNote)
+                        + Across(f => f.ShoppersIn, "shoppers a day come from") + Across(f => f.TouristsIn, "visitors a day come from") + Across(f => f.ShoppersOut, "of your residents shop in")));
                     sources.Add(new DemandLine("external", "Tourists", Same(_sourcePoints[1, 2]),
                         Attraction > 0 ? $"Visitors come for the sights (attraction {Attraction}) and spend money." : "Build parks and landmarks to bring tourists."));
                     sources.Add(new DemandLine("existing", "Shops already open", Same(_existingPoints[1]), $"{JobsCommercial:N0} shop jobs exist or are being built."));
@@ -220,7 +243,8 @@ public sealed partial class World
                     sources.Add(new DemandLine("local", "Workers in town", Same(_sourcePoints[2, 0]), $"Industry wants to hire about 45% of the {l:N0} workers."));
                     sources.Add(new DemandLine("external", "Exports", Same(_sourcePoints[2, 2]),
                         (EdgeCapacity > 0 ? $"Freight leaves by road to the region. {edgeNote}" : $"Some goods sell by back roads. {edgeNote}")
-                        + (FreightExportDaily > 0 ? $" Company freight carries {FreightExportDaily:N0} tons a day out of the city." : "")));
+                        + (FreightExportDaily > 0 ? $" Company freight carries {FreightExportDaily:N0} tons a day out of the city." : "")
+                        + Across(f => f.FreightOut, "tons of goods a day go to")));
                     sources.Add(new DemandLine("existing", "Factories already open", Same(_existingPoints[2]), $"{JobsIndustrial:N0} industrial jobs exist or are being built."));
                     adjustments.Add(new DemandLine("education", "Education", new[] { bias[6], bias[7], bias[8] },
                         $"Education is {EducationIndex}%: high-tech needs it, dirty industry avoids it."));
