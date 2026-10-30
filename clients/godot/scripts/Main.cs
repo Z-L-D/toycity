@@ -40,6 +40,8 @@ public partial class Main : Node
     DisasterView? _disasters;
     Label? _status, _hover;
     bool _smoke, _centred;
+    string? _tile;  // --tile COL,ROW
+    string _cityShown = "";
     string? _user;  // --user, the name signed in with
     string? _shots, _bench;
     bool _frozen;  // the bench city is drawn from a fixed state; the server's deltas would undo it
@@ -66,8 +68,11 @@ public partial class Main : Node
             if (args[i] == "--user" && i + 1 < args.Length) user = args[++i];
             if (args[i] == "--password" && i + 1 < args.Length) password = args[++i];
             if (args[i] == "--new-account") newAccount = true;
+            if (args[i] == "--tile" && i + 1 < args.Length) _tile = args[++i];
         }
         if (!Uri.TryCreate(server, UriKind.Absolute, out var uri)) uri = new Uri(server = "ws://localhost:5180/ws");
+        // --tile COL,ROW opens one city of the region: its own window, as the region map's "Own window" starts it.
+        if (_tile != null) uri = new Uri($"{server}{(server.Contains('?') ? '&' : '?')}tile={Uri.EscapeDataString(_tile)}");
         _user = user;
         var credentials = user != null && password != null ? new Protocol.V0.SignIn { Name = user, Password = password, Create = newAccount } : SignInPanel.StoredCredentials(server);
         _client = new CityClient(uri, credentials: credentials);
@@ -184,6 +189,10 @@ public partial class Main : Node
         LoadGraphics();
         _panels.GraphicsPressed += _graphicsPanel!.Toggle;
         ApplyGraphics();
+        // The region map, over everything while it's open; a city of it can open in a window of its own.
+        AddChild(new RegionScreen(pm.Region, () => pm.Version));
+        pm.Region.OwnWindow += (col, row) => OS.CreateProcess(OS.GetExecutablePath(),
+            OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", server, "--tile", $"{col},{row}" }).ToArray());
         pm.Company.OwnWindow += () => OS.CreateProcess(OS.GetExecutablePath(),
             OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", server, "--company" }).ToArray());
     }
@@ -216,6 +225,7 @@ public partial class Main : Node
             _view!.Tick(delta, c.TakeRemoved());
             _camera!.Shake = _disasters!.Shake;
             if (_centred && _camera!.MapWidth != c.Width) _centred = false;  // a new city of another size
+            if (_centred && c.Stats.CityName != _cityShown) _centred = false;  // another city of the region
             if (!_centred)
             {
                 _camera!.MapWidth = c.Width;
@@ -227,6 +237,7 @@ public partial class Main : Node
                 if (built.Count > 0) _camera.CentreOn(built.Average(b => b.X + b.Width / 2f), built.Average(b => b.Y + b.Height / 2f));
                 else _camera.CentreOn(c.Width / 2f, c.Height / 2f);
                 _centred = true;
+                _cityShown = c.Stats.CityName;
             }
             var cell = _camera!.Pick(GetViewport().GetMousePosition(), _view!);
             _view!.Hover(cell);
@@ -314,9 +325,10 @@ public partial class Main : Node
           (0, 3, ViewMode.Classic),  // a building's Why panel over the land value layer, with street names
           (0, 1, ViewMode.Classic),  // the bus company's view
           (0, 1, ViewMode.Classic), (0, 1, ViewMode.Classic), (0, 1, ViewMode.Classic),  // the emergency services' screen: the board, a scene, its report
+          (0, 1, ViewMode.Classic),  // the region map
           (0, 4, ViewMode.Classic), (0, 3, ViewMode.Classic) };  // the free camera: smoothed buildings up close, then from farther off
     // The views that set something up first, by their place in the list.
-    const int ZoneShot = 8, RoadShot = 9, WhyShot = 10, CompanyShot = 11, BoardShot = 12, SceneShot = 13, ReportShot = 14, FreeShot = 15;
+    const int ZoneShot = 8, RoadShot = 9, WhyShot = 10, CompanyShot = 11, BoardShot = 12, SceneShot = 13, ReportShot = 14, RegionShot = 15, FreeShot = 16;
 
     /// <summary>The smoke test: once the city is drawn, picking at the screen centre must find it at every rotation.</summary>
     void Smoke(CityMirror c, double delta)
@@ -377,6 +389,7 @@ public partial class Main : Node
             {
                 _panels!.Model.Click("co-city");
                 _panels.Model.Click("em-city");
+                _panels.Model.Click("rg-close");
                 var town = c.Buildings.Values.Where(b => !c.IsRoadside(b)).ToList();
                 if (town.Count > 0) _camera.CentreOn(town.Average(b => b.X + b.Width / 2f), town.Average(b => b.Y + b.Height / 2f));
                 _camera.ToggleFree();
@@ -398,6 +411,13 @@ public partial class Main : Node
             // A made-up house fire, as the service would send it, to show a scene and then its report.
             else pm.Emergency.Handle(SampleScene(pm.Me(), at == ReportShot));
             _wait = 10;
+        }
+        else if (at == RegionShot)
+        {
+            _panels!.Model.Click("em-city");
+            _panels.Model.Click("rg-open");
+            _panels.Model.Click("rg-pick:2:1");
+            _wait = 15;
         }
         else if (at == CompanyShot)
         {

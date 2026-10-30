@@ -2,7 +2,7 @@ using Microsoft.Extensions.FileProviders;
 using ToyCity.Server;
 using ToyCity.Sim;
 
-// ToyCity server: runs one city and serves the web client.
+// ToyCity server: runs a region of cities and serves the web client.
 //   dotnet run --project src/ToyCity.Server [-- --urls http://0.0.0.0:5180]
 //   dotnet run --project src/ToyCity.Server -- --dedicated    players sign in; host.json beside the saves sets who may join
 // Settings (appsettings or environment): ToyCity:ContentDir, ToyCity:SaveDir, ToyCity:WebDir, ToyCity:Dedicated,
@@ -20,16 +20,19 @@ string saveDir = builder.Configuration["ToyCity:SaveDir"] ?? Path.Combine(repoRo
 string webDir = builder.Configuration["ToyCity:WebDir"] ?? Path.Combine(repoRoot, "clients", "web", "dist");
 
 var host = dedicated ? HostConfig.LoadOrCreate(builder.Configuration["ToyCity:HostConfig"] ?? Path.Combine(saveDir, "host.json")) : HostConfig.Solo();
-builder.Services.AddSingleton(sp => new SimHost(ContentDb.Load(contentDir), saveDir, sp.GetRequiredService<ILogger<SimHost>>(), host));
+builder.Services.AddSingleton(sp => new RegionHost(ContentDb.Load(contentDir), saveDir, sp.GetRequiredService<ILogger<RegionHost>>(), host));
 
 var app = builder.Build();
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
 
-app.Map("/ws", async (HttpContext ctx, SimHost host) =>
+// /ws?tile=COL,ROW opens a city of the region directly (its own window, say); plain /ws lands in the player's own.
+app.Map("/ws", async (HttpContext ctx, RegionHost host) =>
 {
     if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = 400; return; }
+    (int, int)? tile = null;
+    if (ctx.Request.Query["tile"].ToString().Split(',') is [var c, var r] && int.TryParse(c, out int col) && int.TryParse(r, out int row)) tile = (col, row);
     using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
-    await host.RunClientAsync(socket, ctx.RequestAborted);
+    await host.RunClientAsync(socket, tile, ctx.RequestAborted);
 });
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
@@ -52,7 +55,7 @@ else
 }
 
 // Start the sim as soon as the server is up, not on the first connection.
-app.Services.GetRequiredService<SimHost>();
+app.Services.GetRequiredService<RegionHost>();
 app.Logger.LogInformation("ToyCity content: {Content}, saves: {Saves}", contentDir, saveDir);
 if (dedicated) app.Logger.LogInformation("Dedicated server \"{Name}\": joining is {Join}; settings in {Path}", host.Name, host.Join, host.Path);
 app.Run();

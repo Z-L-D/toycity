@@ -28,6 +28,10 @@ message ClientMessage {
     OrdinancesRequest ordinances = 14;
     AdvisorsRequest advisors = 15;
     SignIn sign_in = 16;
+    FoundCity found_city = 17;
+    NewRegionRequest new_region = 18;
+    RegionRequest region = 19;
+    GoToCity go_to = 20;
   }
 }
 
@@ -471,6 +475,64 @@ message NewCityRequest {
   bool benchmark = 5;  // the benchmark city: 256 cells a side with every dry block built up (ignores size and starter_town)
 }
 
+// Beta 3: founds a city on an open tile of this region. The founder is its mayor. The reply is the new RegionState;
+// the client then opens the city by connecting with ?tile=COL,ROW.
+message FoundCity {
+  int32 col = 1;
+  int32 row = 2;
+  string name = 3;
+  bool starter_town = 4;
+}
+
+// Beta 3, admins only: a new region of open land, with a starter city on the middle tile when starter_town is set.
+message NewRegionRequest {
+  string name = 1;
+  uint64 seed = 2;
+  int32 cols = 3;       // 1..8
+  int32 rows = 4;       // 1..8
+  int32 tile_size = 5;  // 64, 128 or 256
+  bool starter_town = 6;
+  string city_name = 7;  // the middle tile's city
+}
+
+// Moves this connection to another founded city of the region. The server answers with that city's FullState and
+// the rest of what a joining client gets, then a RegionState; or, for a city served elsewhere, a RegionState whose
+// tile carries its address, to connect to.
+message GoToCity {
+  int32 col = 1;
+  int32 row = 2;
+}
+
+// Asks for the region state now (it also comes unasked).
+message RegionRequest {}
+
+// The region map: every tile, founded or open, with a small picture of it.
+message RegionState {
+  string name = 1;
+  int32 cols = 2;
+  int32 rows = 3;
+  int32 tile_size = 4;
+  int64 tick = 5;
+  repeated RegionTileState tiles = 6;  // row by row
+  int32 here_col = 7;  // the tile this connection is in
+  int32 here_row = 8;
+  int32 speed = 9;     // the region's speed, the slowest any mayor here asked for
+  string speed_set_by = 10;  // who holds it there, when it's slower than the host's choice
+}
+
+message RegionTileState {
+  int32 col = 1;
+  int32 row = 2;
+  bool founded = 3;
+  string name = 4;
+  string mayor = 5;
+  int32 population = 6;
+  bytes picture = 7;   // RegionPictureSize^2 RGB triples, row-major, north up
+  repeated string players = 8;  // players in this city now
+  int64 funds = 9;
+  string address = 10;  // where this tile's city is served, when not by the server this came from (federated)
+}
+
 message SetSpeed {
   int32 speed = 1;  // 0 = paused, 1..3
 }
@@ -517,6 +579,7 @@ message ServerMessage {
     SignedIn signed_in = 20;
     Presence presence = 21;  // who is here; sent when someone joins or leaves
     DelinkCopy delink_copy = 22;  // to a player who just de-linked: their copy of the city, as a save
+    RegionState region = 23;  // the region this city is in: sent on joining, monthly, and when a tile changes hands
   }
 }
 
@@ -1214,6 +1277,24 @@ message SaveGame {
   int64 tick = 6;
   bytes world = 7;  // the sim's own binary world snapshot (versioned by format_version)
   repeated ActionRecord log = 8;
+}
+
+// A region save: the region's shape and day, and a SaveGame for each founded city.
+message RegionSave {
+  uint32 format_version = 1;
+  string name = 2;
+  uint64 seed = 3;
+  int32 cols = 4;
+  int32 rows = 5;
+  int32 tile_size = 6;
+  int64 tick = 7;
+  repeated RegionSavedCity cities = 8;
+}
+
+message RegionSavedCity {
+  int32 col = 1;
+  int32 row = 2;
+  bytes save = 3;  // a SaveGame
 }
 
 message ActionRecord {

@@ -19,24 +19,40 @@ public sealed partial class SimHost
 
     string ProfilePath => Path.Combine(_saveDir, "agent-tiers.json");
 
+    /// <summary>One benchmark per save folder, shared by every city of the region.</summary>
+    static readonly Dictionary<string, Task<AgentProfile?>> Benchmarks = new();
+
     void LoadAgentTiers()
     {
         _profile = AgentTiers.Load(ProfilePath);
-        if (_profile != null) { _log.LogInformation("agent tiers: full {Full}, light {Light} (measured {When:u})", _profile.Full, _profile.Light, _profile.MeasuredUtc); return; }
-        _log.LogInformation("no agent tiers for this machine yet; measuring in the background");
-        _ = Task.Run(() =>
+        if (_profile != null) return;
+        Task<AgentProfile?> bench;
+        lock (Benchmarks)
         {
-            try
+            if (!Benchmarks.TryGetValue(ProfilePath, out bench!))
             {
-                var p = AgentBenchmark.Run(_content, quick: true, m => _log.LogInformation("benchmark: {Message}", m));
-                AgentBenchmark.Save(p, ProfilePath);
-                lock (_gate)
+                _log.LogInformation("no agent tiers for this machine yet; measuring in the background");
+                string path = ProfilePath;
+                Benchmarks[path] = bench = Task.Run(() =>
                 {
-                    _profile = p;
-                    if (_agents != null) { _agents.Tiers = p.Tiers; _agents.Select(); }
-                }
+                    try
+                    {
+                        var p = AgentBenchmark.Run(_content, quick: true, m => _log.LogInformation("benchmark: {Message}", m));
+                        AgentBenchmark.Save(p, path);
+                        return (AgentProfile?)p;
+                    }
+                    catch (Exception e) { _log.LogWarning(e, "agent benchmark failed; keeping the default tiers"); return null; }
+                });
             }
-            catch (Exception e) { _log.LogWarning(e, "agent benchmark failed; keeping the default tiers"); }
+        }
+        bench.ContinueWith(t =>
+        {
+            if (t.Result is not { } p) return;
+            lock (_gate)
+            {
+                _profile = p;
+                if (_agents != null) { _agents.Tiers = p.Tiers; _agents.Select(); }
+            }
         });
     }
 

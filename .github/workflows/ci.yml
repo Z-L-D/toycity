@@ -126,7 +126,7 @@ jobs:
           montage shots/*.png -tile 4x -geometry 320x180+1+1 -quality 45 sheet.jpg
           echo "::group::sheet.jpg base64"; echo "SHEET-BEGIN"; base64 -w 0 sheet.jpg; echo; echo "SHEET-END"; echo "::endgroup::"
           # The screens with the most UI at full size, so the panels can be read.
-          for n in 0 10 11 12 13 14; do
+          for n in 0 10 11 12 13 14 15; do
             f=$(ls shots/view-$n-*.png 2>/dev/null | head -1)
             [ -n "$f" ] || continue
             convert "$f" -quality 70 "ui-$n.jpg"

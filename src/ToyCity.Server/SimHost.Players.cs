@@ -17,7 +17,8 @@ public sealed partial class SimHost
             _awayTimer = new Timer(_ => CheckAway(), null, 1000, 1000);
     }
 
-    bool Online(string player) => _clients.Any(c => c.Player == player);
+    /// <summary>Online anywhere in the region: a mayor looking at a neighbour's city hasn't left their own.</summary>
+    bool Online(string player) => _region.Online(player);
 
     /// <summary>A player's connection closed. Caller holds the gate.</summary>
     void Left(Client c)
@@ -110,7 +111,7 @@ public sealed partial class SimHost
     /// A city has just been loaded or founded by an admin: it gets a real mayor, the host's minimums, and the consent
     /// settings of everyone here. Caller holds the gate.
     /// </summary>
-    void Arrived(string admin)
+    internal void Arrived(string admin)
     {
         EnsureMayor(admin);
         ApplyHostRules();

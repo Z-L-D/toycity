@@ -253,7 +253,7 @@ public sealed partial class World
     void RollDisaster()
     {
         // A young town gets a grace period: nothing happens by itself in the first three years or under 1,000 people.
-        if (DisasterSetting == DisasterSetting.Off || Population < 1000 || Tick < 3 * MonthsPerYear * DaysPerMonth) return;
+        if (DisasterSetting == DisasterSetting.Off || Population < 1000 || Age < 3 * MonthsPerYear * DaysPerMonth) return;
         int oneIn = DisasterSetting == DisasterSetting.Rare ? 120 : 36;
         if (Rng.Next(oneIn) != 0) return;
         var built = Buildings.Where(b => b is { ConstructionLeft: 0 }).Select(b => b!).ToList();

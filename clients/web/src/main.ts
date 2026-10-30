@@ -6,6 +6,7 @@ import { TalkBack } from './talkback';
 import { Seats } from './seats';
 import { Transport } from './transport';
 import { Emergency } from './emergency';
+import { Region } from './region';
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -86,6 +87,7 @@ let talk: TalkBack | null = null;
 let seats: Seats | null = null;
 let transport: Transport | null = null;
 let emergency: Emergency | null = null;
+let region: Region | null = null;
 /** The followed commuters and this machine's tiers, as the server last sent them. */
 let roster: Msg | null = null;
 
@@ -125,7 +127,9 @@ const conn = new Connection({
         break;
       }
       case 'full': {
-        const first = !city.loaded || city.width !== body.width;
+        // A different city (moved within the region, or loaded): centre on it like the first time.
+        const first = !city.loaded || city.width !== body.width || city.stats.cityName !== body.stats?.cityName;
+        region?.onFull();
         city.applyFull(body);
         if (first) {
           renderer.scale = Math.max(4, Math.min(12, Math.floor(Math.min(canvas.clientWidth, canvas.clientHeight) / city.width) * 1.6));
@@ -177,6 +181,10 @@ const conn = new Connection({
       case 'error':
         toast(body.message, 'error');
         emergency?.refused();
+        region?.refused();
+        break;
+      case 'region':
+        region?.onRegion(body);
         break;
       case 'sideGame':
         transport?.onView(body);
@@ -1069,21 +1077,30 @@ function renderPresence(p: Msg) {
 
 /** Only admins save, load, found cities and set the speed; everyone else doesn't see the buttons. */
 function updateAdmin() {
-  for (const id of ['#btn-new', '#btn-save', '#btn-load', '#speed']) $(id).classList.toggle('hidden', !conn.admin);
+  for (const id of ['#btn-new', '#btn-save', '#btn-load']) $(id).classList.toggle('hidden', !conn.admin);
+  // Mayors may slow the region's one clock (or pause it for a couple of minutes); admins set it.
+  $('#speed').classList.toggle('hidden', !conn.admin && !region?.isMayor(conn.player));
 }
 
 $('#btn-new').addEventListener('click', () => {
   form.innerHTML = `
-    <h3>New city</h3>
+    <h3>New region or city</h3>
+    <label>Start</label><select name="kind"><option value="region" selected>A region: tiles of open land, your city in the middle</option><option value="city">A single city on its own</option></select>
+    <label>Region size (tiles)</label><select name="tiles"><option value="2">2 × 2</option><option value="3" selected>3 × 3</option><option value="4">4 × 4</option><option value="5">5 × 5</option></select>
     <label>Name</label><input type="text" name="name" value="New City" maxlength="40">
     <label>Seed (blank for random)</label><input type="number" name="seed" min="1">
     <label>Map size</label><select name="size"><option value="64">Small (64 × 64, 1 km)</option><option value="128" selected>Medium (128 × 128, 2 km)</option><option value="256">Large (256 × 256, 4 km)</option></select>
     <label><input type="checkbox" name="starter"> Start with a small working town</label>
-    <label><input type="checkbox" name="benchmark"> Benchmark city: 256 × 256, every block built</label>
-    <div class="actions"><button value="cancel">Cancel</button><button value="ok" class="active">Found city</button></div>`;
+    <label><input type="checkbox" name="benchmark"> Benchmark city: 256 × 256, every block built (a single city)</label>
+    <div class="actions"><button value="cancel">Cancel</button><button value="ok" class="active">Start</button></div>`;
   dlg.onclose = () => {
     if (dlg.returnValue !== 'ok') return;
     const fd = new FormData(form);
+    if (fd.get('kind') === 'region' && fd.get('benchmark') !== 'on') {
+      const n = Number(fd.get('tiles'));
+      conn.send({ newRegion: { name: `${String(fd.get('name') || 'New')} Region`, cityName: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), cols: n, rows: n, tileSize: Number(fd.get('size')), starterTown: fd.get('starter') === 'on' } });
+      return;
+    }
     conn.send({ newCity: { name: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), size: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', benchmark: fd.get('benchmark') === 'on' } });
   };
   dlg.showModal();
@@ -1151,7 +1168,8 @@ transport = new Transport({
   },
 });
 emergency = new Emergency({ conn, jumpTo, toast });
+region = new Region({ conn, toast, onRegion: () => { updateAdmin(); updateTopBar(); } });
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.
-(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport, emergency };
+(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport, emergency, region };

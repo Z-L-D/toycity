@@ -36,6 +36,7 @@ public sealed partial class PanelModel
         Company.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Company.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
         Emergency = new EmergencyModel(send, Changed) { Me = () => Me() };
+        Region = new RegionModel(send, Changed) { Me = () => Me() };
         Emergency.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Emergency.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
         Emergency.Flash += (x0, y0, x1, y1) => Flash?.Invoke(new Rect { X0 = x0, Y0 = y0, X1 = x1, Y1 = y1 });
@@ -45,6 +46,8 @@ public sealed partial class PanelModel
 
     /// <summary>The bus company's own view, which can take the panel's place.</summary>
     public readonly CompanyModel Company;
+    /// <summary>The region map, which takes the whole screen while it's open.</summary>
+    public readonly RegionModel Region;
     /// <summary>The emergency services' dispatch board, shown in the "dispatch" dialog.</summary>
     public readonly EmergencyModel Emergency;
 
@@ -106,6 +109,7 @@ public sealed partial class PanelModel
     /// <summary>Takes one message from the server. Call for every message, after the city mirror has applied it.</summary>
     public void Handle(ServerMessage m)
     {
+        Region.Handle(m);
         switch (m.BodyCase)
         {
             case ServerMessage.BodyOneofCase.Full:
@@ -388,6 +392,8 @@ public sealed partial class PanelModel
         // One side game's screen at a time.
         if (meta == "co-open" && Emergency.Active) Emergency.SetActive(false);
         if (meta == "em-open") { if (Company.Active) Company.SetActive(false); Dialog = null; }
+        if (meta == "rg-open") { Company.SetActive(false); Emergency.SetActive(false); Dialog = null; }
+        if (meta.StartsWith("rg-")) { Region.Click(meta); return; }
         if (meta.StartsWith("co-")) { Company.Click(meta); return; }
         if (meta.StartsWith("em-")) { Emergency.Click(meta); return; }
         var a = meta.Split(':');

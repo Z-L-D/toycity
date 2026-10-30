@@ -170,7 +170,8 @@ public partial class PanelView : CanvasLayer
         _dispatch.TooltipText = "Switch to the emergency services' own screen";
         _dispatch.Visible = false;
         row.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
-        Btn("New city", () => Model.OpenDialog("new"), row);
+        Btn("🗺 Region", () => Model.Click("rg-open"), row).TooltipText = "The region map: the cities around this one, and open land to found more";
+        Btn("New", () => Model.OpenDialog("new"), row);
         Btn("Save", () => Model.OpenDialog("save"), row);
         Btn("Load", () => Model.OpenDialog("load"), row);
         Btn("Graphics", () => GraphicsPressed?.Invoke(), row);

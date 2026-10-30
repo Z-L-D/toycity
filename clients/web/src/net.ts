@@ -67,9 +67,11 @@ export class Connection {
   private url(): string {
     const params = new URLSearchParams(location.search);
     const server = params.get('server');
-    if (server) return server;
+    // ?tile=COL,ROW opens one city of the region, in a window of its own say.
+    const tile = params.get('tile');
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${scheme}://${location.host}/ws`;
+    const base = server ?? `${scheme}://${location.host}/ws`;
+    return tile ? `${base}${base.includes('?') ? '&' : '?'}tile=${encodeURIComponent(tile)}` : base;
   }
 
   private open() {
@@ -140,7 +142,8 @@ export class Connection {
   }
 
   private tokenKey() {
-    return `toycity-token:${this.url()}`;
+    // One token per server, whichever city of its region a window opens.
+    return `toycity-token:${this.url().replace(/[?&]tile=[^&]*/, '')}`;
   }
 
   private storedToken(): string {

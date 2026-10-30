@@ -506,7 +506,7 @@ public static class Mapping
     public static World Load(ContentDb content, byte[] data)
     {
         var s = P.SaveGame.Parser.ParseFrom(data);
-        if (s.FormatVersion != World.FormatVersion) throw new InvalidDataException($"save format {s.FormatVersion} is not supported");
+        if (s.FormatVersion != World.FormatVersion && s.FormatVersion != 5) throw new InvalidDataException($"save format {s.FormatVersion} is not supported");
         var w = World.FromSnapshot(content, s.World.ToByteArray());
         foreach (var r in s.Log)
         {

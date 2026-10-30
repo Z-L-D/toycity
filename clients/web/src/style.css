@@ -456,3 +456,25 @@ body.company #hints { display: none; }
 #em canvas { width: 100%; image-rendering: pixelated; border: 1px solid #3a4660; cursor: crosshair; display: block; }
 #em .em-orders { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
 #em .em-events { margin-top: 6px; max-height: 120px; overflow-y: auto; }
+
+/* The region map: replaces the whole interface while it's open. */
+#region { position: fixed; inset: 0; z-index: 50; background: #12161f; display: flex; flex-direction: column; }
+#region.hidden { display: none; }
+#region .rg-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #1a2030; border-bottom: 2px solid #4a7fe0; }
+#region .spacer { flex: 1; }
+#rg-body { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 16px; overflow: auto; }
+.rg-map { display: grid; gap: 3px; flex: 1; max-width: min(78vh, 100%); align-self: flex-start; }
+.rg-tile { position: relative; padding: 0; border: 2px solid transparent; background: none; cursor: pointer; aspect-ratio: 1; }
+.rg-tile canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.rg-tile.open canvas { filter: saturate(0.6) brightness(0.8); }
+.rg-tile.here { border-color: #4a7fe0; }
+.rg-tile.picked { border-color: #f0c030; }
+.rg-tile:hover { border-color: #ffffff88; }
+.rg-label { position: absolute; left: 4px; bottom: 4px; right: 4px; text-align: left; font-weight: bold; color: #fff; text-shadow: 0 1px 3px #000, 0 0 2px #000; font-size: 0.9em; }
+.rg-who { font-weight: normal; opacity: 0.9; }
+.rg-side { width: 280px; flex-shrink: 0; }
+.rg-side label { display: block; margin-top: 8px; }
+.rg-side input[type=text] { width: 100%; }
+.rg-side .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+.rg-pending { color: var(--warn); animation: em-pulse 1.2s ease-in-out infinite; }
+@media (max-width: 700px) { #rg-body { flex-direction: column; } .rg-side { width: auto; } }

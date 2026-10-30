@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 5;
+    public const int FormatVersion = 6;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -82,6 +82,10 @@ public sealed partial class World
     public ulong Seed { get; }
     public string Name { get; set; }
     public long Tick { get; private set; }
+    /// <summary>The day this city was founded: 0 for a lone city, the region's day for a tile founded later.</summary>
+    public long FoundedTick { get; private set; }
+    /// <summary>Days since the city was founded. Grace periods and first-day checks count from here.</summary>
+    public long Age => Tick - FoundedTick;
     public Rng Rng { get; private set; }
 
     // Persistent cell layers (row-major, index = y * Width + x).
@@ -192,6 +196,24 @@ public sealed partial class World
         return w;
     }
 
+    /// <summary>
+    /// Founds a city on a region tile: the ground is the region's, cut out for this tile, and the calendar starts on
+    /// the region's day so every tile shares one clock.
+    /// </summary>
+    public static World CreateTile(ContentDb content, ulong seed, int size, string name, byte[] heights, long tick)
+    {
+        if (size is not (64 or 128 or 256)) throw new ArgumentOutOfRangeException(nameof(size), "size must be 64, 128 or 256");
+        if (heights.Length != size * size) throw new ArgumentException("heights must cover the tile", nameof(heights));
+        var w = new World(content, size, size, seed, name) { Tick = tick, FoundedTick = tick };
+        w.Funds = content.StartingFunds;
+        heights.CopyTo(w.Height, 0);
+        w.RecomputeWaterDistance();
+        w.RunMonthly();
+        w.RunUtilities();
+        w.UpdateStats();
+        return w;
+    }
+
     public bool InBounds(int x, int y) => x >= 0 && y >= 0 && x < Width && y < HeightCells;
     public int Idx(int x, int y) => y * Width + x;
     public bool IsWater(int i) => Height[i] < WaterLevel;
@@ -250,11 +272,11 @@ public sealed partial class World
         if (stasis) HoldPrompts();
         else RunDisasters();
 
-        if (Day == 1 && Tick > 0) RunMonthly();
+        if (Day == 1 && Age > 0) RunMonthly();
         RunUtilities();
         // Coverage is cheap and petitions hang on it, so a new station counts from the day it opens.
         RunCoverage();
-        if (!stasis && Tick > 0) CheckPetitions();
+        if (!stasis && Age > 0) CheckPetitions();
         if (!stasis)
         {
             RunConstruction();
@@ -278,7 +300,7 @@ public sealed partial class World
     /// </summary>
     void RunMonthly()
     {
-        bool live = Tick > 0 && !InStasis;
+        bool live = Age > 0 && !InStasis;
         if (live)
         {
             CloseFreightMonth();
@@ -373,6 +395,7 @@ public sealed partial class World
             WriteLeases(w);
             WriteAuthority(w);
             WriteRoles(w);
+            w.Write(FoundedTick);
         }
         return ms.ToArray();
     }
@@ -382,7 +405,8 @@ public sealed partial class World
     {
         using var r = new BinaryReader(new MemoryStream(data));
         int version = r.ReadInt32();
-        if (version != FormatVersion) throw new InvalidDataException($"save format {version} is not supported (expected {FormatVersion})");
+        // Format 5 is the same less the founding day, which was always day 0.
+        if (version != FormatVersion && version != 5) throw new InvalidDataException($"save format {version} is not supported (expected {FormatVersion})");
         ulong fp = r.ReadUInt64();
         if (fp != content.Fingerprint) throw new InvalidDataException("this save was made with different content files");
         int width = r.ReadInt32(), height = r.ReadInt32(), waterLevel = r.ReadInt32();
@@ -449,6 +473,7 @@ public sealed partial class World
         w.ReadLeases(r);
         w.ReadAuthority(r);
         w.ReadRoles(r);
+        if (version >= 6) w.FoundedTick = r.ReadInt64();
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
@@ -463,9 +488,13 @@ public sealed partial class World
 
     /// <summary>Rebuilds a city from its seed, size and action log. Used to verify determinism.</summary>
     public static World Replay(ContentDb content, ulong seed, int size, string name, IReadOnlyList<LoggedAction> log, long untilTick)
+        => Replay(Create(content, seed, size, name), log, untilTick);
+
+    /// <summary>Plays a log forward on a freshly made city (a lone one, or a region tile from <see cref="CreateTile"/>).</summary>
+    public static World Replay(World w, IReadOnlyList<LoggedAction> log, long untilTick)
     {
-        var w = Create(content, seed, size, name);
         int next = 0;
+        while (next < log.Count && log[next].Tick < w.Tick) next++;
         while (w.Tick < untilTick)
         {
             while (next < log.Count && log[next].Tick == w.Tick) w.Enqueue(log[next++].Action);
