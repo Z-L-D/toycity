@@ -18,7 +18,7 @@ public partial class PanelView : CanvasLayer
     static readonly string[] MonthNames = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
     Label? _name, _date, _funds, _pop;
-    Button? _approval, _alerts, _seat, _dispatch;
+    Button? _approval, _alerts, _seat, _dispatch, _company;
     SceneCanvas? _scene;
     int _sceneShown = -1;
     readonly Button[] _speeds = new Button[4];
@@ -111,6 +111,10 @@ public partial class PanelView : CanvasLayer
         _seat = Btn("Mayor", () => Model.OpenDialog("seat"), row);
         _dispatch = Btn("🚒 Dispatch", () => Model.OpenDialog("dispatch"), row);
         _dispatch.Visible = false;
+        // The bus company's own view, as the web client's top bar has it.
+        _company = Btn("🚌 Bus company", () => Model.Click("co-open"), row);
+        _company.TooltipText = "Switch to the bus company's own view";
+        _company.Visible = false;
         Btn("New", () => Model.OpenDialog("new"), row);
         Btn("Save", () => Model.OpenDialog("save"), row);
         Btn("Load", () => Model.OpenDialog("load"), row);
@@ -317,6 +321,8 @@ public partial class PanelView : CanvasLayer
         _seat!.Text = Model.SeatLabel;
         _dispatch!.Visible = Model.Emergency.View != null;
         _dispatch.Text = Model.Emergency.Waiting > 0 ? $"🚒 Dispatch ({Model.Emergency.Waiting})" : "🚒 Dispatch";
+        _company!.Visible = Model.Company.View != null;
+        if (Model.Company.View is { } co) _company.Text = $"🚌 {co.Name}";
         _rci!.QueueRedraw();
     }
 
