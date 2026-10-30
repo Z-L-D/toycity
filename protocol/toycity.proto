@@ -535,7 +535,9 @@ message RegionState {
   repeated NeighbourEdge borders = 11;  // what the neighbours of this connection's city show across its sides
   repeated Deal deals = 12;  // this city's deals with its neighbours, offered or running
   string waiting = 13;       // the region is held waiting for a tile's host ("Waiting for Eastfield's host")
-  string stopped = 14;       // the region stopped: a tile's host and its check copy disagreed (a desync)
+  string stopped = 14;       // the region stopped: a tile's host and its check copy disagreed (a desync), or the border ledgers didn't balance
+  int32 ledger_months = 15;  // months in a row this host has checked every border ledger in the region and found it balanced
+  int32 cross_border = 16;   // people and tons of goods crossing borders in the region each day this month, from the ledgers
 }
 
 // Go to another host for that city (federated regions): address is its /ws URL.

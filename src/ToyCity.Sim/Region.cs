@@ -195,6 +195,30 @@ public sealed partial class Region : IDisposable
     /// <summary>The day is over for every city: the region's day moves on.</summary>
     public void EndDay() => Tick++;
 
+    /// <summary>
+    /// Whether the border ledgers balance: what each city sends across a side, the city on the other side receives
+    /// (commuters, shoppers, visitors and freight). Null when they do, else which border and what differs.
+    /// </summary>
+    public string? Unbalanced()
+    {
+        foreach (var t in Tiles)
+        {
+            if (t.City is not { } w) continue;
+            for (int side = 0; side < 4; side++)
+            {
+                if (Across(t, side)?.City is not { } n) continue;
+                var a = w.Flows[side];
+                var b = n.Flows[World.Opposite(side)];
+                if (a.CommuteOut != b.CommuteIn || a.CommuteIn != b.CommuteOut || a.ShoppersOut != b.ShoppersIn || a.ShoppersIn != b.ShoppersOut
+                    || a.TouristsOut != b.TouristsIn || a.TouristsIn != b.TouristsOut || a.FreightOut != b.FreightIn || a.FreightIn != b.FreightOut)
+                    return $"{w.Name} sends {a.CommuteOut} commuters, {a.ShoppersOut} shoppers, {a.TouristsOut} visitors and {a.FreightOut} t of goods to {n.Name}, "
+                        + $"which receives {b.CommuteIn}, {b.ShoppersIn}, {b.TouristsIn} and {b.FreightIn}; the other way {b.CommuteOut}, {b.ShoppersOut}, "
+                        + $"{b.TouristsOut} and {b.FreightOut} are sent and {a.CommuteIn}, {a.ShoppersIn}, {a.TouristsIn} and {a.FreightIn} received";
+            }
+        }
+        return null;
+    }
+
     /// <summary>The tile across a side of this one (0 north, 1 east, 2 south, 3 west), or null past the region's edge.</summary>
     public RegionTile? Across(RegionTile t, int side) => side switch
     {

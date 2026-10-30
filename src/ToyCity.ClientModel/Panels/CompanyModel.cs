@@ -119,6 +119,8 @@ public sealed class CompanyModel
     /// company only hears at the start of the city's next day, which at the slowest speed is seconds away.
     /// </summary>
     public string? Pending { get; private set; }
+    /// <summary>Taking or handing back the company is under way: a second click isn't sent again.</summary>
+    bool SeatPending => Pending is { } p && (p.StartsWith("Taking") || p.StartsWith("Handing"));
     Func<View, bool>? _pendingDone;
 
     void Wait(string what, Func<View, bool> done)
@@ -137,7 +139,7 @@ public sealed class CompanyModel
 
     void Lease(int buildingId)
     {
-        if (Pending != null) return;
+        // Several lots may be leased one after another: each is sent, and the board waits on the last.
         Act(new PAction { Lease = new LeaseLot { Game = GameId, BuildingId = buildingId } });
         Wait("Leasing the lot…", v => v.OpenLots.All(o => o.BuildingId != buildingId));
     }
@@ -284,12 +286,12 @@ public sealed class CompanyModel
             case "co-tool": SetTool(Enum.Parse<CompanyTool>(a[1])); return;
             case "co-catch": ShowCatchment = !ShowCatchment; MapVersion++; _changed(); return;
             case "co-claim":
-                if (Pending != null) return;
+                if (SeatPending) return;
                 Act(new PAction { Seat = new SetSeat { Seat = GameId, Owner = Me(), Level = SeatLevel.SeatManual, SpendCap = 25000 } });
                 Wait("Taking over the company…", v => v.Operator == "manual" && v.Owner == Me());
                 return;
             case "co-handoff":
-                if (Pending != null) return;
+                if (SeatPending) return;
                 Act(new PAction { Seat = new SetSeat { Seat = GameId, Owner = "", Level = SeatLevel.SeatAutopilot, SpendCap = 25000 } });
                 Wait("Handing the company to the computer…", v => !(v.Operator == "manual" && v.Owner == Me()));
                 return;
@@ -319,7 +321,6 @@ public sealed class CompanyModel
             case "co-lease": Lease(I(1)); return;
             case "co-release":
             {
-                if (Pending != null) return;
                 int id = I(1);
                 Act(new PAction { EndLease = new EndLease { LeaseId = id, ByOperator = true } });
                 Wait("Giving up the lot…", v => v.Lots.All(l => l.LeaseId != id));

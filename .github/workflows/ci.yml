@@ -14,7 +14,12 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet build ToyCity.slnx -c Release
-      - run: dotnet test ToyCity.slnx -c Release --no-build
+      - run: dotnet test ToyCity.slnx -c Release --no-build --filter "Category!=Gate"
+      - name: Region gate, the Beta 3 gate (three tiles on their own hosts, two human mayors and a computer, a decade)
+        run: |
+          dotnet test tests/ToyCity.ClientModel.Tests -c Release --no-build --filter "Category=Gate" --logger "console;verbosity=detailed" | tee region-gate.log
+          { echo '### Region gate (Beta 3)'; echo; grep -o 'GATE .*' region-gate.log | sed 's/^GATE /- /'; } >> "$GITHUB_STEP_SUMMARY"
+          grep -q "Passed!" region-gate.log
       - name: Headless run (5 years)
         run: dotnet run --project tools/ToyCity.Bench -c Release --no-build -- 5
       - name: Agent tiers on this runner
@@ -126,7 +131,7 @@ jobs:
           montage shots/*.png -tile 4x -geometry 320x180+1+1 -quality 45 sheet.jpg
           echo "::group::sheet.jpg base64"; echo "SHEET-BEGIN"; base64 -w 0 sheet.jpg; echo; echo "SHEET-END"; echo "::endgroup::"
           # The screens with the most UI at full size, so the panels can be read.
-          for n in 0 10 11 12 13 14 15; do
+          for n in 0 9 10 11 12 13 14 15; do
             f=$(ls shots/view-$n-*.png 2>/dev/null | head -1)
             [ -n "$f" ] || continue
             convert "$f" -quality 70 "ui-$n.jpg"

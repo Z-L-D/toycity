@@ -117,6 +117,7 @@ public sealed partial class RegionHost
                     if (late.Contains(l)) { list.AddRange(TakeOver(l)); continue; }
                     if (ReplayDay(l, tick) is { } desync) { list.AddRange(desync); break; }
                 }
+                if (!_halted) list.AddRange(CheckLedgers(tick));
                 _region.EndDay();
                 list.AddRange(after());
                 return list;
@@ -180,6 +181,38 @@ public sealed partial class RegionHost
         if (mine == end.Hash) return null;
         return Halt(t, tick, end.Hash, mine);
     }
+
+    /// <summary>
+    /// Every day, after the tile hosts' days are replayed: what each city sends across a border its neighbour must
+    /// receive. With every city (its own and the check copies) here, the region host can see both sides. A ledger
+    /// that doesn't balance stops the region as a desync would. Caller holds every gate.
+    /// </summary>
+    List<(Client, P.ServerMessage)> CheckLedgers(long tick)
+    {
+        if (_region.Unbalanced() is not { } why)
+        {
+            if (tick % World.DaysPerMonth == 0)
+            {
+                _ledgerMonths++;
+                _crossBorder = _region.Tiles.Where(t => t.City != null).Sum(t => t.City!.Flows.Sum(f => f.CommuteOut + f.ShoppersOut + f.TouristsOut + f.FreightOut));
+            }
+            return new();
+        }
+        _halted = true;
+        _hostSpeed = 0;
+        _asks.Clear();
+        Recompute();
+        string file = Path.Combine(_saveDir, $"ledger-{tick}.txt");
+        try { File.WriteAllLines(file, new[] { $"Border ledgers in {_region.Name} on day {tick} don't balance.", why, "The region stopped here. Load a save to carry on." }); }
+        catch (IOException) { }
+        _stopped = $"The border ledgers don't balance (day {tick}): {why}. The region has stopped; the report is {Path.GetFileName(file)}.";
+        _log.LogError("ledger: {Text}", _stopped);
+        var list = Cities.SelectMany(c => c.Notice(_stopped, "warning")).ToList();
+        list.AddRange(RegionIfChanged(force: true));
+        return list;
+    }
+
+    int _ledgerMonths, _crossBorder;
 
     /// <summary>A tile host and the check copy disagree: stop the region with a report rather than let it drift. Caller holds every gate.</summary>
     List<(Client, P.ServerMessage)> Halt(RegionTile t, long tick, ulong theirs, ulong mine)

@@ -520,8 +520,8 @@ orders show for whom, the breach order, and the gear, shifts and crooked-ways li
   load put a "⏳ Building Harbourside…" card in the middle of the screen until the server answers (or refuses, or a
   minute passes). So do opening, founding or moving to another city of the region. Taking over the bus company,
   handing it back, and leasing or giving up a lot now show "⏳ Taking over the company…" in the company's top bar
-  until the company hears at the next day, as the emergency services already did. A second click while it waits
-  isn't sent again.
+  until the company hears at the next day, as the emergency services already did. A second click on take over or
+  hand back while it waits isn't sent again; several lots can still be leased in a row.
 - **Smooth switches.** Going between the mayor's screen, the company's, the dispatch and the region map dips through
   the background colour for a fifth of a second, so it reads as one window changing rather than a jump. Screenshot
   and scripted runs leave it off.
@@ -529,11 +529,36 @@ orders show for whom, the breach order, and the gear, shifts and crooked-ways li
   was already on it), sign-in errors use the theme's red, and the region screen's background is the theme's.
 - **The scene in the city** (part 11) replaces the last small canvas panel in the Godot client.
 
-The web client is unchanged in this part: it already had these. Its bus company doesn't show its wait yet; that's a
-small follow-up.
+The web client isn't changed in this part. Its dispatch board already shows its waits; its bus company and its
+new, save and load don't yet, which is a small follow-up.
 
 ### Tests
 
 `WaitingTests` (ClientModel): new, save and load show working until the server answers, a refusal or a minute; a
 save isn't ended by an unrelated full state; taking the company shows at once, asks only once, and ends when the
 company says it's the player's.
+
+## Part 13: the gate
+
+- **Border ledgers are checked every day.** After the region host replays the tile hosts' days, it compares every
+  pair of neighbours: what one city sends across a border (commuters, shoppers, tourists, freight, and the deal
+  shipments) must be what the other receives. A mismatch stops the region the way a hash desync does, with a
+  `ledger-<day>.txt` report beside the saves. The region map's state now also carries how many months have balanced
+  and how many crossed the borders in the last month.
+- **The gate test** (`RegionGateTests`, Category=Gate, its own CI step) starts three server processes: the region
+  host with Toyville (Mayor May), a tile host for Westbrook (Tess founded it and plays it from that host) and a tile
+  host for Eastfield (a growth-hungry computer mayor). With the clock held, May and Tess each draw a road from their
+  town to their shared border on the same row, over open land beyond the town, and zone homes beside it. Then the
+  region runs at full speed for ten years. It passes when the region never stops, every month's ledgers balance
+  (at least 119 months), people actually cross, no host was taken over, Tess is still Westbrook's mayor, and
+  Westbrook's host is still on the region's day. On a failure it prints the desync and ledger reports and every
+  host's log.
+- **Screenshots.** CI's picture run adds the road strips (a curved road and a held diagonal preview), the 3D scene
+  and the scene report.
+- **Together diagnosis.** When the Beta 2 "together" run fails, it now prints who holds each seat and the last
+  notices each player saw, to pin down an occasional "seats claimed" timeout on CI.
+- **Fix.** Leasing several lots in a row was blocked by the company's waiting line from part 12; leases and
+  releases are always sent now, and only taking over or handing back is held while it waits.
+
+Results are in [GATE-BETA3.md](GATE-BETA3.md).
+

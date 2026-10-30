@@ -266,6 +266,8 @@ public sealed partial class RegionHost : IDisposable
         s.SpeedSetBy = _speedBy;
         s.Waiting = _waiting;
         s.Stopped = _stopped;
+        s.LedgerMonths = _ledgerMonths;
+        s.CrossBorder = _crossBorder;
         for (int i = 0; i < _links.Length; i++)
             if (_links[i] is { } l) s.Tiles[i].Address = l.Address;
         return s;

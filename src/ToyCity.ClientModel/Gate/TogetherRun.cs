@@ -39,6 +39,9 @@ public sealed class TogetherRun : IDisposable
             {
                 if (m.BodyCase == ServerMessage.BodyOneofCase.Delta) Notices.AddRange(m.Delta.Notices.Select(n => n.Text));
                 if (m.BodyCase == ServerMessage.BodyOneofCase.Presence) Presence = m.Presence;
+                // What the server told this player alone, refusals most of all, for a failed run's report.
+                if (m.BodyCase == ServerMessage.BodyOneofCase.Error) Notices.Add($"refused: {m.Error.Message}");
+                if (m.BodyCase == ServerMessage.BodyOneofCase.Notice) Notices.Add(m.Notice.Text);
             };
             panel.CopyArrived += (n, s) => Copy = (n, s);
         }
@@ -117,6 +120,11 @@ public sealed class TogetherRun : IDisposable
             if (_sceneClock > SceneSeconds && _handed.Add(run.Id)) Dan.Panel.Click("em-leave");
         }
     }
+
+    /// <summary>For a failed run: each player's seats as the mayor sees them, and the last things the server told each.</summary>
+    public string Diagnosis() =>
+        $"day {May.City.Stats.Tick}, seats: {string.Join(", ", May.Panel.Civic?.Seats.Select(x => $"{x.Id}={x.Owner}/{x.Level}") ?? Enumerable.Empty<string>())}\n"
+        + string.Join("\n", Everyone.Select(p => $"{p.Name} ({p.Client.Connection.Player}, connected {p.Client.Connection.Connected}): {string.Join(" | ", p.Notices.TakeLast(6))}"));
 
     void Speed(int speed) => May.Client.Connection.Send(new ClientMessage { Speed = new SetSpeed { Speed = speed } });
 

@@ -417,7 +417,16 @@ public partial class Main : Node
             _wait = 20;
         }
         else if (at == ZoneShot) { _tools!.SetTool(ToolKind.Zone); _tools.Hold((tx + 4, ty + 3), (tx - 4, ty - 3)); }
-        else if (at == RoadShot) { _tools!.SetTool(ToolKind.Path); _tools.Hold((tx + 6, ty), (tx - 6, ty)); }
+        else if (at == RoadShot)
+        {
+            // A curved road laid south of the town, its strip drawn smoothly over the cells and the ground graded
+            // under it, and a diagonal being drawn, its preview priced with the grading.
+            _client!.Connection.Act(new Protocol.V0.Action { Path = new Protocol.V0.PlacePath { X0 = tx - 8, Y0 = ty + 7, X1 = tx + 8, Y1 = ty + 7, ProfileId = "road", Curved = true, Cx = tx, Cy = ty + 13 } });
+            _tools!.SetTool(ToolKind.Path);
+            _tools.State.Diagonal = true;
+            _tools.Hold((tx + 7, ty - 5), (tx - 7, ty + 3));
+            _wait = 20;
+        }
         else if (at is BoardShot or SceneShot or ReportShot)
         {
             var pm = _panels!.Model;

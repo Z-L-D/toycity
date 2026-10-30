@@ -213,6 +213,7 @@ public class RegionTests
             Assert.Equal(a.FreightOut, b.FreightIn);
             Assert.Equal(a.FreightIn, b.FreightOut);
             crossings += a.Vehicles;
+            Assert.Null(r.Unbalanced());
             r.Run(30);
         }
         Assert.True(crossings > 0, "something crossed in a year");
