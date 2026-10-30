@@ -137,4 +137,22 @@ public class EmergencyClientTests : IClassFixture<ServerFixture>
         em.Click("em-send:9");
         Assert.Equal(new[] { 3 }, sent.Single().Dispatch.UnitIds);
     }
+
+    [Fact]
+    public void TheBoardLeasesFreeStationsAndHandsTheServiceBack()
+    {
+        var sent = new List<ClientMessage>();
+        var em = new EmergencyModel(m => { sent.Add(m); return 0; }, () => { });
+        var v = new View { Name = "Rescue", Operator = "manual", Owner = "player", Style = CommandStyle.Focus };
+        v.OpenStations.Add(new OpenStation { BuildingId = 41, Kind = "hospital", X = 5, Y = 6 });
+        em.Handle(new SideGameView { Game = EmergencyModel.Game, Seat = "operator", Payload = v.ToByteString() });
+        em.Click("em-tab:units");
+        var links = Links(em.Render());
+        Assert.Contains("em-lease:41", links);
+        Assert.Contains("em-release", links);
+        em.Click("em-lease:41");
+        Assert.Equal((EmergencyModel.Game, 41), (sent.Last().Action.Lease.Game, sent.Last().Action.Lease.BuildingId));
+        em.Click("em-release");
+        Assert.Equal(("", SeatLevel.SeatCaretaker), (sent.Last().Action.Seat.Owner, sent.Last().Action.Seat.Level));
+    }
 }

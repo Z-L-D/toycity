@@ -228,23 +228,32 @@ public class ShapeTests
     }
 
     [Fact]
-    public void SmoothTerrainSlopesOpenGroundAndKeepsBuiltCellsFlat()
+    public void SmoothTerrainSlopesTheGroundRoadsAndShoresAndKeepsBuiltCellsFlat()
     {
         var w = World.Create(ContentDb.LoadDefault(), 501, 128, "Hilltown");
         Assert.True(StarterTown.Apply(w));
         w.Run(30);
         var c = new CityMirror();
         c.ApplyFull(Mapping.FullState(w, 0));
-        int sloped = 0;
+        int sloped = 0, roads = 0, shores = 0;
         for (int y = 0; y < c.Height; y++)
             for (int x = 0; x < c.Width; x++)
             {
-                float own = c.Heights[c.Idx(x, y)];
-                Assert.Equal((own, own, own, own), TerrainShape.Corners(c, x, y, smooth: false));
+                int i = c.Idx(x, y);
+                float raw = c.Heights[i];
+                Assert.Equal((raw, raw, raw, raw), TerrainShape.Corners(c, x, y, smooth: false));
+                // Under water the bed counts as one step below the waterline.
+                float own = c.IsWater(i) ? c.WaterLevel - 1 : raw;
                 var k = TerrainShape.Corners(c, x, y, smooth: true);
                 if (TerrainShape.Locked(c, x, y)) { Assert.Equal((own, own, own, own), k); continue; }
-                foreach (float h in new[] { k.NW, k.NE, k.SE, k.SW }) Assert.InRange(h, own - 0.75f, own + 0.75f);
-                if (k != (own, own, own, own)) sloped++;
+                foreach (float h in new[] { k.NW, k.NE, k.SE, k.SW }) Assert.InRange(h, own - 1.5f, own + 1.5f);
+                if (k != (own, own, own, own))
+                {
+                    sloped++;
+                    if (c.Paths[i] != 0) roads++;
+                    // Land running down below the water's surface (a third of a step under the waterline).
+                    if (!c.IsWater(i) && Math.Min(Math.Min(k.NW, k.NE), Math.Min(k.SE, k.SW)) < c.WaterLevel - 0.35f) shores++;
+                }
                 // Where a corner is sloped, the neighbour sharing it meets it at the same height: no crack.
                 if (x + 1 < c.Width && !TerrainShape.Locked(c, x + 1, y))
                 {
@@ -254,8 +263,12 @@ public class ShapeTests
                     if (k.SE != own || e.SW != he) Assert.Equal(k.SE, e.SW);
                 }
             }
-        _out.WriteLine($"{sloped} sloped cells");
+        _out.WriteLine($"{sloped} sloped cells, {roads} of them roads, {shores} shore cells running into the water");
         Assert.True(sloped > 100, $"only {sloped} cells sloped");
+        Assert.True(shores > 20, $"only {shores} shore cells slope into the water");
+        // Halfway along a cell the surface is between its corners.
+        var (nw, ne, _, _) = TerrainShape.Corners(c, 10, 10, true);
+        Assert.Equal((nw + ne) / 2, TerrainShape.Surface(c, 10.5f, 10f, true), 4);
     }
 
     [Fact]

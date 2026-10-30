@@ -219,7 +219,7 @@ public partial class Main : Node
             {
                 _camera!.MapWidth = c.Width;
                 _camera.MapHeight = c.Height;
-                _camera.GroundAt = (x, y) => c.InBounds((int)x, (int)y) ? _view!.Ground(c.Idx((int)x, (int)y)) : 0;
+                _camera.GroundAt = (x, y) => c.InBounds((int)x, (int)y) ? _view!.Surface(x, y) : 0;
                 (_free!.MapWidth, _free.MapHeight, _free.GroundAt) = (c.Width, c.Height, _camera.GroundAt);
                 // Start over the town, not the middle of the map.
                 var built = c.Buildings.Values.Where(b => !c.IsRoadside(b)).ToList();

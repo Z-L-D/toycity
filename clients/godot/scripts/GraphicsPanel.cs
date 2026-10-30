@@ -26,7 +26,14 @@ public partial class GraphicsPanel : CanvasLayer
         _renderer = $"{RenderingServer.GetVideoAdapterName()} · {RenderingServer.GetCurrentRenderingMethod()}";
         var centre = new CenterContainer();
         centre.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        centre.MouseFilter = Control.MouseFilterEnum.Ignore;
+        // A click outside the panel closes it.
+        centre.MouseFilter = Control.MouseFilterEnum.Stop;
+        centre.GuiInput += e =>
+        {
+            if (e is not InputEventMouseButton { Pressed: true } mb || mb.ButtonIndex is not (MouseButton.Left or MouseButton.Right)) return;
+            Visible = false;
+            centre.AcceptEvent();
+        };
         AddChild(centre);
         var panel = new PanelContainer { CustomMinimumSize = new Vector2(520, 0) };
         centre.AddChild(panel);
