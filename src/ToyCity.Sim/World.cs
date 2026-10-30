@@ -286,6 +286,7 @@ public sealed partial class World
         UpdateStats();
         if (!stasis) RaiseCityIncidents();
         RunSideGames();
+        AccrueDeals();
         Tick++;
     }
 
@@ -398,6 +399,7 @@ public sealed partial class World
             WriteRoles(w);
             w.Write(FoundedTick);
             WriteNeighbours(w);
+            WriteDeals(w);
         }
         return ms.ToArray();
     }
@@ -479,6 +481,7 @@ public sealed partial class World
         {
             w.FoundedTick = r.ReadInt64();
             w.ReadNeighbours(r);
+            w.ReadDeals(r);
         }
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions

@@ -149,3 +149,50 @@ Westbrook", "60 tons of goods a day go to Eastfield".
 `RegionTests.CommutersShoppersAndGoodsCrossAndBothLedgersAgree`: two starter towns joined by one road; every month for
 a year each city's flows mirror the other's exactly, something crosses, the crossing has traffic, and the demand panel
 names the neighbour.
+
+## Part 5: neighbour deals
+
+### Making a deal
+
+On the region map, a mayor picks a neighbouring city and draws up a deal: **power**, **water**, **garbage**
+collection or a **shuttle**, to sell or to buy, an amount and a monthly price. The neighbour's mayor sees it under
+"Deals with neighbours" (and a notice in their city) and agrees, declines, or **counters**: the form takes the
+offer's terms to change, and sending them back replaces the offer with theirs, for the first mayor to answer. Whoever offered can withdraw it until
+then; once it runs, either mayor can end it. One deal of each kind a border, either way.
+
+Each kind needs the two cities joined for it where the border is: a power line of each meeting, a pipe of each, or
+a road of each. An offer without one is refused with what to build.
+
+### What a deal does
+
+The region keeps the books (`Region.Deals`, `src/ToyCity.Sim/RegionDeals.cs`). When the neighbour agrees, it sends a
+`CityDealAction` to both cities on the same day; each city keeps its side (`World.Deals`, `src/ToyCity.Sim/Deals.cs`)
+and the action is logged, so each city's log still replays alone.
+
+- **Power.** The seller's grid at the crossing gives up the amount; the buyer's grid at its crossing gains it.
+- **Water.** The same, on the pipe networks at the crossing.
+- **Garbage.** The buyer's capacity goes up by the amount; the seller's dumps take that much more in.
+- **Shuttle.** Adds its vehicles an hour to that side's road capacity in both cities, so more commuters, shoppers
+  and goods cross (part 4). The plan had the transport company's own lines running across the border to stops in
+  the neighbour city; that needs a line to live in two cities' states at once, which waits for federated hosting
+  (part 8) to settle how tiles share anything beyond the border. Until then a transit deal is this shuttle.
+- **Money.** Each day of a deal runs up a day's price in both cities; the budget books it monthly as "Power sold to
+  Eastfield" or "Power bought from Westbrook", and the last days are settled when a deal ends. Both cities count the
+  same days, so what one pays the other receives.
+
+### When a deal ends by itself
+
+Before each day the region ends, in both cities at once, a deal whose connection broke ("the power lines no longer
+meet at the border"), whose buyer can't cover a month, or whose seller has nothing left to send at the crossing.
+
+### Saves
+
+A city's running deals are in its save (format 6). Offers still waiting for an answer are in the region save.
+
+### Tests
+
+`RegionTests.APowerDealFeedsTheNeighbourBothBooksAgreeAndItEndsWhenTheLineIsCut`: no offer until both lines meet;
+the offerer can't answer their own offer; once agreed the buyer's grid gains what the seller's gives; three months of
+budgets agree to the dollar; cutting the line ends it in both cities; the region saves and each city replays alone.
+`RegionClientTests` checks a refused offer clears its "working" line, and the screen lists deals with Agree, Decline
+and End where they belong.

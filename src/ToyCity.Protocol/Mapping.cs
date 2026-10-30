@@ -498,6 +498,11 @@ public static class Mapping
                 RenameOwnerAction rn => new P.ActionRecord { Tick = l.Tick, By = rn.By, Rename = new P.RenameOwner { From = rn.From, To = rn.To } },
                 ForkAction fk => new P.ActionRecord { Tick = l.Tick, By = fk.By, Fork = new P.Fork { Player = fk.Player, HomeName = fk.HomeName } },
                 NeighbourEdgeAction ne => new P.ActionRecord { Tick = l.Tick, By = ne.By, Neighbour = Edge(ne) },
+                CityDealAction cd => new P.ActionRecord
+                {
+                    Tick = l.Tick, By = cd.By,
+                    Deal = new P.CityDeal { Id = cd.Id, Kind = (P.DealKind)(int)cd.Kind, Selling = cd.Selling, Side = cd.Side, Other = cd.Other, Amount = cd.Amount, Price = cd.Price, End = cd.End, Why = cd.Why },
+                },
                 SetHostRulesAction hr => new P.ActionRecord { Tick = l.Tick, By = hr.By, HostRules = new P.HostRules { Forbidden = { hr.Forbidden.Select(m => (P.Mechanic)(int)m) } } },
                 _ => new P.ActionRecord { Tick = l.Tick, By = l.Action.By, Action = ToProto(l.Action) },
             });
@@ -523,6 +528,7 @@ public static class Mapping
                 : r.Rename != null ? new RenameOwnerAction(r.Rename.From, r.Rename.To)
                 : r.Fork != null ? new ForkAction(r.Fork.Player, r.Fork.HomeName)
                 : r.Neighbour != null ? Edge(r.Neighbour)
+                : r.Deal is { } d ? new CityDealAction(d.Id, (DealKind)(int)d.Kind, d.Selling, d.Side, d.Other, d.Amount, d.Price, d.End, d.Why)
                 : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
                 : r.Action == null ? null : ToSim(r.Action);
             if (a != null) w.Log.Add(new LoggedAction(r.Tick, a with { By = r.By }));

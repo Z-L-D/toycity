@@ -41,11 +41,13 @@ public sealed partial class World
         {
             "A path that runs off the edge of the map and is joined to your city is a neighbour connection. The region sends people, shoppers and freight over it.",
             "Where a neighbouring city of your region lies across the edge, a road there works only where theirs meets it, cell for cell. Markers on the map's edge show their roads, power lines and pipes; drawing a road onto one snaps to it.",
+            "Neighbours can make deals on the region map: power over power lines that meet at the border, water over pipes that meet, garbage collection or a shuttle over roads that meet. The buyer pays the seller each month. A deal ends when either mayor ends it, the connection breaks, the buyer can't pay, or the seller has nothing left to send.",
             "Without one, people still trickle in by back roads, but regional pull halves at 2,000 people. Each connection's capacity (vehicles an hour) pushes that out, and adds regional shoppers and export jobs.",
         }, new()
         {
             ("Connection capacity", EdgeCapacity > 0 ? $"{EdgeCapacity:N0} vehicles/hour" : "none"),
             ("Regional pull halves at", $"{RegionalScale:N0} people"),
+            ("Deals with neighbours", Deals.Count > 0 ? string.Join("; ", Deals.Select(DealLabel)) : "none"),
         }, "demand", "road", "highway-2");
 
         string lotRows = string.Join("; ", new[] { Level.Low, Level.Medium, Level.High }

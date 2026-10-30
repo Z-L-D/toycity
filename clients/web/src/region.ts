@@ -13,6 +13,18 @@ const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySe
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const money = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-US');
 const PICTURE = 32;
+const KINDS = ['Power', 'Water', 'Garbage', 'Shuttle'];
+const NOUNS = ['power', 'water', 'garbage collection', 'a shuttle'];
+const unit = (k: number, n: number) => `${n.toLocaleString('en-US')} ${['kW', 'water', 'garbage', 'vehicles/h'][k]}`;
+const AMOUNTS = [500, 500, 300, 200];
+
+/** One deal in a sentence: "Westbrook sells Eastfield 500 kW for $100 a month". */
+export function describeDeal(d: Msg): string {
+  if (d.kind === 2) return `${d.seller} takes ${unit(2, d.amount)} from ${d.buyer} for ${money(d.price)} a month`;
+  if (d.kind === 3) return `${d.seller} runs a shuttle (${unit(3, d.amount)}) for ${d.buyer} at ${money(d.price)} a month`;
+  return `${d.seller} sells ${d.buyer} ${unit(d.kind, d.amount)} for ${money(d.price)} a month`;
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export class Region {
@@ -22,6 +34,10 @@ export class Region {
   private pending = '';
   /** The tile picked on the map. */
   private picked: { col: number; row: number } | null = null;
+  /** The deal being drawn up for the picked neighbour. */
+  private offer = { kind: 0, selling: true, amount: 500, price: 100 };
+  /** The offer being answered with other terms, or 0 for a new offer. */
+  private counterId = 0;
 
   constructor(private readonly host: RegionHost) {
     $('#btn-region').addEventListener('click', () => this.toggle());
@@ -47,6 +63,7 @@ export class Region {
     this.state = body;
     if (!this.picked) this.picked = { col: body.hereCol, row: body.hereRow };
     if (this.pending.startsWith('Founding') && this.tile(this.picked.col, this.picked.row)?.founded) this.pending = '';
+    if (this.pending.startsWith('Deal')) this.pending = '';
     this.host.onRegion(body);
     this.render();
   }
@@ -80,6 +97,82 @@ export class Region {
     this.pending = `Founding ${name}…`;
     this.render();
     this.host.conn.send({ foundCity: { col: t.col, row: t.row, name, starterTown: starter } });
+  }
+
+  /** The side of this city a tile lies on (0 north, 1 east, 2 south, 3 west), or -1 when it isn't next door. */
+  private sideOf(t: Msg): number {
+    const s = this.state!;
+    const dc = t.col - s.hereCol, dr = t.row - s.hereRow;
+    return dc === 0 && dr === -1 ? 0 : dc === 1 && dr === 0 ? 1 : dc === 0 && dr === 1 ? 2 : dc === -1 && dr === 0 ? 3 : -1;
+  }
+
+  private deal(op: number, id: number, what: string) {
+    this.pending = `Deal: ${what}…`;
+    this.render();
+    this.host.conn.send({ deal: { op, id } });
+  }
+
+  /** The form takes an offer's terms, from this side, to change and send back. */
+  private counter(id: number) {
+    const s = this.state!;
+    const d = s.deals.find((x: Msg) => x.id === id);
+    if (!d) return;
+    const sellerHere = d.sellerCol === s.hereCol && d.sellerRow === s.hereRow;
+    this.counterId = id;
+    this.offer = { kind: d.kind, selling: sellerHere, amount: d.amount, price: d.price };
+    this.picked = sellerHere ? { col: d.buyerCol, row: d.buyerRow } : { col: d.sellerCol, row: d.sellerRow };
+    this.render();
+  }
+
+  private sendOffer(t: Msg) {
+    const o = this.offer;
+    if (this.counterId) {
+      this.pending = 'Deal: sending your terms…';
+      this.host.conn.send({ deal: { op: 4, id: this.counterId, amount: o.amount, price: o.price } });
+      this.counterId = 0;
+      this.render();
+      return;
+    }
+    this.pending = `Deal: offering ${t.name} ${NOUNS[o.kind]}…`;
+    this.render();
+    this.host.conn.send({ deal: { op: 0, side: this.sideOf(t), kind: o.kind, amount: o.amount, price: o.price, selling: o.selling } });
+  }
+
+  /** This city's deals, with what its mayor can do about each; with a neighbour picked, the offer being drawn up. */
+  private dealsHtml(p: Msg | undefined): string {
+    const s = this.state!;
+    const here = this.tile(s.hereCol, s.hereRow);
+    const mayor = !!here && here.mayor === this.host.conn.player;
+    let h = '';
+    if (s.deals?.length) {
+      h += '<h3>Deals with neighbours</h3>';
+      for (const d of s.deals) {
+        const sellerHere = d.sellerCol === s.hereCol && d.sellerRow === s.hereRow;
+        const mine = sellerHere === d.offeredBySeller;
+        let act = '';
+        if (d.active) act = `<span class="good">running</span>${mayor ? ` <button data-deal-end="${d.id}">End it</button>` : ''}`;
+        else if (mine) act = `<span class="muted">offered, waiting for an answer</span>${mayor ? ` <button data-deal-end="${d.id}">Withdraw</button>` : ''}`;
+        else act = `<span class="warn">offered to you</span>${mayor ? ` <button class="active" data-deal-accept="${d.id}">Agree</button> <button data-deal-counter="${d.id}">Counter</button> <button data-deal-decline="${d.id}">Decline</button>` : ''}`;
+        h += `<div class="rg-deal">${esc(describeDeal(d))}<div class="actions">${act}</div></div>`;
+      }
+    }
+    if (!p?.founded || this.sideOf(p) < 0 || !mayor) return h;
+    const o = this.offer;
+    const verb = o.kind === 2 ? (o.selling ? 'Take their garbage' : 'Send them our garbage')
+      : o.kind === 3 ? (o.selling ? 'Run a shuttle for them' : 'Have them run a shuttle for us')
+      : o.selling ? `Sell them ${NOUNS[o.kind]}` : `Buy ${NOUNS[o.kind]} from them`;
+    const needs = o.kind === 0 ? 'a power line' : o.kind === 1 ? 'a pipe' : 'a road';
+    const c = this.counterId > 0;
+    h += `<h3>${c ? 'Your terms for' : 'A deal with'} ${esc(p.name)}</h3>
+      <div class="rg-kinds${c ? ' hidden' : ''}">${KINDS.map((k, i) => `<button data-kind="${i}" class="${i === o.kind ? 'active' : ''}">${k}</button>`).join('')}</div>
+      <div class="actions">${c ? '' : '<button id="rg-sell" title="Sell or buy">⇄</button> '}${verb}</div>
+      <div class="actions rg-steps">
+        <button data-amt="-1">−</button> <b>${unit(o.kind, o.amount)}</b> <button data-amt="1">+</button>
+        <button data-price="-1">−</button> <b>${money(o.price)} a month</b> <button data-price="1">+</button>
+      </div>
+      <p class="muted">Needs ${needs} of each city to meet at the border.</p>
+      <div class="actions"><button id="rg-offer" class="active">${c ? 'Send these terms back' : `Offer it to ${esc(p.name)}`}</button></div>`;
+    return h;
   }
 
   private ownWindow(t: Msg) {
@@ -133,7 +226,8 @@ export class Region {
           <div class="actions"><button id="rg-found" class="active">Found a city here</button></div>`;
       }
     }
-    if (this.pending) side += `<p class="rg-pending">⏳ ${esc(this.pending)}</p>`;
+    side += this.dealsHtml(p);
+    if (this.pending) side += `<p class="rg-pending">⏳ ${esc(this.pending.replace(/^Deal: /, ''))}</p>`;
     $('#rg-body').innerHTML = `
       <div class="rg-map" style="grid-template-columns:repeat(${s.cols}, minmax(0, 1fr));grid-template-rows:repeat(${s.rows}, auto)">${cells}</div>
       <aside class="rg-side">
@@ -150,7 +244,7 @@ export class Region {
         img.data[i * 4] = px[i * 3]; img.data[i * 4 + 1] = px[i * 3 + 1]; img.data[i * 4 + 2] = px[i * 3 + 2]; img.data[i * 4 + 3] = 255;
       }
       ctx.putImageData(img, 0, 0);
-      b.addEventListener('click', () => { this.picked = { col: t.col, row: t.row }; this.render(); });
+      b.addEventListener('click', () => { this.picked = { col: t.col, row: t.row }; this.counterId = 0; this.render(); });
       b.addEventListener('dblclick', () => { if (t.founded && !(t.col === s.hereCol && t.row === s.hereRow)) this.goTo(t); });
     });
     if (p) {
@@ -158,6 +252,17 @@ export class Region {
       $('#rg-back')?.addEventListener('click', () => this.toggle(false));
       $('#rg-window')?.addEventListener('click', () => this.ownWindow(p));
       $('#rg-found')?.addEventListener('click', () => this.found(p));
+      $('#rg-offer')?.addEventListener('click', () => this.sendOffer(p));
     }
+    const body = $('#rg-body');
+    const on = (sel: string, f: (b: HTMLButtonElement) => void) => body.querySelectorAll<HTMLButtonElement>(sel).forEach((b) => b.addEventListener('click', () => f(b)));
+    on('[data-kind]', (b) => { this.offer.kind = Number(b.dataset.kind); this.offer.amount = AMOUNTS[this.offer.kind]; this.render(); });
+    on('#rg-sell', () => { this.offer.selling = !this.offer.selling; this.render(); });
+    on('[data-amt]', (b) => { this.offer.amount = Math.max(100, this.offer.amount + 100 * Number(b.dataset.amt)); this.render(); });
+    on('[data-price]', (b) => { this.offer.price = Math.max(0, this.offer.price + 25 * Number(b.dataset.price)); this.render(); });
+    on('[data-deal-accept]', (b) => this.deal(1, Number(b.dataset.dealAccept), 'agreeing'));
+    on('[data-deal-decline]', (b) => this.deal(2, Number(b.dataset.dealDecline), 'declining'));
+    on('[data-deal-counter]', (b) => this.counter(Number(b.dataset.dealCounter)));
+    on('[data-deal-end]', (b) => this.deal(3, Number(b.dataset.dealEnd), 'ending'));
   }
 }

@@ -99,5 +99,37 @@ public class RegionClientTests : IClassFixture<RegionClientTests.Fixture>
         long before = Tick(may);
         may.WaitFor(() => may.Client.City.Stats.Day != held, "a day passes");
         Assert.True(may.Region.State!.Tick >= before);
+
+        // A deal needs the two cities joined at the border: May's offer of power to Eastfield is refused for now,
+        // with the reason, and the "working" line goes.
+        may.Panels.Click("rg-open");
+        may.Panels.Click("rg-pick:2:1");
+        Assert.Contains("A deal with Eastfield", may.Region.Render());
+        int errors = may.Errors.Count;
+        may.Panels.Click("rg-offer");
+        Assert.StartsWith("Deal:", may.Region.Pending);
+        may.WaitFor(() => may.Errors.Count > errors, "the refusal");
+        Assert.Contains("power line", may.Errors[^1]);
+        Assert.Equal("", may.Region.Pending);
+    }
+
+    [Fact]
+    public void TheRegionScreenListsDealsWithWhatTheMayorCanDo()
+    {
+        var model = new RegionModel(_ => 0, () => { }) { Me = () => "Tess" };
+        var s = new RegionState { Name = "V", Cols = 2, Rows = 1, HereCol = 1, HereRow = 0 };
+        s.Tiles.Add(new RegionTileState { Col = 0, Row = 0, Founded = true, Name = "Westbrook", Mayor = "May" });
+        s.Tiles.Add(new RegionTileState { Col = 1, Row = 0, Founded = true, Name = "Eastfield", Mayor = "Tess" });
+        s.Deals.Add(new Deal { Id = 4, Kind = DealKind.DealPower, SellerCol = 0, SellerRow = 0, BuyerCol = 1, BuyerRow = 0, Seller = "Westbrook", Buyer = "Eastfield", Amount = 500, Price = 100, OfferedBySeller = true });
+        s.Deals.Add(new Deal { Id = 5, Kind = DealKind.DealTransit, SellerCol = 1, SellerRow = 0, BuyerCol = 0, BuyerRow = 0, Seller = "Eastfield", Buyer = "Westbrook", Amount = 200, Price = 50, Active = true, OfferedBySeller = true });
+        model.Handle(new ServerMessage { Region = s });
+        var text = model.Render();
+        Assert.Contains("Westbrook sells Eastfield 500 kW for $100 a month", text);
+        Assert.Contains("rg-accept:4", text);
+        Assert.Contains("rg-decline:4", text);
+        Assert.Contains("rg-end:5", text);
+        model.Click("rg-pick:0:0");
+        Assert.Equal(3, model.SideOf(model.PickedTile!));
+        Assert.Contains("A deal with Westbrook", model.Render());
     }
 }

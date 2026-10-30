@@ -19,6 +19,7 @@ public static class RegionMapping
         };
         foreach (var t in r.Tiles.Where(t => t.City != null))
             s.Cities.Add(new P.RegionSavedCity { Col = t.Col, Row = t.Row, Save = ByteString.CopyFrom(Mapping.Save(t.City!)) });
+        foreach (var d in r.Deals.Where(d => !d.Active)) s.Offers.Add(Deal(r, d));
         return s.ToByteArray();
     }
 
@@ -30,7 +31,14 @@ public static class RegionMapping
         try
         {
             foreach (var c in s.Cities) cities.Add(Mapping.Load(content, c.Save.ToByteArray()));
-            return Region.Restore(content, s.Name, s.Seed, s.Cols, s.Rows, s.TileSize, s.Tick, cities);
+            var r = Region.Restore(content, s.Name, s.Seed, s.Cols, s.Rows, s.TileSize, s.Tick, cities);
+            foreach (var o in s.Offers)
+                r.RestoreOffer(new RegionDeal
+                {
+                    Id = o.Id, Kind = (DealKind)(int)o.Kind, Seller = o.SellerRow * s.Cols + o.SellerCol, Buyer = o.BuyerRow * s.Cols + o.BuyerCol,
+                    Amount = o.Amount, Price = o.Price, OfferedBySeller = o.OfferedBySeller,
+                });
+            return r;
         }
         catch
         {
@@ -66,7 +74,23 @@ public static class RegionMapping
             for (int side = 0; side < 4; side++)
                 if (r.Across(here, side)?.City is { } n)
                     s.Borders.Add(Mapping.Edge(n.EdgeOut(World.Opposite(side))));
+        if (r.TileAt(hereCol, hereRow) is { } at)
+        {
+            int me = at.Row * r.Cols + at.Col;
+            foreach (var d in r.Deals.Where(d => d.Seller == me || d.Buyer == me)) s.Deals.Add(Deal(r, d));
+        }
         return s;
+    }
+
+    public static P.Deal Deal(Region r, RegionDeal d)
+    {
+        var seller = r.Tiles[d.Seller];
+        var buyer = r.Tiles[d.Buyer];
+        return new P.Deal
+        {
+            Id = d.Id, Kind = (P.DealKind)(int)d.Kind, SellerCol = seller.Col, SellerRow = seller.Row, BuyerCol = buyer.Col, BuyerRow = buyer.Row,
+            Seller = seller.Name, Buyer = buyer.Name, Amount = d.Amount, Price = d.Price, Active = d.Active, OfferedBySeller = d.OfferedBySeller,
+        };
     }
 
     /// <summary>

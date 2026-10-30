@@ -258,7 +258,7 @@ public sealed class RegionHost : IDisposable
     List<(Client, P.ServerMessage)> RegionIfChanged(bool force = false)
     {
         var list = new List<(Client, P.ServerMessage)>();
-        string sig = $"{_speed}/{_speedBy}/{_region.Tick / World.DaysPerMonth}/" + string.Join(",", _region.Tiles.Select(t =>
+        string sig = $"{_speed}/{_speedBy}/{_region.Tick / World.DaysPerMonth}/{string.Join(",", _region.Deals.Select(d => $"{d.Id}{(d.Active ? "+" : "?")}"))}/" + string.Join(",", _region.Tiles.Select(t =>
             $"{t.Name}:{t.Mayor}:{string.Join("/", t.City?.NextDoor.Select(n => n?.Sig ?? "") ?? Enumerable.Empty<string>())}:{string.Join("+", _cities[t.Row * _region.Cols + t.Col]?.Clients.Select(c => c.Player).Distinct().OrderBy(n => n, StringComparer.Ordinal) ?? Enumerable.Empty<string>())}"));
         if (!force && sig == _regionSig) return list;
         _regionSig = sig;
@@ -530,6 +530,16 @@ public sealed class RegionHost : IDisposable
             case P.ClientMessage.BodyOneofCase.Region:
                 reply = WithAll(() => c.Host == null ? null : new P.ServerMessage { Region = State(c.Host) });
                 break;
+            case P.ClientMessage.BodyOneofCase.Deal:
+                broadcast = WithAll(() =>
+                {
+                    var list = new List<(Client, P.ServerMessage)>();
+                    if (Deal(c, msg.Deal, list) is { } why) { reply = SimHost.Error(msg.Seq, why); return null; }
+                    foreach (var city in Cities) list.AddRange(city.Deltas());
+                    list.AddRange(RegionIfChanged(force: true));
+                    return list;
+                });
+                break;
             default:
                 return false;
         }
@@ -546,6 +556,44 @@ public sealed class RegionHost : IDisposable
         if (broadcast != null)
             foreach (var (cl, m) in broadcast) await SimHost.SendAsync(cl, m);
         return true;
+    }
+
+    /// <summary>
+    /// A mayor offers, answers, withdraws or ends a deal with a neighbour, from the city they're looking at. Admins may
+    /// act for any city. Returns why not, or null. Caller holds every gate.
+    /// </summary>
+    string? Deal(Client c, P.DealRequest d, List<(Client, P.ServerMessage)> outbox)
+    {
+        if (c.Host == null) return "Open a city first.";
+        var here = c.Host.Tile;
+        if (!c.Admin && here.Mayor != c.Player) return $"Only {here.Name}'s mayor makes deals for it.";
+        switch (d.Op)
+        {
+            case P.DealRequest.Types.Op.Offer:
+            {
+                var kind = (DealKind)(int)d.Kind;
+                if (_region.CantOffer(here, d.Side, kind, d.Amount, d.Price) is { } why) return why;
+                var deal = _region.Offer(here, d.Side, kind, d.Amount, d.Price, d.Selling);
+                var other = _region.Tiles[deal.AnsweredBy];
+                string what = d.Selling ? $"sell {other.Name} {World.DealUnit(kind, d.Amount)}" : $"buy {World.DealUnit(kind, d.Amount)} from {other.Name}";
+                if (_cities[deal.AnsweredBy] is { } them) outbox.AddRange(them.Notice($"{here.Name} offers to {(d.Selling ? $"sell {World.DealUnit(kind, d.Amount)}" : $"buy {World.DealUnit(kind, d.Amount)}")} for ${d.Price:N0} a month. Answer on the region map.", "info"));
+                _log.LogInformation("{Player} offered to {What} for {Price} a month", c.Player, what, d.Price);
+                return null;
+            }
+            case P.DealRequest.Types.Op.Accept:
+            case P.DealRequest.Types.Op.Decline:
+                return _region.Answer(here, d.Id, d.Op == P.DealRequest.Types.Op.Accept);
+            case P.DealRequest.Types.Op.Counter:
+            {
+                var old = _region.Deals.FirstOrDefault(x => x.Id == d.Id);
+                if (_region.Counter(here, d.Id, d.Amount, d.Price) is { } why) return why;
+                if (old != null && _cities[old.OfferedBy] is { } them)
+                    outbox.AddRange(them.Notice($"{here.Name} answers your {World.DealNoun(old.Kind)} offer: {World.DealUnit(old.Kind, d.Amount)} for ${d.Price:N0} a month. See the region map.", "info"));
+                return null;
+            }
+            default:
+                return _region.EndDeal(here, d.Id);
+        }
     }
 
     /// <summary>

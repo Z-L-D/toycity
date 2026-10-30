@@ -19,7 +19,7 @@ public sealed class RegionTile
 /// Modern SC4 regions: a grid of city tiles on one map and one clock. The ground is made once for the whole region
 /// and cut into tiles, so edges meet. Every founded city steps one day together; none is ever ahead of another.
 /// </summary>
-public sealed class Region : IDisposable
+public sealed partial class Region : IDisposable
 {
     public const int MaxSide = 8;
 
@@ -79,6 +79,7 @@ public sealed class Region : IDisposable
             if (w.Tick != tick) throw new InvalidDataException($"{w.Name} is on day {w.Tick}, the region on day {tick}");
             t.City = w;
         }
+        r.RestoreDeals();
         return r;
     }
 
@@ -169,9 +170,11 @@ public sealed class Region : IDisposable
     /// <summary>
     /// Tells each city what its neighbours show across their shared edges, as they stand now: before anyone steps, so
     /// every city reads the others' previous day whatever order they run in. Sent as logged actions, only on change.
+    /// Ends any deal that can't go on, in both cities the same day.
     /// </summary>
     public void ExchangeBorders()
     {
+        CheckDeals();
         var sends = new List<(World, NeighbourEdgeAction)>();
         foreach (var t in Tiles)
         {

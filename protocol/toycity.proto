@@ -32,6 +32,7 @@ message ClientMessage {
     NewRegionRequest new_region = 18;
     RegionRequest region = 19;
     GoToCity go_to = 20;
+    DealRequest deal = 21;
   }
 }
 
@@ -519,6 +520,49 @@ message RegionState {
   int32 speed = 9;     // the region's speed, the slowest any mayor here asked for
   string speed_set_by = 10;  // who holds it there, when it's slower than the host's choice
   repeated NeighbourEdge borders = 11;  // what the neighbours of this connection's city show across its sides
+  repeated Deal deals = 12;  // this city's deals with its neighbours, offered or running
+}
+
+enum DealKind {
+  DEAL_POWER = 0;    // kW over power lines that meet
+  DEAL_WATER = 1;    // water over pipes that meet
+  DEAL_GARBAGE = 2;  // garbage the seller takes in, over roads that meet
+  DEAL_TRANSIT = 3;  // a shuttle the seller runs, vehicles an hour, over roads that meet
+}
+
+// A deal between two neighbouring cities, on the region's books.
+message Deal {
+  int32 id = 1;
+  DealKind kind = 2;
+  int32 seller_col = 3;
+  int32 seller_row = 4;
+  int32 buyer_col = 5;
+  int32 buyer_row = 6;
+  string seller = 7;   // the cities' names
+  string buyer = 8;
+  int32 amount = 9;
+  int32 price = 10;    // a month, paid by the buyer to the seller
+  bool active = 11;    // false while it waits for an answer
+  bool offered_by_seller = 12;
+}
+
+// A mayor offers a deal to the neighbour across a side of their city, answers one offered to them, or withdraws or
+// ends one. The answer is a RegionState, or an Error.
+message DealRequest {
+  enum Op {
+    OFFER = 0;
+    ACCEPT = 1;
+    DECLINE = 2;
+    END = 3;
+    COUNTER = 4;      // answer an offer with other terms (amount, price)
+  }
+  Op op = 1;
+  int32 id = 2;       // accept, decline, end, counter
+  int32 side = 3;     // offer: the side the neighbour is on
+  DealKind kind = 4;
+  int32 amount = 5;
+  int32 price = 6;
+  bool selling = 7;   // offer: true to sell to the neighbour, false to buy from it
 }
 
 message RegionTileState {
@@ -1290,6 +1334,7 @@ message RegionSave {
   int32 tile_size = 6;
   int64 tick = 7;
   repeated RegionSavedCity cities = 8;
+  repeated Deal offers = 9;  // deals offered and not yet answered; running ones are in the cities
 }
 
 message RegionSavedCity {
@@ -1308,6 +1353,20 @@ message ActionRecord {
   SideGameMissed missed = 7; // set instead of action: a side game hosted elsewhere missed its deadline
   Fork fork = 8;             // set instead of action: this city is a copy a player took when they de-linked
   NeighbourEdge neighbour = 9;  // set instead of action: the region said what a neighbouring city shows across a border
+  CityDeal deal = 10;           // set instead of action: the region started or ended a deal with a neighbour
+}
+
+// A deal as one of its two cities keeps it.
+message CityDeal {
+  int32 id = 1;
+  DealKind kind = 2;
+  bool selling = 3;
+  int32 side = 4;    // the side the other city is on
+  string other = 5;
+  int32 amount = 6;
+  int32 price = 7;
+  bool end = 8;
+  string why = 9;
 }
 
 // What a neighbouring city shows across one side of this one (0 north, 1 east, 2 south, 3 west). Cell k runs along

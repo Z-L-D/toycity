@@ -65,6 +65,7 @@ public sealed partial class World
             var t = TypeOf(b);
             if (t.PowerOutKw > 0) capacity[_comp[Idx(b.X, b.Y)]] += t.PowerOutKw * FundingFactor(b.Funding) / 100;
         }
+        DealCapacity(DealKind.Power, _comp, capacity);
 
         PowerCapacity = capacity.Sum();
         PowerDemand = 0;
@@ -122,6 +123,7 @@ public sealed partial class World
                 if (InBounds(x, y) && pipeComp[Idx(x, y)] >= 0) g = pipeComp[Idx(x, y)];
             if (g >= 0) capacity[g] += PumpOutput(b);
         }
+        DealCapacity(DealKind.Water, pipeComp, capacity);
         WaterCapacity = capacity.Sum();
 
         // Each cell takes the network of the nearest pipe (8-way steps, so reach is a square) whose network has a pump.
@@ -242,6 +244,12 @@ public sealed partial class World
             if (t.GarbageCap > 0 && HasFrontage(b)) GarbageCapacity += t.GarbageCap * FundingFactor(b.Funding) / 100;
             GarbageProduced += t.Placeable ? b.Garbage : Scaled(b.Garbage, ModKey.Garbage);
         }
+        foreach (var d in Deals)
+            if (d.Kind == DealKind.Garbage && DealCrossing(d.Kind, d.Side) >= 0)
+            {
+                if (d.Selling) GarbageProduced += d.Amount;
+                else GarbageCapacity += d.Amount;
+            }
     }
 
     /// <summary>City-wide desirability penalty from uncollected garbage: 1 point per 100 units over capacity, up to 30.</summary>

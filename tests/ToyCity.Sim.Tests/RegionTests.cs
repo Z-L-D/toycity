@@ -220,4 +220,88 @@ public class RegionTests
         var line = west.DemandReport()[1].Sources.First(l => l.Key == "regional").Detail;
         Assert.Contains("Eastfield", line + west.DemandReport()[0].Sources.First(l => l.Key == "regional").Detail);
     }
+
+    [Fact]
+    public void APowerDealFeedsTheNeighbourBothBooksAgreeAndItEndsWhenTheLineIsCut()
+    {
+        using var r = Region.Create(Fixture.Content, "Lines", 31, 2, 1, 128);
+        var west = r.Found(0, 0, "Westbrook", "May", starter: true);
+        var east = r.Found(1, 0, "Eastfield", "Tess");
+        r.Run(3);
+        var plant = west.Buildings.First(b => b != null && west.TypeOf(b).Id == "coal-plant")!;
+        // A row with dry land from the plant to the border and on into Eastfield.
+        int y = Enumerable.Range(plant.Y, plant.H).First(yy =>
+            Enumerable.Range(plant.X + plant.W, west.Width - plant.X - plant.W).All(x => !west.IsWater(west.Idx(x, yy)))
+            && Enumerable.Range(0, 12).All(x => !east.IsWater(east.Idx(x, yy))));
+        west.Enqueue(new PlaceUtilityAction(plant.X + plant.W, y, west.Width - 1, y, UtilityKind.PowerLine));
+        west.ApplyPending();
+        var westTile = r.TileAt(0, 0)!;
+        var eastTile = r.TileAt(1, 0)!;
+        // Eastfield has no line yet: nothing to offer over.
+        Assert.NotNull(r.CantOffer(westTile, 1, DealKind.Power, 500, 100));
+        east.Enqueue(new PlaceUtilityAction(0, y, 11, y, UtilityKind.PowerLine));
+        east.ApplyPending();
+        r.Run(2);
+        Assert.Null(r.CantOffer(westTile, 1, DealKind.Power, 500, 100));
+
+        long eastPowerBefore = east.PowerCapacity, westPowerBefore = west.PowerCapacity;
+        var d = r.Offer(westTile, 1, DealKind.Power, 500, 100, selling: true);
+        Assert.NotNull(r.Answer(westTile, d.Id, true));   // the one who offered can't answer
+        Assert.NotNull(r.CantOffer(eastTile, 3, DealKind.Power, 200, 50));   // one power deal a border
+        // Eastfield counters at a lower price; Westbrook agrees to that.
+        Assert.Null(r.Counter(eastTile, d.Id, 500, 80));
+        Assert.NotNull(r.Answer(eastTile, d.Id, true));   // the first offer is gone
+        var c = Assert.Single(r.Deals);
+        Assert.Equal(80, c.Price);
+        Assert.False(c.OfferedBySeller);
+        Assert.Null(r.Answer(westTile, c.Id, true));
+        Assert.Single(west.Deals);
+        Assert.Single(east.Deals);
+        r.Run(1);
+        Assert.Equal(eastPowerBefore + 500, east.PowerCapacity);
+        Assert.True(west.PowerCapacity < westPowerBefore, "Westbrook sends what it sells");
+        Assert.Equal(1, east.Powered[east.Idx(5, y)]);
+
+        long westPaid = 0, eastPaid = 0;
+        for (int m = 0; m < 3; m++)
+        {
+            r.Run(30);
+            westPaid += west.LastBudget.Where(l => l.Item1 == "Power sold to Eastfield").Sum(l => l.Item2);
+            eastPaid += east.LastBudget.Where(l => l.Item1 == "Power bought from Westbrook").Sum(l => l.Item2);
+        }
+        Assert.True(westPaid > 0);
+        Assert.Equal(westPaid, -eastPaid);
+
+        // Eastfield cuts its line at the border: the region ends the deal in both cities the same day.
+        east.Enqueue(new BulldozeAction(new CellRect(0, y, 0, y)));
+        east.ApplyPending();
+        r.Run(2);
+        Assert.Empty(west.Deals);
+        Assert.Empty(east.Deals);
+        Assert.Empty(r.Deals);
+        Assert.Contains(east.Notices, n => n.Text.Contains("no longer meet"));
+
+        // Saved and loaded, and each city alone, it all comes out the same.
+        using var back = RegionMapping.Load(Fixture.Content, RegionMapping.Save(r));
+        Assert.Equal(r.StateHash(), back.StateHash());
+        foreach (var t in r.Tiles)
+        {
+            using var replay = r.ReplayTile(t, r.Tick);
+            Assert.Equal(t.City!.StateHash(), replay.StateHash());
+        }
+    }
+
+    [Fact]
+    public void AnOfferWaitsAndADeclinedOrWithdrawnOneIsGone()
+    {
+        using var r = Region.Create(Fixture.Content, "Talks", 37, 2, 1, 128);
+        r.Found(0, 0, "Westbrook", "May", starter: true);
+        r.Found(1, 0, "Eastfield", "Tess", starter: true);
+        var w = r.TileAt(0, 0)!;
+        var e = r.TileAt(1, 0)!;
+        // A shuttle needs a road that meets: not yet.
+        Assert.Contains("road", r.CantOffer(w, 1, DealKind.Transit, 200, 50));
+        Assert.NotNull(r.CantOffer(w, 0, DealKind.Power, 200, 50));   // open land north
+        Assert.NotNull(r.EndDeal(e, 99));
+    }
 }

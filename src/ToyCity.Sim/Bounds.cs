@@ -66,6 +66,8 @@ public sealed partial class World
                 : o.Kind == OfferKind.Relocate && !Building(o.ToBuildingId) ? "There's no such lot." : o.Terms is { } ot ? TermsOutOfBounds(ot) : null,
             NeighbourEdgeAction n => n.Side is < 0 or > 3 || !Text(n.Name, 200) || !Text(n.Mayor, MaxName) || n.Paths.Length > 2048 || n.Power.Length > 1024 || n.Pipes.Length > 1024 || (n.Stats?.Length ?? 0) > 64
                 ? "That isn't a border." : null,
+            CityDealAction d => d.Side is < 0 or > 3 || !Def(d.Kind) || !Text(d.Other, 200) || !Text(d.Why, 200) || d.Amount is < 0 or > 1_000_000 || d.Price is < 0 or > 1_000_000
+                ? "That isn't a deal." : null,
             RenameOwnerAction r => !Text(r.From, MaxName) || !Text(r.To, MaxName) ? "That player name is too long." : null,
             _ => null,
         };
