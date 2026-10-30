@@ -119,11 +119,11 @@ public partial class RegionScreen : CanvasLayer
             {
                 ToggleMode = true, FocusMode = Control.FocusModeEnum.None, ExpandIcon = true, Icon = ImageTexture.CreateFromImage(img),
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, SizeFlagsVertical = Control.SizeFlags.ExpandFill,
-                TooltipText = t.Founded ? $"{t.Name} · {t.Mayor} · {t.Population:N0} people" : "Open land",
+                TooltipText = (t.Founded ? $"{t.Name} · {t.Mayor} · {t.Population:N0} people" : "Open land") + (t.Weather.Length > 0 ? $" · {t.Weather}" : ""),
                 TextureFilter = CanvasItem.TextureFilterEnum.Nearest,
             };
             if (!t.Founded) b.Modulate = new Color(0.8f, 0.8f, 0.8f);
-            var label = new Label { Text = t.Founded ? (t.Computer.Length > 0 ? "🤖 " : "") + t.Name + (t.Players.Count > 0 ? $"  👤{t.Players.Count}" : "") : "", Position = new Vector2(6, 4) };
+            var label = new Label { Text = (t.Weather.Length > 0 ? t.Weather.Split(' ')[0] + " " : "") + (t.Founded ? (t.Computer.Length > 0 ? "🤖 " : "") + t.Name + (t.Players.Count > 0 ? $"  👤{t.Players.Count}" : "") : ""), Position = new Vector2(6, 4) };
             label.AddThemeColorOverride("font_outline_color", Colors.Black);
             label.AddThemeConstantOverride("outline_size", 4);
             if (t.Col == s.HereCol && t.Row == s.HereRow) label.AddThemeColorOverride("font_color", UiTheme.Accent);

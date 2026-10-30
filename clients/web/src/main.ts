@@ -204,7 +204,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 function updateTopBar() {
   const s = city.stats;
   $('#city-name').textContent = s.cityName;
-  $('#date').textContent = `${MONTHS[s.month - 1]} ${s.day}, ${s.year}`;
+  $('#date').textContent = `${MONTHS[s.month - 1]} ${s.day}, ${s.year}${s.weather ? ` · ${s.weather}` : ''}`;
   const f = $('#funds');
   f.textContent = money(s.funds);
   f.classList.toggle('neg', s.funds < 0);

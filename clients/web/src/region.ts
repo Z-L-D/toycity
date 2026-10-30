@@ -199,6 +199,7 @@ export class Region {
       return `<button class="rg-tile${t.founded ? '' : ' open'}${here ? ' here' : ''}${picked ? ' picked' : ''}" data-col="${t.col}" data-row="${t.row}"
         style="grid-column:${t.col + 1};grid-row:${t.row + 1}" title="${esc(t.name)}">
         <canvas width="${PICTURE}" height="${PICTURE}"></canvas>
+        ${t.weather ? `<span class="rg-weather" title="${esc(t.weather)}">${esc(t.weather.split(' ')[0])}</span>` : ''}
         <span class="rg-label">${t.computer ? '🤖 ' : ''}${esc(t.founded ? t.name : '')}${t.players.length ? ` <span class="rg-who">👤${t.players.length}</span>` : ''}</span>
       </button>`;
     }).join('');

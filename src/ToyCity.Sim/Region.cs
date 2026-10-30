@@ -156,12 +156,32 @@ public sealed partial class Region : IDisposable
     /// </summary>
     public void Step()
     {
-        ExchangeBorders();
-        var cities = Cities.ToArray();
-        if (cities.Length > 1) Parallel.ForEach(cities, c => c.Step());
-        else foreach (var c in cities) c.Step();
-        Tick++;
+        BeginDay();
+        StepCities(Cities.ToArray());
+        EndDay();
     }
+
+    /// <summary>
+    /// A follower holds only the tiles its host runs, and hears of the rest from the region's host: it doesn't work out
+    /// borders, deals or weather itself (part 8). Those arrive as actions from the region's host.
+    /// </summary>
+    public bool Follower { get; set; }
+
+    /// <summary>The first half of a day: what each city hears from the region before it steps.</summary>
+    public void BeginDay()
+    {
+        if (!Follower) ExchangeBorders();
+    }
+
+    /// <summary>Steps these cities one day, side by side.</summary>
+    public static void StepCities(IReadOnlyList<World> cities)
+    {
+        if (cities.Count > 1) Parallel.ForEach(cities, c => c.Step());
+        else foreach (var c in cities) c.Step();
+    }
+
+    /// <summary>The day is over for every city: the region's day moves on.</summary>
+    public void EndDay() => Tick++;
 
     /// <summary>The tile across a side of this one (0 north, 1 east, 2 south, 3 west), or null past the region's edge.</summary>
     public RegionTile? Across(RegionTile t, int side) => side switch
@@ -180,6 +200,7 @@ public sealed partial class Region : IDisposable
     public void ExchangeBorders()
     {
         CheckDeals();
+        SendWeather();
         var sends = new List<(World, NeighbourEdgeAction)>();
         foreach (var t in Tiles)
         {

@@ -588,6 +588,7 @@ message RegionTileState {
   int64 funds = 9;
   string address = 10;  // where this tile's city is served, when not by the server this came from (federated)
   string computer = 11; // a computer mayor's temperament ("growth-hungry", "green", "careful"); empty for a player
+  string weather = 12;  // today's weather over it, as in CityStats.weather
 }
 
 message SetSpeed {
@@ -793,6 +794,7 @@ message CityStats {
   repeated Disaster disasters = 24;
   DisasterSetting disaster_setting = 25;
   int32 transit_boardings = 26;  // a day, from last month's commutes
+  string weather = 27;           // today's weather over the city with its icon ("🌧 Heavy rain"); empty when clear
 }
 
 message BudgetLine {
@@ -1366,6 +1368,20 @@ message ActionRecord {
   Fork fork = 8;             // set instead of action: this city is a copy a player took when they de-linked
   NeighbourEdge neighbour = 9;  // set instead of action: the region said what a neighbouring city shows across a border
   CityDeal deal = 10;           // set instead of action: the region started or ended a deal with a neighbour
+  RegionWeather weather = 11;   // set instead of action: the region's weather over the city changed
+}
+
+enum WeatherKind {
+  WEATHER_CLEAR = 0;
+  WEATHER_RAIN = 1;
+  WEATHER_SNOW = 2;
+  WEATHER_HEAT = 3;
+  WEATHER_WIND = 4;
+}
+
+message RegionWeather {
+  WeatherKind kind = 1;
+  int32 strength = 2;  // 1 light .. 3 severe
 }
 
 // A deal as one of its two cities keeps it.
@@ -1391,6 +1407,8 @@ message NeighbourEdge {
   repeated int32 power = 5;  // cells with a power line
   repeated int32 pipes = 6;  // cells with a water pipe
   repeated int32 stats = 7;  // the neighbour's published numbers at the start of its month (World.Published)
+  repeated int32 fire = 8;   // cells where the neighbour has a building on fire at the border
+  repeated int32 movers = 9; // disasters walking over the border into this city: kind, cell, dx, dy, days left
 }
 
 message Fork {

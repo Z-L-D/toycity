@@ -258,7 +258,7 @@ public sealed class RegionHost : IDisposable
     List<(Client, P.ServerMessage)> RegionIfChanged(bool force = false)
     {
         var list = new List<(Client, P.ServerMessage)>();
-        string sig = $"{_speed}/{_speedBy}/{_region.Tick / World.DaysPerMonth}/{string.Join(",", _region.Deals.Select(d => $"{d.Id}{(d.Active ? "+" : "?")}"))}/" + string.Join(",", _region.Tiles.Select(t =>
+        string sig = $"{_speed}/{_speedBy}/{_region.Tick / World.DaysPerMonth}/{string.Join(",", _region.Deals.Select(d => $"{d.Id}{(d.Active ? "+" : "?")}"))}/{string.Join(",", _region.Tiles.Select(t => _region.WeatherAt(t, _region.Tick)))}/" + string.Join(",", _region.Tiles.Select(t =>
             $"{t.Name}:{t.Mayor}:{string.Join("/", t.City?.NextDoor.Select(n => n?.Sig ?? "") ?? Enumerable.Empty<string>())}:{string.Join("+", _cities[t.Row * _region.Cols + t.Col]?.Clients.Select(c => c.Player).Distinct().OrderBy(n => n, StringComparer.Ordinal) ?? Enumerable.Empty<string>())}"));
         if (!force && sig == _regionSig) return list;
         _regionSig = sig;

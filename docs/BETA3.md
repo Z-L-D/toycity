@@ -249,3 +249,48 @@ and its log replays to the same hash; a player takes it over and hands it to a c
 `RegionTests.AComputerMayorCountersALowOfferAndTheDealRuns`: a careful computer counters a low price for power at a
 quarter over fair, the counter is agreed and the power flows; a second counter is declined. `RegionClientTests`: the
 admin founds a computer's city from the region screen, a player can't, and takes it over instead.
+
+## Part 7: weather and disasters across borders
+
+### Region weather
+
+A region of more than one tile has a sky (`src/ToyCity.Sim/Weather.cs`). Fronts of rain, snow, heat and wind come in
+from one edge of the region and drift across it over one to four weeks, a few tiles wide, light, heavy or severe.
+Snow comes in winter, heat in summer, rain and wind all year. A front is worked out from the region's seed and the
+day alone, so the sky needs no saving and every host computes the same one.
+
+Before each day the region tells each city the weather over its middle when it changes (`WeatherAction`, logged, so a
+city's log replays it alone). In the city:
+
+| Weather | Power use | Water use | Fire spread | Visitors |
+| --- | --- | --- | --- | --- |
+| Heat, per step of strength | +10% | +15% | +25% | +5% |
+| Snow | +8% | | −30% | −8% |
+| Rain | | −10% | −25% | −12% |
+| Wind | | | +25% | |
+
+Severe weather makes the news ("Heatwave over Westbrook: power and water use are up, and fires catch more easily").
+Both clients show today's weather after the date in the top bar, and on each tile of the region map. A lone city
+has no region sky and plays as before.
+
+### Disasters across borders
+
+`src/ToyCity.Sim/CrossBorder.cs`, through the border exchange of part 3, so each city's log replays it alone:
+
+- **Fire.** A building burning at the border shows on the neighbour's side of the edge. Each day it may set the
+  neighbour's building across from it alight (a fifth of the time, more in heat and wind, less in rain and snow).
+- **Tornadoes and the Clockwork Colossus.** One that walks off the map toward a neighbouring city walks in there the
+  next day at the same place, with its heading and the days it has left.
+
+What crosses follows the stricter of the two cities' rules: nothing crosses into a city with disasters turned off,
+and the Colossus stops at the border of a city whose rules forbid absurd disasters ("The robot from Eastfield stopped
+at the border: Westbrook's rules forbid absurd disasters").
+
+The plan also had floods following rivers downstream. ToyCity has no floods or rivers yet, so that waits for them.
+
+### Tests
+
+`RegionTests.WeatherFrontsCrossTheRegionAndChangeTheCities` (every city has the region's weather each day, rain, snow
+and heat all turn up in two years, the two ends of a region sometimes differ, and each city replays alone; a lone city
+stays clear), `AHeatwaveRaisesPowerAndWaterUse`, `TheColossusWalksOverTheBorderUnlessTheNeighbourForbidsIt` and
+`FireJumpsTheBorderBetweenBuildingsThatTouchIt`.

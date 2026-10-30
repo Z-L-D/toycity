@@ -174,6 +174,7 @@ public static class Mapping
         s.TaxTenths.AddRange(w.TaxTenths);
         s.DisasterSetting = (P.DisasterSetting)(int)w.DisasterSetting;
         s.TransitBoardings = w.TransitBoardings;
+        if (w.Weather != WeatherKind.Clear) s.Weather = $"{World.WeatherIcon(w.Weather)} {World.WeatherName(w.Weather, w.WeatherStrength)}";
         foreach (var d in w.Disasters)
             s.Disasters.Add(new P.Disaster { Id = d.Id, Kind = (P.DisasterKind)(int)d.Kind, X = d.X, Y = d.Y, DaysLeft = d.DaysLeft, Destroyed = d.Destroyed, Damaged = d.Damaged });
         foreach (var (label, amount) in w.LastBudget) s.Budget.Add(new P.BudgetLine { Label = label, Amount = amount });
@@ -498,6 +499,7 @@ public static class Mapping
                 RenameOwnerAction rn => new P.ActionRecord { Tick = l.Tick, By = rn.By, Rename = new P.RenameOwner { From = rn.From, To = rn.To } },
                 ForkAction fk => new P.ActionRecord { Tick = l.Tick, By = fk.By, Fork = new P.Fork { Player = fk.Player, HomeName = fk.HomeName } },
                 NeighbourEdgeAction ne => new P.ActionRecord { Tick = l.Tick, By = ne.By, Neighbour = Edge(ne) },
+                WeatherAction wa => new P.ActionRecord { Tick = l.Tick, By = wa.By, Weather = new P.RegionWeather { Kind = (P.WeatherKind)(int)wa.Kind, Strength = wa.Strength } },
                 CityDealAction cd => new P.ActionRecord
                 {
                     Tick = l.Tick, By = cd.By,
@@ -512,9 +514,11 @@ public static class Mapping
     public static P.NeighbourEdge Edge(NeighbourEdgeAction a) => new()
     {
         Side = a.Side, Name = a.Name, Mayor = a.Mayor, Paths = { a.Paths }, Power = { a.Power }, Pipes = { a.Pipes }, Stats = { a.Stats ?? Array.Empty<int>() },
+        Fire = { a.Fire ?? Array.Empty<int>() }, Movers = { a.Movers ?? Array.Empty<int>() },
     };
 
-    public static NeighbourEdgeAction Edge(P.NeighbourEdge e) => new(e.Side, e.Name, e.Mayor, e.Paths.ToArray(), e.Power.ToArray(), e.Pipes.ToArray(), e.Stats.ToArray());
+    public static NeighbourEdgeAction Edge(P.NeighbourEdge e) =>
+        new(e.Side, e.Name, e.Mayor, e.Paths.ToArray(), e.Power.ToArray(), e.Pipes.ToArray(), e.Stats.ToArray(), e.Fire.ToArray(), e.Movers.ToArray());
 
     public static World Load(ContentDb content, byte[] data)
     {
@@ -528,6 +532,7 @@ public static class Mapping
                 : r.Rename != null ? new RenameOwnerAction(r.Rename.From, r.Rename.To)
                 : r.Fork != null ? new ForkAction(r.Fork.Player, r.Fork.HomeName)
                 : r.Neighbour != null ? Edge(r.Neighbour)
+                : r.Weather is { } wr ? new WeatherAction((WeatherKind)(int)wr.Kind, wr.Strength)
                 : r.Deal is { } d ? new CityDealAction(d.Id, (DealKind)(int)d.Kind, d.Selling, d.Side, d.Other, d.Amount, d.Price, d.End, d.Why)
                 : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
                 : r.Action == null ? null : ToSim(r.Action);

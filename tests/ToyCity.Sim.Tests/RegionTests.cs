@@ -371,4 +371,110 @@ public class RegionTests
         r.Run(1);
         Assert.Empty(r.Deals);
     }
+
+    [Fact]
+    public void WeatherFrontsCrossTheRegionAndChangeTheCities()
+    {
+        using var r = Region.Create(Fixture.Content, "Skies", 47, 3, 1, 64);
+        var cities = new[] { r.Found(0, 0, "Westbrook", "May", starter: true), r.Found(1, 0, "Middleton", "Sam", starter: true), r.Found(2, 0, "Eastfield", "Tess", starter: true) };
+        var seen = new HashSet<WeatherKind>();
+        int differ = 0;
+        for (int d = 0; d < 720; d++)
+        {
+            r.Step();
+            foreach (var t in r.Tiles)
+            {
+                var (k, s) = r.WeatherAt(t, r.Tick - 1);
+                Assert.Equal(k, t.City!.Weather);
+                Assert.Equal(s, t.City.WeatherStrength);
+                seen.Add(k);
+            }
+            if (cities[0].Weather != cities[2].Weather) differ++;
+        }
+        // Rain, wind, snow in winter and heat in summer all turn up in two years; a front reaches one end before the other.
+        Assert.Contains(WeatherKind.Rain, seen);
+        Assert.Contains(WeatherKind.Snow, seen);
+        Assert.Contains(WeatherKind.Heat, seen);
+        Assert.True(differ > 0, "fronts drift across, so the ends sometimes differ");
+        foreach (var t in r.Tiles)
+        {
+            using var replay = r.ReplayTile(t, r.Tick);
+            Assert.Equal(t.City!.StateHash(), replay.StateHash());
+        }
+        // A lone city has no region sky.
+        using var lone = Region.Single(World.Create(Fixture.Content, 5, 64, "Alone"));
+        lone.Run(400);
+        Assert.Equal(WeatherKind.Clear, lone.Tiles[0].City!.Weather);
+    }
+
+    [Fact]
+    public void AHeatwaveRaisesPowerAndWaterUse()
+    {
+        var w = World.Create(Fixture.Content, 2026, 128, "Hot");
+        StarterTown.Apply(w);
+        w.Run(120);
+        var copy = World.FromSnapshot(Fixture.Content, w.Snapshot());
+        copy.Enqueue(new WeatherAction(WeatherKind.Heat, 3));
+        w.Step();
+        copy.Step();
+        Assert.True(copy.PowerDemand > w.PowerDemand * 12 / 10, $"{copy.PowerDemand} vs {w.PowerDemand}");
+        Assert.True(copy.WaterDemand > w.WaterDemand * 13 / 10, $"{copy.WaterDemand} vs {w.WaterDemand}");
+        Assert.Contains(copy.Notices, n => n.Text.Contains("Heatwave"));
+        w.Dispose();
+        copy.Dispose();
+    }
+
+    [Fact]
+    public void TheColossusWalksOverTheBorderUnlessTheNeighbourForbidsIt()
+    {
+        using var r = Region.Create(Fixture.Content, "Stomp", 53, 2, 1, 64);
+        var west = r.Found(0, 0, "Westbrook", "May", starter: true);
+        var east = r.Found(1, 0, "Eastfield", "Tess", starter: true);
+        r.Run(2);
+        // The Colossus a few cells from the border, heading east with days to spare.
+        west.Disasters.Add(new Disaster { Id = 900, Kind = DisasterKind.Robot, X = ((west.Width - 3) << 8) + 128, Y = (30 << 8) + 128, Dx = 256, DaysLeft = 40 });
+        r.Run(6);
+        var robot = Assert.Single(east.Disasters, d => d.Kind == DisasterKind.Robot);
+        Assert.True(robot.CellX < 10 && robot.CellY == 30, $"it came in at {robot.CellX},{robot.CellY}");
+        Assert.True(robot.DaysLeft < 40);
+        Assert.DoesNotContain(west.Disasters, d => d.Kind == DisasterKind.Robot);
+        Assert.Empty(west.Departures);
+        using (var replay = r.ReplayTile(r.TileAt(1, 0)!, r.Tick))
+            Assert.Equal(east.StateHash(), replay.StateHash());
+
+        // Westbrook forbids absurd disasters: a second walk from Eastfield stops at its border.
+        west.Enqueue(new SetCityRuleAction(Mechanic.AbsurdDisasters, true));
+        east.Disasters.Clear();
+        east.Disasters.Add(new Disaster { Id = 901, Kind = DisasterKind.Robot, X = (2 << 8) + 128, Y = (20 << 8) + 128, Dx = -256, DaysLeft = 40 });
+        r.Run(6);
+        Assert.DoesNotContain(west.Disasters, d => d.Kind == DisasterKind.Robot);
+        Assert.Contains(west.Notices, n => n.Text.Contains("stopped at the border"));
+    }
+
+    [Fact]
+    public void FireJumpsTheBorderBetweenBuildingsThatTouchIt()
+    {
+        using var r = Region.Create(Fixture.Content, "Sparks", 59, 2, 1, 64);
+        var west = r.Found(0, 0, "Westbrook", "May");
+        var east = r.Found(1, 0, "Eastfield", "Tess");
+        int y = Enumerable.Range(4, 56).First(yy => !west.IsWater(west.Idx(west.Width - 1, yy)) && !east.IsWater(east.Idx(0, yy))
+            && !west.IsWater(west.Idx(west.Width - 2, yy)) && !east.IsWater(east.Idx(1, yy)));
+        west.Enqueue(new PlaceBuildingAction(west.Width - 1, y, "small-park"));
+        east.Enqueue(new PlaceBuildingAction(0, y, "small-park"));
+        west.ApplyPending();
+        east.ApplyPending();
+        var wPark = west.BuildingAtCell(west.Idx(west.Width - 1, y));
+        var ePark = east.BuildingAtCell(east.Idx(0, y));
+        Assert.NotNull(wPark);
+        Assert.NotNull(ePark);
+        bool caught = false;
+        for (int d = 0; d < 60 && !caught; d++)
+        {
+            if (west.BuildingAtCell(west.Idx(west.Width - 1, y)) is { BurningDays: 0 } b) b.BurningDays = 1;
+            r.Step();
+            caught = east.Buildings.Any(b => b is { BurningDays: > 0 });
+        }
+        Assert.True(caught, "the fire crossed");
+        Assert.Contains(east.Notices.Concat(east.Headlines.Select(h => new SimNotice(h.Text, "info"))), n => n.Text.Contains("across the border from Westbrook"));
+    }
 }

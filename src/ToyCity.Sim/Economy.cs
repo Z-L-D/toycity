@@ -52,7 +52,7 @@ public sealed partial class World
         JobsCommercial = jobsC;
         JobsIndustrial = jobsI;
         JobsCivic = jobsCivic;
-        Attraction = (int)Math.Max(0, attraction + Mod(ModKey.Attraction));
+        Attraction = (int)Math.Max(0, (attraction + Mod(ModKey.Attraction)) * WeatherTourismPct / 100);
         ComputeDemand();
 
         while (MilestoneIndex < Milestones.Length && pop >= Milestones[MilestoneIndex])

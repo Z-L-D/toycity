@@ -77,6 +77,7 @@ public sealed partial class World
             if (t.PowerOutKw > 0 || b.PowerKw == 0) { b.Powered = true; continue; }
             if (!b.Operating) { b.Powered = capacity[g] > 0; continue; }
             int kw = t.Placeable ? b.PowerKw : Scaled(b.PowerKw, ModKey.PowerUse);
+            kw = kw * WeatherPowerPct / 100;
             demand[g] += kw;
             PowerDemand += kw;
             if (capacity[g] - used[g] >= kw) { used[g] += kw; b.Powered = true; }
@@ -167,6 +168,7 @@ public sealed partial class World
             if (!b.Operating) { b.Watered = g >= 0; continue; }
             if (g < 0) { b.Watered = false; continue; }
             int use = TypeOf(b).Placeable ? b.WaterUse : Scaled(b.WaterUse, ModKey.WaterUse);
+            use = use * WeatherWaterPct / 100;
             demand[g] += use;
             WaterDemand += use;
             if (capacity[g] - used[g] >= use) { used[g] += use; b.Watered = true; }

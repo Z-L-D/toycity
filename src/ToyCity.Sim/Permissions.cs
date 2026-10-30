@@ -66,6 +66,8 @@ public sealed partial class World
                 return "Only the city records a side game's missed deadline.";
             case NeighbourEdgeAction:
                 return "Only the region says what's across the border.";
+            case WeatherAction:
+                return "Only the region brings the weather.";
             case CityDealAction:
                 return "Deals are made on the region map, with the neighbour's agreement.";
             case SideGameAction g:

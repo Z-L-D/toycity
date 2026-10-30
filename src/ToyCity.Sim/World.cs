@@ -400,6 +400,7 @@ public sealed partial class World
             w.Write(FoundedTick);
             WriteNeighbours(w);
             WriteDeals(w);
+            WriteRegionState(w);
         }
         return ms.ToArray();
     }
@@ -482,6 +483,7 @@ public sealed partial class World
             w.FoundedTick = r.ReadInt64();
             w.ReadNeighbours(r);
             w.ReadDeals(r);
+            w.ReadRegionState(r);
         }
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions

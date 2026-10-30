@@ -439,7 +439,7 @@ public partial class PanelView : CanvasLayer
     {
         var s = c.Stats;
         _name!.Text = s.CityName;
-        _date!.Text = $"{MonthNames[Math.Clamp(s.Month - 1, 0, 11)]} {s.Day}, {s.Year}";
+        _date!.Text = $"{MonthNames[Math.Clamp(s.Month - 1, 0, 11)]} {s.Day}, {s.Year}" + (s.Weather.Length > 0 ? $" · {s.Weather}" : "");
         _funds!.Text = Bb.Money(s.Funds);
         _funds.AddThemeColorOverride("font_color", s.Funds < 0 ? UiTheme.Bad : UiTheme.Text);
         _name.AddThemeColorOverride("font_color", UiTheme.Text);

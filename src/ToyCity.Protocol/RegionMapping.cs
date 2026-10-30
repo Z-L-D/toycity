@@ -71,6 +71,7 @@ public static class RegionMapping
                 ts.Funds = w.Funds;
                 if (w.ComputerMayor) ts.Computer = World.Temperament(w.MayorSeat.Style);
             }
+            if (r.Tiles.Length > 1 && r.WeatherAt(t, r.Tick) is var (wk, ws) && wk != WeatherKind.Clear) ts.Weather = $"{World.WeatherIcon(wk)} {World.WeatherName(wk, ws)}";
             ts.Players.AddRange(playersIn(t));
             s.Tiles.Add(ts);
         }

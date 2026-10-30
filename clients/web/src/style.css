@@ -460,6 +460,7 @@ body.company #hints { display: none; }
 /* The region map: replaces the whole interface while it's open. */
 #region { position: fixed; inset: 0; z-index: 50; background: #12161f; display: flex; flex-direction: column; }
 #region.hidden { display: none; }
+#region .rg-weather { position: absolute; top: 4px; right: 6px; font-size: 20px; filter: drop-shadow(0 1px 2px #000); }
 #region .rg-deal { margin: 6px 0 10px; }
 #region .rg-kinds { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
 #region .rg-kinds.hidden { display: none; }
