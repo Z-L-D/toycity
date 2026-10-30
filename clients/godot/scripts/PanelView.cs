@@ -55,9 +55,62 @@ public partial class PanelView : CanvasLayer
     readonly Dictionary<string, Button> _coTabButtons = new();
     Label? _coText, _coDate;
     Button? _coSeat;
+    Label? _coPending;
     PanelContainer? _coTools;
     RichTextLabel? _coToolsText;
     string _wasScreen = "city";
+    string? _wasShown;
+    /// <summary>Whether screen switches fade; off for screenshots and scripted runs, which capture a frame at once.</summary>
+    public bool Transitions { get; set; } = true;
+    ColorRect? _dip;
+
+    PanelContainer? _working;
+    Label? _workingText;
+
+    /// <summary>
+    /// The "working…" card in the middle of the screen, from the first frame of a long wait (a new city, a save, a
+    /// load, opening or moving to another city of the region) until it's done.
+    /// </summary>
+    void WorkingCard(double delta)
+    {
+        string? what = Model.Working ?? (Model.Region.Pending is { Length: > 0 } rp && (rp.StartsWith("Opening") || rp.StartsWith("Moving") || rp.StartsWith("Founding")) ? rp : null);
+        if (_working == null)
+        {
+            var layer = new CanvasLayer { Layer = 9 };
+            AddChild(layer);
+            var centre = new CenterContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+            centre.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+            layer.AddChild(centre);
+            _working = new PanelContainer { Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore };
+            _working.AddThemeStyleboxOverride("panel", UiTheme.Floating());
+            centre.AddChild(_working);
+            _workingText = new Label { HorizontalAlignment = HorizontalAlignment.Center, CustomMinimumSize = new Vector2(260, 0) };
+            _workingText.AddThemeFontSizeOverride("font_size", 16);
+            _working.AddChild(_workingText);
+        }
+        _working.Visible = what != null;
+        if (what == null) return;
+        // A turning hourglass, so a long wait still looks alive.
+        _workingText!.Text = $"{((int)(Time.GetTicksMsec() / 500) % 2 == 0 ? "⏳" : "⌛")} {what}";
+    }
+
+    /// <summary>A quick fade from the background colour, over everything but the sign-in.</summary>
+    void Dip()
+    {
+        if (_dip == null)
+        {
+            var layer = new CanvasLayer { Layer = 10 };
+            AddChild(layer);
+            _dip = new ColorRect { Color = UiTheme.Bg, MouseFilter = Control.MouseFilterEnum.Ignore };
+            _dip.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+            layer.AddChild(_dip);
+        }
+        _dip.Modulate = new Color(1, 1, 1, 0.7f);
+        _dip.Visible = true;
+        var t = CreateTween();
+        t.TweenProperty(_dip, "modulate:a", 0f, 0.22).SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Cubic);
+        t.TweenCallback(Callable.From(() => _dip.Visible = false));
+    }
     /// <summary>Whether the camera keeps the followed commuter centred; panning hands the camera back.</summary>
     public bool FollowCam;
 
@@ -182,6 +235,7 @@ public partial class PanelView : CanvasLayer
         _coDate = Stat(co);
         _coSpeeds = Speeds(co);
         _coSeat = Btn("", () => Model.Click(Model.Company.Mine ? "co-handoff" : "co-claim"), co);
+        _coPending = Stat(co, "", UiTheme.FontSize, UiTheme.Warn);
         co.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
         Btn("⧉ Own window", () => Model.Click("co-window"), co);
         Btn("🏙 Back to the city", () => Model.Click("co-city"), co);
@@ -393,9 +447,18 @@ public partial class PanelView : CanvasLayer
     {
         var c = _client.City;
         Model.Tick(delta);
+        WorkingCard(delta);
         bool company = Model.Company.Active, dispatch = !company && Model.Emergency.Active;
         // Which screen is up: the city's, or a side game's own, each with its own top bar and left column.
         string screen = company ? "company" : dispatch ? "dispatch" : "city";
+        // Every switch between the mayor's, the company's, the dispatch and the region screens dips through the
+        // background for a moment, so it reads as one window changing rather than a jump.
+        string shown = Model.Region.Active ? "region" : screen;
+        if (shown != _wasShown)
+        {
+            if (_wasShown != null && Transitions) Dip();
+            _wasShown = shown;
+        }
         if (screen != _wasScreen)
         {
             _wasScreen = screen;
@@ -502,6 +565,10 @@ public partial class PanelView : CanvasLayer
         _coDate!.Text = $"{MonthNames[Math.Clamp(s.Month - 1, 0, 11)]} {s.Day}, {s.Year}";
         var v = Model.Company.View;
         _coSeat!.Text = v == null ? "" : Model.Company.Mine ? "You run it · hand to the computer" : $"The computer runs it ({v.Operator}) · run it yourself";
+        // While a change waits on the city's next day, it says so in place of the button.
+        _coSeat.Visible = v != null && Model.Company.Pending == null;
+        _coPending!.Visible = Model.Company.Pending != null;
+        _coPending.Text = Model.Company.Pending is { } p ? $"⏳ {p}" : "";
     }
 
     /// <summary>Rewrites the panel and dialog when the model changed, keeping the scroll place within a tab.</summary>

@@ -513,3 +513,27 @@ hostage-taker, frees the hostages and scores 100 for rules of engagement; breach
 a line of fire; gear, shifts and ratings show and cost what they should; the crooked ways wait for everyone to allow
 them; and the new state saves, loads and replays. `EmergencyClientTests` (ClientModel) checks the box select, which
 orders show for whom, the breach order, and the gear, shifts and crooked-ways links.
+
+## Part 12: Godot polish
+
+- **Working, from the first frame.** Every action that waits on the server says so at once. A new city, a save and a
+  load put a "⏳ Building Harbourside…" card in the middle of the screen until the server answers (or refuses, or a
+  minute passes). So do opening, founding or moving to another city of the region. Taking over the bus company,
+  handing it back, and leasing or giving up a lot now show "⏳ Taking over the company…" in the company's top bar
+  until the company hears at the next day, as the emergency services already did. A second click while it waits
+  isn't sent again.
+- **Smooth switches.** Going between the mayor's screen, the company's, the dispatch and the region map dips through
+  the background colour for a fifth of a second, so it reads as one window changing rather than a jump. Screenshot
+  and scripted runs leave it off.
+- **One style.** The sign-in and graphics dialogs use the same floating box as every other dialog (the region screen
+  was already on it), sign-in errors use the theme's red, and the region screen's background is the theme's.
+- **The scene in the city** (part 11) replaces the last small canvas panel in the Godot client.
+
+The web client is unchanged in this part: it already had these. Its bus company doesn't show its wait yet; that's a
+small follow-up.
+
+### Tests
+
+`WaitingTests` (ClientModel): new, save and load show working until the server answers, a refusal or a minute; a
+save isn't ended by an unrelated full state; taking the company shows at once, asks only once, and ends when the
+company says it's the player's.

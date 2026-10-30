@@ -106,6 +106,19 @@ public sealed partial class PanelModel
 
     int _lastOverlayMonth = -1;
 
+    /// <summary>
+    /// A long action under way that the player has to wait on (a new city, a save, a load), shown from the moment
+    /// it's asked for until the server answers. Null when nothing is.
+    /// </summary>
+    public string? Working { get; private set; }
+    double _workingFor;
+
+    void StartWorking(string what)
+    {
+        (Working, _workingFor) = (what, 0);
+        Changed();
+    }
+
     /// <summary>Takes one message from the server. Call for every message, after the city mirror has applied it.</summary>
     public void Handle(ServerMessage m)
     {
@@ -113,7 +126,11 @@ public sealed partial class PanelModel
         switch (m.BodyCase)
         {
             case ServerMessage.BodyOneofCase.Full:
+                if (Working != null && !Working.StartsWith("Saving")) Working = null;
                 if (ActiveOverlay != 0) RequestOverlay();
+                break;
+            case ServerMessage.BodyOneofCase.Notice when Working != null && Working.StartsWith("Saving") && m.Notice.Text.StartsWith("Saved"):
+                Working = null;
                 break;
             case ServerMessage.BodyOneofCase.Delta:
                 if (_city.Stats.Day == 1)
@@ -153,7 +170,11 @@ public sealed partial class PanelModel
             case ServerMessage.BodyOneofCase.Saves: Saves = m.Saves.Names; break;
             case ServerMessage.BodyOneofCase.SideGame: Company.Handle(m.SideGame); Emergency.Handle(m.SideGame); return;
             // A refusal ends whatever the board was waiting on; the tools show why.
-            case ServerMessage.BodyOneofCase.Error: Emergency.Refused(); return;
+            case ServerMessage.BodyOneofCase.Error:
+                Emergency.Refused();
+                Company.Refused();
+                if (Working != null) { Working = null; Changed(); }
+                return;
             default: return;
         }
         Changed();
@@ -651,17 +672,29 @@ public sealed partial class PanelModel
             case "starter": _newStarter = !_newStarter; Changed(); return;
             case "bench": _newBench = !_newBench; Changed(); return;
             case "new-ok":
-                _send(new ClientMessage { NewCity = new NewCityRequest { Name = Input.Trim() is { Length: > 0 } n ? n : "New City", Size = _newSize, StarterTown = _newStarter, Benchmark = _newBench } });
+            {
+                string name = Input.Trim() is { Length: > 0 } n ? n : "New City";
+                _send(new ClientMessage { NewCity = new NewCityRequest { Name = name, Size = _newSize, StarterTown = _newStarter, Benchmark = _newBench } });
                 CloseDialog();
+                StartWorking($"Building {name}…");
                 return;
+            }
             case "save-ok":
-                _send(new ClientMessage { Save = new SaveRequest { Name = Input.Trim() is { Length: > 0 } sn ? sn : "city" } });
+            {
+                string name = Input.Trim() is { Length: > 0 } sn ? sn : "city";
+                _send(new ClientMessage { Save = new SaveRequest { Name = name } });
                 CloseDialog();
+                StartWorking($"Saving \"{name}\"…");
                 return;
+            }
             case "load":
-                _send(new ClientMessage { Load = new LoadRequest { Name = Uri.UnescapeDataString(a[1]) } });
+            {
+                string name = Uri.UnescapeDataString(a[1]);
+                _send(new ClientMessage { Load = new LoadRequest { Name = name } });
                 CloseDialog();
+                StartWorking($"Loading \"{name}\"…");
                 return;
+            }
         }
     }
 
@@ -673,6 +706,8 @@ public sealed partial class PanelModel
     public void Tick(double dt)
     {
         Emergency.Tick(dt);
+        // A server that never answers shouldn't leave the card up for good.
+        if (Working != null && (_workingFor += dt) > 60) { Working = null; Changed(); }
         if (_requeryIn < 0) return;
         _requeryIn -= dt;
         if (_requeryIn < 0 && Selected is { } s) Query(s.X, s.Y, false);

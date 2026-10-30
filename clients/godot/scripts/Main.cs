@@ -143,7 +143,7 @@ public partial class Main : Node
         };
         if (!_smoke && _bench == null && _gateFile == null && _togetherFile == null) AddChild(signIn);
 
-        _panels = new PanelView(_client) { Tools = _tools, Camera = _camera, City = _view, Map = _map };
+        _panels = new PanelView(_client) { Tools = _tools, Camera = _camera, City = _view, Map = _map, Transitions = _shots == null && _bench == null && _gateFile == null && _togetherFile == null };
         AddChild(_panels);
         var pm = _panels.Model;
         pm.Me = () => _client.Connection.Player is { Length: > 0 } me ? me : "player";

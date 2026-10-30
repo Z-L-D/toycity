@@ -31,7 +31,7 @@ public partial class RegionScreen : CanvasLayer
         // Above the city's screens and dialogs: the whole interface changes.
         Layer = 6;
         _root = new Panel { Visible = false };
-        _root.AddThemeStyleboxOverride("panel", UiTheme.Box(new Color(0.07f, 0.086f, 0.12f), null, 0, 0, 0));
+        _root.AddThemeStyleboxOverride("panel", UiTheme.Box(UiTheme.Bg, null, 0, 0, 0));
         _root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(_root);
         var col = new VBoxContainer();

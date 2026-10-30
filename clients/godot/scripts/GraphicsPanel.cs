@@ -36,6 +36,7 @@ public partial class GraphicsPanel : CanvasLayer
         };
         AddChild(centre);
         var panel = new PanelContainer { CustomMinimumSize = new Vector2(520, 0) };
+        panel.AddThemeStyleboxOverride("panel", UiTheme.Floating());
         centre.AddChild(panel);
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 8);
