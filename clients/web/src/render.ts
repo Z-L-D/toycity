@@ -210,9 +210,25 @@ export class Renderer {
   private rebuildTerrain() {
     const c = this.city;
     const K = TERRAIN_DETAIL;
-    const W = c.width * K, H = c.height * K;
-    this.terrain.width = W;
-    this.terrain.height = H;
+    const dirty = c.terrainDirty;
+    c.terrainDirty = [];
+    this.terrainVersion = c.terrainVersion;
+    if (dirty && this.terrain.width === c.width * K && this.terrain.height === c.height * K && dirty.length < 400) {
+      // A few cells changed (a road graded, a pad levelled): redraw just around them.
+      for (const i of dirty) this.paintTerrain((i % c.width) - 1, ((i / c.width) | 0) - 1, (i % c.width) + 1, ((i / c.width) | 0) + 1);
+      return;
+    }
+    this.terrain.width = c.width * K;
+    this.terrain.height = c.height * K;
+    this.paintTerrain(0, 0, c.width - 1, c.height - 1);
+  }
+
+  /** Paints the ground layer for a range of cells, inclusive. */
+  private paintTerrain(cx0: number, cy0: number, cx1: number, cy1: number) {
+    const c = this.city;
+    const K = TERRAIN_DETAIL;
+    cx0 = Math.max(0, cx0); cy0 = Math.max(0, cy0); cx1 = Math.min(c.width - 1, cx1); cy1 = Math.min(c.height - 1, cy1);
+    const W = (cx1 - cx0 + 1) * K, H = (cy1 - cy0 + 1) * K;
     const tctx = this.terrain.getContext('2d')!;
     const img = tctx.createImageData(W, H);
     const at = (x: number, y: number) => c.heights[Math.min(c.height - 1, Math.max(0, y)) * c.width + Math.min(c.width - 1, Math.max(0, x))];
@@ -225,7 +241,7 @@ export class Renderer {
     const wet = (x: number, y: number) => (at(x, y) < c.waterLevel ? 1 : 0);
     for (let py = 0; py < H; py++)
       for (let px = 0; px < W; px++) {
-        const fx = (px + 0.5) / K, fy = (py + 0.5) / K;
+        const fx = cx0 + (px + 0.5) / K, fy = cy0 + (py + 0.5) / K;
         const h = blend(at, fx, fy);
         const water = blend(wet, fx, fy) > 0.5;
         // On the land side of a shore the blended height can dip under the waterline: keep it on the shore.
@@ -241,8 +257,7 @@ export class Renderer {
         img.data[o + 2] = b;
         img.data[o + 3] = 255;
       }
-    tctx.putImageData(img, 0, 0);
-    this.terrainVersion = c.terrainVersion;
+    tctx.putImageData(img, cx0 * K, cy0 * K);
   }
 
   draw() {

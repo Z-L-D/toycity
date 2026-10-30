@@ -8,6 +8,7 @@ namespace ToyCity.ClientModel.Tests;
 /// Westbrook and Eastfield. The days go round with a barrier, the monthly hashes agree, players on a tile host sign in
 /// against the region's accounts, and a tile host that dies is covered by a computer mayor.
 /// </summary>
+[Collection(nameof(FederatedTests))]
 public class FederatedTests
 {
     sealed class Player : IDisposable
@@ -107,3 +108,7 @@ public class FederatedTests
         finally { east.Dispose(); }
     }
 }
+
+/// <summary>The federated run starts three servers at full speed: it runs on its own so the other server tests don't starve.</summary>
+[CollectionDefinition(nameof(FederatedTests), DisableParallelization = true)]
+public sealed class FederatedTestsAlone;

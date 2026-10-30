@@ -109,6 +109,8 @@ export class City {
   underStrip = new Set<number>();
   /** Bumped when terrain changes, so the renderer can rebuild its cached ground layer. */
   terrainVersion = 0;
+  /** Cells whose height changed since the renderer last looked, or null when it should redraw everything. */
+  terrainDirty: number[] | null = null;
   loaded = false;
 
   applyFull(f: Msg) {
@@ -135,6 +137,7 @@ export class City {
     for (const b of f.buildings as Building[]) this.putBuilding(b);
     this.stats = f.stats;
     this.setStrips(f.strips ?? []);
+    this.terrainDirty = null;
     this.terrainVersion++;
     this.loaded = true;
   }
@@ -143,7 +146,10 @@ export class City {
     let terrain = false;
     for (const c of d.cells as Msg[]) {
       const i = c.index;
-      if (this.heights[i] !== c.height) terrain = true;
+      if (this.heights[i] !== c.height) {
+        terrain = true;
+        this.terrainDirty?.push(i);
+      }
       this.heights[i] = c.height;
       this.zones[i] = c.zone;
       this.paths[i] = c.path;
@@ -369,6 +375,77 @@ export function curveCells(x0: number, y0: number, cx: number, cy: number, x1: n
     }
   }
   return cells;
+}
+
+/** As World: a road's cut and fill per step a cell, a pad's, and the most a pad levels. */
+export const GRADE_COST_PER_STEP = 10, PAD_COST_PER_STEP = 5, MAX_PAD_RISE = 3;
+
+/** The heights a run of cells is graded to: the same steps as World.Grade. Null when it can't be. */
+export function grade(h: number[], fixed: boolean[], floor: number): number[] | null {
+  const n = h.length, inf = 1 << 20;
+  const under = new Array<number>(n), over = new Array<number>(n), lo = new Array<number>(n), hi = new Array<number>(n);
+  for (let k = 0; k < n; k++) {
+    under[k] = k > 0 ? Math.min(h[k], under[k - 1] + 1) : h[k];
+    over[k] = k > 0 ? Math.max(h[k], over[k - 1] - 1) : h[k];
+    lo[k] = Math.max(fixed[k] ? h[k] : -inf, k > 0 ? lo[k - 1] - 1 : -inf);
+    hi[k] = Math.min(fixed[k] ? h[k] : inf, k > 0 ? hi[k - 1] + 1 : inf);
+  }
+  for (let k = n - 2; k >= 0; k--) {
+    under[k] = Math.min(under[k], under[k + 1] + 1);
+    over[k] = Math.max(over[k], over[k + 1] - 1);
+    lo[k] = Math.max(lo[k], lo[k + 1] - 1);
+    hi[k] = Math.min(hi[k], hi[k + 1] + 1);
+  }
+  const g = new Array<number>(n);
+  for (let k = 0; k < n; k++) {
+    const low = Math.max(lo[k], floor);
+    if (low > hi[k]) return null;
+    g[k] = Math.min(hi[k], Math.max(low, (under[k] + over[k]) >> 1));
+  }
+  return g;
+}
+
+/** Steps of earth a path along these cells moves (road and banks), as the server works it out; null when too steep. */
+export function gradeSteps(c: City, cells: [number, number][]): number | null {
+  if (cells.some(([x, y]) => !c.inBounds(x, y))) return 0;
+  const idx = cells.map(([x, y]) => y * c.width + x);
+  const h = idx.map((i) => c.heights[i]);
+  const g = grade(h, idx.map((i) => !!c.paths[i]), c.waterLevel);
+  if (!g) return null;
+  const road = new Set(idx);
+  const banks = new Map<number, number>();
+  let steps = 0;
+  for (let k = 0; k < idx.length; k++) {
+    if (g[k] === h[k]) continue;
+    steps += Math.abs(g[k] - h[k]);
+    for (let d = 0; d < 4; d++) {
+      const nx = cells[k][0] + [1, -1, 0, 0][d], ny = cells[k][1] + [0, 0, 1, -1][d];
+      if (!c.inBounds(nx, ny)) continue;
+      const j = ny * c.width + nx;
+      if (road.has(j) || c.paths[j] || c.buildingAt[j] || c.isWater(j)) continue;
+      const now = banks.get(j) ?? c.heights[j];
+      const eased = Math.min(g[k] + 1, Math.max(Math.max(g[k] - 1, c.waterLevel), now));
+      if (eased !== now) banks.set(j, eased);
+    }
+  }
+  for (const [j, eh] of banks) steps += Math.abs(eh - c.heights[j]);
+  return steps;
+}
+
+/** A building's pad: the steps of earth it moves, or null when the lot rises more than a pad can level. */
+export function padSteps(c: City, x0: number, y0: number, w: number, h: number): number | null {
+  let lo = Infinity, hi = -Infinity, sum = 0;
+  for (let y = y0; y < y0 + h; y++)
+    for (let x = x0; x < x0 + w; x++) {
+      if (!c.inBounds(x, y)) return 0;
+      const v = c.heights[y * c.width + x];
+      lo = Math.min(lo, v); hi = Math.max(hi, v); sum += v;
+    }
+  if (hi - lo > MAX_PAD_RISE) return null;
+  const n = w * h, level = Math.max(c.waterLevel, Math.floor((2 * sum + n) / (2 * n)));
+  let steps = 0;
+  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) steps += Math.abs(c.heights[y * c.width + x] - level);
+  return steps;
 }
 
 /** Cells of a straight line at any angle, snapped to the grid: the same integer steps as World.LineCells. */

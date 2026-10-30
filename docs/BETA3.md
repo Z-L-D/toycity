@@ -398,3 +398,41 @@ over is forgotten, the delta says so once, and its cells stay road; and the Smoo
 touching a road beside it. `PlannerTests.ADiagonalIsPreviewedBuiltAndDrawnAsOneSmoothRoad` (ClientModel) draws a
 diagonal with the planner, builds it, and checks the mirror's strip, which cells it draws, and the straight line
 from end to end. The CI screenshots of diagonals, arcs and the Smooth brush come with the Beta 3 gate run (part 13).
+
+## Part 10: auto-grading and foundation pads
+
+### Roads grade the ground
+
+A road no longer refuses a slope. As it's laid, the ground under it is graded so it climbs at most one step a cell
+(`src/ToyCity.Sim/Grading.cs`). The graded line runs halfway between the highest gentle profile under the ground and
+the lowest one over it, so cut and fill roughly balance. Where it crosses or meets a road already there, it keeps
+that road's height. It never digs under the waterline. Open land beside a cut or fill is eased to within a step of
+the road, so the banks are slopes rather than walls. With smooth terrain on, Godot draws them as embankments and
+cuttings, and the web map shades them.
+
+Earthworks cost $10 a step a cell, on top of the road. Both clients' previews add it to the price ("Road, 19 cells:
+$1,240 (grading $290)"), worked out the same way as the server. A road is refused only when the roads at its two
+ends are too far apart in height for any one-step-a-cell climb between them ("Too steep at 9,7: the roads it joins
+are too far apart in height to grade between"). Buildings and water were already refused.
+
+### Foundation pads
+
+A building levels the ground under it to its lot's average height, as SC4's do:
+
+- **A building the mayor places** may stand on a lot that rises up to three steps across it. The pad costs $5 a step
+  a cell, and the preview shows it (for example "Police station: $X (pad $Y)"). More than three steps is refused, and the
+  message says how much it rises.
+- **A grown building** levels its own pad at the developer's cost, so zones off the flat starter platform grow.
+  A lot that rises more than three steps across it isn't used.
+
+Pads and grading never move water. The web client now redraws just the ground around changed cells, so pads
+levelling during growth don't redraw the whole map.
+
+### Tests
+
+`GradingTests` (Sim): grading climbs at most a step a cell, keeps the roads it meets, stays above water and refuses
+only what can't be joined (2,000 random cases); a road up a three-step cliff cuts and fills its way with banks beside
+it, costs the earthworks and replays; two roads too close in height can't be joined, but three cells apart they can;
+a building levels its pad up to three steps of rise and is refused across four; and a starter town grows off its
+platform onto a graded hillside, every building on level ground. `PlannerTests.RoadPreviewsPriceTheGradingAsTheServerDoes`
+(ClientModel) checks the preview against the server for 400 diagonals across raised knobs and cliffs.

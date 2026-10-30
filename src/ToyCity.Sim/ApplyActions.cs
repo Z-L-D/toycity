@@ -104,7 +104,6 @@ public sealed partial class World
         if (profile < 0) return $"Unknown path type '{a.ProfileId}'.";
         var cells = PathCellsOf(a);
         if (cells.Count > MaxPathRun) return $"That run is too long: at most {MaxPathRun} cells at a time.";
-        int prevH = -1;
         foreach (var (x, y) in cells)
         {
             badX = x; badY = y;
@@ -112,13 +111,22 @@ public sealed partial class World
             int i = Idx(x, y);
             if (IsWater(i)) return "Paths can't cross water yet (bridges come later).";
             if (BuildingAt[i] != 0) return $"A building is in the way at {x},{y}. Bulldoze it first.";
-            if (prevH >= 0 && Math.Abs(Height[i] - prevH) > 1) return $"Too steep at {x},{y}. Level the ground first.";
-            prevH = Height[i];
             if (Path[i] != profile + 1) cost += Content.Profiles[profile].CostPerCell;
         }
+        // The ground is graded to at most a step a cell, between the roads it meets.
+        var works = Earthworks(cells, out int bad);
+        if (works == null)
+        {
+            (badX, badY) = cells[bad];
+            return $"Too steep at {badX},{badY}: the roads it joins are too far apart in height to grade between.";
+        }
+        cost += EarthworksCost(works, GradeCostPerStep);
         badX = badY = -1;
         return null;
     }
+
+    /// <summary>The cut and fill a path would need, as the cells it changes and their new heights.</summary>
+    public List<(int I, int H)> PathEarthworks(PlacePathAction a) => Earthworks(PathCellsOf(a), out _) ?? new();
 
     void ApplyPath(PlacePathAction a)
     {
@@ -128,6 +136,7 @@ public sealed partial class World
         ushort code = (ushort)(Content.ProfileIndex(a.ProfileId) + 1);
         ForgetBusRoutes();
         var cells = PathCellsOf(a);
+        ApplyEarthworks(Earthworks(cells, out _)!);
         foreach (var (x, y) in cells)
         {
             int i = Idx(x, y);
@@ -191,15 +200,20 @@ public sealed partial class World
             minH = Math.Min(minH, Height[i]);
             maxH = Math.Max(maxH, Height[i]);
         }
-        if (maxH - minH > 1) return "The ground is too uneven. Level it first.";
+        if (maxH - minH > MaxPadRise) return $"The ground is too uneven: it rises {maxH - minH} steps across the lot, and a pad can level at most {MaxPadRise}. Level it first.";
         return null;
     }
+
+    /// <summary>What a civic building's pad would cost to level here: nothing on flat ground.</summary>
+    public long PadCost(int x, int y, int w, int h) => Pad(x, y, w, h) is { } pad ? EarthworksCost(pad, PadCostPerStep) : 0;
 
     void ApplyPlaceBuilding(PlaceBuildingAction a)
     {
         var err = CheckPlacement(a, out var type, out var at);
         if (err != null) { Reject(err, a.X, a.Y); return; }
-        if (!Spend(type!.Cost, a.X, a.Y)) return;
+        var pad = type!.Roadside ? new() : Pad(a.X, a.Y, type.W, type.H)!;
+        if (!Spend(type.Cost + EarthworksCost(pad, PadCostPerStep), a.X, a.Y)) return;
+        ApplyEarthworks(pad);
         if (type.Roadside)
         {
             AddBuilding(type, at.X, at.Y, constructionDays: 0).Side = at.Side;

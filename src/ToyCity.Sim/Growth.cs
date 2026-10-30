@@ -68,7 +68,7 @@ public sealed partial class World
                 for (int y0 = cy - h + 1; y0 <= cy; y0++)
                 for (int x0 = cx - w + 1; x0 <= cx; x0++)
                 {
-                    if (!LotFree(x0, y0, w, h, code) || FindAccess(x0, y0, w, h) < 0) continue;
+                    if (!LotFree(x0, y0, w, h, code) || FindAccess(x0, y0, w, h) < 0 || !PadFits(x0, y0, w, h)) continue;
                     found.Add(new Placement(x0, y0, w, h));
                     if (found.Count >= limit) return found;
                 }
@@ -230,6 +230,8 @@ public sealed partial class World
                 var pick = sizes[Rng.Next(sizes.Count)];
                 var lotPick = lots.First(l => (l.W, l.H) == pick);
                 var t = Content.Zoned(zone, density, v.Wealth);
+                // The developer levels the lot's pad, at no cost to the city.
+                ApplyEarthworks(Pad(lotPick.X, lotPick.Y, lotPick.W, lotPick.H)!);
                 AddBuilding(t, lotPick.X, lotPick.Y, t.BuildDays + (lotPick.W * lotPick.H - 1) * 2, lotPick.W, lotPick.H);
             }
             else if (!TypeOf(b).Placeable && b.Operating && Idx(b.X, b.Y) == i)

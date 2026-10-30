@@ -1,6 +1,6 @@
 import './style.css';
 import { Connection, type Msg } from './net';
-import { City, curveCells, lCells, lineCells as diagonalCells, SIDE_DX, SIDE_DY, type BuildingType } from './state';
+import { City, curveCells, lCells, lineCells as diagonalCells, gradeSteps, padSteps, GRADE_COST_PER_STEP, PAD_COST_PER_STEP, SIDE_DX, SIDE_DY, type BuildingType } from './state';
 import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
 import { Seats } from './seats';
@@ -28,6 +28,9 @@ const DISASTER_SETTINGS = ['Off', 'Rare', 'Normal'];
 
 const DENSITY_NAMES = ['Low', 'Medium', 'High'];
 const TERRAFORM_NAMES = ['Raise', 'Lower', 'Level', 'Smooth'];
+const TOO_STEEP = 'Too steep to grade between the roads it joins';
+/** The cost line's grading part, or nothing on ground that needs none. */
+const grading = (steps: number | null) => (steps ? ` (grading ${money(steps * GRADE_COST_PER_STEP)})` : '');
 const ZONE_COST = 5;
 
 const OVERLAYS: { kind: number; name: string; scheme: OverlayView['scheme'] }[] = [
@@ -460,8 +463,13 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
         const i = y * city.width + x;
         if (!city.inBounds(x, y) || city.isWater(i) || city.buildingAt[i] || city.paths[i]) ok = false;
       }
+    // The building levels its own pad, up to a few steps of rise across the lot.
+    const pad = padSteps(city, f.x, f.y, f.w, f.h);
+    if (pad === null) ok = false;
     renderer.preview = { kind: 'footprint', x0: f.x, y0: f.y, x1: f.x + f.w - 1, y1: f.y + f.h - 1, ok, color: (t?.color ?? '#fff') + 'aa', catchment: t?.catchment || undefined };
-    text = `${t?.name ?? ''}: ${money(t?.cost ?? 0)}`;
+    text = pad === null ? `${t?.name ?? ''}: the ground is too uneven for a pad`
+      : pad > 0 ? `${t?.name ?? ''}: ${money((t?.cost ?? 0) + pad * PAD_COST_PER_STEP)} (pad ${money(pad * PAD_COST_PER_STEP)})`
+      : `${t?.name ?? ''}: ${money(t?.cost ?? 0)}`;
     if (t?.transit) {
       // A stop must touch a path its vehicles use.
       const carries = (j: number) => {
@@ -486,8 +494,11 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
       if (!city.inBounds(x, y) || city.isWater(i) || city.buildingAt[i]) ok = false;
       else if (city.paths[i] !== pi) cost += prof?.costPerCell ?? 0;
     }
+    const steps = gradeSteps(city, cells);
+    if (steps === null) ok = false;
+    cost += (steps ?? 0) * GRADE_COST_PER_STEP;
     renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok, color: (prof?.color ?? '#888') + 'cc', cells };
-    text = `Curve, ${cells.length} cells: ${money(cost)}`;
+    text = steps === null ? TOO_STEEP : `Curve, ${cells.length} cells: ${money(cost)}${grading(steps)}`;
   } else if (tool.kind === 'zone' && zoneMode === 'block' && !drag) {
     const block = city.blockAt(cell.x, cell.y);
     if (block) {
@@ -518,16 +529,16 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
     const prof = city.profiles.find((p) => p.id === profileId);
     const pi = city.profiles.indexOf(prof!) + 1;
     let cost = 0;
-    let prevH = -1;
     for (const [x, y] of cells) {
       const i = y * city.width + x;
       if (!city.inBounds(x, y) || city.isWater(i) || city.buildingAt[i]) { ok = false; continue; }
-      if (prevH >= 0 && Math.abs(city.heights[i] - prevH) > 1) ok = false;
-      prevH = city.heights[i];
       if (city.paths[i] !== pi) cost += prof?.costPerCell ?? 0;
     }
+    const steps = gradeSteps(city, cells);
+    if (steps === null) ok = false;
+    cost += (steps ?? 0) * GRADE_COST_PER_STEP;
     renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok, color: (prof?.color ?? '#888') + 'cc', cells };
-    text = `Diagonal, ${cells.length} cells: ${money(cost)}`;
+    text = steps === null ? TOO_STEEP : `Diagonal, ${cells.length} cells: ${money(cost)}${grading(steps)}`;
   } else if (drag && (tool.kind === 'path' || tool.kind === 'utility')) {
     const cells = lineCells(drag.x, drag.y, cell.x, cell.y, shiftHeld);
     let cost = 0;
@@ -543,9 +554,20 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
         if (!city.buildingAt[i] && !city.powerLines[i]) cost += 5;
       } else if (!city.waterPipes[i]) cost += 3;
     }
+    let steps: number | null = 0;
+    if (tool.kind === 'path') {
+      // Each leg is graded as the server grades it.
+      const legs = shiftHeld ? [[drag.x, drag.y, drag.x, cell.y], [drag.x, cell.y, cell.x, cell.y]] : [[drag.x, drag.y, cell.x, cell.y]];
+      for (const [x0, y0, x1, y1] of legs) {
+        const s = gradeSteps(city, lCells(x0, y0, x1, y1));
+        steps = s === null || steps === null ? null : steps + s;
+      }
+      if (steps === null) ok = false;
+      cost += (steps ?? 0) * GRADE_COST_PER_STEP;
+    }
     const color = tool.kind === 'path' ? (prof?.color ?? '#888') + 'cc' : tool.utility === 0 ? '#ffd84acc' : '#5ec8ffcc';
     renderer.preview = { kind: 'line', x0: drag.x, y0: drag.y, x1: cell.x, y1: cell.y, ok, color, verticalFirst: shiftHeld };
-    text = `${cells.length} cells: ${money(cost)}`;
+    text = steps === null ? TOO_STEEP : `${cells.length} cells: ${money(cost)}${grading(steps)}`;
   } else if (drag) {
     const w = Math.abs(cell.x - drag.x) + 1;
     const h = Math.abs(cell.y - drag.y) + 1;
