@@ -731,6 +731,9 @@ message ServerMessage {
     RegionState region = 23;  // the region this city is in: sent on joining, monthly, and when a tile changes hands
     Redirect redirect = 24;   // the city asked for is served by another host: connect there
   }
+  // On presence, alerts, civic and agents: when the server built this snapshot, rising over the connection. Several
+  // players acting at once can have their snapshots overtake each other on the way out; a client keeps the latest.
+  uint64 order = 25;
 }
 
 // The copy a de-linked player takes with them. The server also keeps it in its saves under this name.

@@ -87,7 +87,8 @@ public sealed partial class SimHost : IDisposable
             {
                 _alertSig = sig;
                 _alerts = alerts;
-                foreach (var c in _clients) list.Add((c, new P.ServerMessage { Alerts = alerts }));
+                ulong order = NextOrder();
+                foreach (var c in _clients) list.Add((c, new P.ServerMessage { Alerts = alerts, Order = order }));
             }
         }
         // Petitions, deals, unlocks and headlines change at most monthly or on an action, so a cheap signature will do.
@@ -96,16 +97,29 @@ public sealed partial class SimHost : IDisposable
         {
             _civicSig = civicSig;
             var civic = Mapping.Civic(_world);
-            foreach (var c in _clients) list.Add((c, new P.ServerMessage { Civic = CivicFor(civic, c.Player) }));
+            ulong order = NextOrder();
+            foreach (var c in _clients) list.Add((c, new P.ServerMessage { Civic = CivicFor(civic, c.Player), Order = order }));
         }
         if (RosterIfChanged() is { } roster)
-            foreach (var c in _clients) list.Add((c, new P.ServerMessage { Agents = roster }));
+        {
+            ulong order = NextOrder();
+            foreach (var c in _clients) list.Add((c, new P.ServerMessage { Agents = roster, Order = order }));
+        }
         var views = ChangedViews(all: false);
         foreach (var c in _clients)
             foreach (var view in ViewsFor(views, c.Player)) list.Add((c, view));
         list.AddRange(PresenceIfChanged());
         return list;
     }
+
+    static long _order;
+    /// <summary>
+    /// Stamps a snapshot (presence, alerts, civic, agents) when it is built, under a city's gate. Sends happen after the
+    /// gate is let go, so two players acting at once can have their snapshots reach a third out of order; the stamp
+    /// lets the client keep the newer. One counter for the whole server, so it keeps rising as a player moves between
+    /// its cities.
+    /// </summary>
+    internal static ulong NextOrder() => (ulong)Interlocked.Increment(ref _order);
 
     internal static async Task SendAsync(Client c, P.ServerMessage m)
     {
@@ -141,11 +155,11 @@ public sealed partial class SimHost : IDisposable
         // Everyone else hears of the newcomer (and of any seats they took back); the newcomer gets it all below.
         _presenceSig = "";
         var others = BuildDeltas(forceAlerts: true).Where(x => x.Item1 != client).ToList();
-        mine.Add(new P.ServerMessage { Presence = Presence() });
+        mine.Add(new P.ServerMessage { Presence = Presence(), Order = NextOrder() });
         mine.Add(new P.ServerMessage { Saves = _region.ListSaves() });
-        mine.Add(new P.ServerMessage { Alerts = Mapping.Alerts(_world, _world.Alerts()) });
-        mine.Add(new P.ServerMessage { Civic = CivicFor(Mapping.Civic(_world), client.Player) });
-        mine.Add(new P.ServerMessage { Agents = Roster(Agents()) });
+        mine.Add(new P.ServerMessage { Alerts = Mapping.Alerts(_world, _world.Alerts()), Order = NextOrder() });
+        mine.Add(new P.ServerMessage { Civic = CivicFor(Mapping.Civic(_world), client.Player), Order = NextOrder() });
+        mine.Add(new P.ServerMessage { Agents = Roster(Agents()), Order = NextOrder() });
         mine.AddRange(ViewsFor(ChangedViews(all: true), client.Player));
         return (mine, others);
     }

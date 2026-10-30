@@ -119,7 +119,7 @@ jobs:
       - name: Contact sheets of the views (base64 JPEG, for reviewers who can't download artifacts)
         if: always()
         run: |
-          sudo apt-get install -y -qq imagemagick > /dev/null
+          sudo apt-get update -qq > /dev/null && sudo apt-get install -y -qq imagemagick > /dev/null
           if ls gate-shots/*.png > /dev/null 2>&1; then
             montage gate-shots/*.png -tile 4x -geometry 400x225+1+1 -quality 45 gate-sheet.jpg
             echo "::group::gate-sheet.jpg base64"; echo "GATE-SHEET-BEGIN"; base64 -w 0 gate-sheet.jpg; echo; echo "GATE-SHEET-END"; echo "::endgroup::"

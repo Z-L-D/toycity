@@ -101,7 +101,8 @@ public sealed partial class SimHost
         string sig = p.ToString();
         if (sig == _presenceSig) yield break;
         _presenceSig = sig;
-        foreach (var c in _clients) yield return (c, new P.ServerMessage { Presence = p });
+        ulong order = NextOrder();
+        foreach (var c in _clients) yield return (c, new P.ServerMessage { Presence = p, Order = order });
     }
 }
 
