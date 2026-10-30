@@ -24,6 +24,12 @@ public sealed class Seat
     /// <summary>The report from the last time the owner came back, kept until the next hand-off.</summary>
     public AwayReport? Report;
 
+    /// <summary>How the computer plays it while the owner is away from a dedicated server.</summary>
+    public OperatorLevel AwayLevel = OperatorLevel.Caretaker;
+    public AutopilotStyle AwayStyle;
+    /// <summary>The computer took it because the owner left, so it goes back to them when they return.</summary>
+    public bool AutoAway;
+
     public const long DefaultSpendCap = 25_000;
 }
 
@@ -94,6 +100,7 @@ public sealed partial class World
             return;
         }
         seat.Owner = a.Owner;
+        seat.AutoAway = false;  // a hand-off by hand (or a new owner) is the owner's own choice, not the computer's
         seat.Style = a.Style;
         seat.SpendCap = Math.Max(0, a.SpendCap);
         if (seat.Id == Seat.Mayor)
@@ -109,9 +116,15 @@ public sealed partial class World
         }
         seat.Level = a.Level;
         string seatName = seat.Id == Seat.Mayor ? "The city" : SideGame(seat.Id)?.Game.Manifest.Name ?? seat.Id;
+        // Taking the city back is news for its owner alone; everything else is news for everyone.
+        if (a.Level == OperatorLevel.Manual && seat.Id == Seat.Mayor)
+        {
+            Notices.Add(new SimNotice(wasAway ? "You have the city back. Here's what happened while you were away." : "You're running the city.", "info", To: seat.Owner));
+            return;
+        }
         Notices.Add(new SimNotice(a.Level switch
         {
-            OperatorLevel.Manual => seat.Id == Seat.Mayor ? (wasAway ? "You have the city back. Here's what happened while you were away." : "You're running the city.") : $"{who} runs {seatName} now.",
+            OperatorLevel.Manual => $"{who} runs {seatName} now.",
             OperatorLevel.Stasis => $"{seatName} is in stasis: nothing will grow, decay or cost money until {who} takes it back.",
             OperatorLevel.Caretaker => $"{seatName} is on caretaker: the computer keeps things running and changes nothing big.",
             _ => $"{seatName} is on autopilot ({StyleName(a.Style)}): the computer plays it until {who} takes it back.",
@@ -187,6 +200,7 @@ public sealed partial class World
         foreach (var s in Seats)
         {
             w.Write(s.Id); w.Write(s.Owner); w.Write((byte)s.Level); w.Write((byte)s.Style); w.Write(s.SpendCap);
+            w.Write((byte)s.AwayLevel); w.Write((byte)s.AwayStyle); w.Write(s.AutoAway);
             w.Write(s.Away != null);
             if (s.Away is { } a)
             {
@@ -229,6 +243,7 @@ public sealed partial class World
         for (int i = 0; i < n; i++)
         {
             var s = new Seat { Id = r.ReadString(), Owner = r.ReadString(), Level = (OperatorLevel)r.ReadByte(), Style = (AutopilotStyle)r.ReadByte(), SpendCap = r.ReadInt64() };
+            (s.AwayLevel, s.AwayStyle, s.AutoAway) = ((OperatorLevel)r.ReadByte(), (AutopilotStyle)r.ReadByte(), r.ReadBoolean());
             if (r.ReadBoolean())
             {
                 var a = new AwayStart

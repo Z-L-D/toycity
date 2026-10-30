@@ -1356,3 +1356,28 @@ public class AccountingTests
         Assert.Equal(200, light);
     }
 }
+
+/// <summary>Content is data and nothing else: unknown fields, odd ids and out-of-range numbers are refused at load.</summary>
+public class ContentCheckTests
+{
+    static string R(string f) => File.ReadAllText(Path.Combine(ContentDb.FindContentDir(), f));
+
+    [Theory]
+    [InlineData("\"startingFunds\": 100000", "\"startingFunds\": 100000, \"script\": \"rm -rf /\"", "could not be mapped")]
+    [InlineData("\"id\": \"police-station\"", "\"id\": \"Police Station!\"", "must be lowercase")]
+    [InlineData("\"radius\": 18,", "\"radius\": 100000,", "radius")]
+    public void ABadContentPackIsRefused(string find, string replace, string why)
+    {
+        string buildings = R("buildings.json");
+        Assert.Contains(find, buildings);
+        var e = Assert.ThrowsAny<Exception>(() => ContentDb.Parse(R("profiles.json"), ReplaceFirst(buildings, find, replace)));
+        Assert.True(e is InvalidDataException or System.Text.Json.JsonException, e.GetType().Name);
+        Assert.Contains(why, e.Message);
+    }
+
+    static string ReplaceFirst(string s, string find, string replace)
+    {
+        int i = s.IndexOf(find, StringComparison.Ordinal);
+        return s[..i] + replace + s[(i + find.Length)..];
+    }
+}

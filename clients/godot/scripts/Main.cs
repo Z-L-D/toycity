@@ -11,7 +11,11 @@ namespace ToyCity.Godot;
 /// city loads and picking works at every rotation, and quit; --shots DIR to also save a screenshot of each view;
 /// --bench FILE to swap in the dense benchmark city and write frame times and memory per zoom level to FILE;
 /// --gate FILE to found the server's benchmark city and play the Alpha 3 loop on it, measuring as it goes;
-/// --graphics PRESET (Low, Medium, High, Ultra) to use a preset for this run instead of the saved options.
+/// --together FILE to play the Beta 2 gate's live session as the mayor of a dedicated server, with three scripted
+/// players beside it, and write its checks to FILE;
+/// --graphics PRESET (Low, Medium, High, Ultra) to use a preset for this run instead of the saved options;
+/// --user NAME --password PASSWORD to sign in to a dedicated server without the sign-in panel (with --new-account,
+/// making the account first).
 /// </summary>
 public partial class Main : Node
 {
@@ -36,6 +40,7 @@ public partial class Main : Node
     DisasterView? _disasters;
     Label? _status, _hover;
     bool _smoke, _centred;
+    string? _user;  // --user, the name signed in with
     string? _shots, _bench;
     bool _frozen;  // the bench city is drawn from a fixed state; the server's deltas would undo it
     double _smokeTime;
@@ -43,7 +48,10 @@ public partial class Main : Node
     public override void _Ready()
     {
         var args = OS.GetCmdlineUserArgs();
-        string server = "ws://localhost:5180/ws";
+        string server = global::Godot.FileAccess.FileExists(SignInPanel.ServerFile) && global::Godot.FileAccess.GetFileAsString(SignInPanel.ServerFile).Trim() is { Length: > 0 } last
+            ? last : "ws://localhost:5180/ws";
+        string? user = null, password = null;
+        bool newAccount = false;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--server" && i + 1 < args.Length) server = args[++i];
@@ -52,10 +60,17 @@ public partial class Main : Node
             if (args[i] == "--bench" && i + 1 < args.Length) _bench = args[++i];
             if (args[i] == "--company") _company = true;
             if (args[i] == "--gate" && i + 1 < args.Length) _gateFile = args[++i];
+            if (args[i] == "--together" && i + 1 < args.Length) _togetherFile = args[++i];
             if (args[i] == "--graphics" && i + 1 < args.Length) _graphicsPreset = args[++i];
+            if (args[i] == "--user" && i + 1 < args.Length) user = args[++i];
+            if (args[i] == "--password" && i + 1 < args.Length) password = args[++i];
+            if (args[i] == "--new-account") newAccount = true;
         }
-        _client = new CityClient(new Uri(server));
-        if (_bench != null || _gateFile != null)
+        if (!Uri.TryCreate(server, UriKind.Absolute, out var uri)) uri = new Uri(server = "ws://localhost:5180/ws");
+        _user = user;
+        var credentials = user != null && password != null ? new Protocol.V0.SignIn { Name = user, Password = password, Create = newAccount } : SignInPanel.StoredCredentials(server);
+        _client = new CityClient(uri, credentials: credentials);
+        if (_bench != null || _gateFile != null || _togetherFile != null)
         {
             System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
         }
@@ -89,7 +104,7 @@ public partial class Main : Node
         AddChild(_view);
         _disasters = new DisasterView(_client.City);
         AddChild(_disasters);
-        _camera = new ClassicCamera { EdgePan = !_smoke && _bench == null && _gateFile == null };
+        _camera = new ClassicCamera { EdgePan = !_smoke && _bench == null && _gateFile == null && _togetherFile == null };
         AddChild(_camera);
 
         var hud = new CanvasLayer();
@@ -97,7 +112,9 @@ public partial class Main : Node
         // Below the toolbar, which runs across the top.
         _status = new Label { Text = $"Connecting to {server}…", Position = new Vector2(12, 84) };
         _hover = new Label { Position = new Vector2(12, 108) };
-        foreach (var l in new[] { _status, _hover })
+        var players = new Label { Position = new Vector2(12, 132), Modulate = new Color(1, 1, 1, 0.85f) };
+        _client.Message += m => { if (m.BodyCase == Protocol.V0.ServerMessage.BodyOneofCase.Presence) { players.Text = PresenceText(m.Presence); if (_panels != null) _panels.Model.Players = m.Presence.Players.Select(p => p.Name).ToList(); } };
+        foreach (var l in new[] { _status, _hover, players })
         {
             l.AddThemeColorOverride("font_outline_color", Colors.Black);
             l.AddThemeConstantOverride("outline_size", 4);
@@ -109,15 +126,35 @@ public partial class Main : Node
         AddChild(_tools);
 
         // The panels, and what they ask of the map.
+        var signIn = new SignInPanel(_client, server);
+        signIn.Reconnect += address =>
+        {
+            // Start again pointed at the new server, as the company's own window is started.
+            if (!address.Contains("://")) address = $"ws://{address}{(address.Contains(':') ? "" : ":5180")}/ws";
+            using (var f = global::Godot.FileAccess.Open(SignInPanel.ServerFile, global::Godot.FileAccess.ModeFlags.Write)) f?.StoreString(address);
+            OS.CreateProcess(OS.GetExecutablePath(), OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", address }).ToArray());
+            GetTree().Quit();
+        };
+        if (!_smoke && _bench == null && _gateFile == null && _togetherFile == null) AddChild(signIn);
+
         _panels = new PanelView(_client) { Tools = _tools, Camera = _camera, City = _view, Map = _map };
         AddChild(_panels);
         var pm = _panels.Model;
+        pm.Me = () => _client.Connection.Player is { Length: > 0 } me ? me : "player";
+        pm.OnServer = () => _client.Connection.Welcome?.SignInRequired == true;
         if (global::Godot.FileAccess.FileExists(ReportFile) && long.TryParse(global::Godot.FileAccess.GetFileAsString(ReportFile).Trim(), out var seen)) pm.ShownReport = _savedReport = seen;
         _client.Message += pm.Handle;
         pm.JumpTo += (x, y) => _camera.CentreOn(x + 0.5f, y + 0.5f);
         pm.Flash += r => _view.Flash(r.X0, r.Y0, r.X1, r.Y1);
         pm.PickBuilding += (id, x, y) => { _tools.Pick(id); if (x >= 0) _camera.CentreOn(x + 0.5f, y + 0.5f); };
         pm.Toast += _tools.Toast;
+        pm.CopyArrived += (name, save) =>
+        {
+            // A de-linked player's copy goes beside the game's other files, to load on a server of their own.
+            global::Godot.DirAccess.MakeDirRecursiveAbsolute("user://copies");
+            using var f = global::Godot.FileAccess.Open($"user://copies/{name}.toycity", global::Godot.FileAccess.ModeFlags.Write);
+            f?.StoreBuffer(save);
+        };
         pm.UnlocksChanged += _tools.RebuildOptions;
         _tools.Queried += (x, y) => pm.Query(x, y);
         _tools.Act = pm.Act;
@@ -151,6 +188,16 @@ public partial class Main : Node
     }
 
     void SetStatus(string text) { if (_status != null) _status.Text = text; }
+
+    /// <summary>Who's here, under the status line: shown once there's anyone but this player.</summary>
+    string PresenceText(Protocol.V0.Presence p)
+    {
+        if (p.Players.Count < 2) return "";
+        var civic = _panels?.Model.Civic;
+        string Seat(string id) => id == "mayor" ? "mayor" : civic?.Seats.FirstOrDefault(s => s.Id == id)?.Name ?? id;
+        return "Here: " + string.Join("   ", p.Players.Select(pl =>
+            $"{pl.Name}{(pl.Name == _client!.Connection.Player ? " (you)" : "")} · {(pl.Spectator ? "watching" : string.Join(", ", pl.Seats.Select(Seat).Concat(pl.DeputyFor.Count > 0 ? new[] { "deputy for " + string.Join("/", pl.DeputyFor) } : Array.Empty<string>())))}{(pl.Online ? "" : " · away")}"));
+    }
 
     public override void _Process(double delta)
     {
@@ -190,6 +237,11 @@ public partial class Main : Node
         {
             if (_gate == null) GateStart();
             Gate(delta);
+        }
+        else if (_togetherFile != null)
+        {
+            if (_together == null) TogetherStart();
+            Together(delta);
         }
         else if (_bench != null) Bench(c, delta);
         else if (_smoke) Smoke(c, delta);
@@ -322,6 +374,9 @@ public partial class Main : Node
                 if (town.Count > 0) _camera.CentreOn(town.Average(b => b.X + b.Width / 2f), town.Average(b => b.Y + b.Height / 2f));
                 _camera.ToggleFree();
                 (_free!.Pitch, _free.Distance, _free.Yaw) = (22, 10, 30);
+                // The free camera's views show smooth shapes and smooth terrain whatever the preset, so every run's shots have them.
+                _graphics = _graphics with { Smoothing = ToyCity.ClientModel.Graphics.Smoothing.Wide, SmoothTerrain = true };
+                ApplyGraphics();
             }
             else (_free!.Pitch, _free.Distance, _free.Yaw) = (40, 45, 60);
             _wait = 20;

@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 4;
+    public const int FormatVersion = 5;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -213,13 +213,20 @@ public sealed partial class World
     /// Applies queued actions now, logged at the current tick. Step does this first; a paused host calls it directly
     /// so building works while paused. Either way the log replays to the same state.
     /// </summary>
+    /// <summary>Where in the log the action being applied is.</summary>
+    int _logging;
+
     public void ApplyPending()
     {
         if (_pending.Count == 0) return;
         foreach (var a in _pending)
         {
+            _logging = Log.Count;
             Log.Add(new LoggedAction(Tick, a));
-            Apply(a);
+            _actor = a.By;
+            if ((OutOfBounds(a) ?? Forbidden(a)) is { } why) Reject(why);
+            else if (!SendToCouncil(a)) Apply(a);
+            _actor = "";
             if (a is PlacePathAction or BulldozeAction) _edgeDirty = true;
         }
         _pending.Clear();
@@ -236,6 +243,9 @@ public sealed partial class World
         OneOffs = 0;
         BudgetRan = false;
         ApplyPending();
+        RunCouncil();
+        RunDisputes();
+        RunTenders();
         bool stasis = InStasis;
         if (stasis) HoldPrompts();
         else RunDisasters();
@@ -252,6 +262,7 @@ public sealed partial class World
         }
         RunCommutes();
         UpdateStats();
+        if (!stasis) RaiseCityIncidents();
         RunSideGames();
         Tick++;
     }
@@ -270,6 +281,7 @@ public sealed partial class World
         bool live = Tick > 0 && !InStasis;
         if (live)
         {
+            CloseFreightMonth();
             CheckUnlocks();
             RunDirector();
             RollDisaster();
@@ -360,6 +372,7 @@ public sealed partial class World
             WriteSeats(w);
             WriteLeases(w);
             WriteAuthority(w);
+            WriteRoles(w);
         }
         return ms.ToArray();
     }
@@ -435,6 +448,7 @@ public sealed partial class World
         w.ReadSeats(r);
         w.ReadLeases(r);
         w.ReadAuthority(r);
+        w.ReadRoles(r);
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

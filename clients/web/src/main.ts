@@ -5,6 +5,7 @@ import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
 import { Seats } from './seats';
 import { Transport } from './transport';
+import { Emergency } from './emergency';
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -84,6 +85,7 @@ let activeTab = 'why';
 let talk: TalkBack | null = null;
 let seats: Seats | null = null;
 let transport: Transport | null = null;
+let emergency: Emergency | null = null;
 /** The followed commuters and this machine's tiers, as the server last sent them. */
 let roster: Msg | null = null;
 
@@ -93,10 +95,35 @@ const conn = new Connection({
     transport?.onCityTick();
     if (!ok) toast('Lost connection to the server. Reconnecting…', 'error');
   },
+  onSignIn(welcome, error) {
+    showSignIn(welcome, error);
+  },
   onMessage(kind, body, replyTo) {
     if (kind === 'civic') seats?.onCivic(body);
     if (talk?.onMessage(kind, body, replyTo)) return;
     switch (kind) {
+      case 'signedIn':
+        if (dlg.open && signInOpen) dlg.close('signed-in');
+        toast(`Signed in as ${body.name}.`, 'good');
+        updateAdmin();
+        break;
+      case 'welcome':
+        updateAdmin();
+        break;
+      case 'presence':
+        renderPresence(body);
+        break;
+      case 'delinkCopy': {
+        // The copy this player took when they de-linked: offered as a file, and kept in the server's saves too.
+        const url = URL.createObjectURL(new Blob([body.save], { type: 'application/octet-stream' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${body.name}.toycity`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        toast(`Your copy of the city is saved as "${body.name}". Load it on your own server to play it.`, 'good');
+        break;
+      }
       case 'full': {
         const first = !city.loaded || city.width !== body.width;
         city.applyFull(body);
@@ -152,6 +179,7 @@ const conn = new Connection({
         break;
       case 'sideGame':
         transport?.onView(body);
+        emergency?.onView(body);
         dirty = true;
         break;
     }
@@ -987,6 +1015,53 @@ function pickBuilding(typeId: string, x: number, y: number) {
 const dlg = $<HTMLDialogElement>('#dlg');
 const form = $<HTMLFormElement>('#dlg-form');
 
+let signInOpen = false;
+
+/** Asks for a name and password on a server that wants them. It stays up until the server signs this player in. */
+function showSignIn(welcome: Msg, error: string) {
+  if (dlg.open) dlg.close('replaced');
+  signInOpen = true;
+  form.innerHTML = `
+    <h3>Sign in to ${esc(welcome.serverName || 'this server')}</h3>
+    ${error ? `<p class="error">${esc(error)}</p>` : ''}
+    <label>Name</label><input type="text" name="name" maxlength="24" autocomplete="username" required>
+    <label>Password</label><input type="password" name="password" autocomplete="current-password" required>
+    ${welcome.inviteRequired ? '<label>Invite code (only for a new account)</label><input type="text" name="invite">' : ''}
+    <div class="actions"><button value="create">Make an account</button><button value="ok" class="active">Sign in</button></div>`;
+  dlg.onclose = () => {
+    signInOpen = false;
+    const v = dlg.returnValue;
+    if (v !== 'ok' && v !== 'create') {
+      // Escape or a click elsewhere doesn't get past the sign-in.
+      if (v !== 'signed-in' && v !== 'replaced' && !conn.player) setTimeout(() => showSignIn(welcome, ''), 0);
+      return;
+    }
+    const f = new FormData(form);
+    conn.signIn(String(f.get('name') ?? '').trim(), String(f.get('password') ?? ''), v === 'create', String(f.get('invite') ?? '').trim());
+  };
+  dlg.showModal();
+}
+
+/** Who's here, in the top bar: each player online (dimmed while away), what they run, and who only watches. */
+function renderPresence(p: Msg) {
+  const players = p.players as Msg[];
+  if (seats) seats.players = players.map((pl) => pl.name as string);
+  const el = $('#players');
+  el.classList.toggle('hidden', players.length < 2 && !conn.player.length);
+  const seatName = (id: string) => (id === 'mayor' ? 'mayor' : seats?.seatName(id) ?? id);
+  el.innerHTML = players.map((pl) => {
+    const deputy = (pl.deputyFor as string[]).length ? [`deputy for ${(pl.deputyFor as string[]).join('/')}`] : [];
+    const role = pl.spectator ? 'watching' : [...(pl.seats as string[]).map(seatName), ...deputy].join(', ');
+    const me = pl.name === conn.player ? ' (you)' : '';
+    return `<span class="player${pl.online ? '' : ' away'}" title="${pl.online ? 'Online' : 'Away: the computer has their seats'}${pl.admin ? ' · admin' : ''}">${esc(pl.name)}${me}<small>${esc(role)}</small></span>`;
+  }).join('');
+}
+
+/** Only admins save, load, found cities and set the speed; everyone else doesn't see the buttons. */
+function updateAdmin() {
+  for (const id of ['#btn-new', '#btn-save', '#btn-load', '#speed']) $(id).classList.toggle('hidden', !conn.admin);
+}
+
 $('#btn-new').addEventListener('click', () => {
   form.innerHTML = `
     <h3>New city</h3>
@@ -1065,7 +1140,8 @@ transport = new Transport({
     dirty = true;
   },
 });
+emergency = new Emergency({ conn, jumpTo, toast });
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.
-(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport };
+(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport, emergency };

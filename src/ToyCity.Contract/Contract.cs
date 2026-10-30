@@ -9,6 +9,15 @@ public static class ContractInfo
 {
     /// <summary>Bumped only by a breaking change. Additive fields keep the version. v1 was frozen at the Alpha 3 gate.</summary>
     public const int Version = 1;
+    /// <summary>
+    /// Additions since v1 froze, each optional for a side game to use: 1 added incident responses and holds
+    /// (<see cref="GameToCity.Responses"/>, <see cref="GameToCity.Holding"/>) and <see cref="ICityQueries.Area"/>; 2 added
+    /// tram and rail lines (<see cref="TransitLine.Mode"/>) and <see cref="ICityQueries.RouteFor"/>; 3 added franchise
+    /// tenders (<see cref="CityToGame.Tenders"/>, <see cref="CityToGame.Franchises"/>, bids as <see cref="AuthorityAction"/>
+    /// with an amount) and freight (<see cref="CityToGame.Freight"/>, <see cref="GameToCity.FreightPicked"/>,
+    /// <see cref="GameToCity.FreightDropped"/>, and routes to the map edge).
+    /// </summary>
+    public const int Minor = 3;
 }
 
 /// <summary>What a side game tells the city when it registers.</summary>
@@ -51,6 +60,16 @@ public sealed record LineRidership(int LineId, int Riders, IReadOnlyList<int> Bo
 /// </summary>
 public sealed record Incident(long Id, string Kind, int X, int Y, string Source, string Cause, int Severity, string Text);
 
+/// <summary>
+/// What a side game did about one of the city's incidents (v1.1), and how it ended: for a fire "out" (put out before
+/// it spread) or "spread"; for a crime "arrest" or "escaped"; for an injury "treated" or "died". Text, if any, goes
+/// in the city's news.
+/// </summary>
+public sealed record IncidentResponse(long IncidentId, string Outcome, string Text);
+
+/// <summary>What is on a cell, as a side game may see it for laying out a scene (v1.1).</summary>
+public enum CellKind : byte { Ground = 0, Road = 1, Building = 2, Water = 3, Park = 4 }
+
 /// <summary>Money between the city and the side game. Positive: the side game pays the city; negative: the city pays it.</summary>
 public sealed record Bill(int LeaseId, string Label, long Amount);
 
@@ -60,8 +79,24 @@ public sealed record Bill(int LeaseId, string Label, long Amount);
 /// </summary>
 public sealed record PaidActionOffer(string Kind, string Name, long Cost, bool Allowed, string WhyNot);
 
-/// <summary>A side game buys a paid action in a district.</summary>
-public sealed record AuthorityAction(string Kind, int DistrictId);
+/// <summary>A side game buys a paid action in a district. v1.3: kind "bid" offers Amount for the district's open franchise tender.</summary>
+public sealed record AuthorityAction(string Kind, int DistrictId, long Amount = 0);
+
+/// <summary>
+/// v1.3: the city has put a district's transit franchise out to tender. Bids close in DaysLeft days; the highest wins
+/// and pays its bid. Exclusive: the winner also gets exclusive rights there (only when every player allows them);
+/// otherwise the franchise means only the winner may lease new transit lots in the district. YourBid: this game's bid.
+/// </summary>
+public sealed record Tender(int DistrictId, int Months, int DaysLeft, bool Exclusive, long MinBid, long YourBid);
+
+/// <summary>v1.3: who holds a district's transit franchise or exclusive rights, and for how much longer.</summary>
+public sealed record Franchise(int DistrictId, string Holder, bool Exclusive, int DaysLeft);
+
+/// <summary>
+/// v1.3: goods at a leased freight depot today, in tons: ready to ship from the industry in its reach, and wanted by
+/// the shops in its reach.
+/// </summary>
+public sealed record FreightLot(int LeaseId, int TonsReady, int TonsWanted);
 
 /// <summary>What became of a paid action, the day after. When Ok the side game pays Cost; otherwise nothing is owed. Rating: the side game's rating in the district now.</summary>
 public sealed record AuthorityResult(string Kind, int DistrictId, bool Ok, long Cost, string Text, int Rating);
@@ -89,10 +124,32 @@ public sealed class CityToGame
     public readonly List<PaidActionOffer> Offers = new();
     /// <summary>What became of yesterday's paid actions.</summary>
     public readonly List<AuthorityResult> AuthorityResults = new();
+    /// <summary>v1.3: franchise tenders open today.</summary>
+    public readonly List<Tender> Tenders = new();
+    /// <summary>v1.3: franchises and exclusive rights in force today, any game's.</summary>
+    public readonly List<Franchise> Franchises = new();
+    /// <summary>v1.3: goods at this game's leased freight depots.</summary>
+    public readonly List<FreightLot> Freight = new();
 }
 
-/// <summary>A transit line a side game runs: its stops in order (it runs both ways), how often, and the fare.</summary>
-public sealed record TransitLine(int LineId, string Name, string Color, IReadOnlyList<int> StopLeaseIds, int HeadwayMinutes, int FareCents, int SeatsPerHour);
+/// <summary>
+/// What a line's vehicles run on: buses on streets, trams on tram strips (shared with traffic or on their own lane),
+/// trains on rail lines. Each has its own kind of stop: "bus-stop", "tram-stop" or "rail-station".
+/// </summary>
+public enum TransitMode : byte { Bus = 0, Tram = 1, Rail = 2 }
+
+public static class TransitModes
+{
+    public static string StopKind(TransitMode m) => m switch { TransitMode.Tram => "tram-stop", TransitMode.Rail => "rail-station", _ => "bus-stop" };
+    public static string DepotKind(TransitMode m) => m switch { TransitMode.Tram => "tram-depot", TransitMode.Rail => "rail-depot", _ => "bus-depot" };
+}
+
+/// <summary>
+/// A transit line a side game runs: its stops in order (it runs both ways), how often, and the fare. v1.2: the mode
+/// its vehicles run on; its stops are leased lots of that mode's stop kind.
+/// </summary>
+public sealed record TransitLine(int LineId, string Name, string Color, IReadOnlyList<int> StopLeaseIds, int HeadwayMinutes, int FareCents, int SeatsPerHour,
+    TransitMode Mode = TransitMode.Bus);
 
 /// <summary>Everything a side game tells the city each day.</summary>
 public sealed class GameToCity
@@ -116,6 +173,17 @@ public sealed class GameToCity
     public int ServiceQuality = 50;
     /// <summary>One line for the city's why-traces and the news ("Buses running on 3 lines").</summary>
     public string Status = "";
+    /// <summary>v1.1: how incidents the side game answered turned out. The city applies each once.</summary>
+    public readonly List<IncidentResponse> Responses = new();
+    /// <summary>
+    /// v1.1: incidents a player is handling at the scene right now. The city holds each still (a fire neither spreads
+    /// nor goes out by itself) until a response for it comes back.
+    /// </summary>
+    public readonly List<long> Holding = new();
+    /// <summary>v1.3: tons of goods collected today at each leased freight depot (at most its tons ready).</summary>
+    public readonly Dictionary<int, int> FreightPicked = new();
+    /// <summary>v1.3: tons delivered today to each leased freight depot's shops, or to the map edge under lease id 0 (exports).</summary>
+    public readonly Dictionary<int, int> FreightDropped = new();
 }
 
 /// <summary>A route along the city's streets between two cells, at today's travel times.</summary>
@@ -132,6 +200,14 @@ public interface ICityQueries
     int DistrictOf(int cell);
     /// <summary>A stable hash of the city's seed and some numbers, for the side game's own deterministic randomness.</summary>
     ulong Hash(int a, int b, int c, int d);
+    /// <summary>v1.1: what is on each cell of a rectangle, row by row; cells off the map read as water.</summary>
+    CellKind[] Area(int x0, int y0, int w, int h) => new CellKind[Math.Max(0, w) * Math.Max(0, h)];
+    /// <summary>
+    /// v1.2: the fastest route a vehicle of this mode can take between two stops (by building id), along the paths it
+    /// runs on, at today's travel times; null when there is none. Buses go stop to stop by street, as <see cref="Route"/>.
+    /// v1.3: toBuildingId -1 asks for the way to the nearest map edge, where goods leave the city.
+    /// </summary>
+    StreetRoute? RouteFor(TransitMode mode, int fromBuildingId, int toBuildingId) => null;
 }
 
 /// <summary>What became of a player's command.</summary>
@@ -164,3 +240,10 @@ public interface ISideGame
     void Save(BinaryWriter w);
     void Load(BinaryReader r);
 }
+
+/// <summary>
+/// Thrown by a side game hosted in another process when it doesn't answer a tick or a command by the city's deadline.
+/// The call never happened on either side: the host puts the game back as it was. The city logs the miss, so replays
+/// skip the same call.
+/// </summary>
+public sealed class SideGameMissedException(string message) : Exception(message);

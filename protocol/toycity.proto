@@ -27,12 +27,23 @@ message ClientMessage {
     EncyclopediaRequest encyclopedia = 13;
     OrdinancesRequest ordinances = 14;
     AdvisorsRequest advisors = 15;
+    SignIn sign_in = 16;
   }
 }
 
 message Hello {
   string client_name = 1;
   uint32 protocol_version = 2;
+}
+
+// Signs in to a server that asks for it (Welcome.sign_in_required): with a name and password, creating the account
+// if create is set, or with a token from an earlier SignedIn. The server answers SignedIn or an Error.
+message SignIn {
+  string name = 1;
+  string password = 2;
+  bool create = 3;
+  string invite_code = 4;  // for a server that joins by invite
+  string token = 5;
 }
 
 message Rect {
@@ -66,7 +77,92 @@ message Action {
     EndLease end_lease = 20;
     SetConsent consent = 21;
     UpgradeBuilding upgrade = 22;
+    SetAwayLevel away_level = 23;
+    SetCityRule city_rule = 24;
+    Pact pact = 25;
+    SetDeputy deputy = 26;
+    SetCouncil council = 27;
+    Vote vote = 28;
+    OfferLease offer = 29;
+    AnswerOffer answer_offer = 30;
+    Delink delink = 31;
+    OpenTender open_tender = 32;
   }
+}
+
+enum OfferKind {
+  OFFER_TERMS = 0;     // new lease terms, starting as soon as they're accepted
+  OFFER_BUYOUT = 1;    // the city pays the operator amount to end the lease
+  OFFER_RELOCATE = 2;  // the lease moves to to_building_id, the city paying amount toward the move
+}
+
+// One side of a lease offers the other a deal. from_operator says which side the sender speaks for. A counter-offer
+// names the open offer it answers.
+message OfferLease {
+  int32 lease_id = 1;
+  bool from_operator = 2;
+  OfferKind kind = 3;
+  LeaseTerms terms = 4;
+  int64 amount = 5;
+  int32 to_building_id = 6;
+  int32 counter_of = 7;
+}
+
+// A player leaves the city for good, taking a copy of it; or the mayor cuts them loose when the rules allow.
+message Delink {
+  string player = 1;
+}
+
+// The mayor (or a deputy for transit) puts a district's transit franchise out to tender, for 6 to 36 months.
+message OpenTender {
+  int32 district = 1;
+  int32 months = 2;
+}
+
+// The other side accepts or declines an offer; its maker declining it withdraws it.
+message AnswerOffer {
+  int32 offer_id = 1;
+  bool accept = 2;
+}
+
+// The mayor makes a player a deputy (portfolio bits as in Deputy), or stands them down with 0.
+message SetDeputy {
+  string player = 1;
+  uint32 portfolios = 2;
+}
+
+message SetCouncil {
+  bool on = 1;
+}
+
+message Vote {
+  int32 proposal = 1;
+  bool yes = 2;
+}
+
+// The city's owner forbids a mechanic here whatever the players allow, or lifts that.
+message SetCityRule {
+  Mechanic mechanic = 1;
+  bool forbid = 2;
+}
+
+// A pact between the sender and one other player on a mechanic between the two of them.
+message Pact {
+  enum Step {
+    PACT_OFFER = 0;
+    PACT_ACCEPT = 1;
+    PACT_END = 2;   // ends a pact, or withdraws or turns down an offer
+  }
+  Step step = 1;
+  string with = 2;  // the other player
+  Mechanic mechanic = 3;
+}
+
+// How the computer plays a seat while its owner is away from a dedicated server (not manual).
+message SetAwayLevel {
+  string seat = 1;
+  SeatLevel level = 2;
+  AutopilotStyle style = 3;
 }
 
 enum Mechanic {
@@ -418,12 +514,47 @@ message ServerMessage {
     AdvisorList advisors = 17;
     AgentRoster agents = 18;  // the followed commuters; sent when they change and monthly
     SideGameView side_game = 19;  // sent when a side game's view changes
+    SignedIn signed_in = 20;
+    Presence presence = 21;  // who is here; sent when someone joins or leaves
+    DelinkCopy delink_copy = 22;  // to a player who just de-linked: their copy of the city, as a save
   }
 }
 
+// The copy a de-linked player takes with them. The server also keeps it in its saves under this name.
+message DelinkCopy {
+  string name = 1;
+  bytes save = 2;  // a SaveGame
+}
+
+// The players on this server: everyone online, and everyone who owns a seat here even while they're away.
+message Presence {
+  message Player {
+    string name = 1;
+    bool online = 2;
+    bool admin = 3;
+    repeated string seats = 4;  // seat ids they own
+    bool spectator = 5;         // online but owns no seat and isn't a deputy: watches only
+    repeated string deputy_for = 6;  // portfolios as a deputy mayor: "planning", "budget", "services", "transit"
+  }
+  repeated Player players = 1;
+}
+
+// The first message on every connection. A server that needs no sign-in (solo play) has already signed the
+// connection in as player and sends the city straight after; one that does sends nothing more until SignIn.
 message Welcome {
   uint32 protocol_version = 1;
   string server_name = 2;
+  bool sign_in_required = 3;
+  bool invite_required = 4;  // new accounts need the host's invite code
+  string player = 5;         // who this connection plays as, when signed in already
+  bool admin = 6;            // may save, load, start a new city and set the speed
+}
+
+// Signed in: the city follows. Keep the token to sign in again without the password.
+message SignedIn {
+  string name = 1;
+  string token = 2;
+  bool admin = 3;
 }
 
 message PathProfileInfo {
@@ -851,12 +982,78 @@ message CivicState {
   repeated LeaseState leases = 6;
   repeated SideGameInfo side_games = 7;
   ConsentTable consent = 8;
+  repeated Deputy deputies = 9;
+  bool council_on = 10;
+  repeated Proposal proposals = 11;  // open ones first, then the last few decided
+  repeated string council = 12;      // who votes: every seat owner and deputy
+  repeated DelinkState delinks = 13; // de-links, newest first
+  repeated DelinkOption delink_options = 14;  // each player with a part here besides the mayor: whether the mayor may cut them loose
+  repeated DistrictFranchise franchises = 15;  // every district: its transit franchise, if any, or the tender for it
+  repeated SideGameOffer invitable = 16;       // side games this server can add that the city doesn't have yet
+  int32 freight_exports = 17;    // tons a day company freight carried out of the city last month
+  int32 freight_delivered = 18;  // tons a day company freight delivered to shops last month
+}
+
+// A side game the mayor can invite in, such as a rival transit company.
+message SideGameOffer {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+// A district's transit franchise. status: "none", "open" (out to tender), "held".
+message DistrictFranchise {
+  int32 district = 1;
+  string name = 2;
+  string status = 3;
+  int32 months = 4;
+  int32 days_left = 5;   // until the tender closes, or the franchise ends
+  int32 bids = 6;        // bids in so far (their amounts are sealed)
+  string holder = 7;     // the holding side game's id
+  string holder_name = 8;
+  int64 amount = 9;      // what the holder paid
+  bool exclusive = 10;
+  string last = 11;      // how the last tender here went, if one closed without a winner
+}
+
+message DelinkOption {
+  string player = 1;
+  bool open = 2;
+  string rule = 3;
+}
+
+message DelinkState {
+  int32 day = 1;
+  string player = 2;
+  string mayor = 3;
+  string by = 4;  // the player themselves, or the mayor who cut them loose
+  repeated string games = 5;
+  int32 leases_ended = 6;
+  int64 written_off = 7;
+  int64 paid = 8;
+  int32 cooldown_days = 9;  // days left before the two may share a city again; 0 when over
+}
+
+message Deputy {
+  string player = 1;
+  uint32 portfolios = 2;  // bits: 1 planning, 2 budget, 4 services, 8 transit
+}
+
+message Proposal {
+  int32 id = 1;
+  string text = 2;
+  string proposer = 3;
+  int32 days_left = 4;
+  string status = 5;  // "open", "passed" or "failed"
+  repeated string yes = 6;
+  repeated string no = 7;
 }
 
 // Every seat owner against every mechanic: the effective result and who is blocking each one.
 message ConsentTable {
   repeated string owners = 1;
   repeated ConsentRow rows = 2;
+  repeated PactState pacts = 3;
 }
 
 message ConsentRow {
@@ -866,6 +1063,16 @@ message ConsentRow {
   repeated bool by_owner = 4;  // in the order of owners
   bool effective = 5;
   repeated string blockers = 6;
+  bool pairwise = 7;       // needs only the two players it happens between (or a pact), not everyone
+  bool host_forbids = 8;   // the server's host forbids it
+  bool city_forbids = 9;   // the city's rules forbid it
+}
+
+message PactState {
+  string a = 1;
+  string b = 2;
+  Mechanic mechanic = 3;
+  bool offer = 4;  // offered by a to b, not yet accepted
 }
 
 // A side game's standing in a district.
@@ -907,6 +1114,39 @@ message LeaseState {
   repeated string targets = 17;  // what it takes to get back into good standing
   int32 evict_months = 18;       // months until a hostile eviction ends it; 0 when none
   int32 rating = 19;             // the side game's rating in the lot's district
+  repeated LadderStep ladder = 20;  // the dispute ladder, gentlest first
+  repeated OfferState offers = 21;  // the open offer, if any, then the last few decided
+  repeated MoveTarget move_to = 22;  // free lots of the same kind it could move to
+}
+
+message MoveTarget {
+  int32 building_id = 1;
+  int32 x = 2;
+  int32 y = 3;
+  string name = 4;
+}
+
+message LadderStep {
+  string step = 1;  // "Negotiate", "Buy out", "Relocate", "Impose terms", "Evict"
+  bool open = 2;    // whether it can be taken now
+  string rule = 3;  // the rule that allows it, or what stands in the way
+}
+
+message OfferState {
+  int32 id = 1;
+  OfferKind kind = 2;
+  bool from_operator = 3;
+  string by = 4;  // the player who made it; empty for the computer
+  LeaseTerms terms = 5;
+  int64 amount = 6;
+  int32 to_building_id = 7;
+  int32 to_x = 8;
+  int32 to_y = 9;
+  string status = 10;  // "open", "accepted", "declined", "countered", "withdrawn", "expired", "failed"
+  int32 days_left = 11;
+  string text = 12;    // what it proposes, in words
+  string note = 13;    // how it ended
+  int32 counter_of = 14;
 }
 
 message SeatState {
@@ -918,6 +1158,9 @@ message SeatState {
   int64 spend_cap = 6;
   int64 away_since_tick = 7;  // -1 when the owner is playing it
   AwayReport report = 8;      // the last "while you were away" report, if any
+  SeatLevel away_level = 9;   // how the computer plays it while the owner is away from a dedicated server
+  AutopilotStyle away_style = 10;
+  bool auto_away = 11;        // the computer has it because the owner left; it goes back when they return
 }
 
 message AwayNote {
@@ -976,4 +1219,34 @@ message SaveGame {
 message ActionRecord {
   int64 tick = 1;
   Action action = 2;
+  string by = 3;       // the player who sent it; empty for saves from before Beta 2
+  SeatAway away = 4;   // set instead of action: the server handed a seat to the computer, or back, as its owner left or returned
+  HostRules host_rules = 5;  // set instead of action: the server's minimums when the city arrived
+  RenameOwner rename = 6;    // set instead of action: the server gave one player's seats to another
+  SideGameMissed missed = 7; // set instead of action: a side game hosted elsewhere missed its deadline
+  Fork fork = 8;             // set instead of action: this city is a copy a player took when they de-linked
+}
+
+message Fork {
+  string player = 1;
+  string home_name = 2;
+}
+
+message SideGameMissed {
+  string game = 1;
+  string what = 2;  // "day" or "command"
+}
+
+message RenameOwner {
+  string from = 1;
+  string to = 2;
+}
+
+message HostRules {
+  repeated Mechanic forbidden = 1;
+}
+
+message SeatAway {
+  string seat = 1;
+  bool away = 2;
 }

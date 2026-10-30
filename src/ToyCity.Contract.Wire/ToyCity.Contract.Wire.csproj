@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The side-game contract on the wire: the messages of protocol/contract.proto, conversions to and from the C# contract,
+    and both ends of a side game hosted in another process (protocol/sidegamehost.proto). References the contract and
+    nothing else of the city's, so a side-game host needs no city code.
+  -->
+  <PropertyGroup>
+    <RootNamespace>ToyCity.Protocol</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.28.3" />
+    <PackageReference Include="Grpc.Tools" Version="2.67.0" PrivateAssets="All" />
+  </ItemGroup>
+  <ItemGroup>
+    <Protobuf Include="../../protocol/contract.proto" GrpcServices="None" ProtoRoot="../../protocol" Link="contract.proto" />
+    <Protobuf Include="../../protocol/sidegamehost.proto" GrpcServices="None" ProtoRoot="../../protocol" Link="sidegamehost.proto" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ToyCity.Contract/ToyCity.Contract.csproj" />
+  </ItemGroup>
+</Project>

@@ -137,7 +137,7 @@ public class AuthorityTests
         w.Enqueue(new EndLeaseAction(lease.Id, ByOperator: false));
         w.Step();
         Assert.NotNull(w.LeaseById(lease.Id));
-        Assert.Contains(w.Notices, n => n.Text.Contains("hostile evictions are switched off"));
+        Assert.Contains(w.Notices, n => n.Text.Contains("Hostile evictions is switched off"));
 
         w.Enqueue(new SetConsentAction("player", Mechanic.HostileEvictions, true));
         w.Enqueue(new EndLeaseAction(lease.Id, ByOperator: false));

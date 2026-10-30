@@ -14,7 +14,57 @@ message Command {
     SetBuses buses = 3;
     Rename rename = 4;
     BuyStanding standing = 5;
+    SetTimetable timetable = 6;
+    SetService service = 7;
+    Renew renew = 8;
+    PlaceSignal signal = 9;
+    Bid bid = 10;
   }
+}
+
+// What a signal does: a block signal holds the whole block ahead for one train; a path signal only the way it takes.
+enum Signal {
+  NO_SIGNAL = 0;  // takes a signal down
+  BLOCK = 1;
+  PATH = 2;
+}
+
+// Puts up, changes or takes down a signal on a cell of one of the company's rail lines.
+message PlaceSignal {
+  int32 cell = 1;
+  Signal kind = 2;
+}
+
+// Bids for a district's transit franchise while it is out to tender; a later bid replaces an earlier one. The winner
+// pays its bid when the tender closes.
+message Bid {
+  int32 district = 1;
+  int64 amount = 2;
+}
+
+// What a line's vehicles run on: buses on streets, trams on tram strips, trains on rail lines.
+enum Mode {
+  BUS = 0;
+  TRAM = 1;
+  RAIL = 2;
+}
+
+// The line runs to a timetable: a vehicle every so many minutes, with the rest of its fleet kept as spares. 0 runs
+// every vehicle it has, as often as they can go round.
+message SetTimetable {
+  int32 line_id = 1;
+  int32 headway_minutes = 2;
+}
+
+// How often each of the line's vehicles goes to the depot for servicing, in days; 0 never.
+message SetService {
+  int32 line_id = 1;
+  int32 every_days = 2;
+}
+
+// Sells the line's oldest vehicle and buys a new one in its place.
+message Renew {
+  int32 line_id = 1;
 }
 
 // Buys one of the city's paid actions in a district: "advertise", "statue", "exclusive-rights" or "bribe".
@@ -23,19 +73,24 @@ message BuyStanding {
   int32 district = 2;
 }
 
-// Creates a line (line_id 0) or changes one: its stops in order (it runs both ways), fare and name.
+// Creates a line (line_id 0) or changes one: its stops in order (it runs both ways), fare and name. The mode is set
+// when the line opens; its stops must be the mode's kind (bus stops, tram stops or rail stations).
 message SaveLine {
   int32 line_id = 1;
   string name = 2;
   repeated int32 stop_lease_ids = 3;
   int32 fare_cents = 4;
+  Mode mode = 5;
+  bool freight = 6;  // trucks or freight trains between freight depots; set when the line opens
+  bool to_edge = 7;  // freight runs on from the last depot to the map edge
 }
 
 message DeleteLine {
   int32 line_id = 1;
 }
 
-// Buys or sells buses until the line has this many. Buses live at a leased depot.
+// Buys or sells vehicles until the line has this many (selling the most worn first). They live at a leased depot of
+// the line's mode.
 message SetBuses {
   int32 line_id = 1;
   int32 buses = 2;
@@ -63,6 +118,66 @@ message View {
   int32 day = 15;
   repeated DistrictView districts = 16;  // where the company has lots, with its standing there
   repeated OfferView offers = 17;
+  repeated ModeView modes = 18;
+  repeated ModeView freight_modes = 19;  // trucks and freight trains
+  repeated SignalView signals = 20;
+  repeated CellLoad reserved = 21;       // how much of each hour the signals hold each track cell
+  repeated TenderView tenders = 22;
+  repeated FranchiseView franchises = 23;
+  string game_id = 24;                   // which company this is
+  int32 signal_price = 25;
+}
+
+message SignalView {
+  int32 cell = 1;
+  Signal kind = 2;
+}
+
+message CellLoad {
+  int32 cell = 1;
+  int32 percent = 2;  // over 100: more trains want the track than it can take
+}
+
+message TenderView {
+  int32 district = 1;
+  string name = 2;
+  int32 months = 3;
+  int32 days_left = 4;
+  bool exclusive = 5;  // the franchise comes with exclusive rights
+  int64 min_bid = 6;
+  int64 your_bid = 7;
+  int32 lots = 8;      // the company's lots there
+}
+
+message FranchiseView {
+  int32 district = 1;
+  string name = 2;
+  string holder = 3;  // the holding company's game id
+  bool mine = 4;
+  bool exclusive = 5;
+  int32 days_left = 6;
+}
+
+// What each kind of vehicle costs and holds, and how many the company has room for.
+message ModeView {
+  Mode mode = 1;
+  string word = 2;    // "bus", "tram", "train"
+  string plural = 3;
+  int32 price = 4;
+  int32 seats = 5;
+  int32 capacity = 6;  // how many the leased depots of this mode hold
+  int32 owned = 7;
+  int32 life_years = 8;
+  int32 service_cost = 9;
+  bool freight = 10;
+}
+
+message VehicleView {
+  int32 id = 1;
+  int32 age_days = 2;
+  int32 condition = 3;  // 0..100
+  string state = 4;     // "running", "spare", "workshop" (being serviced), "broken"
+  int32 back_in_days = 5;
 }
 
 message DistrictView {
@@ -101,6 +216,18 @@ message LineView {
   MonthMoney this_month = 16;
   MonthMoney last_month = 17;
   string problem = 18;  // why it isn't running, if it isn't
+  Mode mode = 19;
+  int32 timetable_minutes = 20;  // 0: every vehicle runs
+  int32 service_days = 21;       // 0: never serviced
+  int32 needed = 22;             // vehicles the timetable needs
+  int32 running = 23;            // running today
+  int32 on_time_percent = 24;    // last month: days the timetable was kept
+  int32 condition = 25;          // average, 0..100
+  repeated VehicleView vehicles = 26;
+  bool freight = 27;
+  bool to_edge = 28;
+  int32 tons = 29;            // freight carried today
+  bool signal_limited = 30;   // runs less often than its trains could: the signals hold it back
 }
 
 message LotView {
@@ -113,6 +240,9 @@ message LotView {
   string terms = 7;
   bool bad_standing = 8;
   int32 closed_days = 9;  // shut by a fire or disaster nearby
+  int32 tons_ready = 10;   // a freight depot's goods ready today
+  int32 tons_wanted = 11;  // and the goods its shops want
+  bool barred = 12;        // in a district where another company holds exclusive rights
 }
 
 message MonthMoney {

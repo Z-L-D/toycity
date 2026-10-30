@@ -61,7 +61,8 @@ public partial class BusLinesView : Node3D
             var mesh = (ImmediateMesh)_lines!.Mesh;
             mesh.ClearSurfaces();
             bool any = false;
-            foreach (var line in v.Lines.Where(l => l.RouteCells.Count > 1))
+            // Every transit company's lines, not just the one shown.
+            foreach (var line in _panel.Company.AllLines.Where(l => l.RouteCells.Count > 1))
             {
                 if (!any) { mesh.SurfaceBegin(Mesh.PrimitiveType.Triangles); any = true; }
                 var colour = Color.FromString(line.Color, Colors.Yellow) with { A = line.HeadwayMinutes > 0 ? 0.8f : 0.35f };
@@ -77,10 +78,11 @@ public partial class BusLinesView : Node3D
         }
         if (_city.Stats.Speed > 0) _clock += delta;
         var mm = _buses!.Multimesh;
-        int total = v.Lines.Where(l => l.HeadwayMinutes > 0 && l.RouteCells.Count > 1).Sum(l => Math.Max(0, l.Buses - l.Broken));
+        var lines = _panel.Company.AllLines.ToList();
+        int total = lines.Where(l => l.HeadwayMinutes > 0 && l.RouteCells.Count > 1).Sum(l => Math.Max(0, l.Buses - l.Broken));
         if (mm.InstanceCount < total) mm.InstanceCount = total;
         int n = 0;
-        foreach (var line in v.Lines)
+        foreach (var line in lines)
         {
             var cells = line.RouteCells;
             int running = Math.Max(0, line.Buses - line.Broken);

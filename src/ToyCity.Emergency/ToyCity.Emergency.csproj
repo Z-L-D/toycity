@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>ToyCity.Emergency</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- A side game references the contract and nothing else of the city's, plus its own messages. -->
+    <ProjectReference Include="../ToyCity.Contract/ToyCity.Contract.csproj" />
+    <ProjectReference Include="../ToyCity.Emergency.Wire/ToyCity.Emergency.Wire.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ToyCity.Sim.Tests" />
+  </ItemGroup>
+</Project>

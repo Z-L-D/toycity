@@ -6,7 +6,8 @@ using ToyCity.Protocol.V0;
 namespace ToyCity.Godot;
 
 /// <summary>
-/// The city in 3D, one world unit to a cell: terrain as stepped blocks in chunks rebuilt where cells change, a
+/// The city in 3D, one world unit to a cell: terrain in chunks rebuilt where cells change (stepped, or with open
+/// ground sloping between levels when smooth terrain is on, see <see cref="TerrainShape"/>), a
 /// water plane, and buildings as voxel models, one instanced batch per type and lot size, with a coarser mesh at
 /// far zoom levels. Buildings rise layer by layer as they're built and crumble when they go, and show their
 /// wear, graffiti, fire and abandonment (shaders/building.gdshader). It also answers how tall each cell stands,
@@ -32,6 +33,7 @@ public partial class CityView : Node3D
     (int X, int Y) _focus = (-99, -99);  // the region the smooth detail is centred on
     int _radius;
     MeshInstance3D? _cursor;
+    bool _smoothTerrain;
     float[] _top = System.Array.Empty<float>();
     ShaderMaterial? _ground;
     double _flashUntil = -1;
@@ -81,16 +83,35 @@ public partial class CityView : Node3D
         foreach (int i in cells)
         {
             int x = i % _city.Width, y = i / _city.Width;
-            // A cell's walls belong to it and its neighbours, so a change at a chunk's edge redraws the neighbour too.
-            for (int d = -1; d <= 1; d++)
-            {
-                touched.Add(Math.Clamp((y) / Chunk, 0, ch - 1) * cw + Math.Clamp((x + d) / Chunk, 0, cw - 1));
-                touched.Add(Math.Clamp((y + d) / Chunk, 0, ch - 1) * cw + Math.Clamp(x / Chunk, 0, cw - 1));
-            }
+            // A cell's walls and corners belong to it and its neighbours, so a change at a chunk's edge or corner
+            // redraws the chunks beside it too.
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                    touched.Add(Math.Clamp((y + dy) / Chunk, 0, ch - 1) * cw + Math.Clamp((x + dx) / Chunk, 0, cw - 1));
         }
         foreach (int k in touched) BuildChunk(k % cw, k / cw);
         if (cells.Length > 0 || buildings.Length > 0) BuildBlocks();
     }
+
+    /// <summary>
+    /// The graphics options' smooth terrain and smooth shape detail. Changing the terrain redraws the ground;
+    /// changing the detail remakes the smooth models as they're next drawn.
+    /// </summary>
+    public void SetShapes(bool smoothTerrain, int start, int budget)
+    {
+        if (smoothTerrain != _smoothTerrain)
+        {
+            _smoothTerrain = smoothTerrain;
+            int cw = (_city.Width + Chunk - 1) / Chunk;
+            if (_chunks.Length > 0) for (int k = 0; k < _chunks.Length; k++) BuildChunk(k % cw, k / cw);
+        }
+        if (_models.SetShapes(start, budget))
+            foreach (var (key, mmi) in _batches)
+                if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3), key.Item4);
+    }
+
+    public int ShapesMade => _models.ShapesMade;
+    public int ShapesRead => _models.ShapesRead;
 
     /// <summary>A map layer over the ground, one pixel per cell, or null for none.</summary>
     public void SetOverlay(Image? image)
@@ -122,7 +143,10 @@ public partial class CityView : Node3D
         if (left <= 0) _flashUntil = -1;
     }
 
-    /// <summary>One chunk of stepped terrain: a flat top per cell, and a wall wherever a neighbour is lower.</summary>
+    /// <summary>
+    /// One chunk of terrain: a top per cell from its four corners (flat, or sloped on open ground when smooth
+    /// terrain is on), and a wall wherever a neighbour's edge is lower.
+    /// </summary>
     void BuildChunk(int cx, int cy)
     {
         var verts = new List<Vector3>();
@@ -138,21 +162,29 @@ public partial class CityView : Node3D
             index.Add(s); index.Add(s + 2); index.Add(s + 3);
         }
         int x1 = Math.Min(_city.Width, (cx + 1) * Chunk), y1 = Math.Min(_city.Height, (cy + 1) * Chunk);
+        const float step = ClassicView.HeightStep;
+        (float NW, float NE, float SE, float SW) CornersOf(int x, int y)
+        {
+            if (!_city.InBounds(x, y)) return (Base, Base, Base, Base);
+            var k = TerrainShape.Corners(_city, x, y, _smoothTerrain);
+            return (k.NW * step, k.NE * step, k.SE * step, k.SW * step);
+        }
         for (int y = cy * Chunk; y < y1; y++)
             for (int x = cx * Chunk; x < x1; x++)
             {
                 int i = _city.Idx(x, y);
-                float h = Ground(i);
                 var col = Palette.Cell(_city, i);
-                Quad(new(x, h, y), new(x + 1, h, y), new(x + 1, h, y + 1), new(x, h, y + 1), Vector3.Up, col);
+                var (nw, ne, se, sw) = CornersOf(x, y);
+                Vector3 a = new(x, nw, y), b = new(x + 1, ne, y), c = new(x + 1, se, y + 1), d = new(x, sw, y + 1);
+                var up = (c - a).Cross(b - d).Normalized();
+                Quad(a, b, c, d, up.Y > 0 ? up : -up, col);
                 var wall = col.Darkened(0.25f);
-                // North, east, south, west: a wall down to the neighbour, or to the base at the map's edge.
-                float Low(int nx, int ny) => _city.InBounds(nx, ny) ? Ground(_city.Idx(nx, ny)) : Base;
-                float n = Low(x, y - 1), e = Low(x + 1, y), s = Low(x, y + 1), w = Low(x - 1, y);
-                if (n < h) Quad(new(x, h, y), new(x + 1, h, y), new(x + 1, n, y), new(x, n, y), Vector3.Forward, wall);
-                if (s < h) Quad(new(x, h, y + 1), new(x + 1, h, y + 1), new(x + 1, s, y + 1), new(x, s, y + 1), Vector3.Back, wall.Darkened(0.1f));
-                if (e < h) Quad(new(x + 1, h, y), new(x + 1, h, y + 1), new(x + 1, e, y + 1), new(x + 1, e, y), Vector3.Right, wall.Darkened(0.05f));
-                if (w < h) Quad(new(x, h, y), new(x, h, y + 1), new(x, w, y + 1), new(x, w, y), Vector3.Left, wall.Darkened(0.15f));
+                // North, east, south, west: a wall down to the neighbour's edge, or to the base at the map's edge.
+                var n = CornersOf(x, y - 1); var e = CornersOf(x + 1, y); var s = CornersOf(x, y + 1); var w = CornersOf(x - 1, y);
+                if (n.SW < nw || n.SE < ne) Quad(new(x, nw, y), new(x + 1, ne, y), new(x + 1, Math.Min(ne, n.SE), y), new(x, Math.Min(nw, n.SW), y), Vector3.Forward, wall);
+                if (s.NW < sw || s.NE < se) Quad(new(x, sw, y + 1), new(x + 1, se, y + 1), new(x + 1, Math.Min(se, s.NE), y + 1), new(x, Math.Min(sw, s.NW), y + 1), Vector3.Back, wall.Darkened(0.1f));
+                if (e.NW < ne || e.SW < se) Quad(new(x + 1, ne, y), new(x + 1, se, y + 1), new(x + 1, Math.Min(se, e.SW), y + 1), new(x + 1, Math.Min(ne, e.NW), y), Vector3.Right, wall.Darkened(0.05f));
+                if (w.NE < nw || w.SE < sw) Quad(new(x, nw, y), new(x, sw, y + 1), new(x, Math.Min(sw, w.SE), y + 1), new(x, Math.Min(nw, w.NE), y), Vector3.Left, wall.Darkened(0.15f));
             }
         var arrays = new global::Godot.Collections.Array();
         arrays.Resize((int)Mesh.ArrayType.Max);

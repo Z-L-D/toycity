@@ -4,19 +4,27 @@ using System.Net.Sockets;
 
 namespace ToyCity.ClientModel.Tests;
 
-/// <summary>The real ToyCity server on a spare local port, with its saves in a temporary folder.</summary>
+/// <summary>
+/// The real ToyCity server on a spare local port, with its saves in a temporary folder. Given a host.json it runs as
+/// a dedicated server, where players sign in.
+/// </summary>
 public sealed class ServerProcess : IDisposable
 {
     readonly Process _process;
     readonly string _saves = Path.Combine(Path.GetTempPath(), "toycity-test-" + Guid.NewGuid().ToString("N"));
     public readonly Uri Ws;
 
-    public ServerProcess()
+    public ServerProcess(string? hostJson = null)
     {
+        if (hostJson != null)
+        {
+            Directory.CreateDirectory(_saves);
+            File.WriteAllText(Path.Combine(_saves, "host.json"), hostJson);
+        }
         int port;
         using (var l = new TcpListener(IPAddress.Loopback, 0)) { l.Start(); port = ((IPEndPoint)l.LocalEndpoint).Port; }
         string dll = Path.Combine(AppContext.BaseDirectory, "ToyCity.Server.dll");
-        var psi = new ProcessStartInfo("dotnet", $"\"{dll}\" --urls http://127.0.0.1:{port}")
+        var psi = new ProcessStartInfo("dotnet", $"\"{dll}\" --urls http://127.0.0.1:{port}{(hostJson != null ? " --dedicated" : "")}")
         {
             WorkingDirectory = AppContext.BaseDirectory, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false,
         };

@@ -33,10 +33,26 @@ public static class Mapping
         P.Action.KindOneofCase.SideGame => new SideGameAction(a.SideGame.Game, a.SideGame.Seat, a.SideGame.Payload.ToByteArray()),
         P.Action.KindOneofCase.Attach => new AttachSideGameAction(a.Attach.Game),
         P.Action.KindOneofCase.Lease => new LeaseLotAction(a.Lease.Game, a.Lease.BuildingId, a.Lease.Terms == null ? null : Terms(a.Lease.Terms)),
-        P.Action.KindOneofCase.LeaseTerms => new SetLeaseTermsAction(a.LeaseTerms.LeaseId, Terms(a.LeaseTerms.Terms)),
+        P.Action.KindOneofCase.LeaseTerms => new SetLeaseTermsAction(a.LeaseTerms.LeaseId, Terms(a.LeaseTerms.Terms ?? new P.LeaseTerms())),
         P.Action.KindOneofCase.EndLease => new EndLeaseAction(a.EndLease.LeaseId, a.EndLease.ByOperator),
+        P.Action.KindOneofCase.Offer => new OfferLeaseAction(a.Offer.LeaseId, a.Offer.FromOperator, (OfferKind)(int)a.Offer.Kind,
+            a.Offer.Terms == null ? null : Terms(a.Offer.Terms), a.Offer.Amount, a.Offer.ToBuildingId, a.Offer.CounterOf),
+        P.Action.KindOneofCase.AnswerOffer => new AnswerOfferAction(a.AnswerOffer.OfferId, a.AnswerOffer.Accept),
+        P.Action.KindOneofCase.Delink => new DelinkAction(a.Delink.Player),
+        P.Action.KindOneofCase.OpenTender => new OpenTenderAction(a.OpenTender.District, a.OpenTender.Months),
         P.Action.KindOneofCase.Consent => new SetConsentAction(a.Consent.Owner, (Mechanic)(int)a.Consent.Mechanic, a.Consent.Allowed),
         P.Action.KindOneofCase.Seat => new SetSeatAction(a.Seat.Seat, a.Seat.Owner, (ToyCity.Contract.OperatorLevel)(int)a.Seat.Level, (AutopilotStyle)(int)a.Seat.Style, a.Seat.SpendCap),
+        P.Action.KindOneofCase.CityRule => new SetCityRuleAction((Mechanic)(int)a.CityRule.Mechanic, a.CityRule.Forbid),
+        P.Action.KindOneofCase.Pact => a.Pact.Step switch
+        {
+            P.Pact.Types.Step.PactOffer => new OfferPactAction(a.Pact.With, (Mechanic)(int)a.Pact.Mechanic),
+            P.Pact.Types.Step.PactAccept => new AcceptPactAction(a.Pact.With, (Mechanic)(int)a.Pact.Mechanic),
+            _ => new EndPactAction(a.Pact.With, (Mechanic)(int)a.Pact.Mechanic),
+        },
+        P.Action.KindOneofCase.Deputy => new SetDeputyAction(a.Deputy.Player, (Portfolio)(byte)a.Deputy.Portfolios),
+        P.Action.KindOneofCase.Council => new SetCouncilAction(a.Council.On),
+        P.Action.KindOneofCase.Vote => new VoteAction(a.Vote.Proposal, a.Vote.Yes),
+        P.Action.KindOneofCase.AwayLevel => new SetAwayLevelAction(a.AwayLevel.Seat, (ToyCity.Contract.OperatorLevel)(int)a.AwayLevel.Level, (AutopilotStyle)(int)a.AwayLevel.Style),
         _ => null,
     };
 
@@ -62,8 +78,24 @@ public static class Mapping
         LeaseLotAction x => new P.Action { Lease = new P.LeaseLot { Game = x.GameId, BuildingId = x.BuildingId, Terms = x.Terms == null ? null : Terms(x.Terms) } },
         SetLeaseTermsAction x => new P.Action { LeaseTerms = new P.SetLeaseTerms { LeaseId = x.LeaseId, Terms = Terms(x.Terms) } },
         EndLeaseAction x => new P.Action { EndLease = new P.EndLease { LeaseId = x.LeaseId, ByOperator = x.ByOperator } },
+        OfferLeaseAction x => new P.Action { Offer = new P.OfferLease
+        {
+            LeaseId = x.LeaseId, FromOperator = x.FromOperator, Kind = (P.OfferKind)(int)x.Kind, Terms = x.Terms == null ? null : Terms(x.Terms),
+            Amount = x.Amount, ToBuildingId = x.ToBuildingId, CounterOf = x.CounterOf,
+        } },
+        AnswerOfferAction x => new P.Action { AnswerOffer = new P.AnswerOffer { OfferId = x.OfferId, Accept = x.Accept } },
+        DelinkAction x => new P.Action { Delink = new P.Delink { Player = x.Player } },
+        OpenTenderAction x => new P.Action { OpenTender = new P.OpenTender { District = x.District, Months = x.Months } },
         SetConsentAction x => new P.Action { Consent = new P.SetConsent { Owner = x.Owner, Mechanic = (P.Mechanic)(int)x.Mechanic, Allowed = x.Allowed } },
         SetSeatAction x => new P.Action { Seat = new P.SetSeat { Seat = x.SeatId, Owner = x.Owner, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style, SpendCap = x.SpendCap } },
+        SetCityRuleAction x => new P.Action { CityRule = new P.SetCityRule { Mechanic = (P.Mechanic)(int)x.Mechanic, Forbid = x.Forbid } },
+        OfferPactAction x => new P.Action { Pact = new P.Pact { Step = P.Pact.Types.Step.PactOffer, With = x.With, Mechanic = (P.Mechanic)(int)x.Mechanic } },
+        AcceptPactAction x => new P.Action { Pact = new P.Pact { Step = P.Pact.Types.Step.PactAccept, With = x.From, Mechanic = (P.Mechanic)(int)x.Mechanic } },
+        EndPactAction x => new P.Action { Pact = new P.Pact { Step = P.Pact.Types.Step.PactEnd, With = x.With, Mechanic = (P.Mechanic)(int)x.Mechanic } },
+        SetDeputyAction x => new P.Action { Deputy = new P.SetDeputy { Player = x.Player, Portfolios = (uint)x.Portfolios } },
+        SetCouncilAction x => new P.Action { Council = new P.SetCouncil { On = x.On } },
+        VoteAction x => new P.Action { Vote = new P.Vote { Proposal = x.ProposalId, Yes = x.Yes } },
+        SetAwayLevelAction x => new P.Action { AwayLevel = new P.SetAwayLevel { Seat = x.SeatId, Level = (P.SeatLevel)(int)x.Level, Style = (P.AutopilotStyle)(int)x.Style } },
         _ => throw new ArgumentException($"unknown action {a.GetType().Name}"),
     };
 
@@ -299,6 +331,7 @@ public static class Mapping
                 Id = s.Id, Name = s.Id == Seat.Mayor ? "City" : w.SideGame(s.Id)?.Game.Manifest.Name ?? s.Id, Owner = s.Owner,
                 Level = (P.SeatLevel)(int)s.Level, Style = (P.AutopilotStyle)(int)s.Style, SpendCap = s.SpendCap,
                 AwaySinceTick = s.Away?.Tick ?? -1,
+                AwayLevel = (P.SeatLevel)(int)s.AwayLevel, AwayStyle = (P.AutopilotStyle)(int)s.AwayStyle, AutoAway = s.AutoAway,
             };
             if (s.Report is { } rep)
             {
@@ -326,12 +359,63 @@ public static class Mapping
         table.Owners.AddRange(w.Owners());
         foreach (var row in w.ConsentTable())
         {
-            var pr = new P.ConsentRow { Mechanic = (P.Mechanic)(int)row.Mechanic, Name = row.Name, Note = row.Note, Effective = row.Effective };
+            var pr = new P.ConsentRow
+            {
+                Mechanic = (P.Mechanic)(int)row.Mechanic, Name = row.Name, Note = row.Note, Effective = row.Effective,
+                Pairwise = row.Scope == ConsentScope.Pair, HostForbids = row.HostForbids, CityForbids = row.CityForbids,
+            };
             pr.ByOwner.AddRange(row.ByOwner);
             pr.Blockers.AddRange(row.Blockers);
             table.Rows.Add(pr);
         }
+        foreach (var p in w.Pacts) table.Pacts.Add(new P.PactState { A = p.A, B = p.B, Mechanic = (P.Mechanic)(int)p.Mechanic });
+        foreach (var o in w.PactOffers) table.Pacts.Add(new P.PactState { A = o.From, B = o.To, Mechanic = (P.Mechanic)(int)o.Mechanic, Offer = true });
         r.Consent = table;
+        foreach (var (player, p) in w.Deputies) r.Deputies.Add(new P.Deputy { Player = player, Portfolios = (uint)p });
+        r.CouncilOn = w.CouncilOn;
+        r.Council.AddRange(w.CouncilMembers());
+        foreach (var d in Enumerable.Reverse(w.Delinks))
+        {
+            var ds = new P.DelinkState
+            {
+                Day = (int)d.Tick, Player = d.Player, Mayor = d.Mayor, By = d.By, LeasesEnded = d.LeasesEnded, WrittenOff = d.WrittenOff, Paid = d.Paid,
+                CooldownDays = (int)Math.Max(0, d.CooldownUntil - w.Tick),
+            };
+            ds.Games.AddRange(d.Games);
+            r.Delinks.Add(ds);
+        }
+        for (int d = 0; d < w.DistrictCount; d++)
+        {
+            var f = new P.DistrictFranchise { District = d, Name = w.DistrictName(d), Status = "none" };
+            if (w.FranchiseIn(d) is { } held)
+            {
+                f.Status = "held"; f.Holder = held.Winner; f.HolderName = w.GameName(held.Winner); f.Amount = held.Amount; f.Exclusive = held.Exclusive;
+                f.Months = held.Months; f.DaysLeft = (int)(held.Until - w.Tick);
+            }
+            else if (w.OpenTenderIn(d) is { } open)
+            {
+                f.Status = "open"; f.Months = open.Months; f.DaysLeft = (int)Math.Max(0, open.Closes - w.Tick); f.Bids = open.Bids.Count;
+            }
+            if (f.Status != "held" && w.Tenders.Where(t => t.District == d && t.Status == TenderStatus.NoBids).OrderByDescending(t => t.Id).FirstOrDefault() is { } none)
+                f.Last = $"Nobody bid when it was last out to tender.";
+            r.Franchises.Add(f);
+        }
+        foreach (var (id, name, about) in SideGameCatalog.Invitable())
+            if (w.SideGame(id) == null) r.Invitable.Add(new P.SideGameOffer { Id = id, Name = name, Description = about });
+        r.FreightExports = w.FreightExportDaily;
+        r.FreightDelivered = w.FreightDeliveredDaily;
+        foreach (var (player, why) in w.DelinkOptions()) r.DelinkOptions.Add(new P.DelinkOption { Player = player, Open = why == null, Rule = why ?? w.DelinkRule(player) });
+        foreach (var p in w.Proposals.OrderBy(p => p.Status != ProposalStatus.Open).ThenByDescending(p => p.Id).Take(12))
+        {
+            var pp = new P.Proposal
+            {
+                Id = p.Id, Text = w.Describe(p.Action), Proposer = p.Proposer, DaysLeft = (int)Math.Max(0, p.Deadline - w.Tick),
+                Status = p.Status switch { ProposalStatus.Open => "open", ProposalStatus.Passed => "passed", _ => "failed" },
+            };
+            pp.Yes.AddRange(p.Votes.Where(v => v.Value).Select(v => v.Key));
+            pp.No.AddRange(p.Votes.Where(v => !v.Value).Select(v => v.Key));
+            r.Proposals.Add(pp);
+        }
         foreach (var l in w.Leases)
         {
             var b = w.Buildings[l.BuildingId];
@@ -344,6 +428,19 @@ public static class Mapping
                 Rating = b == null ? 0 : w.RatingOf(l.GameId, w.DistrictOf(b.X, b.Y)),
             };
             if (b != null) ls.Targets.AddRange(w.LeaseTargets(l));
+            foreach (var t in w.MoveTargets(l)) ls.MoveTo.Add(new P.MoveTarget { BuildingId = t.Id, X = t.X, Y = t.Y, Name = w.LotName(t) });
+            if (b != null) foreach (var step in w.DisputeLadder(l)) ls.Ladder.Add(new P.LadderStep { Step = step.Step, Open = step.Open, Rule = step.Rule });
+            foreach (var o in w.OffersOn(l.Id).OrderBy(o => o.Status != OfferStatus.Open).ThenByDescending(o => o.Id))
+            {
+                var to = o.ToBuildingId >= 0 && o.ToBuildingId < w.Buildings.Count ? w.Buildings[o.ToBuildingId] : null;
+                ls.Offers.Add(new P.OfferState
+                {
+                    Id = o.Id, Kind = (P.OfferKind)(int)o.Kind, FromOperator = o.FromOperator, By = o.By, Terms = o.Terms == null ? null : Terms(o.Terms),
+                    Amount = o.Amount, ToBuildingId = o.ToBuildingId, ToX = to?.X ?? -1, ToY = to?.Y ?? -1, CounterOf = o.CounterOf,
+                    Status = o.Status.ToString().ToLowerInvariant(), DaysLeft = (int)Math.Max(0, o.Expires - w.Tick),
+                    Text = b == null ? "" : w.DescribeOffer(o, l), Note = o.Note,
+                });
+            }
             r.Leases.Add(ls);
         }
         return r;
@@ -393,7 +490,16 @@ public static class Mapping
             FormatVersion = World.FormatVersion, CityName = w.Name, Seed = w.Seed, Width = w.Width, Height = w.HeightCells,
             Tick = w.Tick, World = ByteString.CopyFrom(w.Snapshot()),
         };
-        foreach (var l in w.Log) s.Log.Add(new P.ActionRecord { Tick = l.Tick, Action = ToProto(l.Action) });
+        foreach (var l in w.Log)
+            s.Log.Add(l.Action switch
+            {
+                SeatAwayAction sa => new P.ActionRecord { Tick = l.Tick, By = sa.By, Away = new P.SeatAway { Seat = sa.SeatId, Away = sa.Away } },
+                SideGameMissedAction ms => new P.ActionRecord { Tick = l.Tick, By = ms.By, Missed = new P.SideGameMissed { Game = ms.GameId, What = ms.What } },
+                RenameOwnerAction rn => new P.ActionRecord { Tick = l.Tick, By = rn.By, Rename = new P.RenameOwner { From = rn.From, To = rn.To } },
+                ForkAction fk => new P.ActionRecord { Tick = l.Tick, By = fk.By, Fork = new P.Fork { Player = fk.Player, HomeName = fk.HomeName } },
+                SetHostRulesAction hr => new P.ActionRecord { Tick = l.Tick, By = hr.By, HostRules = new P.HostRules { Forbidden = { hr.Forbidden.Select(m => (P.Mechanic)(int)m) } } },
+                _ => new P.ActionRecord { Tick = l.Tick, By = l.Action.By, Action = ToProto(l.Action) },
+            });
         return s.ToByteArray();
     }
 
@@ -403,7 +509,15 @@ public static class Mapping
         if (s.FormatVersion != World.FormatVersion) throw new InvalidDataException($"save format {s.FormatVersion} is not supported");
         var w = World.FromSnapshot(content, s.World.ToByteArray());
         foreach (var r in s.Log)
-            if (ToSim(r.Action) is { } a) w.Log.Add(new LoggedAction(r.Tick, a));
+        {
+            SimAction? a = r.Away != null ? new SeatAwayAction(r.Away.Seat, r.Away.Away)
+                : r.Missed != null ? new SideGameMissedAction(r.Missed.Game, r.Missed.What)
+                : r.Rename != null ? new RenameOwnerAction(r.Rename.From, r.Rename.To)
+                : r.Fork != null ? new ForkAction(r.Fork.Player, r.Fork.HomeName)
+                : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
+                : r.Action == null ? null : ToSim(r.Action);
+            if (a != null) w.Log.Add(new LoggedAction(r.Tick, a with { By = r.By }));
+        }
         return w;
     }
 }

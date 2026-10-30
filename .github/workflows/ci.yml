@@ -63,6 +63,14 @@ jobs:
           "$GODOT_BIN" --headless --path clients/godot --import
           timeout 90 "$GODOT_BIN" --headless --path clients/godot -- --smoke | tee smoke.log
           grep -q "SMOKE OK" smoke.log
+      - name: Smoke test against a dedicated server, signing in
+        run: |
+          mkdir -p ded && echo '{ "name": "CI server", "join": "open" }' > ded/host.json
+          ToyCity__SaveDir="$PWD/ded" dotnet run --project src/ToyCity.Server -c Release --no-build -- --dedicated --urls http://localhost:5181 > ded-server.log 2>&1 &
+          for i in $(seq 60); do curl -sf localhost:5181/health && break; sleep 1; done
+          timeout 90 "$GODOT_BIN" --headless --path clients/godot -- --smoke --server ws://localhost:5181/ws --user ci-player --password secret1 --new-account | tee ded-smoke.log
+          grep -q "SMOKE OK" ded-smoke.log
+          grep -q "ci-player signed in" ded-server.log
       - name: Screenshots of each view (software OpenGL)
         run: |
           sudo apt-get install -y -qq xvfb libgl1-mesa-dri > /dev/null
@@ -92,6 +100,17 @@ jobs:
           { echo '### Gate run (CI runner, software OpenGL)'; echo; grep '^GATE ' gate.log | sed 's/^GATE //'; } >> "$GITHUB_STEP_SUMMARY"
           grep -q "GATE OK" gate.log
           ! grep -n "SHADER ERROR" -A3 gate.log
+      - name: Together, the Beta 2 gate (four players on a dedicated server, software OpenGL)
+        run: |
+          mkdir -p together && echo '{ "name": "Together town", "join": "open" }' > together/host.json
+          ToyCity__SaveDir="$PWD/together" dotnet run --project src/ToyCity.Server -c Release --no-build -- --dedicated --urls http://localhost:5182 > together-server.log 2>&1 &
+          for i in $(seq 60); do curl -sf localhost:5182/health && break; sleep 1; done
+          xvfb-run -a -s "-screen 0 1600x900x24" timeout 600 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
+            --path clients/godot -- --together "$PWD/together.json" --server ws://localhost:5182/ws --user "Mayor May" --password secret1 --new-account \
+            --graphics High --shots "$PWD/together-shots" 2>&1 | tee together.log
+          { echo '### Together: the Beta 2 gate (CI runner, software OpenGL)'; echo; grep '^TOGETHER ' together.log | sed 's/^TOGETHER /- /'; } >> "$GITHUB_STEP_SUMMARY"
+          grep -q "TOGETHER OK" together.log || { tail -40 together-server.log; false; }
+          ! grep -n "SHADER ERROR" -A3 together.log
       - name: Contact sheets of the views (base64 JPEG, for reviewers who can't download artifacts)
         if: always()
         run: |
@@ -99,6 +118,10 @@ jobs:
           if ls gate-shots/*.png > /dev/null 2>&1; then
             montage gate-shots/*.png -tile 4x -geometry 400x225+1+1 -quality 45 gate-sheet.jpg
             echo "::group::gate-sheet.jpg base64"; echo "GATE-SHEET-BEGIN"; base64 -w 0 gate-sheet.jpg; echo; echo "GATE-SHEET-END"; echo "::endgroup::"
+          fi
+          if ls together-shots/*.png > /dev/null 2>&1; then
+            montage together-shots/*.png -tile 2x -geometry 800x450+2+2 -quality 55 together-sheet.jpg
+            echo "::group::together-sheet.jpg base64"; echo "TOGETHER-SHEET-BEGIN"; base64 -w 0 together-sheet.jpg; echo; echo "TOGETHER-SHEET-END"; echo "::endgroup::"
           fi
           montage shots/*.png -tile 4x -geometry 320x180+1+1 -quality 45 sheet.jpg
           echo "::group::sheet.jpg base64"; echo "SHEET-BEGIN"; base64 -w 0 sheet.jpg; echo; echo "SHEET-END"; echo "::endgroup::"
@@ -115,4 +138,9 @@ jobs:
             gate-sheet.jpg
             gate.json
             gate.log
+            together-shots/
+            together-sheet.jpg
+            together.json
+            together.log
+            together-server.log
             server.log

@@ -652,6 +652,7 @@
     },
     {
       "id": "police-station",
+      "lotKind": "police-station",
       "name": "Police Station",
       "category": "police",
       "w": 2,
@@ -674,6 +675,7 @@
     },
     {
       "id": "fire-station",
+      "lotKind": "fire-station",
       "name": "Fire Station",
       "category": "fire",
       "w": 2,
@@ -696,6 +698,7 @@
     },
     {
       "id": "clinic",
+      "lotKind": "clinic",
       "name": "Clinic",
       "category": "health",
       "w": 2,
@@ -718,6 +721,7 @@
     },
     {
       "id": "hospital",
+      "lotKind": "hospital",
       "name": "Hospital",
       "category": "health",
       "w": 3,
@@ -959,6 +963,7 @@
       "name": "Tram Stop",
       "category": "transit",
       "transit": "tram",
+      "lotKind": "tram-stop",
       "w": 1,
       "h": 1,
       "cost": 600,
@@ -973,6 +978,7 @@
       "name": "Rail Station",
       "category": "transit",
       "transit": "rail",
+      "lotKind": "rail-station",
       "w": 2,
       "h": 2,
       "cost": 4000,
@@ -983,6 +989,48 @@
       "wait": 2,
       "noise": 20,
       "color": "#7a5c44"
+    },
+    {
+      "id": "tram-depot",
+      "name": "Tram Depot",
+      "category": "transit",
+      "lotKind": "tram-depot",
+      "leaseRent": 500,
+      "w": 3,
+      "h": 3,
+      "cost": 5000,
+      "maintenance": 40,
+      "powerKw": 40,
+      "noise": 12,
+      "color": "#7d4f9e"
+    },
+    {
+      "id": "rail-depot",
+      "name": "Rail Yard",
+      "category": "transit",
+      "lotKind": "rail-depot",
+      "leaseRent": 1200,
+      "w": 4,
+      "h": 3,
+      "cost": 9000,
+      "maintenance": 80,
+      "powerKw": 60,
+      "noise": 22,
+      "color": "#6b4e3a"
+    },
+    {
+      "id": "freight-depot",
+      "name": "Freight Depot",
+      "category": "transit",
+      "lotKind": "freight-depot",
+      "leaseRent": 400,
+      "w": 3,
+      "h": 3,
+      "cost": 6000,
+      "maintenance": 50,
+      "powerKw": 30,
+      "noise": 20,
+      "color": "#8a6d3b"
     },
     {
       "jobs": 0,

@@ -41,8 +41,11 @@ public sealed partial class PanelModel
     {
         "seat" => RenderSeat(),
         "consent" => RenderConsent(),
+        "council" => RenderCouncil(),
+        "dispatch" => Emergency.Render() + Footer($"[b]{Link("close", "Close")}[/b]"),
         "report" => RenderReport(),
         "terms" => RenderTerms(),
+        "offer" => RenderOffer(),
         "confirm" => RenderConfirm(),
         "new" => RenderNew(),
         "save" => RenderSave(),
@@ -223,7 +226,54 @@ public sealed partial class PanelModel
         if (evict) sb.Append(Link($"lease-end:{lease.Id}:evict", "Evict…"));
         else if (lease.Terminable) sb.Append(Link($"lease-end:{lease.Id}", "End lease"));
         else sb.Append(Dim("End lease")).Append(Small(Dim($"  (only a lease in bad standing past its cure period can be ended by the city{(Allowed(Mechanic.MechHostileEvictions) ? "" : ", unless every player allows hostile evictions")})")));
-        return sb.Append('\n').ToString();
+        return sb.Append('\n').Append(DisputeText(lease)).ToString();
+    }
+
+    /// <summary>The dispute ladder: each rung with the rule behind it, the offer on the table, and the last few decided.</summary>
+    string DisputeText(LeaseState lease)
+    {
+        var sb = new StringBuilder(H4("Dispute ladder"));
+        foreach (var r in lease.Ladder)
+            sb.Append($"{Col(r.Open ? Pos : Neg, r.Open ? "✓" : "✗")} [b]{Esc(r.Step)}[/b]  {Small(Dim(Esc(r.Rule)))}\n");
+        string who(OfferState o) => (o.FromOperator ? lease.GameName : "The city") + (o.By != "" ? $" ({o.By})" : "");
+        if (OpenOffer(lease) is { } open)
+        {
+            sb.Append($"\n[b]On the table:[/b] {Esc(who(open))} offers {Esc(open.Text)} {Small(Dim($"({Plural(open.DaysLeft, "day")} left)"))}\n");
+            if (open.By == Me()) sb.Append(Link($"offer-answer:{open.Id}:0", "Withdraw")).Append('\n');
+            else sb.Append($"[b]{Link($"offer-answer:{open.Id}:1", "Accept")}[/b]   {Link($"offer-answer:{open.Id}:0", "Decline")}   {Link($"offer-make:{lease.Id}:{(int)open.Kind}", "Counter…")}\n");
+        }
+        else
+        {
+            sb.Append(Link($"offer-make:{lease.Id}:0", "Offer terms…")).Append("   ");
+            sb.Append(Link($"offer-make:{lease.Id}:1", SpeaksForOperator(lease) ? "Ask for a buyout…" : "Offer a buyout…")).Append("   ");
+            sb.Append(lease.MoveTo.Count > 0 ? Link($"offer-make:{lease.Id}:2", "Propose a move…") : Dim("Propose a move")).Append('\n');
+        }
+        if (Civic?.Seats.FirstOrDefault(s => s.Id == lease.Game)?.Owner is { Length: > 0 } op)
+        {
+            if (op == Me()) sb.Append(Link($"delink:{Uri.EscapeDataString(op)}", "Leave with a copy…")).Append('\n');
+            else if (Mayor?.Owner == Me() && Civic.DelinkOptions.FirstOrDefault(o => o.Player == op) is { Open: true })
+                sb.Append(Link($"delink:{Uri.EscapeDataString(op)}", $"De-link {Esc(op)}…")).Append('\n');
+        }
+        foreach (var o in lease.Offers.Where(o => o.Status != "open").Take(4))
+            sb.Append(Small(Dim($"{Esc(who(o))}: {Esc(o.Text)} — [b]{o.Status}[/b]{(o.Note != "" ? $". {Esc(o.Note)}" : "")}"))).Append('\n');
+        return sb.ToString();
+    }
+
+    string RenderOffer()
+    {
+        if (_offer is not { } o || Civic?.Leases.FirstOrDefault(l => l.Id == o.LeaseId) is not { } lease) return "";
+        bool buy = o.Kind == OfferKind.OfferBuyout;
+        var sb = new StringBuilder(H3(buy ? $"Buy out {Esc(lease.GameName)}" : $"Move {Esc(lease.GameName)}"));
+        string step(string by, string label) => Link($"offer:amount:{by}", label);
+        if (buy) sb.Append(Small(Dim("The lease ends the day the other side accepts, and the city pays the amount."))).Append('\n');
+        else
+        {
+            sb.Append(Small(Dim("The lease moves with its terms and jobs. The city can offer to pay the moving costs."))).Append("\n\n");
+            foreach (var t in lease.MoveTo)
+                sb.Append(t.BuildingId == o.To ? $"◉ [b]{Esc(t.Name)}[/b]" : $"○ {Link($"offer:to:{t.BuildingId}", Esc(t.Name))}").Append('\n');
+        }
+        sb.Append($"\n{(buy ? "Amount" : "Moving costs the city pays")}  {step("-1000", "−1000")} {step("-100", "−100")}  [b]{Money(o.Amount)}[/b]  {step("100", "+100")} {step("1000", "+1000")}\n");
+        return sb.Append(Footer(Link("close", "Cancel"), $"[b]{Link("offer:ok", buy ? "Offer" : "Propose")}[/b]")).ToString();
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -605,15 +655,78 @@ public sealed partial class PanelModel
         }
         if (_seatDraft.Level is SeatLevel.SeatCaretaker or SeatLevel.SeatAutopilot)
             sb.Append(H4("Most the computer may spend in a month")).Append($"{Link("cap:-5000", "−5,000")} {Link("cap:-1000", "−1,000")}  [b]{Money(_seatDraft.Cap)}[/b]  {Link("cap:1000", "+1,000")} {Link("cap:5000", "+5,000")}\n");
+        if (OnServer() && Mayor is { } mayor && mayor.Owner == Me())
+        {
+            sb.Append(H4("While you're away from this server"));
+            for (int i = 1; i < Levels.Length; i++)
+                sb.Append((int)mayor.AwayLevel == i ? $"[b]{Col(Gold, Levels[i])}[/b]" : Link($"away:{i}", Levels[i])).Append("  ");
+            sb.Append('\n').Append(Small(Dim("When your last window closes, the computer plays the city this way after a short wait, and hands it back when you return."))).Append('\n');
+        }
         var others = Civic?.Seats.Where(s => s.Id != "mayor").ToList() ?? new();
         if (others.Count > 0)
         {
             sb.Append(H4("Side games"));
             foreach (var s in others)
                 sb.Append($"[b]{Esc(s.Name)}[/b] {Small(Dim($"{(string.IsNullOrEmpty(s.Owner) ? "nobody runs it" : $"run by {Esc(s.Owner)}")} · {Levels[(int)s.Level].ToLowerInvariant()}"))}  "
-                    + (s.Owner == "player" && s.Level == SeatLevel.SeatManual ? Link($"leave:{s.Id}", "Hand to the computer") : Link($"claim:{s.Id}", "Run it yourself")) + "\n");
+                    + (s.Owner == Me() && s.Level == SeatLevel.SeatManual ? Link($"leave:{s.Id}", "Hand to the computer") : Link($"claim:{s.Id}", "Run it yourself")) + "\n");
         }
-        return sb.Append(Footer(Link("dialog:consent", "House rules…"), Link("close", "Cancel"), $"[b]{Link("seat-apply", "Apply")}[/b]")).ToString();
+        sb.Append(TransitText());
+        sb.Append(PartingText());
+        return sb.Append(Footer(Link("dialog:consent", "House rules…"), Link("dialog:council", "Deputies and council…"), Link("close", "Cancel"), $"[b]{Link("seat-apply", "Apply")}[/b]")).ToString();
+    }
+
+    /// <summary>
+    /// Transit competition: rival companies the mayor can invite in, and district franchises put out to tender. The
+    /// highest sealed bid wins and pays the city; the winner alone may lease new transit lots in the district, and with
+    /// exclusive rights allowed by everyone, only its lines stop there.
+    /// </summary>
+    string TransitText()
+    {
+        if (Civic == null) return "";
+        bool mayor = Mayor?.Owner == Me() || (string.IsNullOrEmpty(Mayor?.Owner) && !OnServer());
+        bool companies = Civic.SideGames.Any(g => g.LotKinds.Any(k => k.StartsWith("bus-", StringComparison.Ordinal) || k.StartsWith("rail-", StringComparison.Ordinal)));
+        if (!companies && Civic.Invitable.Count == 0) return "";
+        var sb = new StringBuilder(H4("Transit competition"));
+        if (mayor)
+            foreach (var g in Civic.Invitable)
+                sb.Append($"[b]{Esc(g.Name)}[/b]  {Link($"invite:{g.Id}", "Invite it in")}\n   {Small(Dim(Esc(g.Description)))}\n");
+        foreach (var f in Civic.Franchises.Where(f => f.Status != "none"))
+            sb.Append($"[b]{Esc(f.Name)}[/b]  ").Append(Small(Dim(f.Status == "open"
+                ? $"out to tender for {f.Months} months · {Plural(f.Bids, "bid")} in · closes in {Plural(f.DaysLeft, "day")}"
+                : $"{Esc(f.HolderName)} holds it{(f.Exclusive ? " exclusively" : "")} · paid {Money(f.Amount)} · {(f.DaysLeft + 29) / 30} months left"))).Append('\n');
+        var free = Civic.Franchises.Where(f => f.Status == "none").ToList();
+        if (mayor && companies && free.Count > 0)
+        {
+            var pick = free[((_tenderPick % free.Count) + free.Count) % free.Count];
+            sb.Append($"Put out to tender:  {Link("tender-pick:-1", "‹")} [b]{Esc(pick.Name)}[/b] {Link("tender-pick:1", "›")}  for  ")
+                .Append(string.Join("  ", new[] { 6, 12, 24, 36 }.Select(n => Link($"tender:{pick.District}:{n}", $"{n} months")))).Append('\n');
+            sb.Append(Small(Dim($"Companies have 14 days to bid; the highest bid wins and is paid to the city. {(Allowed(Mechanic.MechExclusiveRights) ? "Everyone allows exclusive rights, so the winner alone stops in the district." : "The winner alone may lease new transit lots there; rivals keep the stops they have.")}"
+                + (string.IsNullOrEmpty(pick.Last) ? "" : " " + Esc(pick.Last))))).Append('\n');
+        }
+        if (Civic.FreightExports > 0 || Civic.FreightDelivered > 0)
+            sb.Append(Small(Dim($"Company freight last month: {Num(Civic.FreightDelivered)} tons a day to shops, {Num(Civic.FreightExports)} tons a day exported."))).Append('\n');
+        return sb.ToString();
+    }
+
+    /// <summary>Parting ways: the mayor may cut players loose on the rules' grounds; anyone else may leave with a copy.</summary>
+    string PartingText()
+    {
+        if (Civic == null) return "";
+        bool mayor = Mayor?.Owner == Me();
+        var mine = Civic.DelinkOptions.FirstOrDefault(o => o.Player == Me());
+        if (!mayor && mine == null && Civic.Delinks.Count == 0) return "";
+        var sb = new StringBuilder(H4("Parting ways"));
+        if (mayor)
+            foreach (var o in Civic.DelinkOptions)
+                sb.Append($"[b]{Esc(o.Player)}[/b]  {(o.Open ? Link($"delink:{Uri.EscapeDataString(o.Player)}", "De-link…") : Dim("De-link"))}\n   {Small(Dim(Esc(o.Rule)))}\n");
+        else if (mine != null)
+            sb.Append(Link($"delink:{Uri.EscapeDataString(Me())}", "Leave with a copy…")).Append("  ")
+                .Append(Small(Dim("You take a copy of the city as it is now, with your seats and lots, and become its mayor. This city carries on without you."))).Append('\n');
+        foreach (var d in Civic.Delinks.Take(4))
+            sb.Append(Small(Dim($"Day {d.Day}: {Esc(d.Player)} {(d.By == d.Player ? "left" : $"was de-linked by {Esc(d.By)}")}"
+                + (d.LeasesEnded > 0 ? $", {Plural(d.LeasesEnded, "lease")} ended" : "") + (d.WrittenOff > 0 ? $", {Money(d.WrittenOff)} written off" : "")
+                + (d.Paid > 0 ? $", {Money(d.Paid)} paid" : "") + "." + (d.CooldownDays > 0 ? $" They can share a city with {Esc(d.Mayor)} again in {Plural(d.CooldownDays, "day")}." : "")))).Append('\n');
+        return sb.ToString();
     }
 
     /// <summary>
@@ -623,14 +736,16 @@ public sealed partial class PanelModel
     string RenderConsent()
     {
         var sb = new StringBuilder(H3("House rules"));
-        sb.Append(Small(Dim("Each player switches these on or off for themselves. One is on in this city only while every player who owns a seat allows it."))).Append('\n');
+        sb.Append(Small(Dim("Each player switches these on or off for themselves. One that reaches everyone is on only while every player who owns a seat allows it. One between two players needs only those two to allow it, or a pact between them. The host and the city can forbid any of them outright."))).Append('\n');
         var consent = Civic?.Consent;
         if (consent == null) return sb.Append(Footer($"[b]{Link("close", "Done")}[/b]")).ToString();
-        const string me = "player";
+        string me = Me();
+        bool mayor = Mayor?.Owner == me;
         var owners = consent.Owners.ToList();
         var cols = owners.Contains(me) ? owners : owners.Append(me).ToList();
         var cells = new StringBuilder("[cell] [/cell]");
         foreach (var o in cols) cells.Append($"[cell][b]{Esc(o == me ? "You" : o)}[/b]  [/cell]");
+        if (mayor) cells.Append("[cell][b]City forbids[/b]  [/cell]");
         cells.Append("[cell][b]In this city[/b][/cell]");
         foreach (var r in consent.Rows)
         {
@@ -641,10 +756,84 @@ public sealed partial class PanelModel
                 bool on = i >= 0 && i < r.ByOwner.Count ? r.ByOwner[i] : r.Mechanic == Mechanic.MechAbsurdDisasters;
                 cells.Append(o == me ? $"[cell]{Link($"consent:{(int)r.Mechanic}:{(on ? 0 : 1)}", on ? "☑" : "☐")}  [/cell]" : $"[cell]{(on ? "✓" : "✗")}  [/cell]");
             }
-            string blockers = r.Blockers.Count > 0 ? Small(Dim($" ({Esc(string.Join(", ", r.Blockers.Select(b => b == me ? "you" : b)))})")) : "";
-            cells.Append($"[cell]{(r.Effective ? Col(Pos, "On") : Col(Neg, "Off") + blockers)}[/cell]");
+            if (mayor) cells.Append($"[cell]{Link($"rule:{(int)r.Mechanic}:{(r.CityForbids ? 0 : 1)}", r.CityForbids ? "☑" : "☐")}  [/cell]");
+            string who = string.Join(", ", r.Blockers.Select(b => b == me ? "you" : b));
+            string result = r.HostForbids ? Col(Neg, "Forbidden") + Small(Dim(" by the host"))
+                : r.CityForbids ? Col(Neg, "Forbidden") + Small(Dim(" by the city"))
+                : r.Pairwise ? "Between two" + Small(Dim(who.Length > 0 ? $" (not with {Esc(who)})" : " (everyone allows it)"))
+                : r.Effective ? Col(Pos, "On") : Col(Neg, "Off") + (who.Length > 0 ? Small(Dim($" ({Esc(who)})")) : "");
+            cells.Append($"[cell]{result}[/cell]");
         }
-        sb.Append($"[table={cols.Count + 2}]{cells}[/table]\n");
+        sb.Append($"[table={cols.Count + (mayor ? 3 : 2)}]{cells}[/table]\n");
+
+        sb.Append(H4("Pacts"));
+        string MechName(Mechanic m) => consent.Rows.FirstOrDefault(r => r.Mechanic == m)?.Name.ToLowerInvariant() ?? "";
+        string Pl(int step, Mechanic m, string with, string text) => Link($"pact:{step}:{(int)m}:{Uri.EscapeDataString(with)}", text);
+        bool any = false;
+        foreach (var p in consent.Pacts.Where(p => p.A == me || p.B == me))
+        {
+            any = true;
+            string other = p.A == me ? p.B : p.A;
+            if (!p.Offer) sb.Append($"Pact with [b]{Esc(other)}[/b]: {MechName(p.Mechanic)}  {Pl(2, p.Mechanic, other, "End it")}\n");
+            else if (p.B == me) sb.Append($"[b]{Esc(other)}[/b] offers a pact: {MechName(p.Mechanic)}  {Pl(1, p.Mechanic, other, "Accept")}  {Pl(2, p.Mechanic, other, "Turn down")}\n");
+            else sb.Append($"Offered [b]{Esc(other)}[/b]: {MechName(p.Mechanic)}  {Pl(2, p.Mechanic, other, "Withdraw")}\n");
+        }
+        if (!any) sb.Append(Small(Dim("None yet. A pact lets something between two players happen between just you two, whatever either of you allows in general."))).Append('\n');
+        var offerable = consent.Rows.Where(r => r.Pairwise && !r.HostForbids && !r.CityForbids).ToList();
+        foreach (var o in owners.Where(o => o != me))
+            sb.Append($"Offer [b]{Esc(o)}[/b] a pact on: {string.Join("  ", offerable.Select(r => Pl(0, r.Mechanic, o, Esc(r.Name.ToLowerInvariant()))))}\n");
+        return sb.Append(Footer($"[b]{Link("close", "Done")}[/b]")).ToString();
+    }
+
+    static readonly string[] Portfolios = { "Planning", "Budget", "Services", "Transit" };
+
+    /// <summary>
+    /// Deputies and the council. The mayor names deputies, each with the portfolios they may act in, and can seat a
+    /// council that votes on taxes, laws and loans. Members vote here; ties go the way the mayor voted.
+    /// </summary>
+    string RenderCouncil()
+    {
+        var sb = new StringBuilder(H3("Deputies and council"));
+        sb.Append(Small(Dim("Deputies act for the mayor in their portfolios: planning (roads, zones, utilities), the budget (taxes, funding, loans), services (civic buildings) and transit (stops, depots and leases)."))).Append('\n');
+        var c = Civic;
+        if (c == null) return sb.Append(Footer($"[b]{Link("close", "Done")}[/b]")).ToString();
+        string me = Me(), mayorName = Mayor?.Owner ?? "";
+        bool mayor = mayorName == me || (mayorName == "" && !OnServer());
+        var people = Players.Concat(c.Deputies.Select(d => d.Player)).Distinct().Where(n => n != mayorName).ToList();
+        if (people.Count == 0) sb.Append(Small(Dim("Nobody else is here to make a deputy."))).Append('\n');
+        else
+        {
+            var cells = new StringBuilder("[cell] [/cell]");
+            foreach (var p in Portfolios) cells.Append($"[cell][b]{p}[/b]  [/cell]");
+            foreach (var n in people)
+            {
+                uint bits = c.Deputies.FirstOrDefault(d => d.Player == n)?.Portfolios ?? 0;
+                cells.Append($"[cell]{Esc(n == me ? "You" : n)}  [/cell]");
+                for (int i = 0; i < Portfolios.Length; i++)
+                {
+                    bool on = (bits & (1u << i)) != 0;
+                    string box = on ? "☑" : "☐";
+                    cells.Append($"[cell]{(mayor ? Link($"deputy:{bits ^ (1u << i)}:{Uri.EscapeDataString(n)}", box) : box)}  [/cell]");
+                }
+            }
+            sb.Append($"[table={Portfolios.Length + 1}]{cells}[/table]\n");
+        }
+        sb.Append(H4("Council"));
+        string toggle = c.CouncilOn ? "☑ The council sits" : "☐ The council sits";
+        sb.Append(mayor ? Link($"council:{(c.CouncilOn ? 0 : 1)}", toggle) : toggle).Append('\n');
+        sb.Append(Small(Dim(c.CouncilOn ? $"Members: {Esc(string.Join(", ", c.Council))}. Tax changes, laws and loans go to a vote for 7 days; ties go to the mayor." : "Off: the mayor decides alone."))).Append('\n');
+        foreach (var p in c.Proposals)
+        {
+            string tally = $"{p.Yes.Count} for, {p.No.Count} against";
+            sb.Append($"\n[b]{Esc(p.Text)}[/b] {Small(Dim($"by {Esc(p.Proposer)} · {(p.Status == "open" ? $"{p.DaysLeft} days left · {tally}" : $"{p.Status} ({tally})")}"))}");
+            if (p.Status == "open" && c.Council.Contains(me))
+            {
+                string mine = p.Yes.Contains(me) ? "yes" : p.No.Contains(me) ? "no" : "";
+                sb.Append("  ").Append(mine == "yes" ? $"[b]{Col(Gold, "Yes")}[/b]" : Link($"vote:{p.Id}:1", "Yes"))
+                    .Append("  ").Append(mine == "no" ? $"[b]{Col(Gold, "No")}[/b]" : Link($"vote:{p.Id}:0", "No"));
+            }
+            sb.Append('\n');
+        }
         return sb.Append(Footer($"[b]{Link("close", "Done")}[/b]")).ToString();
     }
 

@@ -11,6 +11,13 @@ public sealed class VoxModel
     public readonly byte[] Voxels;
     /// <summary>RGBA colours packed 0xAABBGGRR as in the file; entry i is palette index i (entry 0 unused).</summary>
     public readonly uint[] Palette = new uint[256];
+    /// <summary>
+    /// Which palette entries are smooth: their voxels are rounded off and their surfaces curved when smooth shapes
+    /// are drawn, while the rest keep sharp edges. Set in the file's materials or a .shape file beside it.
+    /// </summary>
+    public readonly bool[] Smooth = new bool[256];
+
+    public bool AnySmooth => Smooth.Any(b => b);
 
     public VoxModel(int sx, int sy, int sz)
     {
@@ -42,6 +49,7 @@ public sealed class VoxModel
     {
         var m = new VoxModel(SizeX, SizeY, SizeZ);
         Array.Copy(Palette, m.Palette, 256);
+        Array.Copy(Smooth, m.Smooth, 256);
         for (int z = 0; z < SizeZ; z++)
             for (int y = 0; y < SizeY; y++)
                 for (int x = 0; x < SizeX; x++)
@@ -63,6 +71,7 @@ public sealed class VoxModel
     {
         var m = new VoxModel((SizeX + f - 1) / f, (SizeY + f - 1) / f, (SizeZ + f - 1) / f);
         Array.Copy(Palette, m.Palette, 256);
+        Array.Copy(Smooth, m.Smooth, 256);
         var count = new int[256];
         for (int z = 0; z < m.SizeZ; z++)
             for (int y = 0; y < m.SizeY; y++)

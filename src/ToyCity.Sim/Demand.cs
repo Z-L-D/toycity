@@ -110,6 +110,8 @@ public sealed partial class World
 
         int iLocal = l * 45 / 100;
         int iExternal = 50 + (connected ? Math.Min(EdgeCapacity / 8, 1000) : 0);
+        // Goods a transit company carries out to the edge are sold abroad, and factories want to make more of them.
+        iExternal += Math.Min(FreightExportDaily * 2, 600);
         SplitTargets(2, iLocal, 0, iExternal, JobsIndustrial, 50);
 
         // Power headroom: with less than a quarter of capacity spare, demand is held down so the grid isn't swamped.
@@ -212,7 +214,8 @@ public sealed partial class World
                 default:
                     sources.Add(new DemandLine("local", "Workers in town", Same(_sourcePoints[2, 0]), $"Industry wants to hire about 45% of the {l:N0} workers."));
                     sources.Add(new DemandLine("external", "Exports", Same(_sourcePoints[2, 2]),
-                        EdgeCapacity > 0 ? $"Freight leaves by road to the region. {edgeNote}" : $"Some goods sell by back roads. {edgeNote}"));
+                        (EdgeCapacity > 0 ? $"Freight leaves by road to the region. {edgeNote}" : $"Some goods sell by back roads. {edgeNote}")
+                        + (FreightExportDaily > 0 ? $" Company freight carries {FreightExportDaily:N0} tons a day out of the city." : "")));
                     sources.Add(new DemandLine("existing", "Factories already open", Same(_existingPoints[2]), $"{JobsIndustrial:N0} industrial jobs exist or are being built."));
                     adjustments.Add(new DemandLine("education", "Education", new[] { bias[6], bias[7], bias[8] },
                         $"Education is {EducationIndex}%: high-tech needs it, dirty industry avoids it."));

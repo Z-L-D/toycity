@@ -37,11 +37,28 @@ public sealed partial class World
             case TriggerDisasterAction a: StartDisaster(a.Kind, a.X, a.Y); break;
             case AttachSideGameAction a: ApplyAttach(a); break;
             case SideGameAction a: ApplySideGameAction(a); break;
+            case SideGameMissedAction a: ApplyMissed(a); break;
             case SetSeatAction a: ApplySetSeat(a); break;
+            case SetAwayLevelAction a: ApplySetAwayLevel(a); break;
+            case SeatAwayAction a: ApplySeatAway(a); break;
+            case RenameOwnerAction a: RenameOwner(a.From, a.To); break;
             case LeaseLotAction a: ApplyLeaseLot(a); break;
             case SetLeaseTermsAction a: ApplySetLeaseTerms(a); break;
             case EndLeaseAction a: ApplyEndLease(a); break;
+            case OfferLeaseAction a: ApplyOfferLease(a); break;
+            case AnswerOfferAction a: ApplyAnswerOffer(a); break;
+            case DelinkAction a: ApplyDelink(a); break;
+            case OpenTenderAction a: ApplyOpenTender(a); break;
+            case ForkAction a: ApplyFork(a); break;
             case SetConsentAction a: ApplySetConsent(a); break;
+            case SetCityRuleAction a: ApplySetCityRule(a); break;
+            case SetDeputyAction a: ApplySetDeputy(a); break;
+            case SetCouncilAction a: ApplySetCouncil(a); break;
+            case VoteAction a: ApplyVote(a); break;
+            case SetHostRulesAction a: ApplySetHostRules(a); break;
+            case OfferPactAction a: ApplyOfferPact(a); break;
+            case AcceptPactAction a: ApplyAcceptPact(a); break;
+            case EndPactAction a: ApplyEndPact(a); break;
             case UpgradeBuildingAction a: ApplyUpgrade(a); break;
             case SetDisasterSettingAction a:
                 DisasterSetting = a.Setting;
@@ -50,7 +67,7 @@ public sealed partial class World
         }
     }
 
-    void Reject(string text, int x = -1, int y = -1) => Notices.Add(new SimNotice(text, "warning", x, y));
+    void Reject(string text, int x = -1, int y = -1) => Notices.Add(new SimNotice(text, "warning", x, y, _actor));
 
     /// <summary>Cells of an L-shaped run from (x0,y0) to (x1,y1), horizontal leg first.</summary>
     public static List<(int X, int Y)> LCells(int x0, int y0, int x1, int y1)

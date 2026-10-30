@@ -7,7 +7,7 @@ life sim) to lots in the city for live joined play.
 
 This repository is at **Beta 1: the Godot client.** A city grows from paths, zones and services, every
 lot can tell you why it is the way it is, the city seat can be left to the computer, and a bus company
-runs as a side game on leased lots. The Godot client in `clients/godot` is the way to play; the web
+and the emergency services run as side games on leased lots. The Godot client in `clients/godot` is the way to play; the web
 client stays as the debug and admin client.
 
 ## Quick start
@@ -26,6 +26,8 @@ dotnet run --project src/ToyCity.Server
 ```
 
 See [docs/BETA1.md](docs/BETA1.md) for the Godot client's controls, command-line options and frame budget.
+
+To host a city for several players, run `dotnet run --project src/ToyCity.Server -c Release -- --dedicated`; players sign in and `host.json` beside the saves sets who may join. A side game can run in its own process or on another machine with `dotnet run --project src/ToyCity.SideGameHost -c Release -- --port 5190`, listed under `sideGames` in `host.json`. See [docs/BETA2.md](docs/BETA2.md).
 
 The server starts a 128 × 128 map called Toyville with a small working town so there is
 something to look at. Use **New city** for a blank map.

@@ -47,6 +47,8 @@ public static class Placeholder
         m.Palette[Stack] = VoxModel.Rgba(120, 118, 115);
         m.Palette[Glass] = VoxModel.Rgba(Mix(r, 120, 0.7f), Mix(g, 170, 0.7f), Mix(b, 200, 0.7f));
         m.Palette[Paving] = VoxModel.Rgba(170, 168, 160);
+        // Leaves and roofs curve when smooth shapes are drawn; walls, windows and paving keep their edges.
+        m.Smooth[Leaves] = m.Smooth[Roof] = true;
 
         const int yard = 3;
         int x0 = yard, y0 = yard, x1 = sx - 1 - yard, y1 = sy - 1 - yard;

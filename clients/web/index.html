@@ -28,11 +28,14 @@
         </div>
         <button id="btn-alerts" title="Alerts: problems in the city, click one to go there">⚠ <span id="alert-count" class="badge none">0</span></button>
         <button id="btn-seat" title="Who runs the city: hand it to the computer while you're away">🧑 Mayor</button>
+        <button id="btn-council" class="hidden" title="Deputies, the council and its votes">🏛 Council</button>
         <button id="btn-company" class="hidden" title="Switch to the bus company's own view">🚌 Bus company</button>
+        <button id="btn-emergency" class="hidden" title="The emergency services' dispatch board">🚒 Dispatch</button>
         <div class="spacer"></div>
         <button id="btn-new">New city</button>
         <button id="btn-save">Save</button>
         <button id="btn-load">Load</button>
+        <div id="players" class="players hidden"></div>
         <div id="conn" class="conn off" title="Server connection"></div>
       </header>
       <header id="co-top">
@@ -63,6 +66,7 @@
         <div id="away" class="hidden"><span id="away-text"></span><button id="away-back" class="mini">Take it back</button></div>
         <div id="hints"></div>
         <div id="toasts"></div>
+        <div id="em" class="hidden"></div>
       </main>
       <aside id="panel">
         <nav id="tabs">

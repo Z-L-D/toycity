@@ -18,7 +18,7 @@ public sealed partial class World
     public ForecastReport Forecast(int months, IReadOnlyList<SimAction>? plan = null)
     {
         months = Math.Clamp(months, 1, 120);
-        var copy = FromSnapshot(Content, Snapshot());
+        using var copy = FromSnapshot(Content, Snapshot());
         return copy.RunForecast(months, plan);
     }
 

@@ -23,25 +23,38 @@ public sealed partial class PanelModel
     readonly CityMirror _city;
     readonly Func<ClientMessage, uint> _send;
 
+    /// <summary>Who this client plays as: "player" in solo play, the account name on a dedicated server.</summary>
+    public Func<string> Me { get; set; } = () => "player";
+    /// <summary>True on a dedicated server, where seats go to the computer while their owner is away.</summary>
+    public Func<bool> OnServer { get; set; } = () => false;
+
     public PanelModel(CityMirror city, Func<ClientMessage, uint> send)
     {
         _city = city;
         _send = send;
-        Company = new CompanyModel(city, send, Changed);
+        Company = new CompanyModel(city, send, Changed) { Me = () => Me() };
         Company.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Company.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
+        Emergency = new EmergencyModel(send, Changed) { Me = () => Me() };
+        Emergency.Toast += (t, sev) => Toast?.Invoke(t, sev);
+        Emergency.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
+        Emergency.SceneOpened += () => { if (Dialog == null) OpenDialog("dispatch"); };
     }
 
     /// <summary>The bus company's own view, which can take the panel's place.</summary>
     public readonly CompanyModel Company;
+    /// <summary>The emergency services' dispatch board, shown in the "dispatch" dialog.</summary>
+    public readonly EmergencyModel Emergency;
 
     /// <summary>Goes up whenever the panel would read differently, so the view knows to redraw it.</summary>
     public int Version { get; private set; }
     void Changed() => Version++;
 
     public string Tab { get; private set; } = "why";
-    /// <summary>The dialog over the map: "seat", "consent", "report", "terms", "confirm", "new", "save" or "load"; null when none.</summary>
+    /// <summary>The dialog over the map: "seat", "consent", "council", "dispatch", "report", "terms", "offer", "confirm", "new", "save" or "load"; null when none.</summary>
     public string? Dialog { get; private set; }
+    /// <summary>Everyone the server knows of in this city, from its presence list, for picking deputies.</summary>
+    public List<string> Players { get; set; } = new();
 
     // What the panel asks of the view around it.
     public event Action<int, int>? JumpTo;
@@ -49,6 +62,8 @@ public sealed partial class PanelModel
     /// <summary>Choose a building for the place tool; centre on x, y unless x is -1.</summary>
     public event Action<string, int, int>? PickBuilding;
     public event Action<string, string>? Toast;
+    /// <summary>The copy of the city this player took when they de-linked: its save name and the save itself.</summary>
+    public event Action<string, byte[]>? CopyArrived;
     /// <summary>The unlocked buildings changed, so the place tool's list should be rebuilt.</summary>
     public event System.Action? UnlocksChanged;
 
@@ -118,6 +133,10 @@ public sealed partial class PanelModel
             case ServerMessage.BodyOneofCase.Ordinances: Ordinances = m.Ordinances.Ordinances; break;
             case ServerMessage.BodyOneofCase.Advisors: Advisors = m.Advisors; break;
             case ServerMessage.BodyOneofCase.Civic: OnCivic(m.Civic); break;
+            case ServerMessage.BodyOneofCase.DelinkCopy:
+                CopyArrived?.Invoke(m.DelinkCopy.Name, m.DelinkCopy.Save.ToByteArray());
+                Toast?.Invoke($"Your copy of the city is saved as \"{m.DelinkCopy.Name}\". Load it on your own server to play it.", "good");
+                break;
             case ServerMessage.BodyOneofCase.Agents:
                 Roster = m.Agents;
                 if (Followed is { } f && Roster.Trips.All(t => t.Id != f)) Followed = null;
@@ -126,7 +145,7 @@ public sealed partial class PanelModel
                 if (m.Overlay.Kind == (OverlayKind)ActiveOverlay) { Overlay = m.Overlay; OverlayVersion++; }
                 break;
             case ServerMessage.BodyOneofCase.Saves: Saves = m.Saves.Names; break;
-            case ServerMessage.BodyOneofCase.SideGame: Company.Handle(m.SideGame); return;
+            case ServerMessage.BodyOneofCase.SideGame: Company.Handle(m.SideGame); Emergency.Handle(m.SideGame); return;
             default: return;
         }
         Changed();
@@ -313,15 +332,37 @@ public sealed partial class PanelModel
     }
 
     (SeatLevel Level, AutopilotStyle Style, long Cap) _seatDraft;
+    /// <summary>Which free district the seat dialog offers to put out to tender.</summary>
+    int _tenderPick;
     int _newSize = 128;
     bool _newStarter, _newBench;
     // The lease terms dialog: what it's for, the terms being edited, and what OK does with them.
     (string Title, string Ok, string Note, LeaseTerms Terms, Action<LeaseTerms> Done)? _terms;
     (string Text, System.Action Yes)? _confirm;
+    // The buyout or move being offered on a lease.
+    (int LeaseId, OfferKind Kind, long Amount, int To, int CounterOf)? _offer;
+
+    /// <summary>Whether this player speaks for the side game on a lease (its seat's owner); otherwise they speak for the city.</summary>
+    bool SpeaksForOperator(LeaseState l) => Civic?.Seats.FirstOrDefault(s => s.Id == l.Game)?.Owner == Me();
+
+    static OfferState? OpenOffer(LeaseState l) => l.Offers.FirstOrDefault(o => o.Status == "open");
+
+    void SendOffer(LeaseState l, OfferKind kind, LeaseTerms? terms, long amount, int to, int counterOf) =>
+        Send(new PAction { Offer = new OfferLease { LeaseId = l.Id, FromOperator = SpeaksForOperator(l), Kind = kind, Terms = terms, Amount = amount, ToBuildingId = to, CounterOf = counterOf } });
 
     /// <summary>The city's standard offer, as the sim defines it: a business lease, rent by size, a 10% fare tax, three months' notice.</summary>
-    static LeaseTerms StandardTerms(string kind) =>
-        new() { Mode = LeaseMode.LeaseBusiness, RentPerMonth = kind == "bus-depot" ? 300 : 40, TaxTenths = 100, NoticeMonths = 3 };
+    /// <summary>The terms the city offers anyone who asks, as the sim's <c>World.StandardTerms</c>: stations are public services.</summary>
+    internal static LeaseTerms StandardTerms(string kind) => kind switch
+    {
+        "fire-station" or "police-station" => new() { Mode = LeaseMode.LeasePublicService, SubsidyPerMonth = 400, NoticeMonths = 3 },
+        "clinic" => new() { Mode = LeaseMode.LeasePublicService, SubsidyPerMonth = 300, NoticeMonths = 3 },
+        "hospital" => new() { Mode = LeaseMode.LeasePublicService, SubsidyPerMonth = 800, NoticeMonths = 3 },
+        _ => new()
+        {
+            Mode = LeaseMode.LeaseBusiness, TaxTenths = 100, NoticeMonths = 3,
+            RentPerMonth = kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "tram-stop" => 60, "rail-station" => 150, "freight-depot" => 400, _ => 40 },
+        },
+    };
 
     bool Allowed(Mechanic m) => Civic?.Consent?.Rows.FirstOrDefault(r => r.Mechanic == m)?.Effective ?? false;
 
@@ -329,7 +370,7 @@ public sealed partial class PanelModel
     public void TakeBack()
     {
         var m = Mayor;
-        Send(new PAction { Seat = new SetSeat { Seat = "mayor", Owner = string.IsNullOrEmpty(m?.Owner) ? "player" : m.Owner, Level = SeatLevel.SeatManual, Style = m?.Style ?? 0, SpendCap = m?.SpendCap ?? 25000 } });
+        Send(new PAction { Seat = new SetSeat { Seat = "mayor", Owner = string.IsNullOrEmpty(m?.Owner) ? Me() : m.Owner, Level = SeatLevel.SeatManual, Style = m?.Style ?? 0, SpendCap = m?.SpendCap ?? 25000 } });
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -339,6 +380,7 @@ public sealed partial class PanelModel
     public void Click(string meta)
     {
         if (meta.StartsWith("co-")) { Company.Click(meta); return; }
+        if (meta.StartsWith("em-")) { Emergency.Click(meta); return; }
         var a = meta.Split(':');
         int I(int k) => k < a.Length && int.TryParse(a[k], out var v) ? v : -1;
         long L(int k) => k < a.Length && long.TryParse(a[k], out var v) ? v : 0;
@@ -434,22 +476,41 @@ public sealed partial class PanelModel
             case "level": _seatDraft.Level = (SeatLevel)I(1); Changed(); return;
             case "style": _seatDraft.Style = (AutopilotStyle)I(1); Changed(); return;
             case "cap": _seatDraft.Cap = Math.Max(0, _seatDraft.Cap + L(1)); Changed(); return;
+            case "away": Send(new PAction { AwayLevel = new SetAwayLevel { Seat = "mayor", Level = (SeatLevel)I(1), Style = _seatDraft.Style } }); return;
             case "seat-apply":
             {
                 var m = Mayor;
-                Send(new PAction { Seat = new SetSeat { Seat = "mayor", Owner = string.IsNullOrEmpty(m?.Owner) ? "player" : m.Owner, Level = _seatDraft.Level, Style = _seatDraft.Style, SpendCap = _seatDraft.Cap } });
+                Send(new PAction { Seat = new SetSeat { Seat = "mayor", Owner = string.IsNullOrEmpty(m?.Owner) ? Me() : m.Owner, Level = _seatDraft.Level, Style = _seatDraft.Style, SpendCap = _seatDraft.Cap } });
                 CloseDialog();
                 return;
             }
-            case "claim" or "leave":
+            case "invite": Send(new PAction { Attach = new AttachSideGame { Game = a[1] } }); return;
+            case "tender-pick": _tenderPick += I(1); Changed(); return;
+            case "tender": Send(new PAction { OpenTender = new OpenTender { District = I(1), Months = I(2) } }); return;
+                        case "claim" or "leave":
             {
                 bool claim = a[0] == "claim";
-                Send(new PAction { Seat = new SetSeat { Seat = a[1], Owner = claim ? "player" : "", Level = claim ? SeatLevel.SeatManual : SeatLevel.SeatCaretaker, SpendCap = 25000 } });
+                Send(new PAction { Seat = new SetSeat { Seat = a[1], Owner = claim ? Me() : "", Level = claim ? SeatLevel.SeatManual : SeatLevel.SeatCaretaker, SpendCap = 25000 } });
                 CloseDialog();
                 return;
             }
             case "consent":
-                Send(new PAction { Consent = new SetConsent { Owner = "player", Mechanic = (Mechanic)I(1), Allowed = I(2) == 1 } });
+                Send(new PAction { Consent = new SetConsent { Owner = Me(), Mechanic = (Mechanic)I(1), Allowed = I(2) == 1 } });
+                return;
+            case "rule":
+                Send(new PAction { CityRule = new SetCityRule { Mechanic = (Mechanic)I(1), Forbid = I(2) == 1 } });
+                return;
+            case "deputy":  // deputy:portfolios:player
+                Send(new PAction { Deputy = new SetDeputy { Portfolios = (uint)I(1), Player = Uri.UnescapeDataString(a[2]) } });
+                return;
+            case "council":
+                Send(new PAction { Council = new SetCouncil { On = I(1) == 1 } });
+                return;
+            case "vote":
+                Send(new PAction { Vote = new Vote { Proposal = I(1), Yes = I(2) == 1 } });
+                return;
+            case "pact":  // pact:step:mechanic:with
+                Send(new PAction { Pact = new Pact { Step = (Pact.Types.Step)I(1), Mechanic = (Mechanic)I(2), With = Uri.UnescapeDataString(a[3]) } });
                 return;
 
             // Leases
@@ -492,6 +553,57 @@ public sealed partial class PanelModel
                 else End();
                 return;
             }
+            case "offer-make":  // offer-make:lease:kind, countering the open offer if there is one
+            {
+                var l = Civic?.Leases.FirstOrDefault(x => x.Id == I(1));
+                if (l == null) return;
+                var open = OpenOffer(l);
+                var kind = (OfferKind)I(2);
+                int counter = open?.Id ?? 0;
+                if (kind == OfferKind.OfferTerms)
+                {
+                    _terms = ($"Offer terms to {(SpeaksForOperator(l) ? "the city" : l.GameName)}", "Offer", "If the other side accepts, the new terms start at once.",
+                        (open?.Terms ?? l.Terms).Clone(), t => SendOffer(l, OfferKind.OfferTerms, t, 0, -1, counter));
+                    Dialog = "terms";
+                }
+                else
+                {
+                    if (kind == OfferKind.OfferRelocate && l.MoveTo.Count == 0) return;
+                    long amount = open?.Kind == kind ? open.Amount : kind == OfferKind.OfferRelocate ? 1000 : 0;
+                    int to = open?.Kind == kind && open.ToBuildingId >= 0 ? open.ToBuildingId : l.MoveTo.FirstOrDefault()?.BuildingId ?? -1;
+                    _offer = (l.Id, kind, amount, to, counter);
+                    Dialog = "offer";
+                }
+                Changed();
+                return;
+            }
+            case "offer" when _offer is { } of:
+                switch (a[1])
+                {
+                    case "amount": _offer = of with { Amount = Math.Max(0, of.Amount + L(2)) }; break;
+                    case "to": _offer = of with { To = I(2) }; break;
+                    case "ok":
+                        if (Civic?.Leases.FirstOrDefault(x => x.Id == of.LeaseId) is { } l)
+                            SendOffer(l, of.Kind, null, of.Amount, of.Kind == OfferKind.OfferRelocate ? of.To : -1, of.CounterOf);
+                        CloseDialog();
+                        return;
+                }
+                Changed();
+                return;
+            case "delink":
+            {
+                string player = Uri.UnescapeDataString(a[1]);
+                _confirm = (player == Me()
+                    ? "Leave this city for good? You get a copy of it as it is now, with your seats and lots, to play on your own. Your leases here end and you can't rejoin for 90 days."
+                    : $"De-link {player}? They take a copy of the city as it is now and leave. Their leases here end, what they owe is written off, and they can't come back for 90 days.",
+                    () => Send(new PAction { Delink = new Delink { Player = player } }));
+                Dialog = "confirm";
+                Changed();
+                return;
+            }
+            case "offer-answer":
+                Send(new PAction { AnswerOffer = new AnswerOffer { OfferId = I(1), Accept = I(2) == 1 } });
+                return;
             case "yes":
                 _confirm?.Yes();
                 CloseDialog();
@@ -545,6 +657,7 @@ public sealed partial class PanelModel
     /// <summary>Runs the panel's timers. Call once a frame.</summary>
     public void Tick(double dt)
     {
+        Emergency.Tick(dt);
         if (_requeryIn < 0) return;
         _requeryIn -= dt;
         if (_requeryIn < 0 && Selected is { } s) Query(s.X, s.Y, false);

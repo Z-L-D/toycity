@@ -219,7 +219,8 @@ dialog {
 dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
 dialog h3 { margin-top: 0; }
 dialog label { display: block; margin: 8px 0 3px; color: var(--muted); }
-dialog input[type='text'], dialog input[type='number'], dialog select { width: 100%; }
+dialog input[type='text'], dialog input[type='number'], dialog input[type='password'], dialog select { width: 100%; }
+dialog p.error { color: var(--bad); margin: 4px 0; }
 dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 dialog .saves { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
 dialog .saves button { text-align: left; }
@@ -425,3 +426,31 @@ body.company #hints { display: none; }
 .gauge .g-note { font-size: 11px; margin-top: 4px; }
 .gauge.over .g-note { color: var(--bad); font-weight: 600; }
 .gauge.full .g-note { color: #e0a040; font-weight: 600; }
+
+.players { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+.players .player { display: flex; flex-direction: column; line-height: 1.1; padding: 2px 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.06); }
+.players .player small { color: var(--muted); font-size: 10px; }
+.players .player.away { opacity: 0.45; }
+
+/* The emergency services' dispatch board, over the map. */
+#em {
+  position: absolute; top: 8px; right: 8px; bottom: 40px; width: min(540px, calc(100% - 16px)); z-index: 20;
+  background: var(--panel); border: 1px solid #3a4660; border-radius: 6px; display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+#em.hidden { display: none; }
+#em .em-head { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--panel-2); flex-wrap: wrap; }
+#em .spacer { flex: 1; }
+#em .em-tabs { display: flex; gap: 4px; padding: 6px 10px; }
+#em .em-body { overflow-y: auto; padding: 6px 10px 12px; flex: 1; }
+#em .em-call, #em .em-station, #em .em-card { padding: 6px 0; border-bottom: 1px solid var(--panel-2); }
+#em .em-call.done { opacity: 0.6; }
+#em .em-picks { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 4px 0; }
+#em .em-picks label { white-space: nowrap; }
+#em .em-card.bad .em-score { color: #ff7a6b; }
+#em .em-score { font-weight: bold; font-size: 1.1em; }
+#em .em-opt { display: block; margin: 8px 0; }
+#em .em-scene-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+#em canvas { width: 100%; image-rendering: pixelated; border: 1px solid #3a4660; cursor: crosshair; display: block; }
+#em .em-orders { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+#em .em-events { margin-top: 6px; max-height: 120px; overflow-y: auto; }

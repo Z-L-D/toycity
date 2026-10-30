@@ -104,11 +104,12 @@ public sealed partial class World
         RaiseIncident(DisasterName(kind), d.CellX, d.CellY, "city", "disaster", 3, text);
     }
 
-    void Ignite(Building b)
+    internal void Ignite(Building b)
     {
         if (b.BurningDays > 0) return;
         b.BurningDays = 1;
         RaiseIncident("fire", b.X, b.Y, "city", TypeOf(b).Name, 2, "");
+        FireCasualty(b);
     }
 
     /// <summary>Damages a building. Returns true when it was destroyed.</summary>
@@ -222,6 +223,8 @@ public sealed partial class World
         foreach (var b in burning)
         {
             if (Buildings[b.Id] != b) continue;
+            // A fire a player is fighting at the scene holds still until the scene ends.
+            if (Held(b.X, b.Y, "fire")) continue;
             int cov = Coverage[(int)Service.Fire][Idx(b.X, b.Y)] * 100 / 255;
             if (Rng.Next(100) < 5 + cov / 3)
             {

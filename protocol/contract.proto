@@ -1,6 +1,7 @@
 // The side-game contract, version 1, on the wire. In solo play side games run in the city's process and trade the
 // same messages as C# objects (src/ToyCity.Contract); this file is what a side game in another process or language
-// speaks. Frozen at the Alpha 3 gate: additive changes keep the version; anything else is v2.
+// speaks. Frozen at the Alpha 3 gate: additive changes keep the version; anything else is v2. v1.1 (Beta 2) added
+// incident responses, holds and the area query.
 syntax = "proto3";
 
 package toycity.contract.v1;
@@ -113,6 +114,34 @@ message CityToGame {
   repeated OpenLot open_lots = 14;
   repeated PaidActionOffer offers = 15;
   repeated AuthorityResult authority_results = 16;  // yesterday's paid actions
+  repeated Tender tenders = 17;        // v1.3: franchises out to tender
+  repeated Franchise franchises = 18;  // v1.3: franchises and exclusive rights in force
+  repeated FreightLot freight = 19;    // v1.3: goods at the game's freight depots today
+}
+
+// v1.3: a district's transit franchise out to tender. your_bid is 0 until the game bids.
+message Tender {
+  int32 district_id = 1;
+  int32 months = 2;
+  int32 days_left = 3;
+  bool exclusive = 4;
+  int64 min_bid = 5;
+  int64 your_bid = 6;
+}
+
+// v1.3: who holds the transit franchise (or exclusive rights) in a district, and for how many more days.
+message Franchise {
+  int32 district_id = 1;
+  string holder = 2;
+  bool exclusive = 3;
+  int32 days_left = 4;
+}
+
+// v1.3: goods ready to ship from a freight depot, and goods the shops around it want, in tons today.
+message FreightLot {
+  int32 lease_id = 1;
+  int32 tons_ready = 2;
+  int32 tons_wanted = 3;
 }
 
 // A paid action for standing in a district: "advertise", "statue", "exclusive-rights" or "bribe".
@@ -127,6 +156,7 @@ message PaidActionOffer {
 message AuthorityAction {
   string kind = 1;
   int32 district_id = 2;
+  int64 amount = 3;  // v1.3: a "bid"'s amount
 }
 
 // When ok the side game pays cost; otherwise nothing is owed.
@@ -160,6 +190,14 @@ message TransitLine {
   int32 headway_minutes = 5;
   int32 fare_cents = 6;
   int32 seats_per_hour = 7;
+  TransitMode mode = 8;  // v1.2
+}
+
+// v1.2: what a line's vehicles run on.
+enum TransitMode {
+  BUS = 0;
+  TRAM = 1;
+  RAIL = 2;
 }
 
 message GameToCity {
@@ -173,6 +211,26 @@ message GameToCity {
   repeated int32 lease_requests = 8;  // building ids to lease on the city's standard terms
   repeated int32 lease_releases = 9;  // lease ids given up
   repeated AuthorityAction authority_actions = 10;  // answered in tomorrow's authority_results
+  repeated IncidentResponse responses = 11;  // v1.1: how incidents the game answered turned out
+  repeated int64 holding = 12;               // v1.1: incidents a player is handling at the scene now
+  map<int32, int32> freight_picked = 13;     // v1.3: tons picked up at each freight depot lease
+  map<int32, int32> freight_dropped = 14;    // v1.3: tons dropped at each freight depot lease; lease 0 is the map edge
+}
+
+// v1.1. outcome: "out" or "spread" for a fire, "arrest" or "escaped" for a crime, "treated" or "died" for an injury.
+message IncidentResponse {
+  int64 incident_id = 1;
+  string outcome = 2;
+  string text = 3;
+}
+
+// v1.1: what is on a cell.
+enum CellKind {
+  GROUND = 0;
+  ROAD = 1;
+  BUILDING = 2;
+  WATER = 3;
+  PARK = 4;
 }
 
 message StreetRoute {
