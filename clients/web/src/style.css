@@ -485,3 +485,11 @@ body.company #hints { display: none; }
 .rg-side .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
 .rg-pending { color: var(--warn); animation: em-pulse 1.2s ease-in-out infinite; }
 @media (max-width: 700px) { #rg-body { flex-direction: column; } .rg-side { width: auto; } }
+#em .em-ratings { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin: 4px 0 8px; }
+#em .grade { padding: 0 4px; border-radius: 3px; }
+#em .grade-A, #em .grade-B { color: #7bd88f; }
+#em .grade-C { color: var(--warn); }
+#em .grade-D, #em .grade-F { color: #ff7a6b; }
+#em .em-strike { color: #ff7a6b; }
+#em .em-crooked-on b { color: var(--warn); }
+#em .neg { color: #ff7a6b; font-weight: normal; }

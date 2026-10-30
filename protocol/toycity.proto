@@ -178,6 +178,7 @@ enum Mechanic {
   MECH_HOSTILE_EVICTIONS = 3;
   MECH_ABSURD_DISASTERS = 4;
   MECH_TARGETED_CRIME = 5;
+  MECH_CROOKED_SERVICES = 6;  // the emergency services may slow-walk, run rackets, look away, start fires, strike
 }
 
 // A player switches a mechanic on or off for themselves. It is on in the city only while every seat owner allows it.

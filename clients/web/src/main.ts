@@ -1244,7 +1244,7 @@ transport = new Transport({
     dirty = true;
   },
 });
-emergency = new Emergency({ conn, jumpTo, toast });
+emergency = new Emergency({ conn, jumpTo, toast, cityWidth: () => city.width });
 region = new Region({ conn, toast, onRegion: (r) => { renderer.borders = r.borders ?? []; dirty = true; updateAdmin(); updateTopBar(); } });
 requestAnimationFrame(frame);
 

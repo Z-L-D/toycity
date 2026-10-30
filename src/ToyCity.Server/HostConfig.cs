@@ -51,6 +51,11 @@ public sealed class HostConfig
 
     /// <summary>Milliseconds a day takes at the fastest speed. 833 by default (a year in five minutes); scripted runs go faster.</summary>
     public int FastDayMs { get; set; } = 833;
+    /// <summary>
+    /// The shortest a day may be while a player is running an emergency scene (part 11): normal speed by default, so a
+    /// scene played at full speed doesn't hold its units for days of game time.
+    /// </summary>
+    public int SceneDayMs { get; set; } = 3_333;
 
     [JsonIgnore] public bool Dedicated { get; set; }
     [JsonIgnore] public string? Path { get; set; }

@@ -436,3 +436,80 @@ it, costs the earthworks and replays; two roads too close in height can't be joi
 a building levels its pad up to three steps of rise and is refused across four; and a starter town grows off its
 platform onto a graded hillside, every building on level ground. `PlannerTests.RoadPreviewsPriceTheGradingAsTheServerDoes`
 (ClientModel) checks the preview against the server for 400 diagonals across raised knobs and cliffs.
+
+## Part 11: the emergency services beta
+
+### Command in the city itself
+
+In Godot a scene is no longer a small picture in a box: it's played in the 3D city, on the city's own streets and roofs
+(`clients/godot/scripts/SceneWorld.cs`). When a scene comes up on the dispatch screen the camera goes to it. Crews,
+suspects, onlookers, hostages and vehicles stand where they are, the fire glows on the buildings, paths show as lines,
+and an outline marks the scene's edge. The camera works as usual: rotate, zoom, pan with a right drag.
+
+- **Select:** click a crew member or vehicle (shift adds), or drag a box over several.
+- **Send:** right-click where to go (a right click without a drag; a drag still pans).
+- **Orders:** pick one on the left and click its target. The list only shows orders that someone selected can carry
+  out: Hose for firefighters, Treat for paramedics, Warn, Arrest, Taser, Shoot, Cordon and Search for officers, and
+  Breach only with SWAT selected. Path still draws a route by dragging from the one selected.
+
+People are picked on screen (whoever is nearest the pointer, crews first), so they're easy to click at any zoom. The
+web client keeps its top-down scene picture, since its whole map is 2D, and gains the same box select, orders and
+lines of fire.
+
+### SWAT, breach and hostages
+
+- **SWAT teams** are bought at a police station, one per station ($9,000, four officers in armour). They're sent to
+  serious crimes along with the patrols.
+- **Hostage scenes:** a serious armed crime next to a building can become a hostage scene: the suspect is holed up
+  inside with two hostages. Officers won't rush a hostage-taker on their own; it waits for the player's order.
+  Officers who close in without going in risk the suspect hurting a hostage.
+- **Breach:** order SWAT officers to Breach a building. They stack up beside its wall nearest the target, and go in
+  together once they're there. Two or more stun everyone inside for a few seconds and make the arrest. One alone may
+  be shot. The breach goes on the report card.
+- **Cordon** holds a spot: onlookers are moved back from it, and a suspect who comes within two tiles is caught.
+- **Search** sends officers to look around a spot. A suspect at a lesser crime may have gone to ground nearby and is
+  hidden from the view until spotted (within 3 tiles) or found by a search (within 8).
+- **Lines of fire:** every shot is drawn for a few seconds, blue for the police, red for a suspect, yellow for a
+  taser, with a ring where it hit.
+- **The report card** adds a rules-of-engagement score out of 100 (unauthorised force, friendly fire and harm to
+  anyone else take it down) and hostages freed and lost. A suspect caught after a hostage died is "died", not "arrest".
+
+### Stations, crews, shifts, equipment and ratings
+
+- **Equipment**, $1,500 a unit and a small monthly upkeep: breathing gear for engines (hoses harder, no smoke
+  injuries), body armour for patrols (a gunshot does far less harm), a defibrillator for ambulances (treats twice as
+  fast). Fit it from the Units tab.
+- **Shifts:** one, two or three a day (Settings). Wages scale with the shifts worked. With fewer than three each
+  unit is off some days ("off shift" on the board), staggered so a station is rarely empty.
+- **Response ratings:** the last 30 days' average time to the first unit on scene, graded A (6 minutes or less) to
+  F, for fires, crimes and injuries. They show on the Calls and Reports tabs and feed the service's quality, which is
+  its rating with the city.
+
+### The crooked ways
+
+These need every player in the city to allow "crooked services" on the consent screen (a new mechanic, offered for any
+service that runs police stations). Until then the Settings tab says why they're off. Each one makes money or
+saves it, and each risks the papers finding out, which costs the service respect:
+
+- **Slow-walk a district:** calls there wait 12 more minutes.
+- **Protection racket:** the district's shops pay the service each month.
+- **Look the other way:** crimes in the district close as "escaped", and the service takes a cut.
+- **Overtime fires:** fires spread further and each pays the crews overtime.
+- **Strike:** every crew walks out, and nobody answers calls until it ends.
+
+Districts are the city's 32-cell squares. The board offers the ones where the service has stations or calls. If any
+player withdraws consent, every crooked way stops.
+
+### Scenes no longer hold the city
+
+Beta 2's finding was that at top speed a player's scene held units for days. Now a scene left alone for a day goes to
+the crews, who finish it as the computer would, and while any player has a scene open the server slows the city to
+normal speed (3.3 seconds a day) so a scene isn't left behind.
+
+### Tests
+
+`EmergencyBetaTests` (Sim): a scene left for a day goes to the crews; a SWAT team breaching together stuns the
+hostage-taker, frees the hostages and scores 100 for rules of engagement; breaching is for SWAT only and shots leave
+a line of fire; gear, shifts and ratings show and cost what they should; the crooked ways wait for everyone to allow
+them; and the new state saves, loads and replays. `EmergencyClientTests` (ClientModel) checks the box select, which
+orders show for whom, the breach order, and the gear, shifts and crooked-ways links.

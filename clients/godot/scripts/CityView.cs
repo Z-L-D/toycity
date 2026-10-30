@@ -40,6 +40,8 @@ public partial class CityView : Node3D
     public float MaxTop { get; private set; }
 
     public CityView(CityMirror city) => _city = city;
+    /// <summary>The city this draws.</summary>
+    public CityMirror City => _city;
 
     public float Ground(int i) => _city.Heights[i] * ClassicView.HeightStep;
     /// <summary>The ground's surface at a point (in cells), as drawn: on the slopes when smooth terrain is on.</summary>

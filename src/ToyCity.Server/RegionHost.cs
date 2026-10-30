@@ -47,6 +47,8 @@ public sealed partial class RegionHost : IDisposable
     readonly Dictionary<string, (int Speed, long At)> _asks = new(StringComparer.Ordinal);
     int _hostSpeed = 1;
     volatile int _speed = 1;
+    /// <summary>A player is at an emergency scene somewhere in the region, as of the last day.</summary>
+    volatile bool _sceneOpen;
     string _speedBy = "";
     readonly Stopwatch _clock = Stopwatch.StartNew();
 
@@ -156,12 +158,16 @@ public sealed partial class RegionHost : IDisposable
             if (speed == 0) { Thread.Sleep(50); next = sw.ElapsedMilliseconds; continue; }
             long now = sw.ElapsedMilliseconds;
             if (now < next) { Thread.Sleep((int)Math.Min(20, next - now)); continue; }
-            next = Math.Max(next + (speed == 3 ? Math.Max(0, _host.FastDayMs) : TickMs[speed]), now - 1000);
+            int dayMs = speed == 3 ? Math.Max(0, _host.FastDayMs) : TickMs[speed];
+            // A player at an emergency scene slows the clock to normal speed.
+            if (_sceneOpen) dayMs = Math.Max(dayMs, _host.SceneDayMs);
+            next = Math.Max(next + dayMs, now - 1000);
 
             var outbox = StepDay(() =>
             {
                 var list = new List<(Client, P.ServerMessage)>();
                 foreach (var c in Cities) list.AddRange(c.AfterStep());
+                _sceneOpen = _region.Cities.Any(w => w.SideGames.Any(g => g.Last.Holding.Count > 0));
                 var first = _region.Cities.FirstOrDefault();
                 if (first != null && first.Day == 1)
                 {

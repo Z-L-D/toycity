@@ -19,11 +19,11 @@ public partial class PanelView : CanvasLayer
 
     Label? _name, _date, _funds, _pop;
     Button? _approval, _alerts, _seat, _dispatch, _company;
-    SceneCanvas? _scene;
+    /// <summary>The scene in the 3D city, commanded while the dispatch screen shows it.</summary>
+    public SceneWorld? Scene3D { get; set; }
     CenterContainer? _sceneBox;
     PanelContainer? _report, _tabsBox;
     RichTextLabel? _reportText;
-    int _sceneShown = -1;
     Button[] _speeds = Array.Empty<Button>(), _coSpeeds = Array.Empty<Button>(), _emSpeeds = Array.Empty<Button>();
     DemandBars? _rci;
     PanelContainer? _side;
@@ -270,11 +270,6 @@ public partial class PanelView : CanvasLayer
         _sceneBox = new CenterContainer { MouseFilter = Control.MouseFilterEnum.Ignore, Visible = false };
         _sceneBox.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         area.AddChild(_sceneBox);
-        var frame = new PanelContainer();
-        frame.AddThemeStyleboxOverride("panel", UiTheme.Box(UiTheme.Panel, UiTheme.Line, 6, 4, 4));
-        _sceneBox.AddChild(frame);
-        _scene = new SceneCanvas(Model.Emergency);
-        frame.AddChild(_scene);
         // The ended scene's report card, over the scene.
         _report = new PanelContainer { Visible = false };
         _report.AddThemeStyleboxOverride("panel", UiTheme.Floating());
@@ -416,17 +411,11 @@ public partial class PanelView : CanvasLayer
         if (dispatch) DispatchBar(c);
         Redraw();
         if (Map != null) Map.RightInset = _side!.Visible ? ToolController.SideWidth : 0;
-        // The scene a player runs, fitted to the map's room, with its report over it once it's over.
+        // The scene a player runs is in the 3D city itself; its report comes up over it once it's over.
         var em = Model.Emergency;
         bool scene = dispatch && em.Scene != null && !em.SceneHidden;
-        _sceneBox!.Visible = scene;
-        _report!.Visible = scene && em.SceneOver && em.ReportOpen;
-        if (scene)
-        {
-            var room = _sceneBox.Size;
-            _scene!.Tile = Mathf.Clamp(Mathf.Floor(Mathf.Min(room.X, room.Y) - 40) / 36, 8, 22);
-            if (em.SceneVersion != _sceneShown) { _sceneShown = em.SceneVersion; _scene.QueueRedraw(); }
-        }
+        if (Scene3D != null) Scene3D.Commanding = scene;
+        _sceneBox!.Visible = _report!.Visible = scene && em.SceneOver && em.ReportOpen;
         // Banners.
         _away!.Visible = Model.AwayText != null;
         if (Model.AwayText is { } away) _awayText!.Text = away;

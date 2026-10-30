@@ -11,6 +11,7 @@ enum UnitKind {
   ENGINE = 0;     // a fire engine and its firefighters
   PATROL = 1;     // a police car and its officers
   AMBULANCE = 2;  // an ambulance and its paramedics
+  SWAT = 3;       // a SWAT van and its team, kept at a police station: they breach
 }
 
 // Who answers calls while a player runs the service.
@@ -27,6 +28,7 @@ enum Role {
   BYSTANDER = 3;
   CASUALTY = 4;
   SUSPECT = 5;
+  HOSTAGE = 6;  // held by an armed suspect inside a building
 }
 
 enum TaskKind {
@@ -37,6 +39,9 @@ enum TaskKind {
   WARN = 4;     // call on a suspect to give up
   SHOOT = 5;    // fire at a tile: hits the first person on the line
   TASER = 6;    // the same, but it only stuns
+  BREACH = 7;   // SWAT: go into the building at a tile; two or more together stun whoever is inside
+  CORDON = 8;   // officers hold a tile: onlookers keep back and a suspect can't slip out past them
+  SEARCH = 9;   // officers go to a tile and look around it for anyone hiding
 }
 
 message Command {
@@ -51,7 +56,23 @@ message Command {
     Settings settings = 8;
     BuyUnit buy = 9;
     SellUnit sell = 10;
+    BuyGear gear = 11;
+    Crooked crooked = 12;
   }
+}
+
+// Equipment for one unit: "breathing-gear" (engines), "body-armour" (patrols), "defibrillator" (ambulances).
+message BuyGear {
+  int32 unit_id = 1;
+  string item = 2;
+}
+
+// The crooked ways, where every player allows them: "slow-walk", "racket" and "look-away" in a district, and
+// "overtime" and "strike" across the service. on false stops it.
+message Crooked {
+  string kind = 1;
+  int32 district = 2;
+  bool on = 3;
 }
 
 // Sends these units to a call (a player's pick, or changing the computer's).
@@ -106,6 +127,7 @@ message Settings {
   bool crews_use_heads = 3;
   bool drivers_watch_out = 4;
   string name = 5;  // empty keeps it
+  int32 shifts = 6;  // crews on duty: 1 to 3 shifts a day; 0 keeps it
 }
 
 message BuyUnit {
@@ -142,6 +164,27 @@ message View {
   MonthMoney last_month = 18;
   int32 day = 19;
   repeated OpenStation open_stations = 20;
+  int32 shifts = 21;
+  repeated ResponseRating ratings = 22;  // the last thirty days, by kind of call
+  CrookedView crooked = 23;
+}
+
+message ResponseRating {
+  string kind = 1;     // "fire", "crime", "injury"
+  int32 calls = 2;
+  int32 minutes = 3;   // average to the first unit on scene
+  string grade = 4;    // "A" to "F", or "" with no calls
+}
+
+message CrookedView {
+  bool allowed = 1;          // every player allows crooked services here
+  string why_not = 2;
+  int32 slow_walk = 3;       // the district, or -1
+  int32 racket = 4;
+  int32 look_away = 5;
+  bool overtime = 6;
+  bool strike = 7;
+  int32 exposed = 8;         // times the papers have caught the service out
 }
 
 message MonthMoney {
@@ -176,6 +219,7 @@ message UnitView {
   string state = 6;  // "ready", "proposed", "on call", "at scene", "suspended"
   int32 call_id = 7;
   int32 back_in_days = 8;
+  repeated string gear = 9;
 }
 
 message CallView {
@@ -209,6 +253,18 @@ message SceneView {
   int32 burning = 13;  // tiles alight
   repeated string events = 14;  // what just happened, newest last
   repeated Arrival arriving = 15;
+  repeated ShotView shots = 16;  // the last few shots: lines of fire to draw
+}
+
+message ShotView {
+  int32 from_x = 1;  // in sixteenths of a tile, like people
+  int32 from_y = 2;
+  int32 to_x = 3;    // where it stopped: the person hit, a wall or its range
+  int32 to_y = 4;
+  int32 step = 5;
+  bool hit = 6;
+  bool taser = 7;
+  bool police = 8;
 }
 
 message PersonView {
@@ -221,7 +277,7 @@ message PersonView {
   int32 unit_id = 7;  // the vehicle a crew member came with
   bool armed = 8;
   bool down = 9;      // stunned, cuffed or dead: not moving
-  string state = 10;  // "ok", "stable", "cuffed", "dead", "stunned", "escaped"
+  string state = 10;  // "ok", "stable", "cuffed", "dead", "stunned", "escaped", "freed"
   repeated int32 path = 11;
 }
 
@@ -252,4 +308,7 @@ message ReportCard {
   int32 score = 11;
   string outcome = 12;
   repeated string notes = 13;
+  int32 rules_of_engagement = 14;  // 0..100: force kept to the rules
+  int32 hostages_freed = 15;
+  int32 hostages_lost = 16;
 }

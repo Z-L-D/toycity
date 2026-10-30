@@ -6,7 +6,7 @@ namespace ToyCity.Sim;
 /// operator and the mayor, an eviction) needs only those two to allow it, or a pact between them. Either way the host
 /// and the city's owner can forbid it outright.
 /// </summary>
-public enum Mechanic : byte { Bribery = 0, ExclusiveRights = 1, Sabotage = 2, HostileEvictions = 3, AbsurdDisasters = 4, TargetedCrime = 5 }
+public enum Mechanic : byte { Bribery = 0, ExclusiveRights = 1, Sabotage = 2, HostileEvictions = 3, AbsurdDisasters = 4, TargetedCrime = 5, CrookedServices = 6 }
 
 /// <summary>Who has to agree to a mechanic: every seat owner, or just the two players it happens between.</summary>
 public enum ConsentScope : byte { Everyone = 0, Pair = 1 }
@@ -73,6 +73,7 @@ public sealed partial class World
         Mechanic.Sabotage => "Sabotage of other players",
         Mechanic.HostileEvictions => "Hostile evictions",
         Mechanic.AbsurdDisasters => "Absurd disasters",
+        Mechanic.CrookedServices => "Crooked emergency services",
         _ => "Crime aimed at players' lots",
     };
 
@@ -83,10 +84,11 @@ public sealed partial class World
         Mechanic.Sabotage => "One player may sabotage another's lots. Between the two of them.",
         Mechanic.HostileEvictions => "The mayor may end a lease in good standing, after notice and with six months' rent as compensation. Between the mayor and the operator.",
         Mechanic.AbsurdDisasters => "The Clockwork Colossus may walk in by itself. It walks over everyone's lots, so everyone must agree.",
+        Mechanic.CrookedServices => "The emergency services may slow-walk a district, run a protection racket, look the other way, start fires for overtime or strike. It reaches everyone, so everyone must agree.",
         _ => "Not in the game yet.",
     };
 
-    public static ConsentScope ScopeOf(Mechanic m) => m is Mechanic.ExclusiveRights or Mechanic.AbsurdDisasters ? ConsentScope.Everyone : ConsentScope.Pair;
+    public static ConsentScope ScopeOf(Mechanic m) => m is Mechanic.ExclusiveRights or Mechanic.AbsurdDisasters or Mechanic.CrookedServices ? ConsentScope.Everyone : ConsentScope.Pair;
 
     /// <summary>The players who own a seat here, in name order. Computer-run seats count for their owner; unowned ones don't.</summary>
     public List<string> Owners() =>
