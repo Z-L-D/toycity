@@ -421,7 +421,11 @@ public partial class Main : Node
         {
             // A curved road laid south of the town, its strip drawn smoothly over the cells and the ground graded
             // under it, and a diagonal being drawn, its preview priced with the grading.
-            _client!.Connection.Act(new Protocol.V0.Action { Path = new Protocol.V0.PlacePath { X0 = tx - 8, Y0 = ty + 7, X1 = tx + 8, Y1 = ty + 7, ProfileId = "road", Curved = true, Cx = tx, Cy = ty + 13 } });
+            // It goes on the nearest open land below the town, so nothing is in its way.
+            bool Open(int x, int y) => c.InBounds(x, y) && c.Paths[c.Idx(x, y)] == 0 && c.BuildingAt[c.Idx(x, y)] == 0 && !c.IsWater(c.Idx(x, y));
+            int ay = Enumerable.Range(ty + 4, 40).FirstOrDefault(y => Enumerable.Range(tx - 9, 19).All(x => Enumerable.Range(y - 1, 9).All(yy => Open(x, yy))), ty + 7);
+            _client!.Connection.Act(new Protocol.V0.Action { Path = new Protocol.V0.PlacePath { X0 = tx - 8, Y0 = ay, X1 = tx + 8, Y1 = ay, ProfileId = "road", Curved = true, Cx = tx, Cy = ay + 6 } });
+            _camera!.CentreOn(tx, (ty + ay) / 2f);
             _tools!.SetTool(ToolKind.Path);
             _tools.State.Diagonal = true;
             _tools.Hold((tx + 7, ty - 5), (tx - 7, ty + 3));
