@@ -127,13 +127,16 @@ public sealed partial class World
         if (!Spend(cost, a.X0, a.Y0)) return;
         ushort code = (ushort)(Content.ProfileIndex(a.ProfileId) + 1);
         ForgetBusRoutes();
-        foreach (var (x, y) in PathCellsOf(a))
+        var cells = PathCellsOf(a);
+        foreach (var (x, y) in cells)
         {
             int i = Idx(x, y);
             Path[i] = code;
             ZoneCode[i] = 0;
             TravelCost[i] = Content.Profiles[code - 1].CellTime;
         }
+        CheckStrips();
+        AddStrip(a, code, cells);
     }
 
     void ApplyZone(PaintZoneAction a)
@@ -306,6 +309,15 @@ public sealed partial class World
         int x0 = Math.Max(0, r.MinX), x1 = Math.Min(Width - 1, r.MaxX), y0 = Math.Max(0, r.MinY), y1 = Math.Min(HeightCells - 1, r.MaxY);
         if (!InBounds(r.X0, r.Y0)) return;
         int target = Height[Idx(r.X0, r.Y0)];
+        // Smooth reads the heights as they were before the brush, so the result doesn't depend on the order of cells.
+        int SmoothAt(int x, int y)
+        {
+            int sum = 0, n = 0;
+            for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++)
+                if (InBounds(x + dx, y + dy)) { sum += Height[Idx(x + dx, y + dy)]; n++; }
+            return (2 * sum + n) / (2 * n);
+        }
         var cells = new List<(int I, int H)>();
         for (int y = y0; y <= y1; y++)
         for (int x = x0; x <= x1; x++)
@@ -316,6 +328,7 @@ public sealed partial class World
             {
                 TerraformMode.Raise => Height[i] + 1,
                 TerraformMode.Lower => Height[i] - 1,
+                TerraformMode.Smooth => SmoothAt(x, y),
                 _ => target,
             };
             h = Math.Clamp(h, 0, MaxHeight);

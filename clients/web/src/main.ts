@@ -1,6 +1,6 @@
 import './style.css';
 import { Connection, type Msg } from './net';
-import { City, curveCells, lCells, SIDE_DX, SIDE_DY, type BuildingType } from './state';
+import { City, curveCells, lCells, lineCells as diagonalCells, SIDE_DX, SIDE_DY, type BuildingType } from './state';
 import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
 import { Seats } from './seats';
@@ -27,7 +27,7 @@ const DISASTER_NAMES = ['Fire', 'Tornado', 'Earthquake', 'Clockwork Colossus'];
 const DISASTER_SETTINGS = ['Off', 'Rare', 'Normal'];
 
 const DENSITY_NAMES = ['Low', 'Medium', 'High'];
-const TERRAFORM_NAMES = ['Raise', 'Lower', 'Level'];
+const TERRAFORM_NAMES = ['Raise', 'Lower', 'Level', 'Smooth'];
 const ZONE_COST = 5;
 
 const OVERLAYS: { kind: number; name: string; scheme: OverlayView['scheme'] }[] = [
@@ -67,7 +67,7 @@ let profileId = 'road';
 let buildingTypeId = 'police-station';
 let terraformMode = 0;
 let disasterKind = 0;
-let pathMode: 'straight' | 'curve' = 'straight';
+let pathMode: 'straight' | 'diagonal' | 'curve' = 'straight';
 /** Curve tool: the ends are set, the mouse now bends it. */
 let curveEnds: { x0: number; y0: number; x1: number; y1: number } | null = null;
 let zoneMode: 'area' | 'block' = 'area';
@@ -292,7 +292,7 @@ function buildToolbar() {
     <h4>Paths</h4>
     ${btn('Build path', 'R', { kind: 'path' })}
     <select id="sel-profile" title="Path type">${profiles}</select>
-    <div class="row"><button data-pathmode="straight" class="${pathMode === 'straight' ? 'active' : ''}" title="Straight or L-shaped runs">Straight</button><button data-pathmode="curve" class="${pathMode === 'curve' ? 'active' : ''}" title="Arcs snapped to the grid (A toggles)">Curve</button></div>
+    <div class="row"><button data-pathmode="straight" class="${pathMode === 'straight' ? 'active' : ''}" title="Straight or L-shaped runs">Straight</button><button data-pathmode="diagonal" class="${pathMode === 'diagonal' ? 'active' : ''}" title="Smooth diagonals at any angle (A cycles)">Diagonal</button><button data-pathmode="curve" class="${pathMode === 'curve' ? 'active' : ''}" title="Arcs snapped to the grid (A cycles)">Curve</button></div>
     <h4>Zones</h4>
     ${btn('Residential', 'Z', { kind: 'zone', zone: 1 }, 'var(--r)')}
     ${btn('Commercial', 'X', { kind: 'zone', zone: 2 }, 'var(--c)')}
@@ -347,7 +347,9 @@ function updateHints() {
     bulldoze: [['Drag', renderer.underground ? 'remove pipes in area' : 'clear area'], ['Esc', 'cancel']],
     path: pathMode === 'curve'
       ? (curveEnds ? [['Move', 'bend the curve'], ['Click', 'build it'], ['Esc', 'start again']] : [['Drag', 'set the two ends'], ['A', 'straight paths'], ['Esc', 'cancel']])
-      : [['Drag', 'draw path'], ['Shift', 'vertical leg first'], ['A', 'curved paths'], ['Esc', 'cancel']],
+      : pathMode === 'diagonal'
+        ? [['Drag', 'draw a road at any angle'], ['A', 'curved paths'], ['Esc', 'cancel']]
+        : [['Drag', 'draw path'], ['Shift', 'vertical leg first'], ['A', 'diagonal paths'], ['Esc', 'cancel']],
     zone: zoneMode === 'block'
       ? [['Click', `zone a whole block, ${DENSITY_NAMES[density].toLowerCase()} density`], ['G', 'paint areas'], ['V', 'cycle density'], ['Esc', 'cancel']]
       : [['Drag', `paint ${DENSITY_NAMES[density].toLowerCase()} density zone`], ['G', 'zone whole blocks'], ['V', 'cycle density'], ['Esc', 'cancel']],
@@ -510,6 +512,22 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
     } else if (city.inBounds(cell.x, cell.y)) {
       text = 'Not a block: no roads close off this land';
     }
+  } else if (drag && tool.kind === 'path' && pathMode === 'diagonal') {
+    const end = borderSnap(cell);
+    const cells = diagonalCells(drag.x, drag.y, end.x, end.y);
+    const prof = city.profiles.find((p) => p.id === profileId);
+    const pi = city.profiles.indexOf(prof!) + 1;
+    let cost = 0;
+    let prevH = -1;
+    for (const [x, y] of cells) {
+      const i = y * city.width + x;
+      if (!city.inBounds(x, y) || city.isWater(i) || city.buildingAt[i]) { ok = false; continue; }
+      if (prevH >= 0 && Math.abs(city.heights[i] - prevH) > 1) ok = false;
+      prevH = city.heights[i];
+      if (city.paths[i] !== pi) cost += prof?.costPerCell ?? 0;
+    }
+    renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok, color: (prof?.color ?? '#888') + 'cc', cells };
+    text = `Diagonal, ${cells.length} cells: ${money(cost)}`;
   } else if (drag && (tool.kind === 'path' || tool.kind === 'utility')) {
     const cells = lineCells(drag.x, drag.y, cell.x, cell.y, shiftHeld);
     let cost = 0;
@@ -563,6 +581,10 @@ function commit(start: { x: number; y: number }, end: { x: number; y: number }) 
   switch (tool.kind) {
     case 'path':
     case 'utility': {
+      if (tool.kind === 'path' && pathMode === 'diagonal') {
+        act({ path: { x0: start.x, y0: start.y, x1: end.x, y1: end.y, profileId, diagonal: true } }, `Diagonal ${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${start.x},${start.y} to ${end.x},${end.y}`);
+        break;
+      }
       const legs = shiftHeld
         ? [[start.x, start.y, start.x, end.y], [start.x, end.y, end.x, end.y]]
         : [[start.x, start.y, end.x, end.y]];
@@ -702,7 +724,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape' && renderer.followed !== null) stopFollowing();
   else if (k === 'escape' && curveEnds) { curveEnds = null; renderer.preview = null; updateHints(); dirty = true; }
   else if (k === 'escape') { drag = null; renderer.preview = null; setTool({ kind: 'query' }); }
-  else if (k === 'a') { pathMode = pathMode === 'curve' ? 'straight' : 'curve'; curveEnds = null; setTool({ kind: 'path' }); }
+  else if (k === 'a') { pathMode = pathMode === 'straight' ? 'diagonal' : pathMode === 'diagonal' ? 'curve' : 'straight'; curveEnds = null; setTool({ kind: 'path' }); }
   else if (k === 'g') { zoneMode = zoneMode === 'block' ? 'area' : 'block'; setTool(tool.kind === 'zone' ? tool : { kind: 'zone', zone: 1 }); }
   else if (k === ' ') { e.preventDefault(); conn.send({ speed: { speed: city.stats.speed === 0 ? 1 : 0 } }); }
   else if (k >= '1' && k <= '3') conn.send({ speed: { speed: Number(k) } });

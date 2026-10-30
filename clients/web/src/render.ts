@@ -1,4 +1,4 @@
-import { City, lCells, SIDE_DX, SIDE_DY } from './state';
+import { City, lCells, SIDE_DX, SIDE_DY, stripPoints } from './state';
 import type { Building, BuildingType } from './state';
 
 export interface Preview {
@@ -30,6 +30,9 @@ const CIVIC_LABEL: Record<string, string> = {
   power: '⚡', water: '💧', garbage: '🗑', police: 'P', fire: 'F', health: '+', education: 'E', park: '',
 };
 const TRANSIT_LABEL: Record<string, string> = { bus: '🚌', tram: '🚋', rail: '🚆' };
+
+/** Pixels to a cell in the ground layer. */
+const TERRAIN_DETAIL = 4;
 
 function terrainColor(h: number, water: number): [number, number, number] {
   if (h < water) {
@@ -199,26 +202,45 @@ export class Renderer {
     return { x: Math.floor((sx - this.offX) / this.scale), y: Math.floor((sy - this.offY) / this.scale) };
   }
 
+  /**
+   * The ground layer, four pixels to a cell: heights blend between cell centres so hills shade smoothly, and the
+   * shore is drawn where the blend of wet and dry cells crosses half, so coasts and lakes curve instead of stepping
+   * (part 9). At a cell's centre the picture still agrees with the sim: water where the cell is water.
+   */
   private rebuildTerrain() {
     const c = this.city;
-    this.terrain.width = c.width;
-    this.terrain.height = c.height;
+    const K = TERRAIN_DETAIL;
+    const W = c.width * K, H = c.height * K;
+    this.terrain.width = W;
+    this.terrain.height = H;
     const tctx = this.terrain.getContext('2d')!;
-    const img = tctx.createImageData(c.width, c.height);
-    for (let i = 0; i < c.width * c.height; i++) {
-      let [r, g, b] = terrainColor(c.heights[i], c.waterLevel);
-      // Hillshade: brighter on slopes facing north-west.
-      const x = i % c.width;
-      const y = (i / c.width) | 0;
-      if (c.heights[i] >= c.waterLevel && x > 0 && y > 0) {
-        const d = c.heights[i] - (c.heights[i - 1] + c.heights[i - c.width]) / 2;
-        r += d * 8; g += d * 8; b += d * 6;
+    const img = tctx.createImageData(W, H);
+    const at = (x: number, y: number) => c.heights[Math.min(c.height - 1, Math.max(0, y)) * c.width + Math.min(c.width - 1, Math.max(0, x))];
+    // Blends a per-cell value at a point measured in cells, between the four nearest centres.
+    const blend = (f: (x: number, y: number) => number, fx: number, fy: number) => {
+      const gx = fx - 0.5, gy = fy - 0.5;
+      const x = Math.floor(gx), y = Math.floor(gy), u = gx - x, v = gy - y;
+      return (f(x, y) * (1 - u) + f(x + 1, y) * u) * (1 - v) + (f(x, y + 1) * (1 - u) + f(x + 1, y + 1) * u) * v;
+    };
+    const wet = (x: number, y: number) => (at(x, y) < c.waterLevel ? 1 : 0);
+    for (let py = 0; py < H; py++)
+      for (let px = 0; px < W; px++) {
+        const fx = (px + 0.5) / K, fy = (py + 0.5) / K;
+        const h = blend(at, fx, fy);
+        const water = blend(wet, fx, fy) > 0.5;
+        // On the land side of a shore the blended height can dip under the waterline: keep it on the shore.
+        let [r, g, b] = terrainColor(water ? Math.min(h, c.waterLevel - 0.01) : Math.max(h, c.waterLevel), c.waterLevel);
+        if (!water) {
+          // Hillshade: brighter on slopes facing north-west.
+          const d = h - (blend(at, fx - 1 / K, fy) + blend(at, fx, fy - 1 / K)) / 2;
+          r += d * 8 * K; g += d * 8 * K; b += d * 6 * K;
+        }
+        const o = 4 * (py * W + px);
+        img.data[o] = r;
+        img.data[o + 1] = g;
+        img.data[o + 2] = b;
+        img.data[o + 3] = 255;
       }
-      img.data[4 * i] = r;
-      img.data[4 * i + 1] = g;
-      img.data[4 * i + 2] = b;
-      img.data[4 * i + 3] = 255;
-    }
     tctx.putImageData(img, 0, 0);
     this.terrainVersion = c.terrainVersion;
   }
@@ -611,8 +633,17 @@ export class Renderer {
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         const i = y * c.width + x;
-        const z = c.zones[i];
+        // Under an arc or diagonal, the zone beside it fills the triangles the road leaves.
+        const strip = c.underStrip.has(i);
+        const z = strip ? c.fillZone(i) : c.zones[i];
         if (!z || c.buildingAt[i]) continue;
+        if (strip) {
+          ctx.fillStyle = ZONE_COLORS[Math.floor(z / 3)];
+          ctx.globalAlpha = 0.28 + (z % 3) * 0.1;
+          ctx.fillRect(px(x), py(y), s, s);
+          ctx.globalAlpha = 1;
+          continue;
+        }
         const kind = Math.floor(z / 3);
         const density = z % 3;
         ctx.fillStyle = ZONE_COLORS[kind];
@@ -650,13 +681,13 @@ export class Renderer {
       for (let x = x0; x <= x1; x++) {
         const i = y * c.width + x;
         const p = c.profileAt(i);
-        if (!p) continue;
+        if (!p || c.underStrip.has(i)) continue;
         const w = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
         const half = w / 2;
         const cx = px(x) + s / 2;
         const cy = py(y) + s / 2;
         // Rail lines only join rail; everything else joins everything but rail (no level crossings yet).
-        const joins = (j: number) => !!c.paths[j] && (c.profileAt(j)?.rail ?? false) === p.rail;
+        const joins = (j: number) => !!c.paths[j] && !c.underStrip.has(j) && (c.profileAt(j)?.rail ?? false) === p.rail;
         const east = x + 1 < c.width && joins(i + 1);
         const south = y + 1 < c.height && joins(i + c.width);
         const west = x > 0 && joins(i - 1);
@@ -692,6 +723,49 @@ export class Renderer {
           if (vert) for (const o of [-gauge / 2, gauge / 2]) ctx.fillRect(cx + o - lw / 2, Math.min(ly0, cy - half), lw, Math.max(ly1, cy + half) - Math.min(ly0, cy - half));
         }
       }
+    this.drawStrips(px, py);
+  }
+
+  /** Arcs and diagonals as the line the player drew, over the cells the sim runs them on. */
+  private drawStrips(px: (x: number) => number, py: (y: number) => number) {
+    const c = this.city;
+    const ctx = this.ctx;
+    const s = this.scale;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const st of c.strips) {
+      const p = c.profiles[st.path - 1];
+      if (!p) continue;
+      const pts = stripPoints(st);
+      const trace = () => {
+        ctx.beginPath();
+        pts.forEach(([x, y], k) => (k ? ctx.lineTo(px(x), py(y)) : ctx.moveTo(px(x), py(y))));
+      };
+      const w = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
+      trace();
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = w;
+      ctx.stroke();
+      if (p.rail || p.tram) {
+        // Two rails: a wide stroke in the rails' colour with the bed's colour down its middle.
+        const gauge = Math.max(1.5, w * (p.rail ? 0.32 : 0.22));
+        const lw = Math.max(1, s / 14);
+        ctx.strokeStyle = p.rail ? '#c9ccd2' : 'rgba(225,225,235,0.85)';
+        ctx.lineWidth = gauge + lw;
+        ctx.stroke();
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = Math.max(0.5, gauge - lw);
+        ctx.stroke();
+      } else if (s >= 12 && p.cars) {
+        ctx.strokeStyle = p.id.startsWith('highway') ? '#e8d36a' : 'rgba(255,255,255,0.55)';
+        ctx.lineWidth = Math.max(1, s / 12);
+        ctx.setLineDash([s * 0.4, s * 0.6]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    ctx.restore();
   }
 
   private drawPowerLines(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {

@@ -15,6 +15,7 @@ public sealed class ToolState
     public Leftover Leftover = Leftover.Leave;
     public string ProfileId = "road";
     public bool Curve;                    // paths: set two ends, then bend
+    public bool Diagonal;                 // paths: a straight line at any angle, drawn smooth
     public (int X0, int Y0, int X1, int Y1)? CurveEnds;
     public UtilityKind Utility = UtilityKind.UtilityPowerLine;
     public string BuildingTypeId = "police-station";
@@ -57,7 +58,7 @@ public static class Planner
     public static readonly string[] DensityNames = { "Low", "Medium", "High" };
     public static readonly string[] ZoneNames = { "", "residential", "commercial", "industrial" };
     public static readonly string[] DisasterNames = { "Fire", "Tornado", "Earthquake", "Clockwork Colossus" };
-    public static readonly string[] TerraformNames = { "Raise", "Lower", "Level" };
+    public static readonly string[] TerraformNames = { "Raise", "Lower", "Level", "Smooth" };
     public static readonly string[] SideNames = { "north", "east", "south", "west" };
     static readonly int[] SideDx = { 0, 1, 0, -1 }, SideDy = { -1, 0, 1, 0 };
 
@@ -79,6 +80,8 @@ public static class Planner
                 if (!c.InBounds(p.X, p.Y)) return null;
                 return new Preview(new() { (p.X, p.Y, Tint.Bad) }, true, $"{DisasterNames[(int)t.Disaster]} here",
                     new() { new PAction { Disaster = new TriggerDisaster { Kind = t.Disaster, X = p.X, Y = p.Y } } }, $"{DisasterNames[(int)t.Disaster]} at {p.X},{p.Y}");
+            case ToolKind.Path when p.DragStart is { } s && t.Diagonal:
+                return Diagonal(c, t, s, p);
             case ToolKind.Path when p.DragStart is { } s:
                 var (bx, by) = BorderSnap(c, p.X, p.Y);
                 return Line(c, t, s, p with { X = bx, Y = by, Free = p.Free || (bx, by) != (p.X, p.Y) });
@@ -210,6 +213,55 @@ public static class Planner
         }
         var action = new PAction { Path = new PlacePath { X0 = e.X0, Y0 = e.Y0, X1 = e.X1, Y1 = e.Y1, ProfileId = t.ProfileId, Curved = true, Cx = p.X, Cy = p.Y } };
         return new Preview(tinted, ok, $"Curve, {cells.Count} cells: {Money(cost)}", new() { action }, $"Curved {ProfileName(c, t.ProfileId)} from {e.X0},{e.Y0} to {e.X1},{e.Y1}");
+    }
+
+    /// <summary>The cells of a straight line at any angle: the same integer steps as World.LineCells.</summary>
+    public static List<(int X, int Y)> LineCells(int x0, int y0, int x1, int y1)
+    {
+        var cells = new List<(int X, int Y)> { (x0, y0) };
+        long n = 4L * (Math.Abs(x1 - x0) + Math.Abs(y1 - y0)) + 1;
+        const long Off = 1 << 20;
+        static long Round(long num, long n) => (2 * num + n) / (2 * n) - Off;
+        int lx = x0, ly = y0;
+        for (long k = 1; k <= n; k++)
+        {
+            int x = (int)Round((n - k) * (x0 + Off) + k * (x1 + Off), n);
+            int y = (int)Round((n - k) * (y0 + Off) + k * (y1 + Off), n);
+            while (lx != x || ly != y)
+            {
+                if (lx != x) lx += Math.Sign(x - lx);
+                else ly += Math.Sign(y - ly);
+                cells.Add((lx, ly));
+            }
+        }
+        return cells;
+    }
+
+    static Preview Diagonal(CityMirror c, ToolState t, (int X, int Y) s, Pointer p)
+    {
+        var (ex, ey) = BorderSnap(c, p.X, p.Y);
+        var cells = LineCells(s.X, s.Y, ex, ey);
+        var prof = c.Profiles.FirstOrDefault(q => q.Id == t.ProfileId);
+        int pi = prof == null ? 0 : c.Profiles.ToList().IndexOf(prof) + 1;
+        long cost = 0;
+        bool ok = true;
+        int prevH = -1;
+        var tinted = new List<(int, int, Tint)>();
+        foreach (var (x, y) in cells)
+        {
+            bool good = c.InBounds(x, y) && !c.IsWater(c.Idx(x, y)) && c.BuildingAt[c.Idx(x, y)] == 0;
+            if (good)
+            {
+                int i = c.Idx(x, y);
+                if (prevH >= 0 && Math.Abs(c.Heights[i] - prevH) > 1) good = false;
+                prevH = c.Heights[i];
+                if (c.Paths[i] != pi) cost += prof?.CostPerCell ?? 0;
+            }
+            ok &= good;
+            tinted.Add((x, y, good ? Tint.Road : Tint.Bad));
+        }
+        var action = new PAction { Path = new PlacePath { X0 = s.X, Y0 = s.Y, X1 = ex, Y1 = ey, ProfileId = t.ProfileId, Diagonal = true } };
+        return new Preview(tinted, ok, $"Diagonal, {cells.Count} cells: {Money(cost)}", new() { action }, $"Diagonal {ProfileName(c, t.ProfileId)} from {s.X},{s.Y} to {ex},{ey}");
     }
 
     static Rect RectOf((int X, int Y) a, (int X, int Y) b) => new() { X0 = a.X, Y0 = a.Y, X1 = b.X, Y1 = b.Y };

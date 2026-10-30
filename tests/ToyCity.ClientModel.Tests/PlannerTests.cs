@@ -28,7 +28,44 @@ public class PlannerTests
             int x0 = r.Next(40), y0 = r.Next(40), cx = r.Next(40), cy = r.Next(40), x1 = r.Next(40), y1 = r.Next(40);
             Assert.Equal(World.CurveCells(x0, y0, cx, cy, x1, y1), Planner.CurveCells(x0, y0, cx, cy, x1, y1));
             Assert.Equal(World.LCells(x0, y0, x1, y1), Planner.LCells(x0, y0, x1, y1));
+            Assert.Equal(World.LineCells(x0, y0, x1, y1), Planner.LineCells(x0, y0, x1, y1));
         }
+    }
+
+    [Fact]
+    public void ADiagonalIsPreviewedBuiltAndDrawnAsOneSmoothRoad()
+    {
+        var (w, c) = Town();
+        var t = new ToolState { Kind = ToolKind.Path, ProfileId = "road", Diagonal = true };
+        // Find open, gentle ground for a 10 x 6 diagonal.
+        var plan = Enumerable.Range(0, 100).SelectMany(y => Enumerable.Range(0, 100).Select(x => (x, y)))
+            .Select(p => Planner.Plan(c, t, new Pointer(p.x + 10, p.y + 6, DragStart: (p.x, p.y)))!)
+            .First(p => p.Ok && p.Cells.All(q => c.Paths[c.Idx(q.X, q.Y)] == 0));
+        var path = plan.Actions.Single().Path;
+        Assert.True(path.Diagonal);
+        Assert.Equal(17, plan.Cells.Count);
+        var tracker = new DeltaTracker();
+        tracker.Reset(w);
+        w.Enqueue(Mapping.Action(new ActionRecord { Tick = w.Tick, Action = plan.Actions[0] })!);
+        w.Step();
+        Assert.DoesNotContain(w.Notices, n => n.Severity == "error");
+        c.ApplyDelta(tracker.Next(w, 0, Array.Empty<SimNotice>()));
+
+        var s = Assert.Single(c.Strips);
+        Assert.Equal(17, s.Cells.Count);
+        // Its ends stay road cells, to meet the streets; the cells between are drawn by the strip.
+        Assert.False(RoadShape.UnderStrip(c, s.Cells[0]));
+        Assert.False(RoadShape.UnderStrip(c, s.Cells[^1]));
+        Assert.All(s.Cells.Skip(1).SkipLast(1), i => Assert.True(RoadShape.UnderStrip(c, i)));
+        // The line runs from the centre of one end cell to the other's, straight.
+        var pts = RoadShape.Points(s);
+        Assert.Equal((path.X0 + 0.5f, path.Y0 + 0.5f), pts[0]);
+        Assert.Equal((path.X1 + 0.5f, path.Y1 + 0.5f), pts[^1]);
+        Assert.All(pts, p => Assert.Equal(0, (p.X - pts[0].X) * 6 - (p.Y - pts[0].Y) * 10, 2));
+        // A full state brings the same strips.
+        var again = new CityMirror();
+        again.ApplyFull(Mapping.FullState(w, 0));
+        Assert.Equal(c.StripCells, again.StripCells);
     }
 
     [Fact]

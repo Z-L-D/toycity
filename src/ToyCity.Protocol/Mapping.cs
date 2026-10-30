@@ -15,7 +15,7 @@ public static class Mapping
     /// <summary>Wire action to sim action. Returns null for an empty or unknown action.</summary>
     public static SimAction? ToSim(P.Action a) => a.KindCase switch
     {
-        P.Action.KindOneofCase.Path => new PlacePathAction(a.Path.X0, a.Path.Y0, a.Path.X1, a.Path.Y1, a.Path.ProfileId, a.Path.Curved, a.Path.Cx, a.Path.Cy),
+        P.Action.KindOneofCase.Path => new PlacePathAction(a.Path.X0, a.Path.Y0, a.Path.X1, a.Path.Y1, a.Path.ProfileId, a.Path.Curved, a.Path.Cx, a.Path.Cy, a.Path.Diagonal),
         P.Action.KindOneofCase.Block => new ZoneBlockAction(a.Block.X, a.Block.Y, (Zone)(int)a.Block.Zone, (Level)(int)a.Block.Density, (Leftover)(int)a.Block.Leftover),
         P.Action.KindOneofCase.Zone => new PaintZoneAction(Rect(a.Zone.Area), (Zone)(int)a.Zone.Zone, (Level)(int)a.Zone.Density),
         P.Action.KindOneofCase.Building => new PlaceBuildingAction(a.Building.X, a.Building.Y, a.Building.TypeId, a.Building.Side - 1),
@@ -58,7 +58,7 @@ public static class Mapping
 
     public static P.Action ToProto(SimAction a) => a switch
     {
-        PlacePathAction x => new P.Action { Path = new P.PlacePath { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, ProfileId = x.ProfileId, Curved = x.Curved, Cx = x.CX, Cy = x.CY } },
+        PlacePathAction x => new P.Action { Path = new P.PlacePath { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, ProfileId = x.ProfileId, Curved = x.Curved, Cx = x.CX, Cy = x.CY, Diagonal = x.Diagonal } },
         ZoneBlockAction x => new P.Action { Block = new P.ZoneBlock { X = x.X, Y = x.Y, Zone = (P.ZoneKind)(int)x.Zone, Density = (P.Density)(int)x.Density, Leftover = (P.Leftover)(int)x.Leftover } },
         PaintZoneAction x => new P.Action { Zone = new P.PaintZone { Area = Rect(x.Area), Zone = (P.ZoneKind)(int)x.Zone, Density = (P.Density)(int)x.Density } },
         PlaceBuildingAction x => new P.Action { Building = new P.PlaceBuilding { X = x.X, Y = x.Y, TypeId = x.TypeId, Side = x.Side + 1 } },
@@ -198,8 +198,15 @@ public static class Mapping
             Stats = Stats(w, speed), Catalog = Catalog(w.Content), Seed = w.Seed,
         };
         foreach (var b in w.Buildings) if (b != null) f.Buildings.Add(Building(w, b));
+        f.Strips.AddRange(Strips(w));
         return f;
     }
+
+    /// <summary>The city's arcs and diagonals, as clients draw them.</summary>
+    public static IEnumerable<P.RoadStrip> Strips(World w) => w.Strips.Select(s => new P.RoadStrip
+    {
+        Path = s.Code, Curved = s.Curved, X0 = s.X0, Y0 = s.Y0, X1 = s.X1, Y1 = s.Y1, Cx = s.CX, Cy = s.CY, Cells = { s.Cells },
+    });
 
     public static P.Notice Notice(SimNotice n) => new() { Text = n.Text, Severity = n.Severity, X = n.X, Y = n.Y };
 
@@ -540,7 +547,7 @@ public static class Mapping
     public static World Load(ContentDb content, byte[] data)
     {
         var s = P.SaveGame.Parser.ParseFrom(data);
-        if (s.FormatVersion != World.FormatVersion && s.FormatVersion != 5) throw new InvalidDataException($"save format {s.FormatVersion} is not supported");
+        if (s.FormatVersion is < 5 or > World.FormatVersion) throw new InvalidDataException($"save format {s.FormatVersion} is not supported");
         var w = World.FromSnapshot(content, s.World.ToByteArray());
         foreach (var r in s.Log)
             if (Action(r) is { } a) w.Log.Add(new LoggedAction(r.Tick, a));
@@ -553,6 +560,7 @@ public sealed class DeltaTracker
 {
     byte[] _heights = Array.Empty<byte>(), _zones = Array.Empty<byte>(), _lines = Array.Empty<byte>(), _pipes = Array.Empty<byte>();
     ushort[] _paths = Array.Empty<ushort>();
+    int _strips;
     readonly Dictionary<int, P.BuildingState> _buildings = new();
 
     /// <summary>Records the state just sent in a FullState.</summary>
@@ -563,6 +571,7 @@ public sealed class DeltaTracker
         _lines = (byte[])w.PowerLine.Clone();
         _pipes = (byte[])w.WaterPipe.Clone();
         _paths = (ushort[])w.Path.Clone();
+        _strips = w.StripsVersion;
         _buildings.Clear();
         foreach (var b in w.Buildings) if (b != null) _buildings[b.Id] = Mapping.Building(w, b);
     }
@@ -571,6 +580,12 @@ public sealed class DeltaTracker
     {
         var d = new P.TickDelta { Stats = Mapping.Stats(w, speed) };
         if (_heights.Length != w.N) Reset(w);
+        if (_strips != w.StripsVersion)
+        {
+            _strips = w.StripsVersion;
+            d.StripsChanged = true;
+            d.Strips.AddRange(Mapping.Strips(w));
+        }
         for (int i = 0; i < w.N; i++)
         {
             if (_heights[i] == w.Height[i] && _zones[i] == w.ZoneCode[i] && _paths[i] == w.Path[i] && _lines[i] == w.PowerLine[i] && _pipes[i] == w.WaterPipe[i]) continue;

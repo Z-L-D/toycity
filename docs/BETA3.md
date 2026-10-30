@@ -351,3 +351,50 @@ stays identical for 120 days. `FederatedTests` (ClientModel) starts a region hos
 and two tile hosts as their own processes: two months go by at full speed with no desync, a player on a tile host
 signs in with the region's accounts, opening a city on another host redirects in both directions, and a tile host
 that is killed is covered by a computer mayor while the rest of the region carries on in step.
+
+## Part 9: smooth roads and shores
+
+### Diagonals and arcs
+
+The road tool has three modes in both clients: Straight (as before), **Diagonal** and Curve (A in the web client and
+C in Godot cycle through them). A diagonal is a straight road at any angle from where the drag starts to where it ends.
+
+The sim still runs every road on cells. A diagonal is laid as the stairs of cells nearest the line (`World.LineCells`,
+the same integer steps as the curve tool), so traffic, zoning, frontage and street names work unchanged. What's new
+is that an arc or diagonal is **remembered as drawn** (`src/ToyCity.Sim/Strips.cs`): its ends, its bend, its kind
+of path and its cells. It is saved with the city (save format 7; format 5 and 6 saves still load), sent in the full
+state, and sent again in a day's delta whenever it changes.
+
+Both clients draw a strip as one smooth road from the centre of its first cell to the centre of its last, with
+the lane markings or rails of its kind. Its two end cells stay ordinary road cells, so it meets the streets at its
+ends. The cells in between are drawn as open ground, tinted with the zone most cells around them have, so the zoning
+seems to run up to the road and fill the triangles beside it. In Godot the road is a ribbon laid on the ground
+(`StripsView`); on the web it's a stroked line over the map. The shape is in `ClientModel/RoadShape.cs`, mirrored
+in `state.ts`.
+
+A strip is forgotten when it stops being whole: a cell of it bulldozed, or laid over with another kind of path. What
+is left stays as ordinary road cells. Laying another kind of path along the same line gives a new strip of that
+kind.
+
+### Shores
+
+The web client draws the ground four pixels to a cell. Heights blend between the cells' centres, so hills shade
+smoothly, and the shoreline runs where the blend of wet and dry cells crosses half. Coasts and lakes curve instead
+of stepping, and at each cell's centre the picture still agrees with the sim. Godot already curved its waterline
+with smooth terrain (on in every graphics preset but Low).
+
+### The Smooth brush
+
+Terraform has a fourth brush, **Smooth**, beside Raise, Lower and Level. Each open cell in the dragged area takes
+the rounded average of the nine cells around it (read before the brush, so the order of cells doesn't matter). It
+wears steps down into slopes. Buildings and roads keep their ground, and it costs the usual terraform price per cell
+it changes. Smoothing flat ground costs nothing.
+
+### Tests
+
+`StripsTests` (Sim): a diagonal is laid edge to edge within a cell of the true line; diagonals and arcs are
+remembered, survive save and load, replay identically and go out in the full state; a strip that is broken or laid
+over is forgotten, the delta says so once, and its cells stay road; and the Smooth brush wears a tower down without
+touching a road beside it. `PlannerTests.ADiagonalIsPreviewedBuiltAndDrawnAsOneSmoothRoad` (ClientModel) draws a
+diagonal with the planner, builds it, and checks the mirror's strip, which cells it draws, and the straight line
+from end to end. The CI screenshots of diagonals, arcs and the Smooth brush come with the Beta 3 gate run (part 13).

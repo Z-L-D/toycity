@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 6;
+    public const int FormatVersion = 7;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -262,6 +262,7 @@ public sealed partial class World
         _pending.Clear();
         if (_edgeDirty)
         {
+            CheckStrips();
             RebuildAccess();
             RunNeighborConnections();
         }
@@ -409,6 +410,7 @@ public sealed partial class World
             WriteNeighbours(w);
             WriteDeals(w);
             WriteRegionState(w);
+            WriteStrips(w);
         }
         return ms.ToArray();
     }
@@ -418,8 +420,8 @@ public sealed partial class World
     {
         using var r = new BinaryReader(new MemoryStream(data));
         int version = r.ReadInt32();
-        // Format 5 is the same less the founding day, which was always day 0.
-        if (version != FormatVersion && version != 5) throw new InvalidDataException($"save format {version} is not supported (expected {FormatVersion})");
+        // Format 5 is the same less the founding day, which was always day 0; format 6 less the road strips.
+        if (version is < 5 or > FormatVersion) throw new InvalidDataException($"save format {version} is not supported (expected {FormatVersion})");
         ulong fp = r.ReadUInt64();
         if (fp != content.Fingerprint) throw new InvalidDataException("this save was made with different content files");
         int width = r.ReadInt32(), height = r.ReadInt32(), waterLevel = r.ReadInt32();
@@ -493,6 +495,7 @@ public sealed partial class World
             w.ReadDeals(r);
             w.ReadRegionState(r);
         }
+        if (version >= 7) w.ReadStrips(r);
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

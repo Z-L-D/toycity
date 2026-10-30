@@ -324,6 +324,7 @@ message PlacePath {
   bool curved = 6;  // an arc bent toward (cx, cy), snapped to the grid
   int32 cx = 7;
   int32 cy = 8;
+  bool diagonal = 9;  // a straight line at any angle, snapped to the grid
 }
 
 enum Leftover {
@@ -388,6 +389,7 @@ enum TerraformMode {
   TERRAFORM_RAISE = 0;
   TERRAFORM_LOWER = 1;
   TERRAFORM_LEVEL = 2;
+  TERRAFORM_SMOOTH = 3;  // each cell toward its neighbours' average
 }
 
 message Terraform {
@@ -902,6 +904,21 @@ message FullState {
   CityStats stats = 10;
   Catalog catalog = 11;
   uint64 seed = 12;
+  repeated RoadStrip strips = 13;
+}
+
+// An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
+// when curved a quadratic arc bent toward (cx,cy), through the cells' centres.
+message RoadStrip {
+  int32 path = 1;  // profile index + 1, as in FullState.paths
+  bool curved = 2;
+  int32 x0 = 3;
+  int32 y0 = 4;
+  int32 x1 = 5;
+  int32 y1 = 6;
+  int32 cx = 7;
+  int32 cy = 8;
+  repeated int32 cells = 9;  // the cells it runs through, as indexes
 }
 
 message CellUpdate {
@@ -919,6 +936,8 @@ message TickDelta {
   repeated int32 removed_buildings = 3;
   CityStats stats = 4;
   repeated Notice notices = 5;
+  bool strips_changed = 6;           // the city's road strips changed: strips is the whole new list
+  repeated RoadStrip strips = 7;
 }
 
 message Requirement {

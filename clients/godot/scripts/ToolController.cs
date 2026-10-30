@@ -193,6 +193,16 @@ public partial class ToolController : Node
     /// <summary>Redraws the options, for when what they list changed, such as the buildings unlocked.</summary>
     public void RebuildOptions() => BuildOptions();
 
+    /// <summary>Straight (0), diagonal (1) or curved (2) roads.</summary>
+    int PathMode => State.Curve ? 2 : State.Diagonal ? 1 : 0;
+
+    void SetPathMode(int k)
+    {
+        State.Diagonal = k == 1;
+        State.Curve = k == 2;
+        State.CurveEnds = null;
+    }
+
     void BuildOptions()
     {
         if (_optionBoxes.Count == 0) return;
@@ -213,7 +223,7 @@ public partial class ToolController : Node
                 break;
             case ToolKind.Path:
                 Dropdown(c.Profiles.Select(p => (p.Id, $"{p.Name} ({Planner.Money(p.CostPerCell)}/cell)")).ToList(), State.ProfileId, id => State.ProfileId = id);
-                Choice(new[] { "Straight", "Curve" }, State.Curve ? 1 : 0, k => { State.Curve = k == 1; State.CurveEnds = null; }, tips: new[] { "Straight roads", "Curved roads (C)" });
+                Choice(new[] { "Straight", "Diagonal", "Curve" }, PathMode, SetPathMode, tips: new[] { "Straight roads", "Smooth diagonals at any angle (C)", "Curved roads (C)" });
                 break;
             case ToolKind.Utility:
                 Choice(new[] { "Power line", "Water pipe" }, (int)State.Utility, k => State.Utility = (UtilityKind)k);
@@ -323,6 +333,7 @@ public partial class ToolController : Node
             ToolKind.Path when State.Curve => State.CurveEnds == null
                 ? new[] { ("Drag", "set the two ends"), ("C", "straight roads"), ("Esc", "cancel") }
                 : new[] { ("Move", "bend the curve"), ("Click", "build it"), ("Esc", "start again") },
+            ToolKind.Path when State.Diagonal => new[] { ("Drag", "draw a road at any angle"), ("C", "curved roads"), ("Esc", "cancel") },
             ToolKind.Path => new[] { ("Drag", "draw a straight road"), ("Alt", "free: follow the cursor"), ("Alt+Shift", "vertical leg first"), ("C", "curved roads"), ("Esc", "cancel") },
             ToolKind.Zone when State.BlockZoning => new[] { ("Click", $"zone a whole block, {density} density"), ("G", "paint areas"), ("V", "cycle density"), ("Z", "next zone"), ("Esc", "cancel") },
             ToolKind.Zone => new[] { ("Drag", $"paint {density} density zone"), ("G", "zone whole blocks"), ("V", "cycle density"), ("Z", "next zone"), ("Esc", "cancel") },
@@ -377,7 +388,7 @@ public partial class ToolController : Node
             else if (Tools.FirstOrDefault(t => t.Key == k.Keycode) is { Name: not null } tool) SetTool(tool.Kind);
             else if (k.Keycode == Key.V && State.Kind == ToolKind.Zone) { State.Density = (Density)(((int)State.Density + 1) % 3); BuildOptions(); }
             else if (k.Keycode == Key.G && State.Kind == ToolKind.Zone) { State.BlockZoning = !State.BlockZoning; BuildOptions(); }
-            else if (k.Keycode == Key.C && State.Kind == ToolKind.Path) { State.Curve = !State.Curve; State.CurveEnds = null; BuildOptions(); }
+            else if (k.Keycode == Key.C && State.Kind == ToolKind.Path) { SetPathMode((PathMode + 1) % 3); BuildOptions(); }
             else if (k.Keycode == Key.U && State.Kind == ToolKind.Bulldoze) { State.Underground = !State.Underground; BuildOptions(); }
             else return;
             GetViewport().SetInputAsHandled();

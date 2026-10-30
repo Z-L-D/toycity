@@ -30,6 +30,10 @@ public sealed class CityMirror
     public IReadOnlyList<NeighbourEdge> Borders = Array.Empty<NeighbourEdge>();
     /// <summary>The landmarks and reward lots this city has unlocked, from the server's civic state.</summary>
     public HashSet<string> Unlocked = new();
+    /// <summary>The arcs and diagonals as they were drawn, and which cells they cover (drawn by the strip, not the cell).</summary>
+    public IReadOnlyList<RoadStrip> Strips { get; private set; } = Array.Empty<RoadStrip>();
+    public HashSet<int> StripCells { get; private set; } = new();
+    public HashSet<int> StripEnds { get; private set; } = new();
     public StreetNamer Streets { get; private set; } = new(new[] { "Main" }, new[] { "Street" });
     public bool Loaded { get; private set; }
 
@@ -81,6 +85,7 @@ public sealed class CityMirror
         BuildingAt = new int[n];
         foreach (var b in f.Buildings) PutBuilding(b);
         Stats = f.Stats ?? new CityStats();
+        SetStrips(f.Strips);
         TerrainVersion++;
         RoadVersion++;
         Version++;
@@ -89,6 +94,13 @@ public sealed class CityMirror
         _removed.Clear();
         AllDirty = true;
         Loaded = true;
+    }
+
+    void SetStrips(IEnumerable<RoadStrip> strips)
+    {
+        Strips = strips.ToList();
+        StripCells = Strips.SelectMany(s => s.Cells).ToHashSet();
+        StripEnds = Strips.Where(s => s.Cells.Count > 0).SelectMany(s => new[] { s.Cells[0], s.Cells[^1] }).ToHashSet();
     }
 
     public void ApplyDelta(TickDelta d)
@@ -124,6 +136,13 @@ public sealed class CityMirror
             PutBuilding(b);
         }
         if (d.Stats != null) Stats = d.Stats;
+        if (d.StripsChanged)
+        {
+            foreach (int i in StripCells) _dirtyCells.Add(i);
+            SetStrips(d.Strips);
+            foreach (int i in StripCells) _dirtyCells.Add(i);
+            roads = true;
+        }
         if (terrain) TerrainVersion++;
         if (terrain || roads) RoadVersion++;
         Version++;
