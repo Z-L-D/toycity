@@ -33,6 +33,7 @@ message ClientMessage {
     RegionRequest region = 19;
     GoToCity go_to = 20;
     DealRequest deal = 21;
+    MayorRequest mayor = 22;
   }
 }
 
@@ -483,6 +484,15 @@ message FoundCity {
   int32 row = 2;
   string name = 3;
   bool starter_town = 4;
+  string computer = 5;  // a temperament ("growth", "green", "careful") for a computer mayor; empty to be its mayor yourself
+}
+
+// A player takes over a computer mayor's city, or a mayor hands their city to a computer mayor of a temperament.
+message MayorRequest {
+  int32 col = 1;
+  int32 row = 2;
+  bool take_over = 3;
+  string computer = 4;  // the temperament, when handing over
 }
 
 // Beta 3, admins only: a new region of open land, with a starter city on the middle tile when starter_town is set.
@@ -544,6 +554,7 @@ message Deal {
   int32 price = 10;    // a month, paid by the buyer to the seller
   bool active = 11;    // false while it waits for an answer
   bool offered_by_seller = 12;
+  int32 round = 13;    // how many times it's been countered
 }
 
 // A mayor offers a deal to the neighbour across a side of their city, answers one offered to them, or withdraws or
@@ -576,6 +587,7 @@ message RegionTileState {
   repeated string players = 8;  // players in this city now
   int64 funds = 9;
   string address = 10;  // where this tile's city is served, when not by the server this came from (federated)
+  string computer = 11; // a computer mayor's temperament ("growth-hungry", "green", "careful"); empty for a player
 }
 
 message SetSpeed {

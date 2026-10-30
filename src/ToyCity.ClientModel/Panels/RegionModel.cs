@@ -6,7 +6,7 @@ namespace ToyCity.ClientModel.Panels;
 /// <summary>
 /// The region map's screen, with no engine types: the latest <see cref="RegionState"/>, the tile picked, what the
 /// player is waiting on, and what each link does. While <see cref="Active"/> it replaces the city's whole interface.
-/// Links: rg-open, rg-close, rg-pick:COL:ROW, rg-go, rg-found, rg-starter, rg-window; deals: rg-kind:K, rg-sell, rg-amt:±,
+/// Links: rg-open, rg-close, rg-pick:COL:ROW, rg-go, rg-found, rg-starter, rg-founder[:T], rg-window, rg-takeover, rg-hand:T; deals: rg-kind:K, rg-sell, rg-amt:±,
 /// rg-price:±, rg-offer, rg-accept:ID, rg-counter:ID, rg-decline:ID, rg-end:ID.
 /// </summary>
 public sealed class RegionModel
@@ -33,6 +33,8 @@ public sealed class RegionModel
     /// <summary>The name typed for a new city.</summary>
     public string NewName { get; set; } = "New City";
     public bool StarterTown { get; private set; } = true;
+    /// <summary>Who will be mayor of a city founded now: "" for this player, else a computer's temperament.</summary>
+    public string FoundComputer { get; private set; } = "";
     /// <summary>The deal being drawn up for the picked neighbour.</summary>
     public DealKind OfferKind { get; private set; } = DealKind.DealPower;
     public bool OfferSelling { get; private set; } = true;
@@ -64,7 +66,7 @@ public sealed class RegionModel
                 State = m.Region;
                 Picked ??= (m.Region.HereCol, m.Region.HereRow);
                 if (Pending.StartsWith("Founding") && PickedTile?.Founded == true) Pending = "";
-                if (Pending.StartsWith("Deal:")) Pending = "";
+                if (Pending.StartsWith("Deal:") || Pending.StartsWith("Taking over") || Pending.StartsWith("Handing")) Pending = "";
                 MapVersion++;
                 _changed();
                 break;
@@ -115,11 +117,22 @@ public sealed class RegionModel
             {
                 string name = string.IsNullOrWhiteSpace(NewName) ? "New City" : NewName.Trim();
                 Pending = $"Founding {name}…";
-                _send(new ClientMessage { FoundCity = new FoundCity { Col = t.Col, Row = t.Row, Name = name, StarterTown = StarterTown } });
+                _send(new ClientMessage { FoundCity = new FoundCity { Col = t.Col, Row = t.Row, Name = name, StarterTown = StarterTown, Computer = FoundComputer } });
                 _changed();
                 return;
             }
             case "rg-starter": StarterTown = !StarterTown; _changed(); return;
+            case "rg-founder": FoundComputer = a.Length == 2 ? a[1] : ""; _changed(); return;
+            case "rg-takeover" when PickedTile is { Founded: true } t:
+                Pending = $"Taking over {t.Name}…";
+                _send(new ClientMessage { Mayor = new MayorRequest { Col = t.Col, Row = t.Row, TakeOver = true } });
+                _changed();
+                return;
+            case "rg-hand" when a.Length == 2 && PickedTile is { Founded: true } t:
+                Pending = $"Handing {t.Name} to the computer…";
+                _send(new ClientMessage { Mayor = new MayorRequest { Col = t.Col, Row = t.Row, Computer = a[1] } });
+                _changed();
+                return;
             case "rg-window" when PickedTile is { Founded: true } t: OwnWindow?.Invoke(t.Col, t.Row); return;
             case "rg-kind" when a.Length == 2 && int.TryParse(a[1], out int k) && Enum.IsDefined(typeof(DealKind), k):
                 OfferKind = (DealKind)k;
@@ -220,7 +233,7 @@ public sealed class RegionModel
                 sb.Append(H3(Esc(p.Name)));
                 sb.Append(Table(new[]
                 {
-                    ("Mayor", Esc(p.Mayor.Length > 0 ? p.Mayor : "nobody")),
+                    ("Mayor", Esc(p.Mayor.Length > 0 ? p.Mayor : "nobody") + (p.Computer.Length > 0 ? Dim($" · {Esc(p.Computer)}") : "")),
                     ("Population", Num(p.Population)),
                     ("Treasury", Money(p.Funds)),
                     ("Here now", p.Players.Count > 0 ? Esc(string.Join(", ", p.Players)) : Dim("nobody")),
@@ -228,12 +241,20 @@ public sealed class RegionModel
                 sb.Append('\n');
                 sb.Append(here ? Dim("You are here. ") + Link("rg-close", "Back to the city") : Link("rg-go", $"Open {Esc(p.Name)}"));
                 sb.Append("   ").Append(Link("rg-window", "⧉ Own window"));
+                if (p.Computer.Length > 0) sb.Append("\n").Append(Link("rg-takeover", "Take over this city")).Append(' ').Append(Dim("and play it yourself"));
+                else if (p.Mayor == Me())
+                    sb.Append("\n").Append(Dim("Hand it to a computer mayor: ")).Append(Link("rg-hand:growth", "growth-hungry")).Append(" · ")
+                      .Append(Link("rg-hand:green", "green")).Append(" · ").Append(Link("rg-hand:careful", "careful"));
             }
             else
             {
                 sb.Append(H3("Open land"));
                 sb.Append(Dim($"Tile {p.Col + 1}, {p.Row + 1}. Nobody has built here yet. Found a city and you'll be its mayor.")).Append("\n\n");
                 sb.Append(Link("rg-starter", (StarterTown ? "☑" : "☐") + " Start with a small working town")).Append("\n\n");
+                sb.Append(Dim("Mayor: "));
+                foreach (var (key, label) in new[] { ("", "you"), ("growth", "growth-hungry computer"), ("green", "green computer"), ("careful", "careful computer") })
+                    sb.Append(FoundComputer == key ? $"[b]{label}[/b]" : Link(key.Length > 0 ? $"rg-founder:{key}" : "rg-founder", label)).Append("  ");
+                sb.Append("\n").Append(Dim("A computer mayor plays its city on autopilot and answers deals by its temperament. Admins only.")).Append("\n\n");
                 sb.Append(Link("rg-found", "Found a city here"));
             }
         }

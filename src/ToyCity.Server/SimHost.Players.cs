@@ -69,7 +69,7 @@ public sealed partial class SimHost
     {
         if (!_host.Dedicated || _accounts == null) return;
         string owner = _world.MayorSeat.Owner;
-        if (_accounts.Exists(owner)) return;
+        if (_accounts.Exists(owner) || World.IsComputer(owner)) return;
         string? to = admin ?? _host.Admins.Select(a => _accounts.Canonical(a)).FirstOrDefault(a => a != null);
         if (to == null) return;
         _world.Enqueue(new RenameOwnerAction(owner, to));

@@ -492,15 +492,19 @@ public sealed class RegionHost : IDisposable
                 broadcast = WithAll(() =>
                 {
                     if (_region.CantFound(f.Col, f.Row) is { } why) { reply = SimHost.Error(msg.Seq, why); return null; }
-                    if (!c.Admin && _host.Dedicated && _region.Tiles.Count(t => t.Mayor == c.Player) >= 3)
+                    var computer = RegionMapping.Style(f.Computer);
+                    if (f.Computer.Length > 0 && computer == null) { reply = SimHost.Error(msg.Seq, "That isn't a temperament."); return null; }
+                    if (computer != null && !c.Admin) { reply = SimHost.Error(msg.Seq, "Only this server's admins found cities for computer mayors."); return null; }
+                    if (computer == null && !c.Admin && _host.Dedicated && _region.Tiles.Count(t => t.Mayor == c.Player) >= 3)
                     {
                         reply = SimHost.Error(msg.Seq, "You're mayor of three cities here already.");
                         return null;
                     }
-                    _region.Found(f.Col, f.Row, name, c.Player, f.StarterTown);
+                    _region.Found(f.Col, f.Row, name, c.Player, f.StarterTown, computer);
                     _pictures.Clear();
                     OpenCities();
-                    var list = Cities.SelectMany(city => city.Notice($"{c.Player} founded {name} in the region.", "info")).ToList();
+                    string by = computer is { } st ? $"{World.ComputerName(st, _region.TileAt(f.Col, f.Row)!.Seed)}, a {World.Temperament(st)} computer mayor," : c.Player;
+                    var list = Cities.SelectMany(city => city.Notice($"{by} founded {name} in the region.", "info")).ToList();
                     list.AddRange(RegionIfChanged(force: true));
                     return list;
                 });
@@ -530,6 +534,31 @@ public sealed class RegionHost : IDisposable
             case P.ClientMessage.BodyOneofCase.Region:
                 reply = WithAll(() => c.Host == null ? null : new P.ServerMessage { Region = State(c.Host) });
                 break;
+            case P.ClientMessage.BodyOneofCase.Mayor:
+            {
+                var m = msg.Mayor;
+                broadcast = WithAll(() =>
+                {
+                    var t = _region.TileAt(m.Col, m.Row);
+                    string? why;
+                    if (t?.City == null) why = "There's no city there.";
+                    else if (m.TakeOver)
+                    {
+                        if (!c.Admin && _host.Dedicated && _region.Tiles.Count(x => x.Mayor == c.Player) >= 3) why = "You're mayor of three cities here already.";
+                        else why = _region.TakeOver(t, c.Player);
+                    }
+                    else if (RegionMapping.Style(m.Computer) is not { } style) why = "That isn't a temperament.";
+                    else if (!c.Admin && t.Mayor != c.Player) why = $"Only {t.Name}'s mayor can hand it to the computer.";
+                    else why = _region.HandToComputer(t, style);
+                    if (why != null) { reply = SimHost.Error(msg.Seq, why); return null; }
+                    string news = m.TakeOver ? $"{c.Player} took over {t!.Name} from its computer mayor." : $"{t!.Name} has a {World.Temperament(t.City!.MayorSeat.Style)} computer mayor now: {t.Mayor}.";
+                    var list = Cities.SelectMany(city => city.Notice(news, "info")).ToList();
+                    foreach (var city in Cities) list.AddRange(city.Deltas());
+                    list.AddRange(RegionIfChanged(force: true));
+                    return list;
+                });
+                break;
+            }
             case P.ClientMessage.BodyOneofCase.Deal:
                 broadcast = WithAll(() =>
                 {

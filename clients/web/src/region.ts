@@ -63,7 +63,7 @@ export class Region {
     this.state = body;
     if (!this.picked) this.picked = { col: body.hereCol, row: body.hereRow };
     if (this.pending.startsWith('Founding') && this.tile(this.picked.col, this.picked.row)?.founded) this.pending = '';
-    if (this.pending.startsWith('Deal')) this.pending = '';
+    if (/^(Deal|Taking over|Handing)/.test(this.pending)) this.pending = '';
     this.host.onRegion(body);
     this.render();
   }
@@ -94,9 +94,10 @@ export class Region {
   private found(t: Msg) {
     const name = ($('#rg-name') as HTMLInputElement).value.trim() || 'New City';
     const starter = ($('#rg-starter') as HTMLInputElement).checked;
+    const computer = ($('#rg-founder') as HTMLSelectElement).value;
     this.pending = `Founding ${name}…`;
     this.render();
-    this.host.conn.send({ foundCity: { col: t.col, row: t.row, name, starterTown: starter } });
+    this.host.conn.send({ foundCity: { col: t.col, row: t.row, name, starterTown: starter, computer } });
   }
 
   /** The side of this city a tile lies on (0 north, 1 east, 2 south, 3 west), or -1 when it isn't next door. */
@@ -198,7 +199,7 @@ export class Region {
       return `<button class="rg-tile${t.founded ? '' : ' open'}${here ? ' here' : ''}${picked ? ' picked' : ''}" data-col="${t.col}" data-row="${t.row}"
         style="grid-column:${t.col + 1};grid-row:${t.row + 1}" title="${esc(t.name)}">
         <canvas width="${PICTURE}" height="${PICTURE}"></canvas>
-        <span class="rg-label">${esc(t.founded ? t.name : '')}${t.players.length ? ` <span class="rg-who">👤${t.players.length}</span>` : ''}</span>
+        <span class="rg-label">${t.computer ? '🤖 ' : ''}${esc(t.founded ? t.name : '')}${t.players.length ? ` <span class="rg-who">👤${t.players.length}</span>` : ''}</span>
       </button>`;
     }).join('');
     const p = this.picked ? this.tile(this.picked.col, this.picked.row) : undefined;
@@ -208,7 +209,7 @@ export class Region {
       if (p.founded) {
         side = `<h3>${esc(p.name)}</h3>
           <table class="kv">
-            <tr><td>Mayor</td><td>${esc(p.mayor || 'nobody')}</td></tr>
+            <tr><td>Mayor</td><td>${esc(p.mayor || 'nobody')}${p.computer ? ` <span class="muted">· ${esc(p.computer)}</span>` : ''}</td></tr>
             <tr><td>Population</td><td>${p.population.toLocaleString('en-US')}</td></tr>
             <tr><td>Treasury</td><td>${money(p.funds)}</td></tr>
             <tr><td>Here now</td><td>${p.players.length ? p.players.map(esc).join(', ') : 'nobody'}</td></tr>
@@ -217,12 +218,20 @@ export class Region {
             ${here ? '<span class="muted">You are here.</span> <button id="rg-back" class="active">Back to the city</button>'
                    : `<button id="rg-go" class="active">Open ${esc(p.name)}</button>`}
             <button id="rg-window" title="Open this city in a window of its own, next to this one">⧉ Own window</button>
-          </div>`;
+          </div>
+          ${p.computer ? '<div class="actions"><button id="rg-takeover">Take over this city</button> <span class="muted">and play it yourself</span></div>'
+            : p.mayor === this.host.conn.player ? `<div class="actions"><span class="muted">Hand it to a computer mayor:</span>
+                <button data-hand="growth">growth-hungry</button> <button data-hand="green">green</button> <button data-hand="careful">careful</button></div>` : ''}`;
       } else {
         side = `<h3>Open land</h3>
           <p class="muted">Tile ${p.col + 1}, ${p.row + 1}. Nobody has built here yet. Found a city and you'll be its mayor.</p>
           <label>Name</label><input type="text" id="rg-name" value="New City" maxlength="40">
           <label><input type="checkbox" id="rg-starter" checked> Start with a small working town</label>
+          <label>Mayor</label><select id="rg-founder">
+            <option value="">You</option><option value="growth">A growth-hungry computer</option>
+            <option value="green">A green computer</option><option value="careful">A careful computer</option>
+          </select>
+          <p class="muted">A computer mayor plays its city on autopilot and answers deals by its temperament. Admins only.</p>
           <div class="actions"><button id="rg-found" class="active">Found a city here</button></div>`;
       }
     }
@@ -253,6 +262,11 @@ export class Region {
       $('#rg-window')?.addEventListener('click', () => this.ownWindow(p));
       $('#rg-found')?.addEventListener('click', () => this.found(p));
       $('#rg-offer')?.addEventListener('click', () => this.sendOffer(p));
+      $('#rg-takeover')?.addEventListener('click', () => {
+        this.pending = `Taking over ${p.name}…`;
+        this.render();
+        this.host.conn.send({ mayor: { col: p.col, row: p.row, takeOver: true } });
+      });
     }
     const body = $('#rg-body');
     const on = (sel: string, f: (b: HTMLButtonElement) => void) => body.querySelectorAll<HTMLButtonElement>(sel).forEach((b) => b.addEventListener('click', () => f(b)));
@@ -262,6 +276,11 @@ export class Region {
     on('[data-price]', (b) => { this.offer.price = Math.max(0, this.offer.price + 25 * Number(b.dataset.price)); this.render(); });
     on('[data-deal-accept]', (b) => this.deal(1, Number(b.dataset.dealAccept), 'agreeing'));
     on('[data-deal-decline]', (b) => this.deal(2, Number(b.dataset.dealDecline), 'declining'));
+    on('[data-hand]', (b) => {
+      this.pending = `Handing ${p!.name} to the computer…`;
+      this.render();
+      this.host.conn.send({ mayor: { col: p!.col, row: p!.row, computer: b.dataset.hand } });
+    });
     on('[data-deal-counter]', (b) => this.counter(Number(b.dataset.dealCounter)));
     on('[data-deal-end]', (b) => this.deal(3, Number(b.dataset.dealEnd), 'ending'));
   }

@@ -36,7 +36,7 @@ public static class RegionMapping
                 r.RestoreOffer(new RegionDeal
                 {
                     Id = o.Id, Kind = (DealKind)(int)o.Kind, Seller = o.SellerRow * s.Cols + o.SellerCol, Buyer = o.BuyerRow * s.Cols + o.BuyerCol,
-                    Amount = o.Amount, Price = o.Price, OfferedBySeller = o.OfferedBySeller,
+                    Amount = o.Amount, Price = o.Price, OfferedBySeller = o.OfferedBySeller, Round = o.Round,
                 });
             return r;
         }
@@ -65,7 +65,12 @@ public static class RegionMapping
             var pic = pictures != null && pictures.TryGetValue(i, out var p) ? p : ByteString.CopyFrom(Picture(r, t));
             if (pictures != null) pictures[i] = pic;
             var ts = new P.RegionTileState { Col = t.Col, Row = t.Row, Founded = t.Founded, Name = t.Name, Mayor = t.Mayor, Picture = pic };
-            if (t.City is { } w) { ts.Population = w.Population; ts.Funds = w.Funds; }
+            if (t.City is { } w)
+            {
+                ts.Population = w.Population;
+                ts.Funds = w.Funds;
+                if (w.ComputerMayor) ts.Computer = World.Temperament(w.MayorSeat.Style);
+            }
             ts.Players.AddRange(playersIn(t));
             s.Tiles.Add(ts);
         }
@@ -82,6 +87,16 @@ public static class RegionMapping
         return s;
     }
 
+    /// <summary>A temperament as the wire names it ("growth", "green", "careful", "chaos"), or null.</summary>
+    public static AutopilotStyle? Style(string s) => s switch
+    {
+        "growth" or "growth-hungry" => AutopilotStyle.Growth,
+        "green" => AutopilotStyle.Green,
+        "careful" or "profit" => AutopilotStyle.Profit,
+        "chaos" or "unpredictable" => AutopilotStyle.Chaos,
+        _ => null,
+    };
+
     public static P.Deal Deal(Region r, RegionDeal d)
     {
         var seller = r.Tiles[d.Seller];
@@ -89,7 +104,7 @@ public static class RegionMapping
         return new P.Deal
         {
             Id = d.Id, Kind = (P.DealKind)(int)d.Kind, SellerCol = seller.Col, SellerRow = seller.Row, BuyerCol = buyer.Col, BuyerRow = buyer.Row,
-            Seller = seller.Name, Buyer = buyer.Name, Amount = d.Amount, Price = d.Price, Active = d.Active, OfferedBySeller = d.OfferedBySeller,
+            Seller = seller.Name, Buyer = buyer.Name, Amount = d.Amount, Price = d.Price, Active = d.Active, OfferedBySeller = d.OfferedBySeller, Round = d.Round,
         };
     }
 

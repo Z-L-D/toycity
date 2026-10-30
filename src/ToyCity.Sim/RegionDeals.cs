@@ -12,6 +12,8 @@ public sealed class RegionDeal
     public bool Active;
     /// <summary>Which of the two made the offer: the other one answers it.</summary>
     public bool OfferedBySeller;
+    /// <summary>How many times it's been countered: computer mayors counter only a first offer.</summary>
+    public int Round;
 
     public int OfferedBy => OfferedBySeller ? Seller : Buyer;
     public int AnsweredBy => OfferedBySeller ? Buyer : Seller;
@@ -114,6 +116,7 @@ public sealed partial class Region
         Deals.Add(new RegionDeal
         {
             Id = NextDealId++, Kind = d.Kind, Seller = d.Seller, Buyer = d.Buyer, Amount = amount, Price = price, OfferedBySeller = !d.OfferedBySeller,
+            Round = d.Round + 1,
         });
         return null;
     }
@@ -147,6 +150,7 @@ public sealed partial class Region
     /// </summary>
     void CheckDeals()
     {
+        ComputerDeals();
         foreach (var d in Deals.Where(x => x.Active).ToList())
         {
             int side = DealSide(d);

@@ -196,3 +196,56 @@ the offerer can't answer their own offer; once agreed the buyer's grid gains wha
 budgets agree to the dollar; cutting the line ends it in both cities; the region saves and each city replays alone.
 `RegionClientTests` checks a refused offer clears its "working" line, and the screen lists deals with Agree, Decline
 and End where they belong.
+
+## Part 6: computer mayors
+
+### A computer in the mayor's seat
+
+Any tile can have a computer mayor (`src/ToyCity.Sim/ComputerMayors.cs`): Beta 2's autopilot in the mayor's seat,
+from the city's first day. It lays new blocks of streets as the city needs them, zones to demand, adds power, water
+and services, sets taxes and keeps the budget out of the red, all the way the autopilot already did for a player who
+was away. Each has a temperament, shown on the region map next to its name and as 🤖 on its tile:
+
+| Temperament | Autopilot style | Sells at | Pays up to |
+| --- | --- | --- | --- |
+| growth-hungry | growth | the fair price | half as much again |
+| green | green | 10% under | a fifth over |
+| careful | profit | a quarter over | the fair price |
+
+A fair price is $1 a month for each 5 kW or 5 water, 3 garbage or 2 vehicles an hour. Computer mayors are named for
+their temperament ("Penny (computer)"); account names can't have brackets, so no player is ever taken for one.
+
+### Founding, taking over, handing over
+
+- **Founding.** On open land the region map asks who will be mayor: you, or a growth-hungry, green or careful
+  computer. On a dedicated server only admins found cities for computers.
+- **Taking over.** Any signed-in player may take over a computer mayor's city and play it by hand (within the three
+  cities a player may run).
+- **Handing over.** A mayor may hand their city to a computer of any temperament.
+
+All three are logged actions in the city (the seat changes owner, then its level), so a city's log replays them.
+
+### Deals by rules
+
+Before each day the region lets computer mayors answer what was offered them:
+
+- **Asked to sell**, it says no unless it has the amount spare with a margin (a tenth of its own use, at least 50);
+  then it agrees at its price or better, or counters once at its price.
+- **Asked to buy**, it says no unless it's short (a growth-hungry one always wants a shuttle) and can cover six
+  months; then it agrees at its limit or under, or counters once at its limit.
+- A computer haggles once: an offer that's already been countered is agreed or declined.
+
+On the first of each month a computer mayor short of power, water or garbage capacity offers to buy a fifth more than
+it's short from a neighbour joined to it at the border that has that much to spare. Its answers and offers reach the
+other mayor as a notice ("Penny (computer), Botton's mayor, asks $25 a month instead").
+
+What computer mayors don't do yet: run their own lines and roads out to meet a neighbour's at the border. A player
+next door builds to meet them.
+
+### Tests
+
+`RegionTests.AComputerMayorGrowsItsCityAndReplaysAlone`: a growth-hungry computer's starter town grows over two years
+and its log replays to the same hash; a player takes it over and hands it to a careful computer.
+`RegionTests.AComputerMayorCountersALowOfferAndTheDealRuns`: a careful computer counters a low price for power at a
+quarter over fair, the counter is agreed and the power flows; a second counter is declined. `RegionClientTests`: the
+admin founds a computer's city from the region screen, a player can't, and takes it over instead.

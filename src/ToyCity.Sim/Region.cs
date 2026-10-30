@@ -1,3 +1,5 @@
+using ToyCity.Contract;
+
 namespace ToyCity.Sim;
 
 /// <summary>One square of a region: open land until someone founds a city on it.</summary>
@@ -121,17 +123,20 @@ public sealed partial class Region : IDisposable
 
     /// <summary>
     /// Founds a city on open land, today, with <paramref name="mayor"/> in its mayor's seat. A starter town is laid
-    /// out by player actions, as a lone city's is, so the city's log replays it.
+    /// out by player actions, as a lone city's is, so the city's log replays it. With <paramref name="computer"/> the
+    /// mayor is a computer of that temperament, on autopilot from the first day.
     /// </summary>
-    public World Found(int col, int row, string name, string mayor, bool starter = false)
+    public World Found(int col, int row, string name, string mayor, bool starter = false, AutopilotStyle? computer = null)
     {
         if (CantFound(col, row) is { } why) throw new InvalidOperationException(why);
         var t = TileAt(col, row)!;
+        if (computer is { } style) mayor = World.ComputerName(style, t.Seed);
         var w = World.CreateTile(Content, t.Seed, TileSize, name, TileHeights(col, row), Tick);
         // The seat changes hands by a logged action, so a replay of the tile puts the same mayor in it.
         if (mayor != w.MayorSeat.Owner && mayor.Length > 0) w.Enqueue(new RenameOwnerAction(w.MayorSeat.Owner, mayor));
         if (starter && StarterTown.FindSite(w) is { } site)
             foreach (var a in StarterTown.Build(site.X, site.Y)) w.Enqueue(a with { By = mayor });
+        if (computer is { } st) w.Enqueue(new SetSeatAction(Seat.Mayor, mayor, OperatorLevel.Autopilot, st) { By = mayor });
         w.ApplyPending();
         t.City = w;
         return w;

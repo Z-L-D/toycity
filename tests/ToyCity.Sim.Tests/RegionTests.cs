@@ -304,4 +304,71 @@ public class RegionTests
         Assert.NotNull(r.CantOffer(w, 0, DealKind.Power, 200, 50));   // open land north
         Assert.NotNull(r.EndDeal(e, 99));
     }
+
+    [Fact]
+    public void AComputerMayorGrowsItsCityAndReplaysAlone()
+    {
+        using var r = Region.Create(Fixture.Content, "Bots", 41, 2, 1, 128);
+        var bot = r.Found(1, 0, "Botton", "", starter: true, computer: AutopilotStyle.Growth);
+        Assert.True(bot.ComputerMayor);
+        Assert.True(World.IsComputer(r.TileAt(1, 0)!.Mayor));
+        int start = 0;
+        r.Run(60);
+        start = bot.Population;
+        r.Run(720);
+        Assert.True(bot.Population > start, $"grew from {start} to {bot.Population}");
+        Assert.True(bot.Buildings.Count(b => b != null) > 10);
+        using var replay = r.ReplayTile(r.TileAt(1, 0)!, r.Tick);
+        Assert.Equal(bot.StateHash(), replay.StateHash());
+
+        // A player takes the city over, and hands it back to a careful computer.
+        Assert.NotNull(r.TakeOver(r.TileAt(0, 0)!, "Sam"));   // open land
+        Assert.Null(r.TakeOver(r.TileAt(1, 0)!, "Sam"));
+        Assert.Equal("Sam", bot.MayorSeat.Owner);
+        Assert.False(bot.ComputerMayor);
+        Assert.NotNull(r.TakeOver(r.TileAt(1, 0)!, "Tess"));  // Sam's now
+        Assert.Null(r.HandToComputer(r.TileAt(1, 0)!, AutopilotStyle.Profit));
+        Assert.True(bot.ComputerMayor);
+        Assert.Equal(AutopilotStyle.Profit, bot.MayorSeat.Style);
+    }
+
+    [Fact]
+    public void AComputerMayorCountersALowOfferAndTheDealRuns()
+    {
+        using var r = Region.Create(Fixture.Content, "Haggle", 43, 2, 1, 128);
+        var west = r.Found(0, 0, "Westbrook", "May");
+        var bot = r.Found(1, 0, "Botton", "", starter: true, computer: AutopilotStyle.Profit);
+        r.Run(3);
+        var plant = bot.Buildings.First(b => b != null && bot.TypeOf(b).Id == "coal-plant")!;
+        int y = Enumerable.Range(plant.Y, plant.H).First(yy =>
+            Enumerable.Range(0, plant.X).All(x => !bot.IsWater(bot.Idx(x, yy)))
+            && Enumerable.Range(west.Width - 12, 12).All(x => !west.IsWater(west.Idx(x, yy))));
+        bot.Enqueue(new PlaceUtilityAction(0, y, plant.X - 1, y, UtilityKind.PowerLine));
+        west.Enqueue(new PlaceUtilityAction(west.Width - 12, y, west.Width - 1, y, UtilityKind.PowerLine));
+        bot.ApplyPending();
+        west.ApplyPending();
+        r.Run(2);
+        Assert.True(bot.Spare(DealKind.Power) > 200, $"spare {bot.Spare(DealKind.Power)}");
+
+        // May offers to buy 100 kW for $5 a month; the careful computer wants 25% over the fair $20.
+        var westTile = r.TileAt(0, 0)!;
+        var offer = r.Offer(westTile, 1, DealKind.Power, 100, 5, selling: false);
+        r.Run(1);
+        var counter = Assert.Single(r.Deals);
+        Assert.NotEqual(offer.Id, counter.Id);
+        Assert.Equal(25, counter.Price);
+        Assert.Contains(west.Notices, n => n.Text.Contains("asks $25"));
+        Assert.Null(r.Answer(westTile, counter.Id, true));
+        r.Run(1);
+        Assert.Equal(100, west.PowerCapacity);
+
+        // Countered back, a computer doesn't haggle twice: it says no.
+        Assert.Null(r.EndDeal(westTile, counter.Id));
+        var again = r.Offer(westTile, 1, DealKind.Power, 100, 5, selling: false);
+        r.Run(1);
+        var c2 = Assert.Single(r.Deals);
+        Assert.Null(r.Counter(westTile, c2.Id, 100, 10));
+        r.Run(1);
+        Assert.Empty(r.Deals);
+    }
 }

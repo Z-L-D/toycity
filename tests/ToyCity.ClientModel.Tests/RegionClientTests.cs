@@ -111,6 +111,29 @@ public class RegionClientTests : IClassFixture<RegionClientTests.Fixture>
         may.WaitFor(() => may.Errors.Count > errors, "the refusal");
         Assert.Contains("power line", may.Errors[^1]);
         Assert.Equal("", may.Region.Pending);
+
+        // The admin founds a city for a careful computer mayor north of Toyville; the map shows its temperament.
+        may.Panels.Click("rg-pick:1:0");
+        may.Region.NewName = "Botton";
+        may.Panels.Click("rg-founder:careful");
+        Assert.Contains("[b]careful computer[/b]", may.Region.Render());
+        may.Panels.Click("rg-found");
+        may.WaitFor(() => may.Region.TileAt(1, 0)?.Founded == true, "Botton founded");
+        Assert.Equal("careful", may.Region.TileAt(1, 0)!.Computer);
+        Assert.EndsWith("(computer)", may.Region.TileAt(1, 0)!.Mayor);
+
+        // Tess may not found one, but she may take Botton over and play it herself.
+        errors = tess.Errors.Count;
+        tess.Client.Connection.Send(new ClientMessage { FoundCity = new FoundCity { Col = 1, Row = 2, Name = "Nope", Computer = "green" } });
+        tess.WaitFor(() => tess.Errors.Count > errors, "the refusal");
+        Assert.Contains("admins", tess.Errors[^1]);
+        tess.Panels.Click("rg-open");
+        tess.WaitFor(() => tess.Region.TileAt(1, 0)?.Founded == true, "Tess's map shows Botton");
+        tess.Panels.Click("rg-pick:1:0");
+        Assert.Contains("rg-takeover", tess.Region.Render());
+        tess.Panels.Click("rg-takeover");
+        tess.WaitFor(() => tess.Region.TileAt(1, 0)!.Mayor == "Tess", "Tess runs Botton");
+        Assert.Equal("", tess.Region.TileAt(1, 0)!.Computer);
     }
 
     [Fact]
