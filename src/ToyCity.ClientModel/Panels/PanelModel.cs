@@ -38,7 +38,9 @@ public sealed partial class PanelModel
         Emergency = new EmergencyModel(send, Changed) { Me = () => Me() };
         Emergency.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Emergency.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
-        Emergency.SceneOpened += () => { if (Dialog == null) OpenDialog("dispatch"); };
+        Emergency.Flash += (x0, y0, x1, y1) => Flash?.Invoke(new Rect { X0 = x0, Y0 = y0, X1 = x1, Y1 = y1 });
+        // A scene of the player's brings up the service's screen, unless they're busy in a dialog or the company's.
+        Emergency.SceneOpened += () => { if (Dialog == null && !Company.Active) OpenDialog("dispatch"); };
     }
 
     /// <summary>The bus company's own view, which can take the panel's place.</summary>
@@ -146,6 +148,8 @@ public sealed partial class PanelModel
                 break;
             case ServerMessage.BodyOneofCase.Saves: Saves = m.Saves.Names; break;
             case ServerMessage.BodyOneofCase.SideGame: Company.Handle(m.SideGame); Emergency.Handle(m.SideGame); return;
+            // A refusal ends whatever the board was waiting on; the tools show why.
+            case ServerMessage.BodyOneofCase.Error: Emergency.Refused(); return;
             default: return;
         }
         Changed();
@@ -313,6 +317,8 @@ public sealed partial class PanelModel
 
     public void OpenDialog(string name)
     {
+        // The dispatch board is the service's own screen now, not a dialog.
+        if (name == "dispatch") { Click("em-open"); return; }
         Dialog = name;
         if (name == "seat" && Mayor is { } m) _seatDraft = (m.Level, m.Style, m.SpendCap);
         if (name == "load") _send(new ClientMessage { Save = new SaveRequest { Name = "" } });  // refresh the list
@@ -379,6 +385,9 @@ public sealed partial class PanelModel
     /// <summary>Runs a link from the panel: a meta string written by <see cref="Render"/>.</summary>
     public void Click(string meta)
     {
+        // One side game's screen at a time.
+        if (meta == "co-open" && Emergency.Active) Emergency.SetActive(false);
+        if (meta == "em-open") { if (Company.Active) Company.SetActive(false); Dialog = null; }
         if (meta.StartsWith("co-")) { Company.Click(meta); return; }
         if (meta.StartsWith("em-")) { Emergency.Click(meta); return; }
         var a = meta.Split(':');

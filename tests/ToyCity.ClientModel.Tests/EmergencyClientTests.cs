@@ -152,7 +152,97 @@ public class EmergencyClientTests : IClassFixture<ServerFixture>
         Assert.Contains("em-release", links);
         em.Click("em-lease:41");
         Assert.Equal((EmergencyModel.Game, 41), (sent.Last().Action.Lease.Game, sent.Last().Action.Lease.BuildingId));
+        // The board shows the lease is under way until the station leaves the free list, and takes no second click.
+        Assert.Contains("⏳ Leasing the station", em.Render());
+        Assert.DoesNotContain("em-release", Links(em.Render()));
+        em.Click("em-lease:41");
+        Assert.Single(sent);
+        v.OpenStations.Clear();
+        em.Handle(new SideGameView { Game = EmergencyModel.Game, Seat = "operator", Payload = v.ToByteString() });
+        Assert.Null(em.Pending);
         em.Click("em-release");
         Assert.Equal(("", SeatLevel.SeatCaretaker), (sent.Last().Action.Seat.Owner, sent.Last().Action.Seat.Level));
+        Assert.Contains("⏳ Handing the service back", em.Render());
+    }
+
+    [Fact]
+    public void AnEndedSceneStaysUpUnderItsReportUntilThePlayerGoesBackToTheCalls()
+    {
+        var em = new EmergencyModel(_ => 0, () => { });
+        int jumps = 0;
+        (int, int, int, int)? flashed = null;
+        em.JumpTo += (_, _) => jumps++;
+        em.Flash += (a, b, c, d) => flashed = (a, b, c, d);
+        em.Handle(SceneView());
+        Assert.Equal(4, em.SceneId);
+
+        // Where is this: the city map centres on the scene's patch, and the scene steps aside until asked back.
+        em.Click("em-locate");
+        Assert.Equal(1, jumps);
+        Assert.Equal((0, 0, 8, 8), flashed);
+        Assert.True(em.SceneHidden);
+        Assert.Contains(em.ToolSections().SelectMany(x => x.Items), i => i.Meta == "em-scene");
+        em.Click("em-scene");
+        Assert.False(em.SceneHidden);
+
+        // The scene ends: it stays as it last was, under its report card.
+        var v = View.Parser.ParseFrom(SceneView().Payload);
+        v.Scenes.Clear();
+        v.Calls[0].Status = "done";
+        v.Cards.Add(new ReportCard { SceneId = 4, Where = "Fire at a house", Score = 82, Outcome = "put out", ResponseMinutes = 6, Saved = 1 });
+        em.Handle(new SideGameView { Game = EmergencyModel.Game, Seat = "operator", Payload = v.ToByteString() });
+        Assert.True(em.SceneOver);
+        Assert.True(em.ReportOpen);
+        Assert.NotNull(em.Scene);
+        Assert.Contains("82", em.RenderReport());
+        Assert.Contains("Lives saved", em.RenderReport());
+        // No orders on a scene that's over.
+        em.PointerDown(10, 10, add: false);
+        Assert.Empty(em.Selected);
+        // Close the report to see the scene as it finished; then back to the calls.
+        em.Click("em-report");
+        Assert.False(em.ReportOpen);
+        Assert.True(em.SceneOver);
+        em.Click("em-board");
+        Assert.Null(em.Scene);
+        Assert.Equal(0, em.SceneId);
+    }
+
+    [Fact]
+    public void TheServiceHasItsOwnScreenInPlaceOfTheCompanys()
+    {
+        var panel = new PanelModel(new CityMirror(), _ => 0);
+        panel.Click("co-open");
+        Assert.True(panel.Company.Active);
+        panel.OpenDialog("dispatch");
+        Assert.True(panel.Emergency.Active);
+        Assert.False(panel.Company.Active);
+        Assert.Null(panel.Dialog);
+        panel.Click("co-open");
+        Assert.False(panel.Emergency.Active);
+        panel.Click("co-city");
+        panel.Click("em-open");
+        panel.Click("em-city");
+        Assert.False(panel.Emergency.Active);
+    }
+
+    [Fact]
+    public void TakingTheServiceShowsAtOnceUntilItHappensOrIsRefused()
+    {
+        var em = new EmergencyModel(_ => 0, () => { });
+        var v = new View { Name = "Rescue", Operator = "caretaker" };
+        em.Handle(new SideGameView { Game = EmergencyModel.Game, Seat = "public", Payload = v.ToByteString() });
+        em.Click("em-claim");
+        Assert.Contains("⏳ Taking over the service", em.Render());
+        Assert.DoesNotContain("em-claim", Links(em.Render()));
+        // A refusal ends the wait at once.
+        em.Refused();
+        Assert.Null(em.Pending);
+        Assert.Contains("em-claim", Links(em.Render()));
+        // The seat arriving ends it too.
+        em.Click("em-claim");
+        v.Operator = "manual"; v.Owner = "player";
+        em.Handle(new SideGameView { Game = EmergencyModel.Game, Seat = "operator", Payload = v.ToByteString() });
+        Assert.Null(em.Pending);
     }
 }

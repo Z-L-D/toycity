@@ -11,7 +11,19 @@ namespace ToyCity.Godot;
 /// </summary>
 public partial class SceneCanvas : Control
 {
-    const float Tile = 12;
+    float _tile = 12;
+    /// <summary>A scene tile's size on screen: the service's screen fits the scene to the map's room.</summary>
+    public float Tile
+    {
+        get => _tile;
+        set
+        {
+            if (value == _tile) return;
+            _tile = value;
+            CustomMinimumSize = new Vector2(36 * value, 36 * value);
+            QueueRedraw();
+        }
+    }
     readonly EmergencyModel _model;
     static readonly Color[] Ground = { new("#c9c0a0"), new("#6e6e6e"), new("#a88d6c"), new("#4a7fe0"), new("#7cbf6a"), new("#3a3330") };
     static readonly Color[] Roles = { new("#e04f3a"), new("#f2f2f2"), new("#3f7fe0"), new("#9aa0a8"), new("#f0c030"), new("#a050d0") };
@@ -29,7 +41,7 @@ public partial class SceneCanvas : Control
     public override void _GuiInput(InputEvent e)
     {
         var s = _model.Scene;
-        if (s == null) return;
+        if (s == null || _model.SceneOver) return;
         if (e is InputEventMouseButton { Pressed: true } down)
         {
             var (x, y) = TileAt(down.Position);
@@ -100,5 +112,7 @@ public partial class SceneCanvas : Control
             }
         }
         if (_model.Drawing is { } d) Path(d, Colors.Yellow);
+        // An ended scene stays as it finished, greyed a little under its report.
+        if (_model.SceneOver) DrawRect(new Rect2(Vector2.Zero, new Vector2(s.Width * Tile, s.Height * Tile)), new Color(0, 0, 0, 0.3f));
     }
 }

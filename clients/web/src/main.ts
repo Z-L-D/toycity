@@ -176,6 +176,7 @@ const conn = new Connection({
         break;
       case 'error':
         toast(body.message, 'error');
+        emergency?.refused();
         break;
       case 'sideGame':
         transport?.onView(body);

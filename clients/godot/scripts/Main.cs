@@ -47,6 +47,7 @@ public partial class Main : Node
 
     public override void _Ready()
     {
+        UiTheme.Apply();
         var args = OS.GetCmdlineUserArgs();
         string server = global::Godot.FileAccess.FileExists(SignInPanel.ServerFile) && global::Godot.FileAccess.GetFileAsString(SignInPanel.ServerFile).Trim() is { Length: > 0 } last
             ? last : "ws://localhost:5180/ws";
@@ -109,10 +110,10 @@ public partial class Main : Node
 
         var hud = new CanvasLayer();
         AddChild(hud);
-        // Below the toolbar, which runs across the top.
-        _status = new Label { Text = $"Connecting to {server}…", Position = new Vector2(12, 84) };
-        _hover = new Label { Position = new Vector2(12, 108) };
-        var players = new Label { Position = new Vector2(12, 132), Modulate = new Color(1, 1, 1, 0.85f) };
+        // The map's own corner, right of the tool column and under the top bar.
+        _status = new Label { Text = $"Connecting to {server}…", Position = new Vector2(ToolController.ColumnWidth + 12, 56) };
+        _hover = new Label { Position = new Vector2(ToolController.ColumnWidth + 12, 80) };
+        var players = new Label { Position = new Vector2(ToolController.ColumnWidth + 12, 104), Modulate = new Color(1, 1, 1, 0.85f) };
         _client.Message += m => { if (m.BodyCase == Protocol.V0.ServerMessage.BodyOneofCase.Presence) { players.Text = PresenceText(m.Presence); if (_panels != null) _panels.Model.Players = m.Presence.Players.Select(p => p.Name).ToList(); } };
         foreach (var l in new[] { _status, _hover, players })
         {
@@ -311,7 +312,10 @@ public partial class Main : Node
           (0, 2, ViewMode.Classic), (0, 2, ViewMode.Classic),  // the zone and road tools' previews
           (0, 3, ViewMode.Classic),  // a building's Why panel over the land value layer, with street names
           (0, 1, ViewMode.Classic),  // the bus company's view
+          (0, 1, ViewMode.Classic), (0, 1, ViewMode.Classic), (0, 1, ViewMode.Classic),  // the emergency services' screen: the board, a scene, its report
           (0, 4, ViewMode.Classic), (0, 3, ViewMode.Classic) };  // the free camera: smoothed buildings up close, then from farther off
+    // The views that set something up first, by their place in the list.
+    const int ZoneShot = 8, RoadShot = 9, WhyShot = 10, CompanyShot = 11, BoardShot = 12, SceneShot = 13, ReportShot = 14, FreeShot = 15;
 
     /// <summary>The smoke test: once the city is drawn, picking at the screen centre must find it at every rotation.</summary>
     void Smoke(CityMirror c, double delta)
@@ -362,14 +366,16 @@ public partial class Main : Node
             _wait = 5;
             return;
         }
+        int at = _shot;
         (v.Rotation, v.Zoom, v.Mode) = ShotViews[_shot++];
         int tx = (int)v.Target.X, ty = (int)v.Target.Y;
         _wait = 5;
-        if (_shot == ShotViews.Length - 1 || _shot == ShotViews.Length)
+        if (at >= FreeShot)
         {
-            if (_shot == ShotViews.Length - 1)
+            if (at == FreeShot)
             {
                 _panels!.Model.Click("co-city");
+                _panels.Model.Click("em-city");
                 var town = c.Buildings.Values.Where(b => !c.IsRoadside(b)).ToList();
                 if (town.Count > 0) _camera.CentreOn(town.Average(b => b.X + b.Width / 2f), town.Average(b => b.Y + b.Height / 2f));
                 _camera.ToggleFree();
@@ -381,16 +387,24 @@ public partial class Main : Node
             else (_free!.Pitch, _free.Distance, _free.Yaw) = (40, 45, 60);
             _wait = 20;
         }
-        else if (_shot == ShotViews.Length - 5) { _tools!.SetTool(ToolKind.Zone); _tools.Hold((tx + 4, ty + 3), (tx - 4, ty - 3)); }
-        else if (_shot == ShotViews.Length - 4) { _tools!.SetTool(ToolKind.Path); _tools.Hold((tx + 6, ty), (tx - 6, ty)); }
-        else if (_shot == ShotViews.Length - 2)
+        else if (at == ZoneShot) { _tools!.SetTool(ToolKind.Zone); _tools.Hold((tx + 4, ty + 3), (tx - 4, ty - 3)); }
+        else if (at == RoadShot) { _tools!.SetTool(ToolKind.Path); _tools.Hold((tx + 6, ty), (tx - 6, ty)); }
+        else if (at is BoardShot or SceneShot or ReportShot)
+        {
+            var pm = _panels!.Model;
+            if (at == BoardShot) { pm.Click("co-city"); pm.Click("em-open"); }
+            // A made-up house fire, as the service would send it, to show a scene and then its report.
+            else pm.Emergency.Handle(SampleScene(pm.Me(), at == ReportShot));
+            _wait = 10;
+        }
+        else if (at == CompanyShot)
         {
             _panels!.Model.Click("overlay:0");
             _panels.Model.Click("co-open");
             _panels.Model.Click("co-tab:lots");
             _wait = 10;
         }
-        else if (_shot == ShotViews.Length - 3)
+        else if (at == WhyShot)
         {
             _tools!.SetTool(ToolKind.Query);
             _tools.Hold(null);
@@ -403,6 +417,44 @@ public partial class Main : Node
             pm.Click("overlay:1");
             _wait = 30;  // for the server's replies
         }
+    }
+
+    /// <summary>
+    /// A house fire for the screenshots: the service run by this player, with a scene under way, or, once it's over,
+    /// the scene gone and its report card in.
+    /// </summary>
+    static Protocol.V0.SideGameView SampleScene(string me, bool over)
+    {
+        const int W = 36;
+        var tiles = new byte[W * W];
+        var fire = new byte[W * W];
+        for (int y = 0; y < W; y++)
+            for (int x = 0; x < W; x++)
+            {
+                int i = y * W + x;
+                tiles[i] = (byte)(y is >= 16 and < 20 || x is >= 16 and < 20 ? 1 : (x / 8 + y / 8) % 3 == 0 ? 4 : 2);
+                if (tiles[i] == 1 && (x % 8 == 3 || y % 8 == 3)) tiles[i] = 1;
+                if (!over && tiles[i] == 2 && x is >= 21 and < 28 && y is >= 8 and < 15) fire[i] = (byte)(40 + (x * 7 + y * 13) % 60);
+            }
+        var scene = new Emergency.Wire.SceneView { Id = 900, CallId = 900, Kind = "fire", OriginX = 40, OriginY = 40, Width = W, Height = W, Step = 4 * 75, Burning = over ? 0 : 38,
+            Tiles = Google.Protobuf.ByteString.CopyFrom(tiles), Fire = Google.Protobuf.ByteString.CopyFrom(fire) };
+        scene.Events.Add("Engine 1 arrived.");
+        scene.Events.Add("Firefighter 2 is hosing the house on Pebble Lane.");
+        int id = 1_000_000;
+        foreach (var (x, y) in new[] { (19, 13), (20, 11), (18, 15) })
+            scene.People.Add(new Emergency.Wire.PersonView { Id = ++id, Role = Emergency.Wire.Role.Firefighter, X = x * 16 + 8, Y = y * 16 + 8, Health = 100, UnitId = 901, State = "ok" });
+        scene.People.Add(new Emergency.Wire.PersonView { Id = ++id, Role = Emergency.Wire.Role.Casualty, X = 23 * 16, Y = 17 * 16, Health = 45, Down = true, State = "hurt" });
+        foreach (var (x, y) in new[] { (10, 18), (12, 19), (30, 17) })
+            scene.People.Add(new Emergency.Wire.PersonView { Id = ++id, Role = Emergency.Wire.Role.Bystander, X = x * 16, Y = y * 16, Health = 100, State = "ok" });
+        scene.Vehicles.Add(new Emergency.Wire.VehicleView { Id = 901, Kind = Emergency.Wire.UnitKind.Engine, X = 18 * 16, Y = 17 * 16 + 8 });
+        scene.Vehicles.Add(new Emergency.Wire.VehicleView { Id = 902, Kind = Emergency.Wire.UnitKind.Ambulance, X = 6 * 16, Y = 18 * 16 });
+        var v = new Emergency.Wire.View { Name = "City Emergency Services", Operator = "manual", Owner = me, Style = Emergency.Wire.CommandStyle.SceneCommand, Cash = 18_400, Respect = 12, ServiceQuality = 64 };
+        v.Units.Add(new Emergency.Wire.UnitView { Id = 901, Name = "Engine 1", Kind = Emergency.Wire.UnitKind.Engine, State = over ? "ready" : "at scene", CallId = 900, Crew = 3 });
+        v.Units.Add(new Emergency.Wire.UnitView { Id = 902, Name = "Ambulance 1", Kind = Emergency.Wire.UnitKind.Ambulance, State = over ? "ready" : "at scene", CallId = 900, Crew = 2 });
+        v.Calls.Add(new Emergency.Wire.CallView { Id = 900, Kind = "fire", Text = "House fire on Pebble Lane", X = 44, Y = 44, Severity = 3, Status = over ? "done" : "scene", SceneId = 900, Outcome = over ? "put out" : "" });
+        if (over) v.Cards.Add(new Emergency.Wire.ReportCard { SceneId = 900, Where = "House fire on Pebble Lane", Score = 87, Outcome = "put out", ResponseMinutes = 6, Saved = 1, PropertyLostPercent = 22 });
+        else v.Scenes.Add(scene);
+        return new Protocol.V0.SideGameView { Game = ToyCity.ClientModel.Panels.EmergencyModel.Game, Seat = "operator", Payload = Google.Protobuf.MessageExtensions.ToByteString(v) };
     }
 
     int _benchZoom = -1, _benchFrame;

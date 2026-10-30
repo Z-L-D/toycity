@@ -5,18 +5,21 @@ namespace ToyCity.ClientModel.Panels;
 /// <summary>Writing Godot's BBCode for the panels: escaping, links, colours and the small text charts.</summary>
 public static class Bb
 {
-    public const string Pos = "#86e08f", Neg = "#ff8a7a", Muted = "#9aa4b2", Warn = "#ffcc66", Gold = "#ffd15a", Blue = "#5ad1ff";
+    public const string Pos = "#86e08f", Neg = "#ff8a7a", Muted = "#8f99ad", Warn = "#ffcc66", Gold = "#ffd15a", Blue = "#5ad1ff";
+    /// <summary>Links read as links: the web client's are buttons or gold, so plain text that does something is easy to miss.</summary>
+    public const string LinkColour = "#9cc3ff";
     public const string R = "#4caf50", C = "#4a80e0", I = "#e0b030";
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
     /// <summary>Text as it is: only an opening bracket can start a tag.</summary>
     public static string Esc(string? s) => (s ?? "").Replace("[", "[lb]");
-    public static string Link(string meta, string text) => $"[url={meta}]{text}[/url]";
+    public static string Link(string meta, string text) => $"[color={LinkColour}][url={meta}]{text}[/url][/color]";
     public static string Col(string colour, string text) => $"[color={colour}]{text}[/color]";
     public static string Dim(string text) => Col(Muted, text);
-    public static string Small(string text) => $"[font_size=13]{text}[/font_size]";
-    public static string H3(string text) => $"[font_size=20][b]{text}[/b][/font_size]\n";
-    public static string H4(string text) => $"\n[b]{text}[/b]\n";
+    public static string Small(string text) => $"[font_size=12]{text}[/font_size]";
+    public static string H3(string text) => $"[font_size=17][b]{text}[/b][/font_size]\n";
+    /// <summary>A section heading inside a panel: small, bold and grey, as the web client's.</summary>
+    public static string H4(string text) => $"\n[font_size=12][b][color={Muted}]{text}[/color][/b][/font_size]\n";
     public static string PosNeg(long v, string text) => Col(v >= 0 ? Pos : Neg, text);
 
     public static string Money(long n) => (n < 0 ? "-$" : "$") + Math.Abs(n).ToString("N0", Inv);

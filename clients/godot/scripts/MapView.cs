@@ -5,7 +5,7 @@ namespace ToyCity.Godot;
 
 /// <summary>
 /// The minimap: the city as one flat image, a pixel per cell, redrawn where cells and buildings change, in the
-/// lower right corner with a marker where the camera looks. A click on it moves the camera there.
+/// lower right corner of the map with a marker where the camera looks. A click on it moves the camera there.
 /// </summary>
 public partial class MapView : Node2D
 {
@@ -73,12 +73,20 @@ public partial class MapView : Node2D
 
     const float Box = 200, Margin = 12;
 
+    /// <summary>How much of the screen's right side the side panel covers: the minimap sits just left of it.</summary>
+    public float RightInset
+    {
+        get => _rightInset;
+        set { if (value != _rightInset) { _rightInset = value; if (Drawn) Fit(); } }
+    }
+    float _rightInset = ToolController.SideWidth;
+
     void Fit()
     {
         var size = GetViewportRect().Size;
         float s = Box / Mathf.Max(_city.Width, _city.Height);
         Scale = new Vector2(s, s);
-        Position = size - new Vector2(_city.Width, _city.Height) * s - new Vector2(Margin, Margin);
+        Position = size - new Vector2(_city.Width, _city.Height) * s - new Vector2(Margin + _rightInset, Margin);
         QueueRedraw();
     }
 }
