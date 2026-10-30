@@ -66,7 +66,7 @@ public partial class StreetLabels : Node3D
             Modulate = new Color(0.96f, 0.95f, 0.9f),
             OutlineModulate = new Color(0.08f, 0.09f, 0.12f, 0.9f),
             Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
-            Position = new Vector3(cx, _view.Ground(_city.Idx(ix, iy)) + 0.35f, cy),
+            Position = new Vector3(cx, _view.Surface(cx, cy) + 0.35f, cy),
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         });
     }

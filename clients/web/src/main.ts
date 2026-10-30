@@ -932,6 +932,15 @@ function renderLayers(low?: string, high?: string) {
 // Toasts and dialogs
 // ---------------------------------------------------------------------------
 
+// A click outside an open dialog closes it, as Escape does (and a dialog that refuses Escape refuses this too).
+document.addEventListener('click', (e) => {
+  const dlg = e.target;
+  if (!(dlg instanceof HTMLDialogElement) || !dlg.open) return;
+  const r = dlg.getBoundingClientRect();
+  if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return;
+  if (dlg.dispatchEvent(new Event('cancel', { cancelable: true }))) dlg.close();
+});
+
 function toast(text: string, severity = 'info', x = -1, y = -1) {
   const el = document.createElement('div');
   el.className = `toast ${severity}${x >= 0 ? ' located' : ''}`;

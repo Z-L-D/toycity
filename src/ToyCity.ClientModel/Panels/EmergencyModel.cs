@@ -20,9 +20,9 @@ public sealed class EmergencyModel
     static readonly string[] Styles = { "Full command", "Scene command", "Focus" };
     static readonly string[] StyleHelp =
     {
-        "Every call waits for you: you pick who goes and run every scene. Calls left waiting get worse, then are lost.",
-        "The computer sends units; you run every scene they reach.",
-        "The computer handles every call. Take the ones you want to run yourself.",
+        "You do everything: every call waits for you to pick who goes, and you run every scene. Calls left waiting get worse, then are lost.",
+        "The computer picks who goes to each call; you run every scene they reach.",
+        "The computer picks who goes and settles each call as it would without you. You step into only the scenes you choose (Take scene on the call).",
     };
     static readonly string[] UnitIcon = { "🚒", "🚓", "🚑" };
     static readonly string[] UnitWord = { "engine", "patrol car", "ambulance" };
@@ -103,6 +103,8 @@ public sealed class EmergencyModel
         {
             case "em-tab": Tab = a[1]; SceneId = 0; break;
             case "em-claim": _send(new ClientMessage { Action = new PAction { Seat = new SetSeat { Seat = Game, Owner = Me(), Level = SeatLevel.SeatManual, SpendCap = 25000 } } }); return;
+            case "em-release": _send(new ClientMessage { Action = new PAction { Seat = new SetSeat { Seat = Game, Owner = "", Level = SeatLevel.SeatCaretaker, SpendCap = 25000 } } }); return;
+            case "em-lease": _send(new ClientMessage { Action = new PAction { Lease = new LeaseLot { Game = Game, BuildingId = I(1) } } }); return;
             case "em-go": if (View?.Calls.FirstOrDefault(c => c.Id == I(1)) is { } call) JumpTo?.Invoke(call.X, call.Y); return;
             case "em-pick":
             {
@@ -166,7 +168,7 @@ public sealed class EmergencyModel
         if (v == null) return sb.Append(Dim("No emergency services in this city.")).Append('\n').ToString();
         sb.Append(Public ? "" : $"{Money(v.Cash)}   ").Append($"respect {v.Respect}   service {v.ServiceQuality}   ")
             .Append(Dim(v.Operator == "manual" ? $"run by {Esc(v.Owner)}" : v.Operator));
-        if (!Mine) sb.Append("   ").Append(Link("em-claim", "Run it"));
+        sb.Append("   ").Append(Mine ? Link("em-release", "Hand back to the computer") : Link("em-claim", "Run it yourself"));
         sb.Append('\n').Append(string.Join("  ", Tabs.Select(t => t.Id == Tab && Scene == null ? $"[b]{t.Name}[/b]" : Link($"em-tab:{t.Id}", t.Name)))).Append("\n\n");
         if (Scene != null) return sb.Append(RenderScene()).ToString();
         sb.Append(Tab switch { "units" => RenderUnits(), "reports" => RenderReports(), "settings" => RenderSettings(), "log" => RenderLog(), _ => RenderCalls() });
@@ -204,10 +206,21 @@ public sealed class EmergencyModel
     string RenderUnits()
     {
         var v = View!;
-        if (v.Stations.Count == 0)
-            return Dim($"The service has no stations. Lease a fire station, police station, clinic or hospital to {Esc(v.Name)}: query one on the map.") + "\n"
-                + (v.OpenStations.Count > 0 ? Small(Dim("Free stations: " + string.Join("; ", v.OpenStations.Select(o => $"{o.Kind.Replace('-', ' ')} at {o.X},{o.Y}")))) + "\n" : "");
         var sb = new StringBuilder();
+        if (v.Stations.Count == 0)
+            sb.Append(Dim(v.OpenStations.Count > 0
+                ? "The service has no stations yet: the city's fire stations, police stations, clinics and hospitals only send units once they're leased to it."
+                : $"The service has no stations. Build a fire station, police station, clinic or hospital, then lease it to {Esc(v.Name)}.")).Append("\n\n");
+        if (v.OpenStations.Count > 0)
+        {
+            sb.Append("[b]Not leased yet[/b]\n");
+            foreach (var o in v.OpenStations)
+            {
+                sb.Append($"{Esc(o.Kind.Replace('-', ' '))} at {o.X},{o.Y}  ");
+                sb.Append(Mine ? Link($"em-lease:{o.BuildingId}", "Lease it") : Dim("the mayor, or whoever runs the service, can lease it")).Append('\n');
+            }
+            sb.Append('\n');
+        }
         foreach (var s in v.Stations)
         {
             int kind = s.Kind == "fire-station" ? 0 : s.Kind == "police-station" ? 1 : 2;
@@ -243,7 +256,9 @@ public sealed class EmergencyModel
     string RenderSettings()
     {
         var v = View!;
-        var sb = new StringBuilder(Small(Dim(Mine ? "How much you run yourself." : "Run the service to change these.")) + "\n");
+        var sb = new StringBuilder(Small(Dim(Mine
+            ? "How much you run yourself while you run the service. Hand it back to the computer (top of this panel) and it runs everything again."
+            : "These apply while a player runs the service; the computer runs everything otherwise. Run it yourself to change them.")) + "\n");
         string Opt(string meta, bool on, string text) => Mine ? Link(meta, $"{(on ? "☑" : "☐")} {text}") : $"{(on ? "☑" : "☐")} {text}";
         for (int i = 0; i < Styles.Length; i++)
             sb.Append(Opt($"em-style:{i}", (int)v.Style == i, $"[b]{Styles[i]}[/b]")).Append('\n').Append(Small(Dim(StyleHelp[i]))).Append('\n');

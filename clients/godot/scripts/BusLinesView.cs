@@ -45,7 +45,7 @@ public partial class BusLinesView : Node3D
     Vector3 At(int cell, float lift)
     {
         int x = cell % _city.Width, y = cell / _city.Width;
-        return new Vector3(x + 0.5f, _view.Ground(_city.Idx(x, y)) + lift, y + 0.5f);
+        return new Vector3(x + 0.5f, _view.Surface(x + 0.5f, y + 0.5f) + lift, y + 0.5f);
     }
 
     public override void _Process(double delta)

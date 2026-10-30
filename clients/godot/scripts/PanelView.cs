@@ -182,6 +182,13 @@ public partial class PanelView : CanvasLayer
         centre.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(centre);
         _dialog = centre;
+        // A click outside the dialog closes it, as Escape does; clicks on the dialog itself stop at its box.
+        centre.GuiInput += e =>
+        {
+            if (e is not InputEventMouseButton { Pressed: true } mb || mb.ButtonIndex is not (MouseButton.Left or MouseButton.Right)) return;
+            Model.CloseDialog();
+            centre.AcceptEvent();
+        };
         var box = new PanelContainer();
         centre.AddChild(box);
         var dcol = new VBoxContainer();

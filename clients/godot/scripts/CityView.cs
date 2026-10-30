@@ -42,6 +42,8 @@ public partial class CityView : Node3D
     public CityView(CityMirror city) => _city = city;
 
     public float Ground(int i) => _city.Heights[i] * ClassicView.HeightStep;
+    /// <summary>The ground's surface at a point (in cells), as drawn: on the slopes when smooth terrain is on.</summary>
+    public float Surface(float x, float y) => TerrainShape.Surface(_city, x, y, _smoothTerrain) * ClassicView.HeightStep;
     /// <summary>The highest thing on a cell: its building's roof, else the ground (or the water's surface).</summary>
     public float Top(int x, int y) => _top[_city.Idx(x, y)];
 
