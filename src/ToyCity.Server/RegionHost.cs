@@ -15,7 +15,7 @@ namespace ToyCity.Server;
 /// the region; a city's own messages take only that city's gate.
 /// </para>
 /// </summary>
-public sealed class RegionHost : IDisposable
+public sealed partial class RegionHost : IDisposable
 {
     readonly object _gate = new();
     readonly ContentDb _content;
@@ -23,7 +23,7 @@ public sealed class RegionHost : IDisposable
     readonly ILogger<RegionHost> _log;
     readonly HostConfig _host;
     readonly AccountStore? _accounts;
-    readonly Thread _thread;
+    readonly Thread? _thread;
     volatile bool _running = true;
     Region _region;
     SimHost?[] _cities;
@@ -53,6 +53,9 @@ public sealed class RegionHost : IDisposable
     // Who is connected, anywhere in the region, by name: connections each.
     readonly Dictionary<string, int> _online = new(StringComparer.Ordinal);
 
+    // The side games every city here runs are registered with the first city host; a save may need them before that.
+    static RegionHost() => System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(SimHost).TypeHandle);
+
     public RegionHost(ContentDb content, string saveDir, ILogger<RegionHost> log, HostConfig? host = null, AccountStore? accounts = null)
     {
         _content = content;
@@ -63,6 +66,7 @@ public sealed class RegionHost : IDisposable
         Directory.CreateDirectory(saveDir);
         _region = StartingRegion(content);
         _cities = new SimHost?[_region.Tiles.Length];
+        InitLinks();
         lock (_gate) OpenCities();
         _thread = new Thread(Loop) { IsBackground = true, Name = "region" };
         _thread.Start();
@@ -83,7 +87,8 @@ public sealed class RegionHost : IDisposable
 
     public bool Online(string player)
     {
-        lock (_online) return _online.TryGetValue(player, out int n) && n > 0;
+        lock (_online) if (_online.TryGetValue(player, out int n) && n > 0) return true;
+        return OnlineOnTileHosts(player);
     }
 
     void CountOnline(string player, int delta)
@@ -100,11 +105,11 @@ public sealed class RegionHost : IDisposable
     // Cities
     // ------------------------------------------------------------------
 
-    /// <summary>Makes a host for every founded city that hasn't one. Caller holds the gate.</summary>
+    /// <summary>Makes a host for every founded city that hasn't one, except those a tile host runs. Caller holds the gate.</summary>
     void OpenCities()
     {
         for (int i = 0; i < _region.Tiles.Length; i++)
-            if (_region.Tiles[i].City != null && _cities[i] == null)
+            if (_region.Tiles[i].City != null && _cities[i] == null && _links.ElementAtOrDefault(i) == null)
                 _cities[i] = new SimHost(_content, _saveDir, _log, _host, _accounts, this, _region.Tiles[i]);
     }
 
@@ -151,11 +156,10 @@ public sealed class RegionHost : IDisposable
             if (speed == 0) { Thread.Sleep(50); next = sw.ElapsedMilliseconds; continue; }
             long now = sw.ElapsedMilliseconds;
             if (now < next) { Thread.Sleep((int)Math.Min(20, next - now)); continue; }
-            next = Math.Max(next + TickMs[speed], now - 1000);
+            next = Math.Max(next + (speed == 3 ? Math.Max(0, _host.FastDayMs) : TickMs[speed]), now - 1000);
 
-            var outbox = WithAll(() =>
+            var outbox = StepDay(() =>
             {
-                _region.Step();
                 var list = new List<(Client, P.ServerMessage)>();
                 foreach (var c in Cities) list.AddRange(c.AfterStep());
                 var first = _region.Cities.FirstOrDefault();
@@ -244,13 +248,20 @@ public sealed class RegionHost : IDisposable
     // ------------------------------------------------------------------
 
     /// <summary>The region map as seen from one city. Caller holds every gate.</summary>
-    P.RegionState State(SimHost here)
+    P.RegionState State(SimHost here) => State(here.Tile);
+
+    P.RegionState State(RegionTile here)
     {
-        var s = RegionMapping.State(_region, here.Tile.Col, here.Tile.Row, _speed,
+        if (Following) return FollowerState();
+        var s = RegionMapping.State(_region, here.Col, here.Row, _speed,
             t => _cities[t.Row * _region.Cols + t.Col]?.Clients.Where(c => c.SignedIn).Select(c => c.Player).Distinct().OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
                  ?? Enumerable.Empty<string>(),
             _pictures);
         s.SpeedSetBy = _speedBy;
+        s.Waiting = _waiting;
+        s.Stopped = _stopped;
+        for (int i = 0; i < _links.Length; i++)
+            if (_links[i] is { } l) s.Tiles[i].Address = l.Address;
         return s;
     }
 
@@ -260,6 +271,7 @@ public sealed class RegionHost : IDisposable
         var list = new List<(Client, P.ServerMessage)>();
         string sig = $"{_speed}/{_speedBy}/{_region.Tick / World.DaysPerMonth}/{string.Join(",", _region.Deals.Select(d => $"{d.Id}{(d.Active ? "+" : "?")}"))}/{string.Join(",", _region.Tiles.Select(t => _region.WeatherAt(t, _region.Tick)))}/" + string.Join(",", _region.Tiles.Select(t =>
             $"{t.Name}:{t.Mayor}:{string.Join("/", t.City?.NextDoor.Select(n => n?.Sig ?? "") ?? Enumerable.Empty<string>())}:{string.Join("+", _cities[t.Row * _region.Cols + t.Col]?.Clients.Select(c => c.Player).Distinct().OrderBy(n => n, StringComparer.Ordinal) ?? Enumerable.Empty<string>())}"));
+        sig += $"/{_waiting}/{_stopped}/{string.Join(",", _links.Select(l => l == null ? "" : l.Address))}";
         if (!force && sig == _regionSig) return list;
         _regionSig = sig;
         foreach (var city in Cities)
@@ -267,6 +279,8 @@ public sealed class RegionHost : IDisposable
             var m = new P.ServerMessage { Region = State(city) };
             foreach (var c in city.Clients) list.Add((c, m));
         }
+        foreach (var l in _links)
+            if (l is { Dead: false, Map: { } map }) list.Add((map, new P.ServerMessage { Region = State(_region.Tiles[l.Index]) }));
         return list;
     }
 
@@ -278,7 +292,7 @@ public sealed class RegionHost : IDisposable
 
     public async Task RunClientAsync(WebSocket socket, (int Col, int Row)? tile, CancellationToken ct)
     {
-        var client = new Client { Socket = socket };
+        var client = new Client { Socket = socket, Conn = Interlocked.Increment(ref _nextConn) };
         bool solo = !_host.Dedicated;
         if (solo) { client.Player = SimHost.LocalPlayer; client.Admin = true; }
         await SimHost.SendAsync(client, new P.ServerMessage
@@ -383,20 +397,21 @@ public sealed class RegionHost : IDisposable
     {
         var s = msg.SignIn;
         if (client.SignedIn) { await SimHost.SendAsync(client, SimHost.Error(msg.Seq, $"Already signed in as {client.Player}.")); return true; }
-        if (_accounts == null) { await SimHost.SendAsync(client, SimHost.Error(msg.Seq, "This server has no accounts.")); return true; }
+        if (_accounts == null && !Following) { await SimHost.SendAsync(client, SimHost.Error(msg.Seq, "This server has no accounts.")); return true; }
         SignInResult r;
-        if (s.Token.Length > 0) r = _accounts.SignInWithToken(s.Token);
+        if (Following) r = (await FollowerSignInAsync(s))!;
+        else if (s.Token.Length > 0) r = _accounts!.SignInWithToken(s.Token);
         else if (s.Create)
         {
             string name = s.Name.Trim();
-            r = _host.MayCreate(name, s.InviteCode) is { } no ? new SignInResult(null, null, no) : _accounts.Create(name, s.Password);
+            r = _host.MayCreate(name, s.InviteCode) is { } no ? new SignInResult(null, null, no) : _accounts!.Create(name, s.Password);
             if (r.Ok)
             {
                 _host.PromoteFirst(r.Name!);
                 WithAll(() => { foreach (var c in Cities) c.AccountMade(); return 0; });
             }
         }
-        else r = _accounts.SignIn(s.Name.Trim(), s.Password);
+        else r = _accounts!.SignIn(s.Name.Trim(), s.Password);
         if (!r.Ok)
         {
             client.SignInFailures++;
@@ -406,7 +421,7 @@ public sealed class RegionHost : IDisposable
             return false;
         }
         client.Player = r.Name!;
-        client.Admin = _host.IsAdmin(r.Name!);
+        client.Admin = r.Admin ?? _host.IsAdmin(r.Name!);
         _log.LogInformation("{Player} signed in", client.Player);
         await SimHost.SendAsync(client, new P.ServerMessage { ReplyTo = msg.Seq, SignedIn = new P.SignedIn { Name = client.Player, Token = r.Token!, Admin = client.Admin } });
         await EnterAsync(client, tile);
@@ -416,6 +431,7 @@ public sealed class RegionHost : IDisposable
     /// <summary>Region-wide messages: the clock, saves, new cities and moving between them. False for a city's own.</summary>
     async Task<bool> HandleRegionAsync(Client c, P.ClientMessage msg)
     {
+        if (Following) return await FollowerRegionAsync(c, msg);
         P.ServerMessage? reply = null;
         List<(Client, P.ServerMessage)>? broadcast = null;
         List<P.ServerMessage>? mine = null;
@@ -517,7 +533,13 @@ public sealed class RegionHost : IDisposable
                 {
                     var t = _region.TileAt(g.Col, g.Row);
                     if (t == null || !t.Founded) { reply = SimHost.Error(msg.Seq, "There's no city there yet. Found one first."); return (null, null); }
-                    var to = _cities[t.Row * _region.Cols + t.Col]!;
+                    int at = t.Row * _region.Cols + t.Col;
+                    // A city another host runs, or one of this host's asked for from a tile host: go there.
+                    if (_links[at] is { } link && link != (c.RemoteTile is { } rt ? _links[rt.Row * _region.Cols + rt.Col] : null))
+                        return (new List<P.ServerMessage> { new() { Redirect = new P.Redirect { Address = link.Address, Col = t.Col, Row = t.Row } } }, null);
+                    if (c.Relay != null)
+                        return (new List<P.ServerMessage> { _links[at] != null ? new() { Region = State(t) } : new() { Redirect = new P.Redirect { Address = _host.PublicAddress, Col = t.Col, Row = t.Row } } }, null);
+                    var to = _cities[at]!;
                     var list = new List<(Client, P.ServerMessage)>();
                     if (c.Host == to) return (new List<P.ServerMessage> { new() { Region = State(to) } }, list);
                     if (c.Host != null) list.AddRange(c.Host.Leave(c));
@@ -532,7 +554,7 @@ public sealed class RegionHost : IDisposable
                 break;
             }
             case P.ClientMessage.BodyOneofCase.Region:
-                reply = WithAll(() => c.Host == null ? null : new P.ServerMessage { Region = State(c.Host) });
+                reply = WithAll(() => c.Tile == null ? null : new P.ServerMessage { Region = State(c.Tile) });
                 break;
             case P.ClientMessage.BodyOneofCase.Mayor:
             {
@@ -593,8 +615,7 @@ public sealed class RegionHost : IDisposable
     /// </summary>
     string? Deal(Client c, P.DealRequest d, List<(Client, P.ServerMessage)> outbox)
     {
-        if (c.Host == null) return "Open a city first.";
-        var here = c.Host.Tile;
+        if (c.Tile is not { } here) return "Open a city first.";
         if (!c.Admin && here.Mayor != c.Player) return $"Only {here.Name}'s mayor makes deals for it.";
         switch (d.Op)
         {
@@ -637,6 +658,13 @@ public sealed class RegionHost : IDisposable
         foreach (var city in Cities) foreach (var (cl, _, _) in moving.Where(x => x.cl.Host == city).ToList()) city.Leave(cl);
         _region = next;
         _cities = new SimHost?[next.Tiles.Length];
+        // Tile hosts of the old region let go; they join the new one if it has their tile.
+        foreach (var l in _links)
+            if (l != null) { l.Dead = true; _ = l.Socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "the region changed", CancellationToken.None).ContinueWith(_ => { }); }
+        InitLinks();
+        _coveredMayors.Clear();
+        _halted = false;
+        _stopped = _waiting = "";
         _pictures.Clear();
         _regionSig = "";
         OpenCities();
@@ -693,7 +721,8 @@ public sealed class RegionHost : IDisposable
     public void Dispose()
     {
         _running = false;
-        _thread.Join(2000);
+        _thread?.Join(2000);
+        _leader?.Dispose();
         foreach (var c in Cities) c.Dispose();
     }
 }

@@ -109,6 +109,7 @@ public sealed partial class SimHost : IDisposable
 
     internal static async Task SendAsync(Client c, P.ServerMessage m)
     {
+        if (c.Relay != null) { await c.Relay(m); return; }
         var bytes = m.ToByteArray();
         await c.SendLock.WaitAsync();
         try

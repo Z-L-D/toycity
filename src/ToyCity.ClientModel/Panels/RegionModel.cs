@@ -75,6 +75,11 @@ public sealed class RegionModel
                 Pending = "";
                 SetActive(false);
                 break;
+            case ServerMessage.BodyOneofCase.Redirect:
+                // That city is on another host: the client reconnects there, so this map is done with.
+                Pending = $"Moving to {m.Redirect.Address}…";
+                _changed();
+                break;
             case ServerMessage.BodyOneofCase.Error when Pending.Length > 0:
                 Pending = "";
                 _changed();

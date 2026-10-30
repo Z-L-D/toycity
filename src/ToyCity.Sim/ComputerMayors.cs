@@ -72,7 +72,7 @@ public sealed partial class Region
         string name = World.ComputerName(style, t.Seed);
         if (w.MayorSeat.Owner != name) w.Enqueue(new RenameOwnerAction(w.MayorSeat.Owner, name));
         w.Enqueue(new SetSeatAction(Seat.Mayor, name, OperatorLevel.Autopilot, style) { By = name });
-        w.ApplyPending();
+        ApplyNow(w);
         return null;
     }
 
@@ -84,7 +84,7 @@ public sealed partial class Region
         if (player.Length == 0 || World.IsComputer(player)) return "Sign in to take over a city.";
         w.Enqueue(new RenameOwnerAction(w.MayorSeat.Owner, player));
         w.Enqueue(new SetSeatAction(Seat.Mayor, player, OperatorLevel.Manual) { By = player });
-        w.ApplyPending();
+        ApplyNow(w);
         return null;
     }
 

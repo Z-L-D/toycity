@@ -28,6 +28,8 @@ public sealed class AccountToken
 public sealed record SignInResult(string? Name, string? Token, string? Error)
 {
     public bool Ok => Name != null;
+    /// <summary>Set by a region host answering a tile host: whether the player is one of the region's admins.</summary>
+    public bool? Admin { get; init; }
 }
 
 /// <summary>

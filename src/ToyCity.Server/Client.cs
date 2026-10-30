@@ -19,5 +19,15 @@ public sealed class Client
     public int Forecasting;
     /// <summary>The city this connection is in; null before it joins one.</summary>
     public SimHost? Host;
+    /// <summary>
+    /// A player on a tile host, as the region host sees them: their region-wide messages arrive over the link and its
+    /// answers go back the same way. Null for a connection of this server's own.
+    /// </summary>
+    public Func<ToyCity.Protocol.V0.ServerMessage, Task>? Relay;
+    /// <summary>The tile a relayed player is in (a tile host's city); for this server's own, their host's tile.</summary>
+    public ToyCity.Sim.RegionTile? RemoteTile;
+    public ToyCity.Sim.RegionTile? Tile => Host?.Tile ?? RemoteTile;
+    /// <summary>A tile host's number for this connection, so the region host's answers find it.</summary>
+    public int Conn;
     public bool SignedIn => Player.Length > 0;
 }

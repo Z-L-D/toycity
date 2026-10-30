@@ -167,6 +167,18 @@ public sealed partial class Region : IDisposable
     /// </summary>
     public bool Follower { get; set; }
 
+    /// <summary>
+    /// True for a city another host runs (part 8): the region keeps a check copy of it, which must change only as the
+    /// city's own host reports. Actions the region gives it wait for the next day's message instead of applying now.
+    /// </summary>
+    public Func<World, bool>? IsRemote { get; set; }
+
+    /// <summary>Applies what the region just gave a city at once, unless another host runs it.</summary>
+    public void ApplyNow(World w)
+    {
+        if (IsRemote?.Invoke(w) != true) w.ApplyPending();
+    }
+
     /// <summary>The first half of a day: what each city hears from the region before it steps.</summary>
     public void BeginDay()
     {

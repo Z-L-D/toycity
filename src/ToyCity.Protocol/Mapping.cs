@@ -491,8 +491,12 @@ public static class Mapping
             FormatVersion = World.FormatVersion, CityName = w.Name, Seed = w.Seed, Width = w.Width, Height = w.HeightCells,
             Tick = w.Tick, World = ByteString.CopyFrom(w.Snapshot()),
         };
-        foreach (var l in w.Log)
-            s.Log.Add(l.Action switch
+        foreach (var l in w.Log) s.Log.Add(Record(l));
+        return s.ToByteArray();
+    }
+
+    /// <summary>A logged action as a save or the federated link carries it.</summary>
+    public static P.ActionRecord Record(LoggedAction l) => l.Action switch
             {
                 SeatAwayAction sa => new P.ActionRecord { Tick = l.Tick, By = sa.By, Away = new P.SeatAway { Seat = sa.SeatId, Away = sa.Away } },
                 SideGameMissedAction ms => new P.ActionRecord { Tick = l.Tick, By = ms.By, Missed = new P.SideGameMissed { Game = ms.GameId, What = ms.What } },
@@ -507,9 +511,7 @@ public static class Mapping
                 },
                 SetHostRulesAction hr => new P.ActionRecord { Tick = l.Tick, By = hr.By, HostRules = new P.HostRules { Forbidden = { hr.Forbidden.Select(m => (P.Mechanic)(int)m) } } },
                 _ => new P.ActionRecord { Tick = l.Tick, By = l.Action.By, Action = ToProto(l.Action) },
-            });
-        return s.ToByteArray();
-    }
+            };
 
     public static P.NeighbourEdge Edge(NeighbourEdgeAction a) => new()
     {
@@ -520,14 +522,10 @@ public static class Mapping
     public static NeighbourEdgeAction Edge(P.NeighbourEdge e) =>
         new(e.Side, e.Name, e.Mayor, e.Paths.ToArray(), e.Power.ToArray(), e.Pipes.ToArray(), e.Stats.ToArray(), e.Fire.ToArray(), e.Movers.ToArray());
 
-    public static World Load(ContentDb content, byte[] data)
+    /// <summary>The action a record holds, with who sent it, or null for one this build doesn't know.</summary>
+    public static SimAction? Action(P.ActionRecord r)
     {
-        var s = P.SaveGame.Parser.ParseFrom(data);
-        if (s.FormatVersion != World.FormatVersion && s.FormatVersion != 5) throw new InvalidDataException($"save format {s.FormatVersion} is not supported");
-        var w = World.FromSnapshot(content, s.World.ToByteArray());
-        foreach (var r in s.Log)
-        {
-            SimAction? a = r.Away != null ? new SeatAwayAction(r.Away.Seat, r.Away.Away)
+        SimAction? a = r.Away != null ? new SeatAwayAction(r.Away.Seat, r.Away.Away)
                 : r.Missed != null ? new SideGameMissedAction(r.Missed.Game, r.Missed.What)
                 : r.Rename != null ? new RenameOwnerAction(r.Rename.From, r.Rename.To)
                 : r.Fork != null ? new ForkAction(r.Fork.Player, r.Fork.HomeName)
@@ -536,8 +534,16 @@ public static class Mapping
                 : r.Deal is { } d ? new CityDealAction(d.Id, (DealKind)(int)d.Kind, d.Selling, d.Side, d.Other, d.Amount, d.Price, d.End, d.Why)
                 : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
                 : r.Action == null ? null : ToSim(r.Action);
-            if (a != null) w.Log.Add(new LoggedAction(r.Tick, a with { By = r.By }));
-        }
+        return a == null ? null : a with { By = r.By };
+    }
+
+    public static World Load(ContentDb content, byte[] data)
+    {
+        var s = P.SaveGame.Parser.ParseFrom(data);
+        if (s.FormatVersion != World.FormatVersion && s.FormatVersion != 5) throw new InvalidDataException($"save format {s.FormatVersion} is not supported");
+        var w = World.FromSnapshot(content, s.World.ToByteArray());
+        foreach (var r in s.Log)
+            if (Action(r) is { } a) w.Log.Add(new LoggedAction(r.Tick, a));
         return w;
     }
 }

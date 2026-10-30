@@ -531,6 +531,92 @@ message RegionState {
   string speed_set_by = 10;  // who holds it there, when it's slower than the host's choice
   repeated NeighbourEdge borders = 11;  // what the neighbours of this connection's city show across its sides
   repeated Deal deals = 12;  // this city's deals with its neighbours, offered or running
+  string waiting = 13;       // the region is held waiting for a tile's host ("Waiting for Eastfield's host")
+  string stopped = 14;       // the region stopped: a tile's host and its check copy disagreed (a desync)
+}
+
+// Go to another host for that city (federated regions): address is its /ws URL.
+message Redirect {
+  string address = 1;
+  int32 col = 2;
+  int32 row = 3;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Federated hosting (Beta 3 part 8): a tile host runs one city of a region whose clock another host (the region's
+// host) keeps. They talk over /tile-link. Each day the region's host sends DayStart with what the region says to the
+// city; the tile host steps it and answers DayEnd with everything the city applied that day, which the region's
+// host replays on its check copy. Monthly hashes must agree.
+// ---------------------------------------------------------------------------------------------------------------
+
+// Tile host to region host.
+message LinkMessage {
+  uint32 seq = 1;
+  oneof body {
+    TileHello hello = 2;
+    DayEnd day_end = 3;
+    SignIn sign_in = 4;        // a player signing in on the tile host: the region's accounts answer
+    LinkForward forward = 5;   // a player's region-wide message (deals, founding, the clock, moving)
+  }
+}
+
+// Region host to tile host.
+message LeaderMessage {
+  uint32 reply_to = 1;
+  oneof body {
+    TileWelcome welcome = 2;
+    DayStart day_start = 3;
+    SignedIn signed_in = 4;    // answers sign_in
+    Error error = 5;           // answers sign_in when it fails
+    LinkReply reply = 6;       // what the region host says to a forwarded player's connection
+    RegionState region = 7;    // the region map, from this tile
+  }
+}
+
+message TileHello {
+  int32 col = 1;
+  int32 row = 2;
+  string key = 3;       // the region host's link key
+  string address = 4;   // where players reach this tile host's /ws
+}
+
+message TileWelcome {
+  string error = 1;     // set when the region host won't take this tile host
+  string name = 2;
+  uint64 seed = 3;
+  int32 cols = 4;
+  int32 rows = 5;
+  int32 tile_size = 6;
+  int64 tick = 7;
+  bytes save = 8;       // the city as the region host has it: a SaveGame
+  string leader_address = 9;  // where players reach the region host's /ws, if it knows
+}
+
+message DayStart {
+  int64 tick = 1;
+  repeated ActionRecord actions = 2;  // what the region tells the city today
+  repeated Notice notices = 3;        // news for the city from its neighbours' mayors
+  int32 speed = 4;
+}
+
+message DayEnd {
+  int64 tick = 1;
+  repeated ActionRecord log = 2;  // every action the city applied that day, in order
+  uint64 hash = 3;                // the city's state hash after the day, on the first of the month
+  bool monthly = 4;
+  repeated string online = 5;     // players on the tile host now
+}
+
+message LinkForward {
+  int32 conn = 1;       // the tile host's number for the connection
+  string player = 2;
+  bool admin = 3;
+  ClientMessage message = 4;
+}
+
+message LinkReply {
+  int32 conn = 1;
+  ServerMessage message = 2;
 }
 
 enum DealKind {
@@ -638,6 +724,7 @@ message ServerMessage {
     Presence presence = 21;  // who is here; sent when someone joins or leaves
     DelinkCopy delink_copy = 22;  // to a player who just de-linked: their copy of the city, as a save
     RegionState region = 23;  // the region this city is in: sent on joining, monthly, and when a tile changes hands
+    Redirect redirect = 24;   // the city asked for is served by another host: connect there
   }
 }
 

@@ -96,8 +96,8 @@ public sealed partial class Region
         d.Active = true;
         seller.Enqueue(new CityDealAction(d.Id, d.Kind, true, side, buyer.Name, d.Amount, d.Price));
         buyer.Enqueue(new CityDealAction(d.Id, d.Kind, false, World.Opposite(side), seller.Name, d.Amount, d.Price));
-        seller.ApplyPending();
-        buyer.ApplyPending();
+        ApplyNow(seller);
+        ApplyNow(buyer);
         return null;
     }
 
@@ -130,7 +130,7 @@ public sealed partial class Region
         if (me != d.Seller && me != d.Buyer) return "That deal isn't yours to end.";
         if (!d.Active) { Deals.Remove(d); return null; }
         End(d, $"{by.Name} ended it");
-        foreach (var t in new[] { Tiles[d.Seller], Tiles[d.Buyer] }) t.City!.ApplyPending();
+        foreach (var t in new[] { Tiles[d.Seller], Tiles[d.Buyer] }) ApplyNow(t.City!);
         return null;
     }
 

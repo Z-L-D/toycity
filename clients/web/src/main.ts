@@ -186,6 +186,15 @@ const conn = new Connection({
       case 'region':
         region?.onRegion(body);
         break;
+      case 'redirect': {
+        // That city runs on another host of the region: open it there, signing in with the same account.
+        toast('That city is on another host. Moving there…', 'info');
+        const q = new URLSearchParams(location.search);
+        q.set('server', body.address);
+        q.set('tile', `${body.col},${body.row}`);
+        location.search = q.toString();
+        break;
+      }
       case 'sideGame':
         transport?.onView(body);
         emergency?.onView(body);

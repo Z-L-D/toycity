@@ -231,6 +231,14 @@ public sealed partial class World
 
     public int PendingCount => _pending.Count;
 
+    /// <summary>Takes the actions waiting for the next day, leaving none: what a region host forwards to a tile's host.</summary>
+    public List<SimAction> TakePending()
+    {
+        var list = _pending.ToList();
+        _pending.Clear();
+        return list;
+    }
+
     /// <summary>
     /// Applies queued actions now, logged at the current tick. Step does this first; a paused host calls it directly
     /// so building works while paused. Either way the log replays to the same state.

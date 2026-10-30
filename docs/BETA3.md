@@ -294,3 +294,60 @@ The plan also had floods following rivers downstream. ToyCity has no floods or r
 and heat all turn up in two years, the two ends of a region sometimes differ, and each city replays alone; a lone city
 stays clear), `AHeatwaveRaisesPowerAndWaterUse`, `TheColossusWalksOverTheBorderUnlessTheNeighbourForbidsIt` and
 `FireJumpsTheBorderBetweenBuildingsThatTouchIt`.
+
+## Part 8: federated hosting
+
+One region can now run on several servers: each city on a host of its own, all on the region's one clock.
+
+### Who does what
+
+- **The region host** is an ordinary dedicated server with `linkKey` set in its `host.json`. It keeps the region:
+  the clock, the accounts, the map, deals, founding, weather, and a check copy of every city run elsewhere.
+- **A tile host** runs one city. Start it with
+  `ToyCity.Server --tile-host ws://REGION:5180/tile-link --tile COL,ROW --link-key KEY --public ws://ME:PORT/ws`.
+  It joins the region host, gets the city as the region has it, and serves that city's players as usual.
+
+Each day the region host sends every tile host a day start: the day's number and what the region tells that city
+(border edges, deals, weather, notices). The tile host steps its city and replies with every action its city applied
+that day. The region host replays those on its copy. On the first day of each month the tile host also sends its
+city's hash, and the region host checks it against the copy's. If they differ, the region stops, says so on the region
+map, and writes `saves/desync-COL-ROW-TICK.txt` with both sides of the difference.
+
+### Players
+
+Players on a tile host sign in with the region host's accounts (the tile host asks for them). Region-wide asks
+(deals, founding, the clock, saving, taking over) go over the link to the region host, and answers come back the same
+way. The region map shows where each city is hosted. Opening a city that runs elsewhere sends a redirect, and both
+clients move there by themselves: the web client reloads with `?server=…&tile=…`, and the Godot client restarts
+pointed at the new host. The player signs in there with the same account.
+
+### When a tile host goes quiet
+
+The region holds the day while it waits, and the region map says who it is waiting for. A tile host that hasn't
+answered for `takeOverSeconds` (120 by default) is taken over: a computer mayor runs that city on the region host from
+its check copy, and the human mayor is remembered. When the tile host comes back, it is sent the city as it now
+stands and the mayor gets the seat back.
+
+### Settings
+
+| `host.json` key | What it does |
+|---|---|
+| `linkKey` | The key tile hosts must give. Empty: no tile hosts. |
+| `takeOverSeconds` | How long the region holds for a silent tile host. |
+| `publicAddress` | Where players reach the region host, for redirects. Worked out from the link if empty. |
+| `fastDayMs` | How long a day takes at full speed (833 ms). Scripted runs set it lower. |
+
+### Limits
+
+- Side games run on another process (`sideGames` in `host.json`) aren't supported for cities on a tile host yet.
+- The region host trusts its tile hosts for who their players are. Only give the link key to hosts you trust.
+- The links form a star: tile hosts talk only to the region host, never to each other.
+
+### Tests
+
+`FederationReplayTests.ACheckCopyFedTheDaysLogStaysIdentical` (Sim) steps a region the way the two kinds of host do:
+one city steps alone as on a tile host, the day's actions go through the wire's records both ways, and its check copy
+stays identical for 120 days. `FederatedTests` (ClientModel) starts a region host
+and two tile hosts as their own processes: two months go by at full speed with no desync, a player on a tile host
+signs in with the region's accounts, opening a city on another host redirects in both directions, and a tile host
+that is killed is covered by a computer mayor while the rest of the region carries on in step.

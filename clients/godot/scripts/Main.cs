@@ -194,6 +194,15 @@ public partial class Main : Node
         AddChild(new RegionScreen(pm.Region, () => pm.Version));
         pm.Region.OwnWindow += (col, row) => OS.CreateProcess(OS.GetExecutablePath(),
             OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", server, "--tile", $"{col},{row}" }).ToArray());
+        // A city of the region that another host runs: start again pointed there, as a reconnect is.
+        _client.Message += m =>
+        {
+            if (m.Redirect is not { } rd) return;
+            _tools.Toast("That city is on another host. Moving there…", "info");
+            OS.CreateProcess(OS.GetExecutablePath(),
+                OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", rd.Address, "--tile", $"{rd.Col},{rd.Row}" }).ToArray());
+            GetTree().Quit();
+        };
         pm.Company.OwnWindow += () => OS.CreateProcess(OS.GetExecutablePath(),
             OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", server, "--company" }).ToArray());
     }
