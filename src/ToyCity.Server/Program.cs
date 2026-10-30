@@ -37,6 +37,12 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 if (Directory.Exists(webDir))
 {
     var files = new PhysicalFileProvider(Path.GetFullPath(webDir));
+    // A web client built before the last pull lacks what came since (the dispatch board, say): say so.
+    var src = Path.Combine(repoRoot, "clients", "web", "src");
+    var built = Path.Combine(webDir, "index.html");
+    if (Directory.Exists(src) && File.Exists(built) &&
+        Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories).Any(f => File.GetLastWriteTimeUtc(f) > File.GetLastWriteTimeUtc(built)))
+        app.Logger.LogWarning("The web client in {WebDir} is older than its source. Rebuild it: cd clients/web && npm install && npm run build", webDir);
     app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files });
     app.UseStaticFiles(new StaticFileOptions { FileProvider = files });
 }

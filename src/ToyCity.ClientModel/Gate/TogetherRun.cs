@@ -235,7 +235,7 @@ public sealed class TogetherRun : IDisposable
         Check("Dan sends units to the city's calls", true, $"{CallsSent} call(s) so far");
         May.Panel.OpenDialog("dispatch");
         if (Moment("dispatch board") is { } m4) yield return m4;
-        May.Panel.CloseDialog();
+        May.Panel.Click("em-city");
         yield return new GateWait("a scene run and handed to the crews", () => ScenesRun > 0 && Dan.Em.View!.Cards.Count > 0, 240);
         var card = Dan.Em.View!.Cards[0];
         Check("Dan runs a scene and gets a report card", true, $"{card.Where}: {card.Score} ({card.Outcome}), {ScenesRun} scene(s)");

@@ -18,10 +18,13 @@ public partial class PanelView : CanvasLayer
     static readonly string[] MonthNames = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
     Label? _name, _date, _funds, _pop;
-    Button? _approval, _alerts, _seat, _dispatch;
+    Button? _approval, _alerts, _seat, _dispatch, _company;
     SceneCanvas? _scene;
+    CenterContainer? _sceneBox;
+    PanelContainer? _report, _tabsBox;
+    RichTextLabel? _reportText;
     int _sceneShown = -1;
-    readonly Button[] _speeds = new Button[4];
+    Button[] _speeds = Array.Empty<Button>(), _coSpeeds = Array.Empty<Button>(), _emSpeeds = Array.Empty<Button>();
     DemandBars? _rci;
     PanelContainer? _side;
     readonly Dictionary<string, Button> _tabs = new();
@@ -43,14 +46,18 @@ public partial class PanelView : CanvasLayer
     public ClassicCamera? Camera;
     public CityView? City;
     public MapView? Map;
-    HBoxContainer? _cityBar, _coBar;
-    HFlowContainer? _cityTabs, _coTabs;
+    HBoxContainer? _cityBar, _coBar, _emBar;
+    GridContainer? _cityTabs, _coTabs;
+    Label? _emName, _emText, _emDate, _emPending;
+    Button? _emSeat;
+    PanelContainer? _emTools;
+    VBoxContainer? _emToolList;
     readonly Dictionary<string, Button> _coTabButtons = new();
     Label? _coText, _coDate;
     Button? _coSeat;
     PanelContainer? _coTools;
     RichTextLabel? _coToolsText;
-    bool _wasCompany;
+    string _wasScreen = "city";
     /// <summary>Whether the camera keeps the followed commuter centred; panning hands the camera back.</summary>
     public bool FollowCam;
 
@@ -58,12 +65,6 @@ public partial class PanelView : CanvasLayer
     {
         _client = client;
         Model = new PanelModel(client.City, client.Connection.Send);
-    }
-
-    static void Outline(Control c)
-    {
-        c.AddThemeColorOverride("font_outline_color", Colors.Black);
-        c.AddThemeConstantOverride("outline_size", 4);
     }
 
     /// <summary>The Graphics button: Main opens the options.</summary>
@@ -77,154 +78,274 @@ public partial class PanelView : CanvasLayer
         return b;
     }
 
-    public override void _Ready()
+    static Label Stat(Container parent, string text = "", int size = UiTheme.FontSize, Color? colour = null, bool bold = false)
     {
-        Layer = 3;
-        // The top bar.
-        var bar = new PanelContainer();
-        bar.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopWide);
-        AddChild(bar);
-        var bars = new VBoxContainer();
-        bar.AddChild(bars);
-        var row = _cityBar = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 14);
-        bars.AddChild(row);
-        _name = new Label();
-        _name.AddThemeFontSizeOverride("font_size", 18);
-        row.AddChild(_name);
-        row.AddChild(_date = new Label());
-        row.AddChild(_funds = new Label());
-        row.AddChild(_pop = new Label());
-        _rci = new DemandBars(_client.City) { CustomMinimumSize = new Vector2(42, 30), TooltipText = "Demand: click for where it comes from" };
-        _rci.GuiInput += e => { if (e is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }) Model.Open("demand"); };
-        row.AddChild(_rci);
-        _approval = Btn("Approval", () => Model.Open("people"), row);
-        _alerts = Btn("Alerts", () => Model.Open("alerts"), row);
-        row.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
-        string[] speedNames = { "⏸", "▶", "▶▶", "▶▶▶" };
+        var l = new Label { Text = text, VerticalAlignment = VerticalAlignment.Center };
+        if (size != UiTheme.FontSize) l.AddThemeFontSizeOverride("font_size", size);
+        if (colour is { } c) l.AddThemeColorOverride("font_color", c);
+        if (bold) l.AddThemeConstantOverride("outline_size", 1);
+        if (bold) l.AddThemeColorOverride("font_outline_color", colour ?? UiTheme.Text);
+        parent.AddChild(l);
+        return l;
+    }
+
+    /// <summary>The four speed buttons, small and close together, as the web's.</summary>
+    Button[] Speeds(Container parent)
+    {
+        var box = new HBoxContainer();
+        box.AddThemeConstantOverride("separation", 2);
+        parent.AddChild(box);
+        string[] names = { "⏸", "▶", "▶▶", "▶▶▶" };
+        string[] tips = { "Pause (Space)", "Slow", "Normal", "Fast" };
+        var list = new Button[4];
         for (int k = 0; k < 4; k++)
         {
             int kk = k;
-            _speeds[k] = Btn(speedNames[k], () => _client.Connection.Send(new ClientMessage { Speed = new SetSpeed { Speed = kk } }), row);
-            _speeds[k].ToggleMode = true;
+            list[k] = UiTheme.Small(Btn(names[k], () => _client.Connection.Send(new ClientMessage { Speed = new SetSpeed { Speed = kk } }), box), 8, 2, 11);
+            list[k].ToggleMode = true;
+            list[k].TooltipText = tips[k];
         }
+        return list;
+    }
+
+    /// <summary>A bar across the top, one per screen: the city's, the bus company's, the emergency services'.</summary>
+    HBoxContainer TopRow(VBoxContainer bars, bool visible)
+    {
+        var row = new HBoxContainer { Visible = visible, SizeFlagsVertical = Control.SizeFlags.ExpandFill, Alignment = BoxContainer.AlignmentMode.Begin };
+        row.AddThemeConstantOverride("separation", 14);
+        bars.AddChild(row);
+        // Buttons keep their own height in the middle of the bar, as the web's do.
+        row.ChildEnteredTree += n => { if (n is Control c) c.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter; };
+        return row;
+    }
+
+    /// <summary>A column down the left for a side game's tools, where the city's tools are.</summary>
+    PanelContainer LeftColumn()
+    {
+        var p = new PanelContainer { Visible = false };
+        p.AddThemeStyleboxOverride("panel", UiTheme.Docked(Side.Right, 8));
+        p.SetAnchorsPreset(Control.LayoutPreset.LeftWide);
+        (p.OffsetLeft, p.OffsetTop, p.OffsetRight, p.OffsetBottom) = (0, ToolController.TopHeight, ToolController.ColumnWidth, 0);
+        AddChild(p);
+        return p;
+    }
+
+    public override void _Ready()
+    {
+        Layer = 3;
+        // The top bar: one row per screen, only one shown.
+        var bar = new PanelContainer();
+        var barStyle = UiTheme.Docked(Side.Bottom, 12);
+        (barStyle.ContentMarginTop, barStyle.ContentMarginBottom) = (0, 0);
+        bar.AddThemeStyleboxOverride("panel", barStyle);
+        bar.SetAnchorsPreset(Control.LayoutPreset.TopWide);
+        (bar.OffsetTop, bar.OffsetBottom) = (0, ToolController.TopHeight);
+        AddChild(bar);
+        var bars = new VBoxContainer();
+        bar.AddChild(bars);
+
+        var row = _cityBar = TopRow(bars, true);
+        Stat(row, "ToyCity", 14, UiTheme.Accent, bold: true);
+        _name = Stat(row);
+        _date = Stat(row);
+        _funds = Stat(row);
+        _funds.TooltipText = "Treasury";
+        _pop = Stat(row);
+        _approval = Btn("Approval", () => Model.Open("people"), row);
+        _approval.Flat = true;
+        _approval.TooltipText = "Mayor approval: click for what people think";
+        _speeds = Speeds(row);
+        _rci = new DemandBars(_client.City) { CustomMinimumSize = new Vector2(56, 34), TooltipText = "Demand: bars up mean the city wants more of that zone", SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+        _rci.GuiInput += e => { if (e is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }) Model.Open("demand"); };
+        row.AddChild(_rci);
+        _alerts = Btn("⚠ 0", () => Model.Open("alerts"), row);
+        _alerts.TooltipText = "Alerts: problems in the city, click one to go there";
         _seat = Btn("Mayor", () => Model.OpenDialog("seat"), row);
-        _dispatch = Btn("🚒 Dispatch", () => Model.OpenDialog("dispatch"), row);
+        _seat.TooltipText = "Who runs the city: hand it to the computer while you're away";
+        // The side games' own screens, as the web client's top bar has them.
+        _company = Btn("🚌 Bus company", () => Model.Click("co-open"), row);
+        _company.TooltipText = "Switch to the bus company's own screen";
+        _company.Visible = false;
+        _dispatch = Btn("🚒 Dispatch", () => Model.Click("em-open"), row);
+        _dispatch.TooltipText = "Switch to the emergency services' own screen";
         _dispatch.Visible = false;
-        Btn("New", () => Model.OpenDialog("new"), row);
+        row.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
+        Btn("New city", () => Model.OpenDialog("new"), row);
         Btn("Save", () => Model.OpenDialog("save"), row);
         Btn("Load", () => Model.OpenDialog("load"), row);
         Btn("Graphics", () => GraphicsPressed?.Invoke(), row);
-        Btn("Panel (P)", () => _side!.Visible = !_side.Visible, row);
 
-        // The bus company's top bar, in its place while the company's view is up.
-        var co = _coBar = new HBoxContainer { Visible = false };
-        co.AddThemeConstantOverride("separation", 14);
-        bars.AddChild(co);
-        co.AddChild(new Label { Text = "🚌" });
-        co.AddChild(_coText = new Label());
-        co.AddChild(_coDate = new Label());
-        co.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
+        // The bus company's top bar, in the city's place while its screen is up.
+        var co = _coBar = TopRow(bars, false);
+        _coText = Stat(co, "", 14, UiTheme.Accent, bold: true);
+        _coDate = Stat(co);
+        _coSpeeds = Speeds(co);
         _coSeat = Btn("", () => Model.Click(Model.Company.Mine ? "co-handoff" : "co-claim"), co);
+        co.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
         Btn("⧉ Own window", () => Model.Click("co-window"), co);
         Btn("🏙 Back to the city", () => Model.Click("co-city"), co);
 
-        // The side panel.
+        // The emergency services' top bar.
+        var em = _emBar = TopRow(bars, false);
+        _emName = Stat(em, "", 14, UiTheme.Accent, bold: true);
+        _emText = Stat(em);
+        _emDate = Stat(em);
+        _emSpeeds = Speeds(em);
+        _emSeat = Btn("", () => { if (Model.Emergency.SeatButton is { } sb) Model.Click(sb.Meta); }, em);
+        _emPending = Stat(em, "", UiTheme.FontSize, UiTheme.Warn);
+        em.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
+        Btn("🏙 Back to the city", () => Model.Click("em-city"), em);
+
+        // The side panel, down the right.
         _side = new PanelContainer();
+        _side.AddThemeStyleboxOverride("panel", UiTheme.Docked(Side.Left, 0));
         _side.SetAnchorsPreset(Control.LayoutPreset.RightWide);
-        _side.OffsetLeft = -420;
-        _side.OffsetRight = -8;
-        _side.OffsetTop = 120;
-        _side.OffsetBottom = -224;
+        (_side.OffsetLeft, _side.OffsetRight, _side.OffsetTop, _side.OffsetBottom) = (-ToolController.SideWidth, 0, ToolController.TopHeight, 0);
         AddChild(_side);
         var col = new VBoxContainer();
+        col.AddThemeConstantOverride("separation", 0);
         _side.AddChild(col);
-        var tabs = _cityTabs = new HFlowContainer();
-        col.AddChild(tabs);
-        _coTabs = new HFlowContainer { Visible = false };
-        col.AddChild(_coTabs);
+        var tabsBox = new PanelContainer();
+        var tabsStyle = UiTheme.Box(UiTheme.Panel, null, 0, 6, 6);
+        (tabsStyle.BorderColor, tabsStyle.BorderWidthBottom) = (UiTheme.Line, 1);
+        tabsBox.AddThemeStyleboxOverride("panel", tabsStyle);
+        col.AddChild(tabsBox);
+        var tabsCol = new VBoxContainer();
+        tabsBox.AddChild(tabsCol);
+        var tabs = _cityTabs = new GridContainer { Columns = 5 };
+        tabs.AddThemeConstantOverride("h_separation", 3);
+        tabs.AddThemeConstantOverride("v_separation", 3);
+        tabsCol.AddChild(tabs);
+        _coTabs = new GridContainer { Columns = 5, Visible = false };
+        _coTabs.AddThemeConstantOverride("h_separation", 3);
+        tabsCol.AddChild(_coTabs);
+        _tabsBox = tabsBox;
         var coGroup = new ButtonGroup();
         foreach (var (id, name) in CompanyModel.Tabs)
         {
-            var b = Btn(name, () => Model.Click($"co-tab:{id}"), _coTabs);
+            var b = UiTheme.Small(Btn(name, () => Model.Click($"co-tab:{id}"), _coTabs), 0, 3);
             b.ToggleMode = true;
             b.ButtonGroup = coGroup;
+            b.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
             _coTabButtons[id] = b;
         }
         var group = new ButtonGroup();
         foreach (var (id, name) in PanelModel.Tabs)
         {
-            var b = Btn(name, () => Model.Open(id), tabs);
+            var b = UiTheme.Small(Btn(name, () => Model.Open(id), tabs), 0, 3);
             b.ToggleMode = true;
             b.ButtonGroup = group;
+            b.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
             _tabs[id] = b;
         }
+        var body = new MarginContainer { SizeFlagsVertical = Control.SizeFlags.ExpandFill };
+        foreach (var side in new[] { "left", "right" }) body.AddThemeConstantOverride($"margin_{side}", 12);
+        foreach (var side in new[] { "top", "bottom" }) body.AddThemeConstantOverride($"margin_{side}", 10);
+        col.AddChild(body);
+        var bodyCol = new VBoxContainer();
+        body.AddChild(bodyCol);
         _input = new LineEdit { Visible = false, ClearButtonEnabled = true };
         _input.TextChanged += t => Model.SetInput(t);
-        col.AddChild(_input);
+        bodyCol.AddChild(_input);
         _text = Text();
         _text.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
-        col.AddChild(_text);
+        bodyCol.AddChild(_text);
 
-        // The company's tools, down the left.
-        _coTools = new PanelContainer { Visible = false };
-        _coTools.SetAnchorsPreset(Control.LayoutPreset.LeftWide);
-        _coTools.OffsetLeft = 8;
-        _coTools.OffsetRight = 248;
-        _coTools.OffsetTop = 52;
-        _coTools.OffsetBottom = -60;
-        AddChild(_coTools);
+        // The company's tools, down the left where the city's are.
+        _coTools = LeftColumn();
         _coToolsText = Text();
         _coTools.AddChild(_coToolsText);
+        // The emergency services' tools: the board's pages, or the scene's orders.
+        _emTools = LeftColumn();
+        var emScroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        _emTools.AddChild(emScroll);
+        _emToolList = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        _emToolList.AddThemeConstantOverride("separation", 4);
+        emScroll.AddChild(_emToolList);
 
-        // Dialogs, in the middle of the screen.
-        var centre = new CenterContainer { Visible = false, MouseFilter = Control.MouseFilterEnum.Stop };
-        centre.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        AddChild(centre);
-        _dialog = centre;
-        // A click outside the dialog closes it, as Escape does; clicks on the dialog itself stop at its box.
-        centre.GuiInput += e =>
+        // Over the map, between the bars: the scene a player runs, banners and the news.
+        var area = ToolController.MapArea();
+        AddChild(area);
+        _sceneBox = new CenterContainer { MouseFilter = Control.MouseFilterEnum.Ignore, Visible = false };
+        _sceneBox.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        area.AddChild(_sceneBox);
+        var frame = new PanelContainer();
+        frame.AddThemeStyleboxOverride("panel", UiTheme.Box(UiTheme.Panel, UiTheme.Line, 6, 4, 4));
+        _sceneBox.AddChild(frame);
+        _scene = new SceneCanvas(Model.Emergency);
+        frame.AddChild(_scene);
+        // The ended scene's report card, over the scene.
+        _report = new PanelContainer { Visible = false };
+        _report.AddThemeStyleboxOverride("panel", UiTheme.Floating());
+        _sceneBox.AddChild(_report);
+        var rcol = new VBoxContainer();
+        rcol.AddThemeConstantOverride("separation", 12);
+        _report.AddChild(rcol);
+        _reportText = Text();
+        _reportText.FitContent = true;
+        _reportText.ScrollActive = false;
+        _reportText.CustomMinimumSize = new Vector2(400, 0);
+        rcol.AddChild(_reportText);
+        var rrow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.End };
+        rrow.AddThemeConstantOverride("separation", 8);
+        rcol.AddChild(rrow);
+        Btn("Close report", () => Model.Click("em-report"), rrow).TooltipText = "See the scene as it finished";
+        Btn("Return to calls", () => Model.Click("em-board"), rrow);
+
+        // Dialogs, in the middle of the screen over a dimmed map.
+        var layer = new Control { Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore };
+        layer.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        AddChild(layer);
+        _dialog = layer;
+        var backdrop = new ColorRect { Color = new Color(0, 0, 0, 0.45f), MouseFilter = Control.MouseFilterEnum.Stop };
+        backdrop.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        layer.AddChild(backdrop);
+        // A click outside the dialog closes it, as Escape does.
+        backdrop.GuiInput += e =>
         {
             if (e is not InputEventMouseButton { Pressed: true } mb || mb.ButtonIndex is not (MouseButton.Left or MouseButton.Right)) return;
             Model.CloseDialog();
-            centre.AcceptEvent();
+            backdrop.AcceptEvent();
         };
+        var centre = new CenterContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        centre.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        layer.AddChild(centre);
         var box = new PanelContainer();
+        box.AddThemeStyleboxOverride("panel", UiTheme.Floating());
         centre.AddChild(box);
         var dcol = new VBoxContainer();
         box.AddChild(dcol);
+        var close = UiTheme.Small(new Button { Text = "✕", Flat = false, FocusMode = Control.FocusModeEnum.None, TooltipText = "Close (Esc)", SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd }, 8, 2);
+        close.Pressed += Model.CloseDialog;
+        dcol.AddChild(close);
         _dialogInput = new LineEdit { Visible = false, MaxLength = 40 };
         _dialogInput.TextChanged += t => Model.SetInput(t);
         dcol.AddChild(_dialogInput);
-        var drow = new HBoxContainer();
-        dcol.AddChild(drow);
         _dialogText = Text();
         _dialogText.CustomMinimumSize = new Vector2(560, 440);
-        drow.AddChild(_dialogText);
-        // An emergency scene the player runs or watches, beside the dispatch board.
-        _scene = new SceneCanvas(Model.Emergency) { Visible = false };
-        drow.AddChild(_scene);
+        dcol.AddChild(_dialogText);
 
-        // Banners under the toolbar.
-        (_away, _awayText) = Banner(124);
+        // Banners at the top of the map.
+        (_away, _awayText) = Banner(area, 10, UiTheme.Warn);
         Btn("Take it back", Model.TakeBack, (Container)_away.GetChild(0));
-        (_follow, _followText) = Banner(164);
+        (_follow, _followText) = Banner(area, 54, UiTheme.Line);
         _followCentre = Btn("Centre", () => FollowCam = true, (Container)_follow.GetChild(0));
         Btn("Stop following", Model.StopFollowing, (Container)_follow.GetChild(0));
 
-        // The news ticker.
-        _ticker = new Button { Flat = true, FocusMode = Control.FocusModeEnum.None, Visible = false, ClipText = true };
-        _ticker.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterBottom, Control.LayoutPresetMode.Minsize, 6);
+        // The news ticker, along the bottom of the map.
+        _ticker = new Button { FocusMode = Control.FocusModeEnum.None, Visible = false, ClipText = true };
+        foreach (var st in new[] { "normal", "hover", "pressed", "hover_pressed" })
+            _ticker.AddThemeStyleboxOverride(st, UiTheme.Box(UiTheme.Chip with { A = 0.9f }, st.StartsWith("hover") ? UiTheme.HoverLine : UiTheme.Line, 14, 12, 4));
+        _ticker.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterBottom, Control.LayoutPresetMode.Minsize, 10);
         _ticker.GrowHorizontal = Control.GrowDirection.Both;
         _ticker.GrowVertical = Control.GrowDirection.Begin;
-        Outline(_ticker);
         _ticker.Pressed += () =>
         {
             var hs = Model.Headlines;
             if (_tickerIndex >= 0 && _tickerIndex < hs.Count && hs[_tickerIndex].X >= 0) Model.Click($"jump:{hs[_tickerIndex].X}:{hs[_tickerIndex].Y}");
             else Model.Open("people");
         };
-        AddChild(_ticker);
+        area.AddChild(_ticker);
     }
 
     RichTextLabel Text()
@@ -234,15 +355,17 @@ public partial class PanelView : CanvasLayer
         return t;
     }
 
-    (PanelContainer, Label) Banner(float y)
+    (PanelContainer, Label) Banner(Control area, float y, Color edge)
     {
         var p = new PanelContainer { Visible = false };
+        p.AddThemeStyleboxOverride("panel", UiTheme.Box(UiTheme.Chip with { A = 0.92f }, edge, 8, 12, 6));
         p.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.Minsize, (int)y);
         p.GrowHorizontal = Control.GrowDirection.Both;
-        AddChild(p);
+        area.AddChild(p);
         var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 10);
         p.AddChild(row);
-        var l = new Label();
+        var l = new Label { VerticalAlignment = VerticalAlignment.Center };
         row.AddChild(l);
         return (p, l);
     }
@@ -264,6 +387,7 @@ public partial class PanelView : CanvasLayer
             case Key.U when Tools?.State.Kind != ToyCity.ClientModel.Tools.ToolKind.Bulldoze: Model.ShowUnderground = !Model.ShowUnderground; break;
             case Key.Escape when Model.Dialog != null: Model.CloseDialog(); break;
             case Key.Escape when Model.Company.Active: Model.Click("co-tool:Look"); break;
+            case Key.Escape when Model.Emergency.Active && Model.Emergency.SceneOver: Model.Click("em-board"); break;
             default: return;
         }
         GetViewport().SetInputAsHandled();
@@ -273,21 +397,35 @@ public partial class PanelView : CanvasLayer
     {
         var c = _client.City;
         Model.Tick(delta);
-        bool company = Model.Company.Active;
-        if (company != _wasCompany)
+        bool company = Model.Company.Active, dispatch = !company && Model.Emergency.Active;
+        // Which screen is up: the city's, or a side game's own, each with its own top bar and left column.
+        string screen = company ? "company" : dispatch ? "dispatch" : "city";
+        if (screen != _wasScreen)
         {
-            _wasCompany = company;
-            _cityBar!.Visible = _cityTabs!.Visible = !company;
+            _wasScreen = screen;
+            _cityBar!.Visible = _cityTabs!.Visible = screen == "city";
             _coBar!.Visible = _coTabs!.Visible = _coTools!.Visible = company;
-            if (Tools != null) Tools.Enabled = !company;
+            _emBar!.Visible = _emTools!.Visible = dispatch;
+            _tabsBox!.Visible = !dispatch;
+            if (Tools != null) Tools.Enabled = screen == "city";
             _shown = -1;
         }
         if (c.Loaded) TopBar(c);
         if (company) CompanyBar(c);
+        if (dispatch) DispatchBar(c);
         Redraw();
-        bool scene = Model.Dialog == "dispatch" && Model.Emergency.Scene != null;
-        _scene!.Visible = scene;
-        if (scene && Model.Emergency.SceneVersion != _sceneShown) { _sceneShown = Model.Emergency.SceneVersion; _scene.QueueRedraw(); }
+        if (Map != null) Map.RightInset = _side!.Visible ? ToolController.SideWidth : 0;
+        // The scene a player runs, fitted to the map's room, with its report over it once it's over.
+        var em = Model.Emergency;
+        bool scene = dispatch && em.Scene != null && !em.SceneHidden;
+        _sceneBox!.Visible = scene;
+        _report!.Visible = scene && em.SceneOver && em.ReportOpen;
+        if (scene)
+        {
+            var room = _sceneBox.Size;
+            _scene!.Tile = Mathf.Clamp(Mathf.Floor(Mathf.Min(room.X, room.Y) - 40) / 36, 8, 22);
+            if (em.SceneVersion != _sceneShown) { _sceneShown = em.SceneVersion; _scene.QueueRedraw(); }
+        }
         // Banners.
         _away!.Visible = Model.AwayText != null;
         if (Model.AwayText is { } away) _awayText!.Text = away;
@@ -302,9 +440,11 @@ public partial class PanelView : CanvasLayer
         _name!.Text = s.CityName;
         _date!.Text = $"{MonthNames[Math.Clamp(s.Month - 1, 0, 11)]} {s.Day}, {s.Year}";
         _funds!.Text = Bb.Money(s.Funds);
-        _funds.Modulate = s.Funds < 0 ? new Color(1, 0.55f, 0.5f) : Colors.White;
-        _pop!.Text = $"Pop {Bb.Num(s.Population)}";
-        for (int k = 0; k < 4; k++) _speeds[k].SetPressedNoSignal(s.Speed == k);
+        _funds.AddThemeColorOverride("font_color", s.Funds < 0 ? UiTheme.Bad : UiTheme.Text);
+        _name.AddThemeColorOverride("font_color", UiTheme.Text);
+        _pop!.Text = $"👥 {Bb.Num(s.Population)}";
+        foreach (var set in new[] { _speeds, _coSpeeds, _emSpeeds })
+            for (int k = 0; k < set.Length; k++) set[k].SetPressedNoSignal(s.Speed == k);
         if (Model.Civic is { } civic)
         {
             _approval!.Text = $"{(civic.Approval >= 50 ? "👍" : "👎")} {civic.Approval}%";
@@ -312,18 +452,63 @@ public partial class PanelView : CanvasLayer
             _tabs["people"].Text = Model.OpenPrompts > 0 ? $"People ({Model.OpenPrompts})" : "People";
         }
         var (count, worst) = Model.AlertBadge;
-        _alerts!.Text = $"Alerts {count}";
+        _alerts!.Text = $"⚠ {count}";
         _alerts.Modulate = worst switch { "danger" => new Color(1, 0.5f, 0.45f), "warning" => new Color(1, 0.85f, 0.45f), _ => Colors.White };
         _seat!.Text = Model.SeatLabel;
         _dispatch!.Visible = Model.Emergency.View != null;
         _dispatch.Text = Model.Emergency.Waiting > 0 ? $"🚒 Dispatch ({Model.Emergency.Waiting})" : "🚒 Dispatch";
+        _company!.Visible = Model.Company.View != null;
+        if (Model.Company.View is { } co) _company.Text = $"🚌 {co.Name}";
         _rci!.QueueRedraw();
+    }
+
+    void DispatchBar(CityMirror c)
+    {
+        var em = Model.Emergency;
+        var s = c.Stats;
+        _emName!.Text = $"🚒 {em.View?.Name ?? "Emergency services"}";
+        _emText!.Text = em.TopStats;
+        _emDate!.Text = $"{MonthNames[Math.Clamp(s.Month - 1, 0, 11)]} {s.Day}, {s.Year}";
+        _emSeat!.Visible = em.SeatButton != null;
+        if (em.SeatButton is { } sb) _emSeat.Text = sb.Text;
+        _emPending!.Visible = em.Pending != null;
+        _emPending.Text = em.Pending is { } p ? $"⏳ {p}" : "";
+        if (em.Waiting > 0 && em.Scene == null) _emName.Text += $"  ({em.Waiting} waiting)";
+    }
+
+    /// <summary>The emergency services' column: buttons for the board's pages, or the scene's orders.</summary>
+    void DispatchTools()
+    {
+        foreach (var child in _emToolList!.GetChildren()) child.QueueFree();
+        var em = Model.Emergency;
+        bool first = true;
+        foreach (var (heading, items) in em.ToolSections())
+        {
+            var h = UiTheme.Heading(heading);
+            if (!first) h.CustomMinimumSize = new Vector2(0, 22);
+            h.VerticalAlignment = VerticalAlignment.Bottom;
+            first = false;
+            _emToolList.AddChild(h);
+            var group = heading == "Scene" ? null : new ButtonGroup();
+            foreach (var (meta, text, on) in items)
+            {
+                var b = new Button { Text = text, ToggleMode = true, ButtonPressed = on, ButtonGroup = group, FocusMode = Control.FocusModeEnum.None, Alignment = HorizontalAlignment.Left, ClipText = true };
+                b.Pressed += () => Model.Click(meta);
+                _emToolList.AddChild(b);
+            }
+        }
+        if (em.Scene != null && em.Mine && !em.SceneOver)
+            _emToolList.AddChild(new Label { Text = em.OrderHint, AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                LabelSettings = new LabelSettings { FontSize = 11, FontColor = UiTheme.Muted } });
+        if (em.View != null && em.Scene == null && !em.Mine && em.Pending == null)
+            _emToolList.AddChild(new Label { Text = "The computer runs the service. Run it yourself (top bar) to send units and command scenes.",
+                AutowrapMode = TextServer.AutowrapMode.WordSmart, LabelSettings = new LabelSettings { FontSize = 11, FontColor = UiTheme.Muted } });
     }
 
     void CompanyBar(CityMirror c)
     {
         var s = c.Stats;
-        _coText!.Text = Model.Company.TopText;
+        _coText!.Text = $"🚌 {Model.Company.TopText}";
         _coDate!.Text = $"{MonthNames[Math.Clamp(s.Month - 1, 0, 11)]} {s.Day}, {s.Year}";
         var v = Model.Company.View;
         _coSeat!.Text = v == null ? "" : Model.Company.Mine ? "You run it · hand to the computer" : $"The computer runs it ({v.Operator}) · run it yourself";
@@ -343,10 +528,17 @@ public partial class PanelView : CanvasLayer
         bool dialog = Model.Dialog != null;
         _dialog!.Visible = dialog;
         var target = dialog ? _dialogText! : _text!;
-        string key = dialog ? Model.Dialog! : Model.Company.Active ? "co-" + Model.Company.Tab : Model.Tab;
+        var em = Model.Emergency;
+        bool dispatch = !dialog && em.Active && !Model.Company.Active;
+        string key = dialog ? Model.Dialog! : Model.Company.Active ? "co-" + Model.Company.Tab : dispatch ? $"em-{em.Tab}-{em.SceneId}" : Model.Tab;
         bool same = dialog ? key == _shownDialog : key == _shownTab;
         double scroll = same ? target.GetVScrollBar().Value : 0;
-        target.Text = Model.Render();
+        target.Text = dispatch ? em.RenderBody() : Model.Render();
+        if (em.Active)
+        {
+            DispatchTools();
+            if (em.SceneOver) _reportText!.Text = em.RenderReport();
+        }
         if (scroll > 0) Callable.From(() => target.GetVScrollBar().Value = scroll).CallDeferred();
         if (dialog) _shownDialog = key; else { _shownTab = key; _shownDialog = ""; }
         // The text box: the guide's search, or a name for a new city or a save.

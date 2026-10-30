@@ -19,7 +19,7 @@ public partial class ToolController : Node
     readonly ClassicCamera _camera;
     readonly MapView _map;
     public readonly ToolState State = new();
-    VBoxContainer? _top;
+    Control? _column;
     bool _enabled = true;
 
     /// <summary>Off while the bus company's view is up: no toolbar, previews or clicks.</summary>
@@ -29,7 +29,7 @@ public partial class ToolController : Node
         set
         {
             _enabled = value;
-            _top!.Visible = _hints!.Visible = value;
+            _column!.Visible = _hints!.Visible = value;
             if (value) return;
             _drag = null;
             State.CurveEnds = null;
@@ -51,10 +51,23 @@ public partial class ToolController : Node
     public void Hold((int X, int Y)? at, (int X, int Y)? from = null) { _held = at; _drag = from; }
     Preview? _preview;
     MeshInstance3D? _overlay;
-    Label? _cost, _hints;
-    VBoxContainer? _toasts;
-    HBoxContainer? _options;
+    Label? _cost;
+    VBoxContainer? _toasts, _hints;
+    VBoxContainer? _options;
     readonly Dictionary<ToolKind, Button> _buttons = new();
+    readonly Dictionary<ToolKind, VBoxContainer> _optionBoxes = new();
+
+    /// <summary>The screen's frame, as the web client's: the top bar, the tool column on the left, the panel on the right.</summary>
+    public const int TopHeight = 46, ColumnWidth = 168, SideWidth = 360;
+
+    /// <summary>A control covering the map between the bars, for things placed over the map.</summary>
+    public static Control MapArea()
+    {
+        var a = new Control { MouseFilter = Control.MouseFilterEnum.Ignore };
+        a.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        (a.OffsetLeft, a.OffsetTop, a.OffsetRight, a.OffsetBottom) = (ColumnWidth, TopHeight, -SideWidth, 0);
+        return a;
+    }
     int _lastSpeed = 1;
     /// <summary>The cursor's place on the map last frame, or null off it.</summary>
     public (int X, int Y, float Fx, float Fy)? Cursor { get; private set; }
@@ -69,6 +82,14 @@ public partial class ToolController : Node
         (ToolKind.Query, "Query", Key.Q), (ToolKind.Bulldoze, "Bulldoze", Key.B), (ToolKind.Path, "Roads", Key.R),
         (ToolKind.Zone, "Zone", Key.Z), (ToolKind.Dezone, "De-zone", Key.X), (ToolKind.Utility, "Utilities", Key.L),
         (ToolKind.Building, "Buildings", Key.N), (ToolKind.Terraform, "Terraform", Key.F), (ToolKind.Disaster, "Disasters", Key.H),
+    };
+
+    /// <summary>The tool column's sections, as the web client groups them.</summary>
+    static readonly (string Heading, ToolKind[] Kinds)[] Sections =
+    {
+        ("Look", new[] { ToolKind.Query, ToolKind.Bulldoze }), ("Paths", new[] { ToolKind.Path }), ("Zones", new[] { ToolKind.Zone, ToolKind.Dezone }),
+        ("Utilities", new[] { ToolKind.Utility }), ("Civic", new[] { ToolKind.Building }), ("Land", new[] { ToolKind.Terraform }),
+        ("Disasters", new[] { ToolKind.Disaster }),
     };
 
     public override void _Ready()
@@ -86,45 +107,65 @@ public partial class ToolController : Node
 
         var hud = new CanvasLayer { Layer = 2 };
         AddChild(hud);
-        var top = _top = new VBoxContainer();
-        top.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.Minsize, 46);  // under the top bar
-        top.GrowHorizontal = Control.GrowDirection.Both;
-        hud.AddChild(top);
-        var bar = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
-        top.AddChild(bar);
+        // The tool column down the left: each section's tools, and the chosen tool's options under its button.
+        var column = new PanelContainer();
+        column.AddThemeStyleboxOverride("panel", UiTheme.Docked(Side.Right, 8));
+        column.SetAnchorsPreset(Control.LayoutPreset.LeftWide);
+        (column.OffsetLeft, column.OffsetTop, column.OffsetRight, column.OffsetBottom) = (0, TopHeight, ColumnWidth, 0);
+        hud.AddChild(column);
+        _column = column;
+        var scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        column.AddChild(scroll);
+        var list = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        list.AddThemeConstantOverride("separation", 4);
+        scroll.AddChild(list);
         var group = new ButtonGroup();
-        foreach (var (kind, name, key) in Tools)
+        foreach (var (heading, kinds) in Sections)
         {
-            var b = new Button { Text = $"{name} ({key})", ToggleMode = true, ButtonGroup = group, FocusMode = Control.FocusModeEnum.None };
-            b.Pressed += () => SetTool(kind);
-            bar.AddChild(b);
-            _buttons[kind] = b;
+            var h = UiTheme.Heading(heading);
+            if (list.GetChildCount() > 0) h.CustomMinimumSize = new Vector2(0, 22);
+            h.VerticalAlignment = VerticalAlignment.Bottom;
+            list.AddChild(h);
+            foreach (var kind in kinds)
+            {
+                var (_, name, key) = Tools.First(t => t.Kind == kind);
+                var b = new Button { Text = name, ToggleMode = true, ButtonGroup = group, FocusMode = Control.FocusModeEnum.None, Alignment = HorizontalAlignment.Left };
+                // The key, small and grey at the button's right, as the web's tool buttons show it.
+                var k = new Label { Text = key.ToString(), MouseFilter = Control.MouseFilterEnum.Ignore, VerticalAlignment = VerticalAlignment.Center,
+                    LabelSettings = new LabelSettings { FontSize = 10, FontColor = UiTheme.Muted } };
+                k.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.RightWide);
+                k.OffsetLeft = -22;
+                b.AddChild(k);
+                b.Pressed += () => SetTool(kind);
+                list.AddChild(b);
+                _buttons[kind] = b;
+                var opts = new VBoxContainer { Visible = false };
+                opts.AddThemeConstantOverride("separation", 3);
+                list.AddChild(opts);
+                _optionBoxes[kind] = opts;
+            }
         }
-        _options = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
-        top.AddChild(_options);
 
+        var area = MapArea();
+        hud.AddChild(area);
         _cost = new Label { Visible = false };
-        Outline(_cost);
+        _cost.AddThemeStyleboxOverride("normal", UiTheme.ChipBox(UiTheme.Line));
         hud.AddChild(_cost);
-        _hints = new Label { Modulate = new Color(1, 1, 1, 0.85f) };
-        Outline(_hints);
-        _hints.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.Minsize, 12);
+        // Key hints in the map's lower left, a dark tag each.
+        _hints = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        _hints.AddThemeConstantOverride("separation", 3);
+        _hints.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.Minsize, 10);
         _hints.GrowVertical = Control.GrowDirection.Begin;
-        hud.AddChild(_hints);
-        _toasts = new VBoxContainer();
+        area.AddChild(_hints);
+        _toasts = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        _toasts.AddThemeConstantOverride("separation", 4);
         _toasts.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterBottom, Control.LayoutPresetMode.Minsize, 48);
         _toasts.GrowVertical = Control.GrowDirection.Begin;
         _toasts.GrowHorizontal = Control.GrowDirection.Both;
-        hud.AddChild(_toasts);
+        area.AddChild(_toasts);
 
         _client.Message += OnMessage;
         SetTool(ToolKind.Query);
-    }
-
-    static void Outline(Label l)
-    {
-        l.AddThemeColorOverride("font_outline_color", Colors.Black);
-        l.AddThemeConstantOverride("outline_size", 4);
     }
 
     public void SetTool(ToolKind kind)
@@ -132,7 +173,8 @@ public partial class ToolController : Node
         State.Kind = kind;
         State.CurveEnds = null;
         _drag = null;
-        if (_buttons.TryGetValue(kind, out var b)) b.SetPressedNoSignal(true);
+        // Without a signal the group doesn't let go of the last tool, so each button is set.
+        foreach (var (k, b) in _buttons) b.SetPressedNoSignal(k == kind);
         BuildOptions();
     }
 
@@ -153,20 +195,25 @@ public partial class ToolController : Node
 
     void BuildOptions()
     {
-        if (_options == null) return;
-        foreach (var child in _options.GetChildren()) child.QueueFree();
+        if (_optionBoxes.Count == 0) return;
+        foreach (var (kind, box) in _optionBoxes)
+        {
+            foreach (var child in box.GetChildren()) child.QueueFree();
+            box.Visible = false;
+        }
+        if (!_optionBoxes.TryGetValue(State.Kind, out _options)) return;
         var c = _client.City;
         switch (State.Kind)
         {
             case ToolKind.Zone:
-                Choice(new[] { "Residential", "Commercial", "Industrial" }, (int)State.Zone - 1, k => State.Zone = (ZoneKind)(k + 1));
-                Choice(Planner.DensityNames, (int)State.Density, k => State.Density = (Density)k);
-                Choice(new[] { "Paint areas", "Whole blocks (G)" }, State.BlockZoning ? 1 : 0, k => State.BlockZoning = k == 1);
+                Choice(new[] { "Residential", "Commercial", "Industrial" }, (int)State.Zone - 1, k => State.Zone = (ZoneKind)(k + 1), ZoneColours);
+                Choice(Planner.DensityNames.Select(n => n[..1]).ToArray(), (int)State.Density, k => State.Density = (Density)k, tips: Planner.DensityNames);
+                Choice(new[] { "Area", "Block" }, State.BlockZoning ? 1 : 0, k => State.BlockZoning = k == 1, tips: new[] { "Paint zones over an area", "Zone whole blocks (G)" });
                 if (State.BlockZoning) Choice(new[] { "Leave leftovers", "Leftovers to parks", "Zone leftovers" }, (int)State.Leftover, k => State.Leftover = (Leftover)k);
                 break;
             case ToolKind.Path:
                 Dropdown(c.Profiles.Select(p => (p.Id, $"{p.Name} ({Planner.Money(p.CostPerCell)}/cell)")).ToList(), State.ProfileId, id => State.ProfileId = id);
-                Choice(new[] { "Straight", "Curved (C)" }, State.Curve ? 1 : 0, k => { State.Curve = k == 1; State.CurveEnds = null; });
+                Choice(new[] { "Straight", "Curve" }, State.Curve ? 1 : 0, k => { State.Curve = k == 1; State.CurveEnds = null; }, tips: new[] { "Straight roads", "Curved roads (C)" });
                 break;
             case ToolKind.Utility:
                 Choice(new[] { "Power line", "Water pipe" }, (int)State.Utility, k => State.Utility = (UtilityKind)k);
@@ -190,28 +237,54 @@ public partial class ToolController : Node
                 break;
             case ToolKind.Disaster:
                 Choice(Planner.DisasterNames, (int)State.Disaster, k => State.Disaster = (DisasterKind)k);
-                _options!.AddChild(new Label { Text = "   By themselves:" });
+                _options!.AddChild(new Label { Text = "By themselves", LabelSettings = new LabelSettings { FontSize = 11, FontColor = UiTheme.Muted } });
                 Choice(new[] { "Off", "Rare", "Normal" }, (int)c.Stats.DisasterSetting,
                     k => _client.Connection.Act(new PAction { Disasters = new SetDisasters { Setting = (DisasterSetting)k } }));
                 break;
             case ToolKind.Bulldoze:
-                Choice(new[] { "Above ground", "Water pipes only (U)" }, State.Underground ? 1 : 0, k => State.Underground = k == 1);
+                Choice(new[] { "Above ground", "Pipes only (U)" }, State.Underground ? 1 : 0, k => State.Underground = k == 1);
                 break;
         }
+        _options.Visible = _options.GetChildCount() > 0;
         UpdateHints();
+    }
+
+    static readonly Color[] ZoneColours = { new(0.3f, 0.69f, 0.31f), new(0.29f, 0.5f, 0.88f), new(0.88f, 0.69f, 0.19f) };
+    static readonly Dictionary<Color, Texture2D> Swatches = new();
+
+    /// <summary>A small square of colour for a button's icon, as the web's tool buttons have.</summary>
+    static Texture2D Swatch(Color c)
+    {
+        if (Swatches.TryGetValue(c, out var t)) return t;
+        var img = Image.CreateEmpty(10, 10, false, Image.Format.Rgba8);
+        img.Fill(c);
+        return Swatches[c] = ImageTexture.CreateFromImage(img);
     }
 
     static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
 
-    void Choice(string[] names, int selected, Action<int> pick)
+    /// <summary>
+    /// A set of choices as a row of small buttons, or one per line when the names are long or carry a colour.
+    /// </summary>
+    void Choice(string[] names, int selected, Action<int> pick, Color[]? colours = null, string[]? tips = null)
     {
         var group = new ButtonGroup();
+        bool row = colours == null && names.Length <= 3 && names.All(n => n.Length <= 8);
+        Container box = row ? new HBoxContainer() : new VBoxContainer();
+        box.AddThemeConstantOverride("separation", 3);
+        _options!.AddChild(box);
         for (int k = 0; k < names.Length; k++)
         {
             int kk = k;
-            var b = new Button { Text = names[k], ToggleMode = true, ButtonGroup = group, ButtonPressed = k == selected, FocusMode = Control.FocusModeEnum.None };
+            var b = UiTheme.Small(new Button
+            {
+                Text = names[k], ToggleMode = true, ButtonGroup = group, ButtonPressed = k == selected, FocusMode = Control.FocusModeEnum.None,
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, Alignment = row ? HorizontalAlignment.Center : HorizontalAlignment.Left,
+                TooltipText = tips?[k] ?? "", ClipText = true,
+            }, row ? 2 : 8, 3, 13);
+            if (colours != null) b.Icon = Swatch(colours[k]);
             b.Pressed += () => { pick(kk); BuildOptions(); };
-            _options!.AddChild(b);
+            box.AddChild(b);
         }
     }
 
@@ -220,7 +293,7 @@ public partial class ToolController : Node
 
     void Dropdown(List<(string Id, string Label, bool Disabled)> items, string selected, Action<string> pick)
     {
-        var o = new OptionButton { FocusMode = Control.FocusModeEnum.None };
+        var o = UiTheme.Small(new OptionButton { FocusMode = Control.FocusModeEnum.None, ClipText = true, FitToLongestItem = false, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill }, 8, 3, 13);
         for (int k = 0; k < items.Count; k++)
         {
             o.AddItem(items[k].Label, k);
@@ -259,8 +332,24 @@ public partial class ToolController : Node
             ToolKind.Terraform => new[] { ("Drag", $"{Planner.TerraformNames[(int)State.Terraform].ToLowerInvariant()} area"), ("Esc", "cancel") },
             _ => new[] { ("Click", $"start a {Planner.DisasterNames[(int)State.Disaster].ToLowerInvariant()} here"), ("Esc", "cancel") },
         };
-        var common = new[] { (", .", "rotate"), ("Wheel", "zoom"), ("T / Y", "top-down / side"), ("Right-drag", "pan"), ("Space", "pause"), ("P / M / U", "panel / commuters / pipes") };
-        _hints.Text = string.Join("\n", per.Concat(common).Select(h => $"{h.Item1,-11} {h.Item2}"));
+        var common = new[] { (", .", "rotate"), ("Wheel", "zoom"), ("Right-drag", "pan"), ("T / Y", "top-down / side"), ("Space", "pause"), ("P / M / U", "panel / commuters / pipes") };
+        foreach (var child in _hints.GetChildren()) child.QueueFree();
+        foreach (var (key, what) in per.Concat(common))
+        {
+            // A dark tag with the key in a key cap, as the web client's hints.
+            var tag = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore, SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin };
+            tag.AddThemeStyleboxOverride("panel", UiTheme.ChipBox());
+            var r = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+            r.AddThemeConstantOverride("separation", 6);
+            tag.AddChild(r);
+            var cap = new Label { Text = key, LabelSettings = new LabelSettings { FontSize = 11, FontColor = UiTheme.Text } };
+            var capBox = UiTheme.Box(UiTheme.Panel2, UiTheme.HoverLine, 4, 4, 0);
+            capBox.BorderWidthBottom = 2;
+            cap.AddThemeStyleboxOverride("normal", capBox);
+            r.AddChild(cap);
+            r.AddChild(new Label { Text = what, LabelSettings = new LabelSettings { FontSize = 12, FontColor = UiTheme.Text } });
+            _hints.AddChild(tag);
+        }
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -392,7 +481,7 @@ public partial class ToolController : Node
         {
             _cost!.Visible = true;
             _cost.Text = _preview.Text;
-            _cost.Modulate = _preview.Ok && c.Stats.Funds >= 0 ? Colors.White : new Color(1, 0.55f, 0.5f);
+            _cost.AddThemeColorOverride("font_color", _preview.Ok && c.Stats.Funds >= 0 ? UiTheme.Text : UiTheme.Bad);
             _cost.Position = GetViewport().GetMousePosition() + new Vector2(18, 18);
         }
         else _cost!.Visible = false;
@@ -436,9 +525,12 @@ public partial class ToolController : Node
     public void Toast(string text, string severity)
     {
         if (_toasts == null || string.IsNullOrEmpty(text)) return;
-        var l = new Label { Text = text, HorizontalAlignment = HorizontalAlignment.Center };
-        Outline(l);
-        l.Modulate = severity switch { "warning" => new Color(1, 0.7f, 0.6f), "good" => new Color(0.7f, 1, 0.7f), _ => Colors.White };
+        // A dark tag with a border in the news's colour, as the web client's toasts.
+        var l = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore, SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter };
+        var edge = severity switch { "warning" => UiTheme.Warn, "error" or "danger" => UiTheme.Bad, "good" => UiTheme.Good, _ => UiTheme.Line };
+        var box = UiTheme.Box(UiTheme.Chip with { A = 0.92f }, edge, 6, 12, 6);
+        l.AddThemeStyleboxOverride("panel", box);
+        l.AddChild(new Label { Text = text, HorizontalAlignment = HorizontalAlignment.Center });
         _toasts.AddChild(l);
         while (_toasts.GetChildCount() > 4) _toasts.GetChild(0).Free();
         GetTree().CreateTimer(4.0).Timeout += () => { if (IsInstanceValid(l)) l.QueueFree(); };

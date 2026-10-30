@@ -37,7 +37,7 @@ public sealed partial class PanelModel
     };
 
     /// <summary>The panel as BBCode: the open dialog, or else the open tab.</summary>
-    public string Render() => Company.Active && Dialog == null ? Company.Render() : Dialog switch
+    public string Render() => Company.Active && Dialog == null ? Company.Render() : Emergency.Active && Dialog == null ? Emergency.Render() : Dialog switch
     {
         "seat" => RenderSeat(),
         "consent" => RenderConsent(),

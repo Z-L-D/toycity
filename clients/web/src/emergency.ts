@@ -56,10 +56,29 @@ export class Emergency {
     this.render();
   }
 
+  /**
+   * What the player asked for and is waiting on, shown at once. The city takes it now, but the service only hears at
+   * the start of the city's next day, up to ten seconds away at the slowest speed.
+   */
+  private pending: { text: string; done: (v: Msg) => boolean } | null = null;
+
+  private wait(text: string, done: (v: Msg) => boolean) {
+    this.pending = { text, done };
+    this.render();
+  }
+
+  /** The server refused something: stop waiting on it. */
+  refused() {
+    if (!this.pending) return;
+    this.pending = null;
+    this.render();
+  }
+
   onView(body: Msg) {
     if (body.game !== GAME) return;
     const before = this.view;
     this.view = decodeEmergencyView(body.payload as Uint8Array);
+    if (this.pending?.done(this.view)) this.pending = null;
     this.public = body.seat === 'public';
     const btn = $('#btn-emergency');
     btn.classList.remove('hidden');
@@ -110,7 +129,8 @@ export class Emergency {
         <span title="How well calls go: feeds the service's standing with the city">service ${v.serviceQuality}</span>
         <span class="muted">${op}</span>
         <span class="spacer"></span>
-        ${this.mine ? `<button class="mini" data-em="release">Hand back to the computer</button>` : `<button class="mini" data-em="claim">Run it yourself</button>`}
+        ${this.pending ? `<span class="em-pending">⏳ ${esc(this.pending.text)} <span class="muted small">It happens when the city's next day starts (not while paused).</span></span>`
+          : this.mine ? `<button class="mini" data-em="release">Hand back to the computer</button>` : `<button class="mini" data-em="claim">Run it yourself</button>`}
         <button class="mini" data-em="close">✕</button>
       </div>
       <nav class="em-tabs">${(['calls', 'units', 'reports', 'settings', 'log'] as EmTab[]).map((t) =>
@@ -137,9 +157,21 @@ export class Emergency {
     const n = Number(arg);
     switch (verb) {
       case 'close': this.toggle(); break;
-      case 'claim': this.host.conn.action({ seat: { seat: GAME, owner: this.me, level: 0, style: 0, spendCap: 25000 } }); break;
-      case 'release': this.host.conn.action({ seat: { seat: GAME, owner: '', level: 2, style: 0, spendCap: 25000 } }); break;
-      case 'lease': this.host.conn.action({ lease: { game: GAME, buildingId: n } }); break;
+      case 'claim':
+        if (this.pending) break;
+        this.host.conn.action({ seat: { seat: GAME, owner: this.me, level: 0, style: 0, spendCap: 25000 } });
+        this.wait('Taking over the service…', (v) => v.operator === 'manual' && v.owner === this.me);
+        break;
+      case 'release':
+        if (this.pending) break;
+        this.host.conn.action({ seat: { seat: GAME, owner: '', level: 2, style: 0, spendCap: 25000 } });
+        this.wait('Handing the service back to the computer…', (v) => !(v.operator === 'manual' && v.owner === this.me));
+        break;
+      case 'lease':
+        if (this.pending) break;
+        this.host.conn.action({ lease: { game: GAME, buildingId: n } });
+        this.wait('Leasing the station…', (v) => !(v.openStations as Msg[]).some((o) => o.buildingId === n));
+        break;
       case 'go': { const c = (this.view!.calls as Msg[]).find((x) => x.id === n); if (c) this.host.jumpTo(c.x, c.y); break; }
       case 'send': {
         const units = [...(this.picks.get(n) ?? [])];
@@ -199,7 +231,7 @@ export class Emergency {
       ? `<p class="muted">The service has no stations yet: the city's fire stations, police stations, clinics and hospitals only send units once they're leased to it.</p>`
       : `<p class="muted">The service has no stations. Build a fire station, police station, clinic or hospital, then lease it to ${esc(v.name)}.</p>`;
     if (open.length) head += `<div class="em-station"><b>Not leased yet</b>${open.map((o) => `<div>${esc(o.kind.replace('-', ' '))} at ${o.x},${o.y}
-      ${this.mine ? `<button class="mini" data-em="lease:${o.buildingId}">Lease it</button>` : '<span class="muted small">the mayor, or whoever runs the service, can lease it</span>'}</div>`).join('')}</div>`;
+      ${this.mine ? this.pending ? '<span class="muted">⏳</span>' : `<button class="mini" data-em="lease:${o.buildingId}">Lease it</button>` : '<span class="muted small">the mayor, or whoever runs the service, can lease it</span>'}</div>`).join('')}</div>`;
     return head + stations.map((s) => {
       const kind = s.kind === 'fire-station' ? 0 : s.kind === 'police-station' ? 1 : 2;
       const units = (v.units as Msg[]).filter((u) => u.stationLeaseId === s.leaseId);
