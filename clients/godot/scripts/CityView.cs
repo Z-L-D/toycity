@@ -203,6 +203,9 @@ public partial class CityView : Node3D
     {
         _water?.QueueFree();
         float level = (_city.WaterLevel - 0.35f) * ClassicView.HeightStep;
+        // The ground shades its shore and bed by height against the water's surface.
+        _ground!.SetShaderParameter("water_y", level);
+        _ground.SetShaderParameter("height_step", ClassicView.HeightStep);
         _water = new MeshInstance3D
         {
             Mesh = new PlaneMesh { Size = new Vector2(_city.Width, _city.Height) },
