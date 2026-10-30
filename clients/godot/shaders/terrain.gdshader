@@ -35,10 +35,10 @@ void fragment() {
 	vec3 base = to_linear(COLOR.rgb, OUTPUT_IS_SRGB);
 	// The shore: sand just above the waterline, then a bed that darkens with depth.
 	float above = (world_y - water_y) / height_step;
-	vec3 sand = to_linear(vec3(0.80, 0.74, 0.55), OUTPUT_IS_SRGB);
+	vec3 sand = to_linear(vec3(0.70, 0.64, 0.47), OUTPUT_IS_SRGB);
 	vec3 deep = to_linear(vec3(0.16, 0.26, 0.30), OUTPUT_IS_SRGB);
 	if (above < 0.0) base = mix(sand * 0.85, deep, clamp(-above / 3.0, 0.0, 1.0));
-	else if (above < 0.6) base = mix(sand, base, smoothstep(0.25, 0.6, above));
+	else if (above < 0.45) base = mix(sand, base, smoothstep(0.15, 0.45, above));
 	if (use_overlay) {
 		vec4 o = texture(overlay, (floor(cell) + 0.5) / map_size);
 		base = mix(base, to_linear(o.rgb, OUTPUT_IS_SRGB), o.a);
