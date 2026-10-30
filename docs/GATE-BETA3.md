@@ -83,6 +83,12 @@ looking at:
   map. It now plans both mayors' roads first, over open land beyond everything built, and builds only when both
   can.
 
+- **Snapshots could overtake each other.** The Beta 2 "together" run sometimes timed out waiting for the seats. The
+  server had them right, but the server builds each snapshot (who's here, the civic state, alerts, agents) under the
+  city's lock and sends it after letting go. So when Tess and Dan claimed seats at the same moment, Sam could get
+  Dan's newer snapshot first and Tess's older one last. Each snapshot now carries a rising stamp, and the client keeps
+  the newest of each kind. The web client still takes them as they come.
+
 ## Not covered by this gate
 
 - **The manual multiplayer check.** Zac postponed the hands-on run on one Windows PC to the next phase. Its step-by-step
