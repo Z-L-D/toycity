@@ -56,6 +56,36 @@ public class CornerTests
         Assert.Equal(w.Corner, loaded.Corner);
         Assert.Equal(w.StateHash(), loaded.StateHash());
     }
+
+    [Fact]
+    public void LevelledGroundMeetsTheLandOnAnEmbankmentNotACliff()
+    {
+        var w = World.Create(Fixture.Content, 42, 128, "Banks");
+        w.Funds = 10_000_000;
+        // The hilliest dry 10 × 10 square, levelled to its corner's height.
+        var (bx, by) = (from y in Enumerable.Range(14, 100) from x in Enumerable.Range(14, 100)
+                        where Enumerable.Range(0, 100).All(k => !w.IsWater(w.Idx(x + k % 10, y + k / 10)))
+                        orderby Enumerable.Range(0, 100).Max(k => w.Height[w.Idx(x + k % 10, y + k / 10)]) - Enumerable.Range(0, 100).Min(k => w.Height[w.Idx(x + k % 10, y + k / 10)]) descending
+                        select (x, y)).First();
+        long funds = w.Funds;
+        var wet = Enumerable.Range(0, w.N).Select(w.IsWater).ToArray();
+        w.Enqueue(new TerraformAction(new CellRect(bx, by, bx + 9, by + 9), TerraformMode.Level));
+        w.Step();
+        int target = w.Corner[by * 129 + bx];
+        // Out to the embankment's reach, no corner stands farther from the level than its distance allows.
+        for (int cy = by - 5; cy <= by + 15; cy++)
+            for (int cx = bx - 5; cx <= bx + 15; cx++)
+            {
+                int d = Math.Max(Math.Max(bx - cx, cx - (bx + 10)), Math.Max(by - cy, cy - (by + 10)));
+                if (d <= 0) { Assert.Equal(target, w.Corner[cy * 129 + cx]); continue; }
+                // Ground that was by the water is left alone.
+                bool byWater = Enumerable.Range(0, 4).Any(k => w.InBounds(cx - k % 2, cy - k / 2) && wet[w.Idx(cx - k % 2, cy - k / 2)]);
+                if (!byWater) Assert.True(Math.Abs(w.Corner[cy * 129 + cx] - target) <= d * World.EmbankDm, $"corner {cx},{cy} at {w.Corner[cy * 129 + cx]}, {d} out from {target}; cells {string.Join(",", Enumerable.Range(0, 4).Select(k => w.Height[w.Idx(cx - k % 2, cy - k / 2)] + "/" + w.River[w.Idx(cx - k % 2, cy - k / 2)] + "/" + w.Path[w.Idx(cx - k % 2, cy - k / 2)]))}");
+            }
+        // The embankment comes with the levelling: only the brush's cells and the ring beside them are paid for.
+        Assert.True(funds - w.Funds <= 12 * 12 * Fixture.Content.TerraformCostPerCell + 5000, $"{funds - w.Funds}");
+    }
+
 }
 
 /// <summary>The generator: lowland, coast and lakes, and mountain ranges worn by rain.</summary>

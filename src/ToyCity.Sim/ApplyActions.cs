@@ -323,6 +323,11 @@ public sealed partial class World
         }
     }
 
+    /// <summary>How far, in cells, levelling reaches out to embank the ground around it.</summary>
+    public const int EmbankReach = 12;
+    /// <summary>How much an embankment rises or falls a cell: 3 m in 16, about 1 in 5.</summary>
+    public const int EmbankDm = 30;
+
     void ApplyTerraform(TerraformAction a)
     {
         var r = a.Area;
@@ -365,8 +370,33 @@ public sealed partial class World
             h = Math.Clamp(h, 0, MaxCornerDm);
             if (h != now) moves.Add((c, h));
         }
+        // Levelled ground meets the land around it on an embankment, cut or fill sloping about 1 in 5, rather than a
+        // cliff: each corner within reach comes to within EmbankDm a corner of the level, more the farther out it is.
+        // Ground by the water is left as it is, so levelling never fills the sea.
+        int ex0 = x0, ey0 = y0, ex1 = x1, ey1 = y1;
+        if (a.Mode == TerraformMode.Level)
+        {
+            ex0 = Math.Max(0, x0 - EmbankReach); ey0 = Math.Max(0, y0 - EmbankReach);
+            ex1 = Math.Min(Width - 1, x1 + EmbankReach); ey1 = Math.Min(HeightCells - 1, y1 + EmbankReach);
+            bool ByWater(int cx, int cy)
+            {
+                for (int dy = -1; dy <= 0; dy++)
+                for (int dx = -1; dx <= 0; dx++)
+                    if (InBounds(cx + dx, cy + dy) && IsWater(Idx(cx + dx, cy + dy))) return true;
+                return false;
+            }
+            for (int cy = ey0; cy <= ey1 + 1; cy++)
+            for (int cx = ex0; cx <= ex1 + 1; cx++)
+            {
+                int d = Math.Max(Math.Max(x0 - cx, cx - (x1 + 1)), Math.Max(y0 - cy, cy - (y1 + 1)));
+                if (d <= 0 || Held(cx, cy) || ByWater(cx, cy)) continue;
+                int c = cy * cw + cx, now = Corner[c];
+                int h = Math.Clamp(now, target - d * EmbankDm, target + d * EmbankDm);
+                if (h != now) moves.Add((c, h));
+            }
+        }
         if (moves.Count == 0) return;
-        // Priced by the cells the brush reshaped.
+        // Priced by the cells the brush reshaped; the embankment around a levelled area comes with it.
         var cells = new HashSet<int>();
         foreach (var (c, _) in moves)
         {
@@ -375,9 +405,10 @@ public sealed partial class World
             for (int dx = -1; dx <= 0; dx++)
                 if (InBounds(cx + dx, cy + dy)) cells.Add(Idx(cx + dx, cy + dy));
         }
-        if (!Spend((long)cells.Count * Content.TerraformCostPerCell, r.X0, r.Y0)) return;
+        long priced = cells.Count(i => i % Width >= x0 - 1 && i % Width <= x1 + 1 && i / Width >= y0 - 1 && i / Width <= y1 + 1);
+        if (!Spend(priced * Content.TerraformCostPerCell, r.X0, r.Y0)) return;
         foreach (var (c, h) in moves) Corner[c] = (ushort)h;
-        DeriveHeights(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+        DeriveHeights(ex0 - 1, ey0 - 1, ex1 + 1, ey1 + 1);
         foreach (int i in cells)
             if (IsWater(i)) { ZoneCode[i] = 0; PowerLine[i] = 0; }
         RecomputeWaterDistance();

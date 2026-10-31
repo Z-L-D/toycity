@@ -138,7 +138,15 @@ a road joins roads beside it but not a rail line.
   the valley, and the floodwater the same way, both with the sea's material. Bridges are flat decks with concrete
   parapets, the slab's edge and a pier. The minimap shows floodwater.
 
+- **Embankments.** Levelling used to leave a sheer cliff where the level met the land (the CI screenshots showed the
+  starter town on a plateau of rock walls). Now levelled ground meets the land around it on an embankment: each
+  corner up to 12 cells out comes to within 3 m a cell of the level, about 1 in 5, cut or fill. Ground by the water
+  is left as it is, so levelling never fills the sea, and the embankment comes with the levelling at no extra cost.
+
 ### Tests
+
+`LevelledGroundMeetsTheLandOnAnEmbankmentNotACliff` levels the hilliest square on a map and checks every corner
+around it is within the embankment's slope, and that only the brush is paid for.
 
 `RiverTests` covers five things:
 - Rivers never climb on the way down, and each river cell is water.
