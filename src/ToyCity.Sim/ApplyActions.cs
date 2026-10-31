@@ -44,6 +44,7 @@ public sealed partial class World
             case NeighbourEdgeAction a: ApplyNeighbourEdge(a); break;
             case CityDealAction a: ApplyCityDeal(a); break;
             case WeatherAction a: ApplyWeather(a); break;
+            case FloodAction a: ApplyFlood(a); break;
             case RenameOwnerAction a: RenameOwner(a.From, a.To); break;
             case LeaseLotAction a: ApplyLeaseLot(a); break;
             case SetLeaseTermsAction a: ApplySetLeaseTerms(a); break;
@@ -97,6 +98,9 @@ public sealed partial class World
     }
 
     /// <summary>Checks a path run without changing anything. Returns null when valid, else the reason.</summary>
+    /// <summary>A path over a river is a bridge, and costs this many times the path.</summary>
+    public const int BridgeCostTimes = 5;
+
     public string? ValidatePath(PlacePathAction a, out long cost, out int badX, out int badY)
     {
         cost = 0; badX = -1; badY = -1;
@@ -109,9 +113,10 @@ public sealed partial class World
             badX = x; badY = y;
             if (!InBounds(x, y)) return "That runs off the map.";
             int i = Idx(x, y);
-            if (IsWater(i)) return "Paths can't cross water yet (bridges come later).";
+            if (IsWater(i) && !IsRiver(i)) return "Paths can't cross the sea or a lake; a river they can bridge.";
             if (BuildingAt[i] != 0) return $"A building is in the way at {x},{y}. Bulldoze it first.";
-            if (Path[i] != profile + 1) cost += Content.Profiles[profile].CostPerCell;
+            // A bridge costs five times the road.
+            if (Path[i] != profile + 1) cost += Content.Profiles[profile].CostPerCell * (IsRiver(i) ? BridgeCostTimes : 1);
         }
         // The ground is graded to at most a step a cell, between the roads it meets.
         var works = Earthworks(cells, out int bad);
@@ -387,7 +392,7 @@ public sealed partial class World
         {
             if (!InBounds(x, y)) { Reject("That runs off the map.", x, y); return; }
             int i = Idx(x, y);
-            if (IsWater(i)) { Reject("Lines and pipes can't cross water yet.", x, y); return; }
+            if (IsWater(i) && !IsRiver(i)) { Reject("Lines and pipes can't cross the sea or a lake; a river they can.", x, y); return; }
             if (a.Kind == UtilityKind.PowerLine)
             {
                 if (BuildingAt[i] != 0 || PowerLine[i] != 0) continue; // buildings conduct by themselves

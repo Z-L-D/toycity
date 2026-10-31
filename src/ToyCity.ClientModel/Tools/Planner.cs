@@ -54,6 +54,8 @@ public sealed record Preview(List<(int X, int Y, Tint Tint)> Cells, bool Ok, str
 /// </summary>
 public static class Planner
 {
+    /// <summary>A bridge costs this many times its path, as World.BridgeCostTimes.</summary>
+    public const int BridgeCostTimes = 5;
     public const int ZoneCostPerCell = 5, PowerLinePerCell = 5, WaterPipePerCell = 3, TerraformPerCell = 25;
     /// <summary>As World: a road's cut and fill per step a cell, a pad's, and the most a pad levels.</summary>
     public const int GradeCostPerStep = 10, PadCostPerStep = 5, MaxPadRise = 3;
@@ -180,11 +182,11 @@ public static class Planner
         foreach (var (x, y) in cells)
         {
             bool good = true;
-            if (!c.InBounds(x, y) || c.IsWater(c.Idx(x, y))) good = false;
+            if (!c.InBounds(x, y) || c.IsWater(c.Idx(x, y)) && !c.IsRiver(c.Idx(x, y))) good = false;
             else
             {
                 int i = c.Idx(x, y);
-                if (path) { if (c.BuildingAt[i] != 0) good = false; if (c.Paths[i] != pi) cost += prof?.CostPerCell ?? 0; }
+                if (path) { if (c.BuildingAt[i] != 0) good = false; if (c.Paths[i] != pi) cost += (prof?.CostPerCell ?? 0) * (c.IsRiver(i) ? BridgeCostTimes : 1); }
                 else if (t.Utility == UtilityKind.UtilityPowerLine) { if (c.BuildingAt[i] == 0 && c.PowerLines[i] == 0) cost += PowerLinePerCell; }
                 else if (c.WaterPipes[i] == 0) cost += WaterPipePerCell;
             }
@@ -214,8 +216,8 @@ public static class Planner
         var tinted = new List<(int, int, Tint)>();
         foreach (var (x, y) in cells)
         {
-            bool good = c.InBounds(x, y) && !c.IsWater(c.Idx(x, y)) && c.BuildingAt[c.Idx(x, y)] == 0;
-            if (good && c.Paths[c.Idx(x, y)] != pi) cost += prof?.CostPerCell ?? 0;
+            bool good = c.InBounds(x, y) && (!c.IsWater(c.Idx(x, y)) || c.IsRiver(c.Idx(x, y))) && c.BuildingAt[c.Idx(x, y)] == 0;
+            if (good && c.Paths[c.Idx(x, y)] != pi) cost += (prof?.CostPerCell ?? 0) * (c.IsRiver(c.Idx(x, y)) ? BridgeCostTimes : 1);
             ok &= good;
             tinted.Add((x, y, good ? Tint.Road : Tint.Bad));
         }
@@ -289,8 +291,9 @@ public static class Planner
     {
         if (cells.Any(q => !c.InBounds(q.X, q.Y))) return 0;
         var idx = cells.Select(q => c.Idx(q.X, q.Y)).ToList();
-        var h = idx.Select(i => (int)c.Heights[i]).ToList();
-        var g = Grade(h, idx.Select(i => c.Paths[i] != 0).ToList(), c.WaterLevel);
+        // A bridge's deck stands a step over the river and is fixed, as the server grades it.
+        var h = idx.Select(i => c.IsRiver(i) ? c.Rivers[i] + 1 : (int)c.Heights[i]).ToList();
+        var g = Grade(h, idx.Select(i => c.Paths[i] != 0 || c.IsRiver(i)).ToList(), c.WaterLevel);
         if (g == null) return null;
         var road = idx.ToHashSet();
         var banks = new Dictionary<int, int>();
@@ -347,8 +350,8 @@ public static class Planner
         var tinted = new List<(int, int, Tint)>();
         foreach (var (x, y) in cells)
         {
-            bool good = c.InBounds(x, y) && !c.IsWater(c.Idx(x, y)) && c.BuildingAt[c.Idx(x, y)] == 0;
-            if (good && c.Paths[c.Idx(x, y)] != pi) cost += prof?.CostPerCell ?? 0;
+            bool good = c.InBounds(x, y) && (!c.IsWater(c.Idx(x, y)) || c.IsRiver(c.Idx(x, y))) && c.BuildingAt[c.Idx(x, y)] == 0;
+            if (good && c.Paths[c.Idx(x, y)] != pi) cost += (prof?.CostPerCell ?? 0) * (c.IsRiver(c.Idx(x, y)) ? BridgeCostTimes : 1);
             ok &= good;
             tinted.Add((x, y, good ? Tint.Road : Tint.Bad));
         }

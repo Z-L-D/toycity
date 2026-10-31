@@ -58,8 +58,9 @@ public sealed partial class World
     List<(int I, int H)>? Earthworks(List<(int X, int Y)> cells, out int badCell)
     {
         badCell = -1;
-        var h = cells.Select(c => (int)Height[Idx(c.X, c.Y)]).ToList();
-        var fix = cells.Select(c => Path[Idx(c.X, c.Y)] != 0).ToList();
+        // A bridge's deck stands a step over the river, fixed like a road already there; the river keeps its bed.
+        var h = cells.Select(c => IsRiver(Idx(c.X, c.Y)) ? River[Idx(c.X, c.Y)] + 1 : (int)Height[Idx(c.X, c.Y)]).ToList();
+        var fix = cells.Select(c => Path[Idx(c.X, c.Y)] != 0 || IsRiver(Idx(c.X, c.Y))).ToList();
         var g = Grade(h, fix, WaterLevel);
         if (g == null)
         {
@@ -74,7 +75,7 @@ public sealed partial class World
         var banks = new Dictionary<int, int>();
         for (int k = 0; k < cells.Count; k++)
         {
-            if (g[k] == h[k]) continue;
+            if (g[k] == h[k] || IsRiver(Idx(cells[k].X, cells[k].Y))) continue;
             var (x, y) = cells[k];
             works.Add((Idx(x, y), g[k]));
             for (int d = 0; d < 4; d++)

@@ -110,3 +110,42 @@ Seven tests that leaned on a particular seed's old map now use other seeds.
 
 `EachRoadLooksLikeItsKind` checks the look of each built-in profile, that every carriageway fits its cell, and that
 a road joins roads beside it but not a rail line.
+
+## Part 5: rivers and floods
+
+- **Where rivers run.** The generator works out where rain drains. It floods inward from the sea and the map's
+  edges, lowest first, so every cell (even one in a hollow) has a way out, and counts the cells draining through each
+  one. Where more than 700 do, a river runs. A region does this on its whole map, so a river runs on from one tile
+  into the next.
+- **Its own water.** A river's surface follows the ground down and never climbs. Where the ground rises across its
+  way, the rim of a hollow, it cuts a gorge through. Its bed is a step (2 m) under the surface and the banks slope
+  down to it. Each cell keeps its river surface (`World.River`, saved; `rivers` in the full state). A river cell is
+  water, so nothing is built or zoned on it.
+- **Bridges.** A road or rail can cross a river, not the sea or a lake. Over the river it's a bridge: the deck is
+  fixed a step over the water, the approaches grade to meet it, and the river keeps its bed. A bridge cell costs five
+  times the path. Power lines and pipes can cross a river too.
+- **Floods follow the rain downstream.** Each day the region works out how high each tile's rivers stand. Heavy rain
+  over any stretch upstream raises them a step; storms raise them two. The rise arrives after the days the water
+  takes to come down (48 cells a day) and stays two days after the rain. Storms over much of the catchment at once
+  make it three. So a storm over the hills floods the town below a day or two later, across a border if the river
+  crosses one. The region sends the stage as a logged action (`FloodAction`), as it does the weather. A lone city has
+  no region sky, so it has no floods.
+- **What floods.** The water spreads from the river over dry ground lower than its raised surface, through cells it
+  covers, up to 5 cells out. Every building standing in it loses 6 condition a day. The city hears when the river
+  rises, with how many buildings and road cells are under water, and again when it's back in its banks. The client
+  works out the same water from the stage.
+- **Drawn.** The Godot client draws the river's own sheet of water, its corners averaged so the surface runs down
+  the valley, and the floodwater the same way, both with the sea's material. Bridges are flat decks with concrete
+  parapets, the slab's edge and a pier. The minimap shows floodwater.
+
+### Tests
+
+`RiverTests` covers five things:
+- Rivers never climb on the way down, and each river cell is water.
+- A river crosses a tile border, and a tile gets the region's rivers.
+- A road bridges a river at five times the cost, the river keeps its bed, and the sea still can't be crossed.
+- A flood covers only low dry ground near the river, damages the building there, survives a save, and recedes.
+- Over three years of fronts some tile floods, and no flood lasts for months.
+
+Four tests whose sites a new river crossed now use other seeds. The computer-mayor deal test lets its power line
+cross a river, since lines may now.

@@ -41,6 +41,8 @@ public partial class CityView : Node3D
     Image? _groundImage;
     ImageTexture? _groundTexture;
     ShaderMaterial? _waterMaterial;
+    /// <summary>The water's material, shared with the rivers and floods (RiversView).</summary>
+    public ShaderMaterial? WaterMaterial => _waterMaterial;
     float[] _top = System.Array.Empty<float>();
     ShaderMaterial? _ground;
     double _flashUntil = -1;

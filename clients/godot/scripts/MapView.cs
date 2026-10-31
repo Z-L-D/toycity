@@ -14,6 +14,7 @@ public partial class MapView : Node2D
     ImageTexture? _texture;
     Sprite2D? _sprite;
     public bool Drawn { get; private set; }
+    int _stage;
 
     public MapView(CityMirror city) => _city = city;
 
@@ -26,6 +27,8 @@ public partial class MapView : Node2D
     /// <summary>Redraws what changed; Main hands every view the same dirty set each frame.</summary>
     public void Refresh(bool all, int[] cells)
     {
+        // The whole map again when the river rises or falls.
+        if (_city.FloodStage != _stage) { _stage = _city.FloodStage; all = true; }
         if (_image == null || _image.GetWidth() != _city.Width || _image.GetHeight() != _city.Height || all)
         {
             _image = Image.CreateEmpty(_city.Width, _city.Height, false, Image.Format.Rgb8);
@@ -48,6 +51,8 @@ public partial class MapView : Node2D
         int x = i % _city.Width, y = i / _city.Width;
         var c = _city.BuildingAtCell(x, y) is { } b && _city.TypeById.TryGetValue(b.TypeId, out var t) ? Palette.Of(t)
             : _city.IsWater(i) && _city.Paths[i] == 0 ? Palette.Water : Palette.Cell(_city, i);
+        // Floodwater over whatever stands there, while the river is up.
+        if (_city.FloodStage > 0 && _city.Flooded[i] != 0) c = c.Lerp(Palette.Water, 0.7f);
         _image!.SetPixel(x, y, c);
     }
 

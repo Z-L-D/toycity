@@ -175,6 +175,7 @@ public static class Mapping
         s.DisasterSetting = (P.DisasterSetting)(int)w.DisasterSetting;
         s.TransitBoardings = w.TransitBoardings;
         if (w.Weather != WeatherKind.Clear) s.Weather = $"{World.WeatherIcon(w.Weather)} {World.WeatherName(w.Weather, w.WeatherStrength)}";
+        s.FloodStage = w.FloodStage;
         foreach (var d in w.Disasters)
             s.Disasters.Add(new P.Disaster { Id = d.Id, Kind = (P.DisasterKind)(int)d.Kind, X = d.X, Y = d.Y, DaysLeft = d.DaysLeft, Destroyed = d.Destroyed, Damaged = d.Damaged });
         foreach (var (label, amount) in w.LastBudget) s.Budget.Add(new P.BudgetLine { Label = label, Amount = amount });
@@ -200,7 +201,7 @@ public static class Mapping
         var f = new P.FullState
         {
             Width = w.Width, Height = w.HeightCells, WaterLevel = w.WaterLevel,
-            Heights = ByteString.CopyFrom(w.Height), Corners = ByteString.CopyFrom(CornerBytes(w)), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)),
+            Heights = ByteString.CopyFrom(w.Height), Corners = ByteString.CopyFrom(CornerBytes(w)), Rivers = ByteString.CopyFrom(w.River), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)),
             PowerLines = ByteString.CopyFrom(w.PowerLine), WaterPipes = ByteString.CopyFrom(w.WaterPipe),
             Stats = Stats(w, speed), Catalog = Catalog(w.Content), Seed = w.Seed,
         };
@@ -518,6 +519,7 @@ public static class Mapping
                 ForkAction fk => new P.ActionRecord { Tick = l.Tick, By = fk.By, Fork = new P.Fork { Player = fk.Player, HomeName = fk.HomeName } },
                 NeighbourEdgeAction ne => new P.ActionRecord { Tick = l.Tick, By = ne.By, Neighbour = Edge(ne) },
                 WeatherAction wa => new P.ActionRecord { Tick = l.Tick, By = wa.By, Weather = new P.RegionWeather { Kind = (P.WeatherKind)(int)wa.Kind, Strength = wa.Strength } },
+                FloodAction fa => new P.ActionRecord { Tick = l.Tick, By = fa.By, Flood = new P.RegionFlood { Stage = fa.Stage } },
                 CityDealAction cd => new P.ActionRecord
                 {
                     Tick = l.Tick, By = cd.By,
@@ -545,6 +547,7 @@ public static class Mapping
                 : r.Fork != null ? new ForkAction(r.Fork.Player, r.Fork.HomeName)
                 : r.Neighbour != null ? Edge(r.Neighbour)
                 : r.Weather is { } wr ? new WeatherAction((WeatherKind)(int)wr.Kind, wr.Strength)
+                : r.Flood is { } fr ? new FloodAction(fr.Stage)
                 : r.Deal is { } d ? new CityDealAction(d.Id, (DealKind)(int)d.Kind, d.Selling, d.Side, d.Other, d.Amount, d.Price, d.End, d.Why)
                 : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
                 : r.Action == null ? null : ToSim(r.Action);

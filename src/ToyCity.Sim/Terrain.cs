@@ -23,6 +23,7 @@ public sealed partial class World
     /// <summary>Re-derives the step heights of the cells in a rectangle (clipped to the map) from their corners.</summary>
     void DeriveHeights(int x0, int y0, int x1, int y1)
     {
+        FloodGroundChanged();
         x0 = Math.Max(0, x0); y0 = Math.Max(0, y0); x1 = Math.Min(Width - 1, x1); y1 = Math.Min(HeightCells - 1, y1);
         int cw = Width + 1;
         for (int y = y0; y <= y1; y++)
@@ -54,6 +55,7 @@ public sealed partial class World
     void SetLevels(IReadOnlyCollection<(int I, int H)> cells)
     {
         if (cells.Count == 0) return;
+        FloodGroundChanged();
         foreach (var (i, h) in cells) Height[i] = (byte)h;
         int cw = Width + 1;
         var done = new HashSet<int>();
@@ -106,7 +108,9 @@ public sealed partial class World
     /// <summary>Fractal value noise from the seed: rolling hills, a few lakes and a coast.</summary>
     void GenerateTerrain()
     {
-        GenerateCorners(Seed, Width, HeightCells, WaterLevel).CopyTo(Corner, 0);
+        var g = GenerateGround(Seed, Width, HeightCells, WaterLevel);
+        g.Corners.CopyTo(Corner, 0);
+        g.Rivers.CopyTo(River, 0);
         DeriveHeights(0, 0, Width - 1, HeightCells - 1);
     }
 
@@ -121,7 +125,11 @@ public sealed partial class World
     /// they do on real ground.
     /// </para>
     /// </summary>
-    public static ushort[] GenerateCorners(ulong seed, int width, int heightCells, int waterLevel = 8)
+    public static ushort[] GenerateCorners(ulong seed, int width, int heightCells, int waterLevel = 8) =>
+        GenerateGround(seed, width, heightCells, waterLevel).Corners;
+
+    /// <summary>The generated corners before the rivers cut their channels.</summary>
+    static ushort[] GenerateRawCorners(ulong seed, int width, int heightCells, int waterLevel)
     {
         int cw = width + 1, ch = heightCells + 1, n = cw * ch;
         ulong salt = seed * 0x9E3779B97F4A7C15UL + 0x1234567UL;

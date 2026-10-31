@@ -151,7 +151,7 @@ public class EmergencyBetaTests
     [Fact]
     public void TheCrookedWaysWaitForEveryoneToAllowThem()
     {
-        using var w = EmergencyTests.Town(717, player: "player");
+        using var w = EmergencyTests.Town(721, player: "player");
         var home = Homes(w).First();
         int district = w.DistrictOf(home.X, home.Y);
         Do(w, new EW.Command { Crooked = new EW.Crooked { Kind = "look-away", District = district, On = true } });

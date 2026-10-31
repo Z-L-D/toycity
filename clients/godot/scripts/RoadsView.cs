@@ -13,6 +13,7 @@ namespace ToyCity.Godot;
 /// lines, a barrier or a grass median, tram rails, and zebra crossings where three or more roads meet;</item>
 /// <item>rail on a bed of ballast with sleepers and two steel rails.</item>
 /// </list>
+/// A path over a river is a bridge: the same layers on a flat deck a step over the water, with parapets and a pier.
 /// The map is cut into chunks of 16 × 16 cells, and a chunk is rebuilt only when a path or the ground in it changes.
 /// </summary>
 public partial class RoadsView : Node3D
@@ -40,6 +41,8 @@ public partial class RoadsView : Node3D
     int _cols, _rows, _builtFor = -1;
     readonly List<Vector3> _v = new(), _n = new();
     readonly List<Color> _c = new();
+    /// <summary>On a bridge, the deck's height for everything drawn on the cell; null on the ground.</summary>
+    float? _deck;
 
     public RoadsView(CityMirror city, CityView view) => (_city, _view) = (city, view);
 
@@ -92,7 +95,11 @@ public partial class RoadsView : Node3D
             {
                 int i = _city.Idx(x, y);
                 if (_city.Paths[i] == 0 || RoadShape.UnderStrip(_city, i)) continue;
+                // A path over a river is a bridge: its deck a step over the water, as the server grades it.
+                _deck = _city.IsRiver(i) ? (_city.Rivers[i] + 1) * ClassicView.HeightStep : null;
                 Cell(x, y, RoadLook.For(_city.ProfileAt(i)), RoadLook.Arms(_city, i));
+                if (_deck is { } deck) Bridge(x, y, RoadLook.For(_city.ProfileAt(i)), RoadLook.Arms(_city, i), deck);
+                _deck = null;
             }
         if (_v.Count == 0)
         {
@@ -224,6 +231,47 @@ public partial class RoadsView : Node3D
     }
 
     /// <summary>
+    /// A bridge cell's structure: a concrete parapet along each side the road doesn't leave by, the slab's edge, and
+    /// a pier down to the river bed.
+    /// </summary>
+    void Bridge(int x, int y, RoadLook look, int arms, float deck)
+    {
+        var centre = new Vector2(x + 0.5f, y + 0.5f);
+        float edge = look.Sidewalks ? 0.47f : look.Width / 2 + 0.04f;
+        var concrete = new Color(0.62f, 0.61f, 0.58f);
+        bool ns = (arms & 0b0101) != 0 || arms == 0;  // the road runs north–south across it
+        for (int side = -1; side <= 1; side += 2)
+        {
+            // Parapets along the run, both sides.
+            var u = ns ? new Vector2(0, 1) : new Vector2(1, 0);
+            var v = new Vector2(-u.Y, u.X);
+            var a = centre + v * (side * edge) - u * 0.5f;
+            var b = centre + v * (side * edge) + u * 0.5f;
+            Wall(a, b, deck + LiftWalk, deck + 0.075f, concrete);
+            // The slab's face, down from the deck.
+            Wall(centre + v * (side * (edge + 0.01f)) - u * 0.5f, centre + v * (side * (edge + 0.01f)) + u * 0.5f, deck - 0.09f, deck + LiftWalk, concrete.Darkened(0.15f));
+        }
+        // A pier in the middle, down to the bed.
+        float bed = _view.Surface(centre.X, centre.Y);
+        foreach (var (p, q) in new[] { (new Vector2(-0.08f, -0.08f), new Vector2(0.08f, -0.08f)), (new Vector2(0.08f, -0.08f), new Vector2(0.08f, 0.08f)),
+                     (new Vector2(0.08f, 0.08f), new Vector2(-0.08f, 0.08f)), (new Vector2(-0.08f, 0.08f), new Vector2(-0.08f, -0.08f)) })
+            Wall(centre + p, centre + q, bed - 0.05f, deck - 0.09f, concrete.Darkened(0.1f));
+    }
+
+    /// <summary>An upright quad from a to b, between two heights.</summary>
+    void Wall(Vector2 a, Vector2 b, float lo, float hi, Color colour)
+    {
+        Vector3 a0 = new(a.X, lo, a.Y), b0 = new(b.X, lo, b.Y), b1 = new(b.X, hi, b.Y), a1 = new(a.X, hi, a.Y);
+        var n = (b0 - a0).Cross(a1 - a0).Normalized();
+        foreach (var p in new[] { a0, b0, b1, a0, b1, a1 })
+        {
+            _v.Add(p);
+            _n.Add(n);
+            _c.Add(colour);
+        }
+    }
+
+    /// <summary>
     /// Where a cell's lines run, as arm and span from the centre: through the whole cell on a straight road, or each
     /// arm from the edge of the junction's square to the cell's edge.
     /// </summary>
@@ -294,7 +342,7 @@ public partial class RoadsView : Node3D
         Vector3 At(float s, float t)
         {
             var p = centre + u * s + v * t;
-            return new Vector3(p.X, _view.Surface(p.X, p.Y) + lift, p.Y);
+            return new Vector3(p.X, (_deck ?? _view.Surface(p.X, p.Y)) + lift, p.Y);
         }
         for (int i = 0; i < ns; i++)
             for (int j = 0; j < nt; j++)

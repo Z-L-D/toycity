@@ -15,7 +15,7 @@ public class Fixture
     }
 
     /// <summary>A flat, dry block for hand-built test layouts.</summary>
-    public static (World W, int X, int Y) FlatSite(ulong seed = 42)
+    public static (World W, int X, int Y) FlatSite(ulong seed = 44)
     {
         var w = World.Create(Content, seed, 128, "Lab");
         var site = StarterTown.FindSite(w)!.Value;

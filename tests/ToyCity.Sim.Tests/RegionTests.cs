@@ -347,8 +347,8 @@ public class RegionTests
         r.Run(3);
         var plant = bot.Buildings.First(b => b != null && bot.TypeOf(b).Id == "coal-plant")!;
         int y = Enumerable.Range(plant.Y, plant.H).First(yy =>
-            Enumerable.Range(0, plant.X).All(x => !bot.IsWater(bot.Idx(x, yy)))
-            && Enumerable.Range(west.Width - 12, 12).All(x => !west.IsWater(west.Idx(x, yy))));
+            Enumerable.Range(0, plant.X).All(x => !bot.IsWater(bot.Idx(x, yy)) || bot.IsRiver(bot.Idx(x, yy)))
+            && Enumerable.Range(west.Width - 12, 12).All(x => !west.IsWater(west.Idx(x, yy)) || west.IsRiver(west.Idx(x, yy))));
         bot.Enqueue(new PlaceUtilityAction(0, y, plant.X - 1, y, UtilityKind.PowerLine));
         west.Enqueue(new PlaceUtilityAction(west.Width - 12, y, west.Width - 1, y, UtilityKind.PowerLine));
         bot.ApplyPending();

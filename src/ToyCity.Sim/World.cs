@@ -154,6 +154,7 @@ public sealed partial class World
         Rng = new Rng(seed);
         Height = new byte[N];
         Corner = new ushort[(width + 1) * (height + 1)];
+        River = new byte[width * height];
         ZoneCode = new byte[N];
         Path = new ushort[N];
         PowerLine = new byte[N];
@@ -201,13 +202,14 @@ public sealed partial class World
     /// Founds a city on a region tile: the ground is the region's, cut out for this tile, and the calendar starts on
     /// the region's day so every tile shares one clock.
     /// </summary>
-    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick)
+    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick, byte[]? rivers = null)
     {
         if (size is not (64 or 128 or 256)) throw new ArgumentOutOfRangeException(nameof(size), "size must be 64, 128 or 256");
         if (corners.Length != (size + 1) * (size + 1)) throw new ArgumentException("corners must cover the tile", nameof(corners));
         var w = new World(content, size, size, seed, name) { Tick = tick, FoundedTick = tick };
         w.Funds = content.StartingFunds;
         corners.CopyTo(w.Corner, 0);
+        rivers?.CopyTo(w.River, 0);
         w.DeriveHeights(0, 0, size - 1, size - 1);
         w.RecomputeWaterDistance();
         w.RunMonthly();
@@ -218,7 +220,7 @@ public sealed partial class World
 
     public bool InBounds(int x, int y) => x >= 0 && y >= 0 && x < Width && y < HeightCells;
     public int Idx(int x, int y) => y * Width + x;
-    public bool IsWater(int i) => Height[i] < WaterLevel;
+    public bool IsWater(int i) => Height[i] < WaterLevel || River[i] > Height[i];
 
     public static Zone ZoneOf(byte code) => (Zone)(code / 3);
     public static Level DensityOf(byte code) => (Level)(code % 3);
@@ -294,6 +296,7 @@ public sealed partial class World
             RunGrowth();
         }
         RunCommutes();
+        RunFloods();
         UpdateStats();
         if (!stasis) RaiseCityIncidents();
         RunSideGames();
@@ -355,7 +358,7 @@ public sealed partial class World
             w.Write(Content.Fingerprint);
             w.Write(Width); w.Write(HeightCells); w.Write(WaterLevel); w.Write(Seed); w.Write(Name); w.Write(Tick);
             Rng.Write(w);
-            w.Write(Height); WriteU16(w, Corner); w.Write(ZoneCode); WriteU16(w, Path); w.Write(PowerLine); w.Write(WaterPipe); WriteI32(w, BuildingAt);
+            w.Write(Height); WriteU16(w, Corner); w.Write(River); w.Write(FloodStage); w.Write(ZoneCode); WriteU16(w, Path); w.Write(PowerLine); w.Write(WaterPipe); WriteI32(w, BuildingAt);
             w.Write(Powered); w.Write(Watered); w.Write(LandValue);
             WriteI16(w, DesR); WriteI16(w, DesC); WriteI16(w, DesI);
             w.Write(Pollution); w.Write(WaterPollution); w.Write(Noise); w.Write(Traffic);
@@ -435,7 +438,12 @@ public sealed partial class World
         w.Rng = Rng.Read(r);
         ReadBytes(r, w.Height);
         // Format 8 added the corners; an older save's ground becomes slopes between its cells' old steps.
-        if (version >= 8) ReadU16(r, w.Corner);
+        if (version >= 8)
+        {
+            ReadU16(r, w.Corner);
+            ReadBytes(r, w.River);
+            w.FloodStage = r.ReadInt32();
+        }
         else { CornersFromSteps(w.Height, width, height).CopyTo(w.Corner, 0); w.DeriveHeights(0, 0, width - 1, height - 1); }
         ReadBytes(r, w.ZoneCode); ReadU16(r, w.Path); ReadBytes(r, w.PowerLine); ReadBytes(r, w.WaterPipe); ReadI32(r, w.BuildingAt);
         ReadBytes(r, w.Powered); ReadBytes(r, w.Watered); ReadBytes(r, w.LandValue);

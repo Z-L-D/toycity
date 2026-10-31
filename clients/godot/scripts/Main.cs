@@ -174,6 +174,7 @@ public partial class Main : Node
         _streets = new StreetLabels(_client.City, _view);
         AddChild(_streets);
         AddChild(new BorderView(_client.City, _view));
+        AddChild(new RiversView(_client.City, _view));
         AddChild(new RoadsView(_client.City, _view));
         AddChild(new StripsView(_client.City, _view));
         var buses = _buses = new BusLinesView(_client.City, pm, _view);
