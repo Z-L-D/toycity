@@ -255,6 +255,7 @@ public sealed partial class World
         for (int yy = y; yy < y + h; yy++)
         for (int xx = x; xx < x + w; xx++)
             BuildingAt[Idx(xx, yy)] = b.Id + 1;
+        FlattenLot(x, y, w, h);
         return b;
     }
 

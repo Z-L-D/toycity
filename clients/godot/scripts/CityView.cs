@@ -6,9 +6,9 @@ using ToyCity.Protocol.V0;
 namespace ToyCity.Godot;
 
 /// <summary>
-/// The city in 3D, one world unit to a cell: terrain in chunks rebuilt where cells change (stepped, or with open
-/// ground sloping between levels when smooth terrain is on, see <see cref="TerrainShape"/>), a
-/// water plane, and buildings as voxel models, one instanced batch per type and lot size, with a coarser mesh at
+/// The city in 3D, one world unit to a cell: the ground as SimCity 4 drew it, a heightfield from the height at every
+/// grid corner (see <see cref="TerrainShape"/>), in chunks rebuilt where corners move and drawn coarser far from the
+/// camera when the settings say so; a water sheet coloured by its depth; and buildings as voxel models, one instanced batch per type and lot size, with a coarser mesh at
 /// far zoom levels. Buildings rise layer by layer as they're built and crumble when they go, and show their
 /// wear, graffiti, fire and abandonment (shaders/building.gdshader). It also answers how tall each cell stands,
 /// which picking needs.
@@ -33,7 +33,14 @@ public partial class CityView : Node3D
     (int X, int Y) _focus = (-99, -99);  // the region the smooth detail is centred on
     int _radius;
     MeshInstance3D? _cursor;
-    bool _smoothTerrain;
+    bool _fullTerrain = true;
+    int[] _stride = System.Array.Empty<int>();  // each chunk's drawn detail: 1 every corner, 2 every other, 4
+    double _lodAt;
+    Image? _cellImage;
+    ImageTexture? _cellTexture;
+    Image? _groundImage;
+    ImageTexture? _groundTexture;
+    ShaderMaterial? _waterMaterial;
     float[] _top = System.Array.Empty<float>();
     ShaderMaterial? _ground;
     double _flashUntil = -1;
@@ -44,8 +51,8 @@ public partial class CityView : Node3D
     public CityMirror City => _city;
 
     public float Ground(int i) => _city.Heights[i] * ClassicView.HeightStep;
-    /// <summary>The ground's surface at a point (in cells), as drawn: on the slopes when smooth terrain is on.</summary>
-    public float Surface(float x, float y) => TerrainShape.Surface(_city, x, y, _smoothTerrain) * ClassicView.HeightStep;
+    /// <summary>The ground's surface at a point (in cells), as drawn.</summary>
+    public float Surface(float x, float y) => TerrainShape.Surface(_city, x, y) * ClassicView.HeightStep;
     /// <summary>The highest thing on a cell: its building's roof, else the ground (or the water's surface).</summary>
     public float Top(int x, int y) => _top[_city.Idx(x, y)];
 
@@ -76,8 +83,11 @@ public partial class CityView : Node3D
         {
             foreach (var c in _chunks) c.QueueFree();
             _chunks = new MeshInstance3D[cw * ch];
+            _stride = new int[cw * ch];
+            System.Array.Fill(_stride, 1);
             for (int k = 0; k < _chunks.Length; k++) { _chunks[k] = new MeshInstance3D { MaterialOverride = _ground }; AddChild(_chunks[k]); }
             for (int k = 0; k < _chunks.Length; k++) BuildChunk(k % cw, k / cw);
+            PaintCells(null);
             _life.Reset();
             BuildWater();
             BuildBlocks();
@@ -94,6 +104,7 @@ public partial class CityView : Node3D
                     touched.Add(Math.Clamp((y + dy) / Chunk, 0, ch - 1) * cw + Math.Clamp((x + dx) / Chunk, 0, cw - 1));
         }
         foreach (int k in touched) BuildChunk(k % cw, k / cw);
+        if (cells.Length > 0) { PaintCells(cells); PaintGround(); }
         if (cells.Length > 0 || buildings.Length > 0) BuildBlocks();
     }
 
@@ -101,14 +112,9 @@ public partial class CityView : Node3D
     /// The graphics options' smooth terrain and smooth shape detail. Changing the terrain redraws the ground;
     /// changing the detail remakes the smooth models as they're next drawn.
     /// </summary>
-    public void SetShapes(bool smoothTerrain, int start, int budget)
+    public void SetShapes(bool fullTerrain, int start, int budget)
     {
-        if (smoothTerrain != _smoothTerrain)
-        {
-            _smoothTerrain = smoothTerrain;
-            int cw = (_city.Width + Chunk - 1) / Chunk;
-            if (_chunks.Length > 0) for (int k = 0; k < _chunks.Length; k++) BuildChunk(k % cw, k / cw);
-        }
+        if (fullTerrain != _fullTerrain) { _fullTerrain = fullTerrain; _lodAt = 0; }
         if (_models.SetShapes(start, budget))
             foreach (var (key, mmi) in _batches)
                 if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3), key.Item4);
@@ -139,6 +145,7 @@ public partial class CityView : Node3D
 
     public override void _Process(double delta)
     {
+        UpdateDetail();
         if (_flashUntil < 0) return;
         double now = Time.GetTicksMsec() / 1000.0, left = _flashUntil - now;
         // A slow pulse, fading out over the last second.
@@ -148,48 +155,87 @@ public partial class CityView : Node3D
     }
 
     /// <summary>
-    /// One chunk of terrain: a top per cell from its four corners (flat, or sloped on open ground when smooth
-    /// terrain is on), and a wall wherever a neighbour's edge is lower.
+    /// A few times a second: each chunk's detail from how far it is from the camera. Near ground always has every
+    /// corner; with distant terrain set coarse, ground beyond 60 cells takes every other and beyond 140 every fourth.
+    /// </summary>
+    void UpdateDetail()
+    {
+        double now = Time.GetTicksMsec() / 1000.0;
+        if (_chunks.Length == 0 || now < _lodAt) return;
+        _lodAt = now + 0.3;
+        var cam = GetViewport()?.GetCamera3D();
+        if (cam == null) return;
+        int cw = (_city.Width + Chunk - 1) / Chunk;
+        for (int k = 0; k < _chunks.Length; k++)
+        {
+            int cx = k % cw, cy = k / cw;
+            var centre = new Vector3(cx * Chunk + Chunk / 2f, Ground(_city.Idx(Math.Min(_city.Width - 1, cx * Chunk + Chunk / 2), Math.Min(_city.Height - 1, cy * Chunk + Chunk / 2))), cy * Chunk + Chunk / 2f);
+            float d = cam.GlobalPosition.DistanceTo(centre) - Chunk * 0.7f;
+            int want = _fullTerrain || d < 60 ? 1 : d < 140 ? 2 : 4;
+            if (want != _stride[k]) { _stride[k] = want; BuildChunk(cx, cy); }
+        }
+    }
+
+    /// <summary>
+    /// One chunk of ground: a grid of the corners' heights (every one, or every second or fourth far away), two
+    /// triangles to a square split north-west to south-east as <see cref="TerrainShape.Surface"/> reads them, normals
+    /// from the slope around each corner so light falls smoothly across the cells. A skirt hangs under its edges to
+    /// close any gap beside a chunk drawn at another detail, and at the map's edge a wall drops to the base.
     /// </summary>
     void BuildChunk(int cx, int cy)
     {
+        int cw = (_city.Width + Chunk - 1) / Chunk;
+        int k = cy * cw + cx, stride = _stride.Length > k ? _stride[k] : 1;
+        int x0 = cx * Chunk, y0 = cy * Chunk, x1 = Math.Min(_city.Width, x0 + Chunk), y1 = Math.Min(_city.Height, y0 + Chunk);
+        const float step = ClassicView.HeightStep;
+        float H(int x, int y) => _city.CornerSteps(x, y) * step;
+        var xs = new List<int>();
+        for (int x = x0; x < x1; x += stride) xs.Add(x);
+        xs.Add(x1);
+        var ys = new List<int>();
+        for (int y = y0; y < y1; y += stride) ys.Add(y);
+        ys.Add(y1);
         var verts = new List<Vector3>();
         var normals = new List<Vector3>();
         var colors = new List<Color>();
         var index = new List<int>();
-        void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, Color col)
-        {
-            int s = verts.Count;
-            verts.Add(a); verts.Add(b); verts.Add(c); verts.Add(d);
-            for (int k = 0; k < 4; k++) { normals.Add(n); colors.Add(col); }
-            index.Add(s); index.Add(s + 1); index.Add(s + 2);
-            index.Add(s); index.Add(s + 2); index.Add(s + 3);
-        }
-        int x1 = Math.Min(_city.Width, (cx + 1) * Chunk), y1 = Math.Min(_city.Height, (cy + 1) * Chunk);
-        const float step = ClassicView.HeightStep;
-        (float NW, float NE, float SE, float SW) CornersOf(int x, int y)
-        {
-            if (!_city.InBounds(x, y)) return (Base, Base, Base, Base);
-            var k = TerrainShape.Corners(_city, x, y, _smoothTerrain);
-            return (k.NW * step, k.NE * step, k.SE * step, k.SW * step);
-        }
-        for (int y = cy * Chunk; y < y1; y++)
-            for (int x = cx * Chunk; x < x1; x++)
+        int nx = xs.Count;
+        foreach (int y in ys)
+            foreach (int x in xs)
             {
-                int i = _city.Idx(x, y);
-                var col = Palette.Cell(_city, i);
-                var (nw, ne, se, sw) = CornersOf(x, y);
-                Vector3 a = new(x, nw, y), b = new(x + 1, ne, y), c = new(x + 1, se, y + 1), d = new(x, sw, y + 1);
-                var up = (c - a).Cross(b - d).Normalized();
-                Quad(a, b, c, d, up.Y > 0 ? up : -up, col);
-                var wall = col.Darkened(0.25f);
-                // North, east, south, west: a wall down to the neighbour's edge, or to the base at the map's edge.
-                var n = CornersOf(x, y - 1); var e = CornersOf(x + 1, y); var s = CornersOf(x, y + 1); var w = CornersOf(x - 1, y);
-                if (n.SW < nw || n.SE < ne) Quad(new(x, nw, y), new(x + 1, ne, y), new(x + 1, Math.Min(ne, n.SE), y), new(x, Math.Min(nw, n.SW), y), Vector3.Forward, wall);
-                if (s.NW < sw || s.NE < se) Quad(new(x, sw, y + 1), new(x + 1, se, y + 1), new(x + 1, Math.Min(se, s.NE), y + 1), new(x, Math.Min(sw, s.NW), y + 1), Vector3.Back, wall.Darkened(0.1f));
-                if (e.NW < ne || e.SW < se) Quad(new(x + 1, ne, y), new(x + 1, se, y + 1), new(x + 1, Math.Min(se, e.SW), y + 1), new(x + 1, Math.Min(ne, e.NW), y), Vector3.Right, wall.Darkened(0.05f));
-                if (w.NE < nw || w.SE < sw) Quad(new(x, nw, y), new(x, sw, y + 1), new(x, Math.Min(sw, w.SE), y + 1), new(x, Math.Min(nw, w.NE), y), Vector3.Left, wall.Darkened(0.15f));
+                verts.Add(new Vector3(x, H(x, y), y));
+                float gx = (H(x + 1, y) - H(x - 1, y)) / 2, gz = (H(x, y + 1) - H(x, y - 1)) / 2;
+                normals.Add(new Vector3(-gx, 1, -gz).Normalized());
+                colors.Add(Colors.White);
             }
+        for (int j = 0; j + 1 < ys.Count; j++)
+            for (int i = 0; i + 1 < nx; i++)
+            {
+                int a = j * nx + i, b = a + 1, c = a + nx + 1, d = a + nx;
+                index.Add(a); index.Add(b); index.Add(c);
+                index.Add(a); index.Add(c); index.Add(d);
+            }
+        // Skirts and walls: along each edge, a strip from the ground down to a little under it, or to the base at the
+        // map's edge.
+        void Edge(IReadOnlyList<(int X, int Y)> line, Vector3 outward, bool mapEdge)
+        {
+            for (int e = 0; e + 1 < line.Count; e++)
+            {
+                var (ax, ay) = line[e];
+                var (bx, by) = line[e + 1];
+                float ha = H(ax, ay), hb = H(bx, by);
+                float la = mapEdge ? Base : ha - 0.6f, lb = mapEdge ? Base : hb - 0.6f;
+                int s0 = verts.Count;
+                verts.Add(new Vector3(ax, ha, ay)); verts.Add(new Vector3(bx, hb, by)); verts.Add(new Vector3(bx, lb, by)); verts.Add(new Vector3(ax, la, ay));
+                for (int q = 0; q < 4; q++) { normals.Add(outward); colors.Add(new Color(1, 1, 1, 0)); }
+                index.Add(s0); index.Add(s0 + 1); index.Add(s0 + 2);
+                index.Add(s0); index.Add(s0 + 2); index.Add(s0 + 3);
+            }
+        }
+        Edge(xs.Select(x => (x, y0)).ToList(), Vector3.Forward, y0 == 0);
+        Edge(xs.Select(x => (x, y1)).ToList(), Vector3.Back, y1 == _city.Height);
+        Edge(ys.Select(y => (x0, y)).ToList(), Vector3.Left, x0 == 0);
+        Edge(ys.Select(y => (x1, y)).ToList(), Vector3.Right, x1 == _city.Width);
         var arrays = new global::Godot.Collections.Array();
         arrays.Resize((int)Mesh.ArrayType.Max);
         arrays[(int)Mesh.ArrayType.Vertex] = verts.ToArray();
@@ -198,7 +244,42 @@ public partial class CityView : Node3D
         arrays[(int)Mesh.ArrayType.Index] = index.ToArray();
         var mesh = new ArrayMesh();
         mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
-        _chunks[cy * ((_city.Width + Chunk - 1) / Chunk) + cx].Mesh = mesh;
+        _chunks[k].Mesh = mesh;
+    }
+
+    /// <summary>
+    /// The city's marks on the ground, one texel a cell: roads (until they have their own shapes) and a zone's tint
+    /// on empty zoned land. Only the given cells, or all of them.
+    /// </summary>
+    void PaintCells(int[]? cells)
+    {
+        int w = _city.Width, h = _city.Height;
+        if (_cellImage == null || _cellImage.GetWidth() != w || _cellImage.GetHeight() != h)
+        {
+            _cellImage = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
+            cells = null;
+        }
+        void Paint(int i) => _cellImage.SetPixel(i % w, i / w, Palette.Mark(_city, i));
+        if (cells == null) for (int i = 0; i < _city.N; i++) Paint(i);
+        else foreach (int i in cells) Paint(i);
+        if (_cellTexture == null || cells == null) _cellTexture = ImageTexture.CreateFromImage(_cellImage);
+        else _cellTexture.Update(_cellImage);
+        _ground!.SetShaderParameter("cells", _cellTexture);
+        _ground.SetShaderParameter("map_size", new Vector2(w, h));
+    }
+
+    /// <summary>The corner heights as a texture, for the water to know how deep it is.</summary>
+    void PaintGround()
+    {
+        int w = _city.Width + 1, h = _city.Height + 1;
+        bool fresh = _groundImage == null || _groundImage.GetWidth() != w || _groundImage.GetHeight() != h;
+        if (fresh) _groundImage = Image.CreateEmpty(w, h, false, Image.Format.Rf);
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                _groundImage!.SetPixel(x, y, new Color(_city.CornerSteps(x, y) * ClassicView.HeightStep, 0, 0));
+        if (fresh || _groundTexture == null) _groundTexture = ImageTexture.CreateFromImage(_groundImage);
+        else _groundTexture.Update(_groundImage);
+        _waterMaterial?.SetShaderParameter("ground", _groundTexture);
     }
 
     void BuildWater()
@@ -208,11 +289,15 @@ public partial class CityView : Node3D
         // The ground shades its shore and bed by height against the water's surface.
         _ground!.SetShaderParameter("water_y", level);
         _ground.SetShaderParameter("height_step", ClassicView.HeightStep);
+        _waterMaterial = new ShaderMaterial { Shader = GD.Load<Shader>("res://shaders/water.gdshader") };
+        _waterMaterial.SetShaderParameter("map_size", new Vector2(_city.Width, _city.Height));
+        _waterMaterial.SetShaderParameter("height_step", ClassicView.HeightStep);
+        PaintGround();
         _water = new MeshInstance3D
         {
             Mesh = new PlaneMesh { Size = new Vector2(_city.Width, _city.Height) },
             Position = new Vector3(_city.Width / 2f, level, _city.Height / 2f),
-            MaterialOverride = new StandardMaterial3D { AlbedoColor = Palette.Water, Transparency = BaseMaterial3D.TransparencyEnum.Alpha, Roughness = 0.2f, Metallic = 0.1f },
+            MaterialOverride = _waterMaterial,
         };
         AddChild(_water);
     }

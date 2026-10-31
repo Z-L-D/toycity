@@ -509,6 +509,7 @@ public sealed partial class World
         var demand = (int[])w.Demand.Clone();
         w.UpdateStats();
         demand.CopyTo(w.Demand, 0);
+        if (version < 8) w.FlattenAllLots();
         return w;
     }
 

@@ -410,7 +410,7 @@ public partial class Main : Node
                 _camera.ToggleFree();
                 (_free!.Pitch, _free.Distance, _free.Yaw) = (22, 10, 30);
                 // The free camera's views show smooth shapes and smooth terrain whatever the preset, so every run's shots have them.
-                _graphics = _graphics with { Smoothing = ToyCity.ClientModel.Graphics.Smoothing.Wide, SmoothTerrain = true };
+                _graphics = _graphics with { Smoothing = ToyCity.ClientModel.Graphics.Smoothing.Wide, FullTerrain = true };
                 ApplyGraphics();
             }
             else (_free!.Pitch, _free.Distance, _free.Yaw) = (40, 45, 60);

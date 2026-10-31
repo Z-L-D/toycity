@@ -67,3 +67,22 @@ The grading tests now expect the cliff's face to be a sloped cell, not a wall.
 - About a fifth of the map is water.
 
 Seven tests that leaned on a particular seed's old map now use other seeds.
+
+## Part 3: the Godot terrain renderer
+
+- **One mesh from the corners.** The ground is the server's corner heights drawn as triangles, each cell split
+  north-west to south-east, the same split the client model uses to stand things on the ground. Built cells sit
+  flat because their corners are level.
+- **Chunks and detail.** The map is drawn in chunks. Chunks near the camera use every corner; farther ones every
+  second, then every fourth. Skirts hang under chunk edges so the joins between levels of detail never show sky.
+  The "Distant terrain" option (Coarse or Full) keeps every chunk at full detail on high settings.
+- **What the ground is made of** goes by slope and height in the shader, as real ground does:
+  - meadow and drier grass with patches of bare earth on the flats;
+  - earth and then banded rock as the slope steepens;
+  - snow above about 300 m where the slope lets it lie;
+  - a sandy shore just above the waterline, and a bed darkening with depth below it.
+  Noise in world space at three scales breaks every material up.
+- **Marks on the ground.** Over that go the city's marks, one texel a cell: asphalt on road cells and a light tint
+  on empty zoned land. The minimap uses the same colours.
+- **Water** is a flat sheet at the waterline. Its colour comes from how deep the ground under it is, clear green in
+  the shallows and dark blue far out, with foam at the shore and ripples that catch the sun.

@@ -52,13 +52,43 @@ public sealed partial class World
             for (int cx = x; cx <= x + 1; cx++)
             {
                 if (!done.Add(cy * cw + cx)) continue;
-                int sum = 0, n = 0;
-                for (int dy = -1; dy <= 0; dy++)
-                for (int dx = -1; dx <= 0; dx++)
-                    if (InBounds(cx + dx, cy + dy)) { sum += Height[Idx(cx + dx, cy + dy)]; n++; }
-                Corner[cy * cw + cx] = (ushort)((sum * StepDm + n / 2) / n);
+                Corner[cy * cw + cx] = (ushort)CornerFromCells(cx, cy);
             }
         }
+    }
+
+    /// <summary>
+    /// A corner's height from the cells around it: a building's lot wins (its pad is flat to its edges, the highest
+    /// if two meet), otherwise the average of the cells.
+    /// </summary>
+    int CornerFromCells(int cx, int cy)
+    {
+        int sum = 0, n = 0, lot = -1;
+        for (int dy = -1; dy <= 0; dy++)
+        for (int dx = -1; dx <= 0; dx++)
+        {
+            if (!InBounds(cx + dx, cy + dy)) continue;
+            int i = Idx(cx + dx, cy + dy);
+            sum += Height[i]; n++;
+            if (BuildingAt[i] != 0) lot = Math.Max(lot, Height[i]);
+        }
+        return lot >= 0 ? lot * StepDm : (sum * StepDm + n / 2) / n;
+    }
+
+    /// <summary>Flattens the ground under a lot to its cells' level, all the way to its edges.</summary>
+    void FlattenLot(int x, int y, int w, int h)
+    {
+        int cw = Width + 1;
+        for (int cy = y; cy <= y + h; cy++)
+        for (int cx = x; cx <= x + w; cx++)
+            if (cx <= Width && cy <= HeightCells) Corner[cy * cw + cx] = (ushort)CornerFromCells(cx, cy);
+    }
+
+    /// <summary>Every lot's ground flat to its edges: for ground made from cells, which averages across them.</summary>
+    void FlattenAllLots()
+    {
+        foreach (var b in Buildings)
+            if (b != null && !TypeOf(b).Roadside) FlattenLot(b.X, b.Y, b.W, b.H);
     }
 
     /// <summary>Fractal value noise from the seed: rolling hills, a few lakes and a coast.</summary>
