@@ -46,6 +46,9 @@ public sealed partial class World
     /// <summary>What the computer may still spend this month: the owner's cap, and never more than the treasury holds.</summary>
     bool Affordable(long cost) => cost <= Funds && _autoSpent + cost <= MayorSeat.SpendCap;
 
+    /// <summary>Why the computer's last action was turned down, or "". Not saved.</summary>
+    internal string LastRefusal = "";
+
     /// <summary>Applies an action as the computer and counts what it cost against the month's cap.</summary>
     bool Do(SimAction a)
     {
@@ -55,6 +58,7 @@ public sealed partial class World
         _autoSpent += Math.Max(0, before - Funds);
         // A rejection leaves a warning; the computer's attempts shouldn't read as the player's mistakes.
         bool ok = !Notices.Skip(notices).Any(n => n.Severity == "warning");
+        LastRefusal = ok ? "" : Notices.Skip(notices).First(n => n.Severity == "warning").Text;
         if (!ok) Notices.RemoveRange(notices, Notices.Count - notices);
         return ok;
     }

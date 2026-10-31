@@ -157,3 +157,48 @@ around it is within the embankment's slope, and that only the brush is paid for.
 
 Four tests whose sites a new river crossed now use other seeds. The computer-mayor deal test lets its power line
 cross a river, since lines may now.
+
+## Part 6: neighbours that build to meet you, and buses that run on
+
+### Computer mayors build out to the border
+
+Once a month, a computer mayor (or any city on autopilot) looks along each side for a neighbour's road, power line
+or water pipe that reaches the border with nothing on its own side to meet it, and builds one, within the month's
+spending cap. At most one link of each kind a month (`World.AutopilotBorders`, `src/ToyCity.Sim/BorderBuilding.cs`).
+
+- **Roads take the cheapest way, not the shortest.** A Dijkstra search from the border cell inward costs each step
+  10, plus 30 for every step of climb from the last cell (that's the grading), 60 more for a bridge and 4 for a
+  turn. So the road follows valleys, keeps fairly straight, and crosses a river only where it must. It's cut into
+  straight runs and priced as the server would price them, grading and bridges included, before anything is built.
+- **It always leaves the border straight inward,** so the crossing counts for traffic.
+- **It joins the town's streets,** the ones that lead to some building's door, not a stray stub.
+- **If the money runs out partway,** the half-built road is picked up next month from where it got to, rather than
+  left as a stub that blocks the crossing for good.
+- Power lines and pipes take the shortest way to the nearest part of their network, and may cross rivers.
+- The mayor gets an away note: "Built a road out to meet Westbrook's at the border."
+
+### Bus lines run on into the neighbouring city
+
+A bus line can now carry on past its last stop, over a road crossing into a neighbour.
+
+- The city tells the company where its working crossings are (contract v1.4 `CityToGame.Crossings`: the side, the
+  neighbour's name, the crossing cell and the people crossing a day).
+- In the company panel's line editor, under the fare, "Runs on into" lists the neighbours a road reaches. Pick one
+  and the line's route extends from its last stop to that crossing, with 12 more minutes for the run beyond it. The
+  line list shows "→ Botton" after its stops. Only buses run on; trams, trains and freight don't.
+- A line lives in one city's state, so what it carries over the border comes from the border's flows, not from
+  the neighbour's people. Of everyone crossing that side (commuters, shoppers and visitors), it carries a share
+  that grows as it runs more often: 30% at a bus every 10 minutes, at most 40%, and never more than its seats for
+  the 16 service hours. They board at its last stop.
+- Its seats count toward the side's road capacity, as a shuttle deal's do, so more people can cross.
+- The company's save keeps the run-on and the crossings; older saves load without them.
+
+### Tests
+
+- `AComputerMayorBuildsOutToMeetANeighboursRoadLineAndPipe`: a player brings a road, a line and a pipe to the
+  border; within a few months the computer next door has met all three, the road reaches its town, the crossing
+  carries traffic, and the computer's city still replays alone from its log.
+- `ABusLineRunsOnIntoTheNeighbourAndCarriesCommutersOverTheBorder`: a player runs a road to the border and the
+  computer meets it. A line asked to run on over a border with no crossing is refused. One run on to the
+  neighbour has no problem, names the neighbour, carries through riders and raises the side's capacity, and keeps
+  running on after a save.

@@ -15,9 +15,10 @@ public static class ContractInfo
     /// tram and rail lines (<see cref="TransitLine.Mode"/>) and <see cref="ICityQueries.RouteFor"/>; 3 added franchise
     /// tenders (<see cref="CityToGame.Tenders"/>, <see cref="CityToGame.Franchises"/>, bids as <see cref="AuthorityAction"/>
     /// with an amount) and freight (<see cref="CityToGame.Freight"/>, <see cref="GameToCity.FreightPicked"/>,
-    /// <see cref="GameToCity.FreightDropped"/>, and routes to the map edge).
+    /// <see cref="GameToCity.FreightDropped"/>, and routes to the map edge); 4 added lines that run on into a neighbouring
+    /// city (<see cref="TransitLine.ThroughSide"/>, <see cref="CityToGame.Crossings"/>).
     /// </summary>
-    public const int Minor = 3;
+    public const int Minor = 4;
 }
 
 /// <summary>What a side game tells the city when it registers.</summary>
@@ -130,6 +131,8 @@ public sealed class CityToGame
     public readonly List<Franchise> Franchises = new();
     /// <summary>v1.3: goods at this game's leased freight depots.</summary>
     public readonly List<FreightLot> Freight = new();
+    /// <summary>v1.4: where the city's roads cross into neighbouring cities, one a side.</summary>
+    public readonly List<BorderCrossing> Crossings = new();
 }
 
 /// <summary>
@@ -149,7 +152,14 @@ public static class TransitModes
 /// its vehicles run on; its stops are leased lots of that mode's stop kind.
 /// </summary>
 public sealed record TransitLine(int LineId, string Name, string Color, IReadOnlyList<int> StopLeaseIds, int HeadwayMinutes, int FareCents, int SeatsPerHour,
-    TransitMode Mode = TransitMode.Bus);
+    TransitMode Mode = TransitMode.Bus, int ThroughSide = -1);
+
+/// <summary>
+/// v1.4: a road crossing into a neighbouring city on one side (0 north, 1 east, 2 south, 3 west), and how many
+/// commuters cross that side a day, both ways. A line with <see cref="TransitLine.ThroughSide"/> set runs on past its
+/// last stop over that border, and carries a share of them.
+/// </summary>
+public sealed record BorderCrossing(int Side, string Neighbour, int Cell, int CommutersADay);
 
 /// <summary>Everything a side game tells the city each day.</summary>
 public sealed class GameToCity

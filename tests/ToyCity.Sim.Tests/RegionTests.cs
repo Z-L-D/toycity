@@ -331,7 +331,7 @@ public class RegionTests
         Assert.Equal(0, bot.Path[bot.Idx(0, y)]);
         r.Run(130);
         // Botton's computer met all three, each joined to its town.
-        Assert.True(bot.Path[bot.Idx(0, y)] != 0, $"no road; funds {bot.Funds}, cap {bot.MayorSeat.SpendCap}, level {bot.MayorSeat.Level}, next door {bot.NextDoor[3]?.Name} path {bot.NextDoor[3]?.Path[y]}");
+        Assert.True(bot.Path[bot.Idx(0, y)] != 0, $"no road; {bot.LastRefusal}; funds {bot.Funds}, cap {bot.MayorSeat.SpendCap}, level {bot.MayorSeat.Level}, next door {bot.NextDoor[3]?.Name} path {bot.NextDoor[3]?.Path[y]}");
         var seen = new HashSet<int> { bot.Idx(0, y) };
         var q = new Queue<int>(seen);
         bool town = false;

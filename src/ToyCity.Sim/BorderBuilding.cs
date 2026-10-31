@@ -13,7 +13,7 @@ public sealed partial class World
     /// <summary>The farthest, in cells, the computer will build to meet a crossing.</summary>
     public const int BorderReach = 160;
 
-    enum Link { Road, Power, Pipe }
+    internal enum Link { Road, Power, Pipe }
 
     void AutopilotBorders()
     {
@@ -29,6 +29,7 @@ public sealed partial class World
     bool MeetCrossing(NeighbourEdge n, int side, Link link)
     {
         int len = SideLength(side);
+        bool[]? town = null;
         for (int k = 1; k < len - 1; k++)
         {
             int edge = SideCell(side, k);
@@ -36,7 +37,9 @@ public sealed partial class World
             switch (link)
             {
                 case Link.Road:
-                    if (k >= n.Path.Length || n.Path[k] == 0 || Path[edge] != 0) continue;
+                    // Met already, unless it's the stub of a road the money ran out on, not yet joined to the town.
+                    if (k >= n.Path.Length || n.Path[k] == 0) continue;
+                    if (Path[edge] != 0 && (ProfileAt(edge) is not { Rail: false } || (town ??= TownStreets())[edge])) continue;
                     var p = Content.Profiles[n.Path[k] - 1];
                     if (p.Rail) continue;
                     profile = p.Id;
@@ -58,6 +61,8 @@ public sealed partial class World
                 Link.Power => route.Count * (long)PowerLineCost,
                 _ => route.Count * (long)WaterPipeCost,
             };
+            // Grading one run can make the next dearer than it looked; if the money runs out partway, the stub is
+            // picked up again next month from where it got to.
             if (!Affordable(guess)) return false;
             bool ok = true;
             foreach (var (a, b) in legs)
@@ -89,12 +94,14 @@ public sealed partial class World
     /// costs more the more it climbs from the last (the grading), a bridge more again, and a turn a little, so it
     /// follows valleys and keeps straight. Ties go by cell, so it's the same every time.
     /// </summary>
-    List<int>? RouteInward(int start, Link link)
+    internal List<int>? RouteInward(int start, Link link)
     {
         bool Open(int i) => BuildingAt[i] == 0 && (!IsWater(i) || IsRiver(i));
+        // A road joins the town's streets, not some stub out on its own, or nobody would drive it.
+        var town = link == Link.Road ? TownStreets() : null;
         bool Goal(int i) => link switch
         {
-            Link.Road => Path[i] != 0 && ProfileAt(i) is { Rail: false },
+            Link.Road => town![i],
             Link.Power => ConductsPower(i),
             _ => WaterPipe[i] != 0,
         };
@@ -102,11 +109,30 @@ public sealed partial class World
         // A road leaves the border straight inward, so the crossing counts (World.RunNeighborConnections).
         int sx = start % Width, sy = start / Width;
         int inward = sx == 0 ? start + 1 : sx == Width - 1 ? start - 1 : sy == 0 ? start + Width : start - Width;
-        var from = new Dictionary<int, int> { [start] = -1 };
-        var cost = new Dictionary<int, int> { [start] = 0 };
-        var steps = new Dictionary<int, int> { [start] = 0 };
+        var from = new Dictionary<int, int>();
+        var cost = new Dictionary<int, int>();
+        var steps = new Dictionary<int, int>();
         var queue = new PriorityQueue<int, (int, int)>();
-        queue.Enqueue(start, (0, start));
+        // A stub already built in from the border carries on from wherever it got to.
+        var stub = new List<int> { start };
+        if (link == Link.Road && Path[start] != 0 && Path[inward] != 0)
+            for (int s = 0; s < stub.Count; s++)
+            {
+                int c = stub[s], x = c % Width, y = c / Width;
+                for (int k = 0; k < 4; k++)
+                {
+                    int nx = x + Dx4[k], ny = y + Dy4[k];
+                    if (!InBounds(nx, ny)) continue;
+                    int j = Idx(nx, ny);
+                    if (Path[j] != 0 && ProfileAt(j) is { Rail: false } && !stub.Contains(j) && stub.Count < 4 * BorderReach) stub.Add(j);
+                }
+            }
+        bool fresh = stub.Count == 1;
+        foreach (int c in stub)
+        {
+            from[c] = -1; cost[c] = 0; steps[c] = 0;
+            queue.Enqueue(c, (0, c));
+        }
         var done = new HashSet<int>();
         while (queue.TryDequeue(out int c, out _))
         {
@@ -118,7 +144,7 @@ public sealed partial class World
                 int nx = x + Dx4[k], ny = y + Dy4[k];
                 if (!InBounds(nx, ny)) continue;
                 int j = Idx(nx, ny);
-                if (done.Contains(j) || (link == Link.Road && c == start && j != inward)) continue;
+                if (done.Contains(j) || (link == Link.Road && fresh && c == start && j != inward)) continue;
                 if (Goal(j))
                 {
                     var route = new List<int>();
@@ -145,8 +171,33 @@ public sealed partial class World
         return null;
     }
 
+    /// <summary>Road cells joined, street by street, to some building's door.</summary>
+    internal bool[] TownStreets()
+    {
+        var seen = new bool[N];
+        var queue = new Queue<int>();
+        foreach (var b in Buildings)
+        {
+            if (b == null || b.Access < 0 || seen[b.Access] || ProfileAt(b.Access) is not { Rail: false }) continue;
+            seen[b.Access] = true;
+            queue.Enqueue(b.Access);
+        }
+        while (queue.Count > 0)
+        {
+            int c = queue.Dequeue(), x = c % Width, y = c / Width;
+            for (int k = 0; k < 4; k++)
+            {
+                int nx = x + Dx4[k], ny = y + Dy4[k];
+                if (!InBounds(nx, ny)) continue;
+                int j = Idx(nx, ny);
+                if (!seen[j] && Path[j] != 0 && ProfileAt(j) is { Rail: false }) { seen[j] = true; queue.Enqueue(j); }
+            }
+        }
+        return seen;
+    }
+
     /// <summary>A route cut into straight runs, as (first cell, last cell); each run's last cell starts the next.</summary>
-    List<(int A, int B)> Straights(List<int> route)
+    internal List<(int A, int B)> Straights(List<int> route)
     {
         var legs = new List<(int, int)>();
         int start = 0;

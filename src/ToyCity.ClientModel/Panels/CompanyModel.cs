@@ -46,7 +46,7 @@ public sealed class CompanyModel
     /// <summary>The lot picked with the look tool, by building id.</summary>
     public int? Selected { get; private set; }
     /// <summary>The line being drawn: its stops (lease ids) in order, and what runs on it (-1 until its first stop).</summary>
-    public (int LineId, string Name, List<int> Stops, int Fare, int Mode, bool Freight, bool ToEdge)? Draft { get; private set; }
+    public (int LineId, string Name, List<int> Stops, int Fare, int Mode, bool Freight, bool ToEdge, int Through)? Draft { get; private set; }
 
     static readonly string[] StopKinds = { "bus-stop", "tram-stop", "rail-station" };
     static readonly string[] ModeIcon = { "🚌", "🚋", "🚆" };
@@ -103,7 +103,7 @@ public sealed class CompanyModel
     void SetTool(CompanyTool t)
     {
         Tool = t;
-        if (t == CompanyTool.Line && Draft == null) Draft = (0, "", new List<int>(), 150, -1, false, false);
+        if (t == CompanyTool.Line && Draft == null) Draft = (0, "", new List<int>(), 150, -1, false, false, 0);
         if (t != CompanyTool.Line) Draft = null;
         if (t == CompanyTool.Line) Tab = "lines";
         _changed();
@@ -302,11 +302,12 @@ public sealed class CompanyModel
             case "co-bid": Command(new Command { Bid = new Bid { District = I(1), Amount = a.Length > 2 && long.TryParse(a[2], out var amt) ? amt : 0 } }); return;
             case "co-fmode" when Draft is { } fd && fd.LineId == 0: Draft = fd with { Mode = I(1) == 2 ? 2 : 0 }; _changed(); return;
             case "co-edge" when Draft is { } ed: Draft = ed with { ToEdge = !ed.ToEdge }; _changed(); return;
+            case "co-through" when Draft is { } th: Draft = th with { Through = Math.Clamp(I(1), 0, 4) }; _changed(); return;
             case "co-new": SetTool(CompanyTool.Line); return;
             case "co-edit":
                 if (View?.Lines.FirstOrDefault(l => l.Id == I(1)) is { } line)
                 {
-                    Draft = (line.Id, line.Name, line.StopLeaseIds.ToList(), line.FareCents, (int)line.Mode, line.Freight, line.ToEdge);
+                    Draft = (line.Id, line.Name, line.StopLeaseIds.ToList(), line.FareCents, (int)line.Mode, line.Freight, line.ToEdge, line.Through);
                     Tool = CompanyTool.Line;
                     Tab = "lines";
                     _changed();
@@ -331,7 +332,7 @@ public sealed class CompanyModel
             case "co-cancel": SetTool(CompanyTool.Look); return;
             case "co-save" when Draft is { } d:
             {
-                var save = new SaveLine { LineId = d.LineId, Name = d.Name.Trim(), FareCents = d.Freight ? 0 : d.Fare, Mode = (Mode)Math.Max(0, d.Mode), Freight = d.Freight, ToEdge = d.Freight && d.ToEdge };
+                var save = new SaveLine { LineId = d.LineId, Name = d.Name.Trim(), FareCents = d.Freight ? 0 : d.Fare, Mode = (Mode)Math.Max(0, d.Mode), Freight = d.Freight, ToEdge = d.Freight && d.ToEdge, Through = d.Freight || d.Mode > 0 ? 0 : d.Through };
                 save.StopLeaseIds.AddRange(d.Stops);
                 Command(new Command { SaveLine = save });
                 SetTool(CompanyTool.Look);
@@ -447,7 +448,21 @@ public sealed class CompanyModel
                 sb.Append(Link("co-edge", d.ToEdge ? "☑ On to the map edge" : "☐ On to the map edge")).Append('\n');
                 sb.Append(Small(Dim($"Goods made by factories near a depot go to the shops near the line's other depots{(d.ToEdge ? ", and the rest out of the city" : "")}. Each ton pays more the longer the run."))).Append('\n');
             }
-            else sb.Append($"Fare  {Link("co-fare:-25", "−0.25")}  [b]{Fare(d.Fare)}[/b]  {Link("co-fare:25", "+0.25")}\n");
+            else
+            {
+                sb.Append($"Fare  {Link("co-fare:-25", "−0.25")}  [b]{Fare(d.Fare)}[/b]  {Link("co-fare:25", "+0.25")}\n");
+                // A bus line can run on past its last stop, over a road into a neighbouring city.
+                if (d.Mode <= 0 && v.Crossings.Count > 0)
+                {
+                    sb.Append("Runs on into  ").Append(d.Through == 0 ? "[b]nowhere[/b]" : Link("co-through:0", "nowhere"));
+                    foreach (var c in v.Crossings.OrderBy(c => c.Side))
+                    {
+                        string label = $"{Esc(c.Neighbour)} ({SideWord(c.Side)})";
+                        sb.Append("   ").Append(d.Through == c.Side + 1 ? $"[b]{label}[/b]" : Link($"co-through:{c.Side + 1}", label));
+                    }
+                    sb.Append('\n').Append(Small(Dim("From its last stop the buses carry on over the border, picking up people crossing it (more the more often they run), and their seats let more people cross."))).Append('\n');
+                }
+            }
             int need = d.Freight && d.ToEdge ? 1 : 2;
             sb.Append(d.Stops.Count >= need ? $"[b]{Link("co-save", "Save line")}[/b]" : Dim("Save line")).Append("   ").Append(Link("co-cancel", "Cancel")).Append("\n\n");
         }
@@ -478,7 +493,7 @@ public sealed class CompanyModel
             if (l.SignalLimited)
                 sb.Append(Small(Col(Warn, $"The signals hold it to a train every {l.HeadwayMinutes} min: the track ahead is still held by the last one. Put up signals (🚦) along the line so more trains can share it; path signals keep trains on different lines out of each other's way at junctions."))).Append('\n');
             var boards = l.StopLeaseIds.Select((s, i) => (Lot(s) is { } lot ? Link($"co-jump:{lot.X}:{lot.Y}", StopName(s)) : "?") + (fr ? "" : $" {(i < l.Boardings.Count ? l.Boardings[i] : 0)}"));
-            sb.Append(Small(Dim(fr ? "Depots: " : "Boardings: ") + string.Join(" → ", boards) + (l.ToEdge ? " → edge" : ""))).Append('\n');
+            sb.Append(Small(Dim(fr ? "Depots: " : "Boardings: ") + string.Join(" → ", boards) + (l.ToEdge ? " → edge" : "") + (l.Through > 0 ? $" → {Esc(l.ThroughName)}" : ""))).Append('\n');
             var lm = l.LastMonth ?? new MonthMoney();
             sb.Append(Small($"Last month: {(fr ? "freight" : "fares")} {Money(lm.Fares)}, costs {Money(lm.Wages + lm.Upkeep + lm.Rent)}, [b]{PosNeg(lm.Profit, Money(lm.Profit))}[/b]")).Append('\n');
             if (l.Vehicles.Count > 0)
@@ -600,4 +615,6 @@ public sealed class CompanyModel
     public string TopText => View is { } v
         ? $"{v.Name}   {Money(v.Cash)}   {v.Buses} of {v.BusCapacity} buses   service {v.ServiceQuality}/100"
         : "No bus company";
+
+    static string SideWord(int side) => side switch { 0 => "north", 1 => "east", 2 => "south", _ => "west" };
 }
