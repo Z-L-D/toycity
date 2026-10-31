@@ -105,6 +105,13 @@ jobs:
           { echo '### Gate run (CI runner, software OpenGL)'; echo; grep '^GATE ' gate.log | sed 's/^GATE //'; } >> "$GITHUB_STEP_SUMMARY"
           grep -q "GATE OK" gate.log
           ! grep -n "SHADER ERROR" -A3 gate.log
+      - name: Mountains, the Beta 3.1 gate (a 256-cell mountain city from the classic and free cameras, software OpenGL)
+        run: |
+          xvfb-run -a -s "-screen 0 1600x900x24" timeout 600 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
+            --path clients/godot -- --mountains "$PWD/mountains.json" --graphics High --shots "$PWD/mountain-shots" 2>&1 | tee mountains.log
+          { echo '### Mountains: the Beta 3.1 gate (CI runner, software OpenGL)'; echo; grep '^MOUNTAIN ' mountains.log | sed 's/^MOUNTAIN //'; } >> "$GITHUB_STEP_SUMMARY"
+          grep -q "MOUNTAIN OK" mountains.log
+          ! grep -n "SHADER ERROR" -A3 mountains.log
       - name: Together, the Beta 2 gate (four players on a dedicated server, software OpenGL)
         run: |
           mkdir -p together && echo '{ "name": "Together town", "join": "open" }' > together/host.json
@@ -123,6 +130,10 @@ jobs:
           if ls gate-shots/*.png > /dev/null 2>&1; then
             montage gate-shots/*.png -tile 4x -geometry 400x225+1+1 -quality 45 gate-sheet.jpg
             echo "::group::gate-sheet.jpg base64"; echo "GATE-SHEET-BEGIN"; base64 -w 0 gate-sheet.jpg; echo; echo "GATE-SHEET-END"; echo "::endgroup::"
+          fi
+          if ls mountain-shots/*.png > /dev/null 2>&1; then
+            montage mountain-shots/*.png -tile 2x -geometry 800x450+2+2 -quality 60 mountain-sheet.jpg
+            echo "::group::mountain-sheet.jpg base64"; echo "MOUNTAIN-SHEET-BEGIN"; base64 -w 0 mountain-sheet.jpg; echo; echo "MOUNTAIN-SHEET-END"; echo "::endgroup::"
           fi
           if ls together-shots/*.png > /dev/null 2>&1; then
             montage together-shots/*.png -tile 2x -geometry 800x450+2+2 -quality 55 together-sheet.jpg
@@ -150,6 +161,10 @@ jobs:
             gate-sheet.jpg
             gate.json
             gate.log
+            mountain-shots/
+            mountain-sheet.jpg
+            mountains.json
+            mountains.log
             together-shots/
             together-sheet.jpg
             together.json
