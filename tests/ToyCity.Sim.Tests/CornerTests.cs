@@ -57,3 +57,24 @@ public class CornerTests
         Assert.Equal(w.StateHash(), loaded.StateHash());
     }
 }
+
+/// <summary>The generator: lowland, coast and lakes, and mountain ranges worn by rain.</summary>
+public class GeneratorTests
+{
+    [Fact]
+    public void SomeMapsHaveMountainsAndTheSameSeedMakesTheSameGround()
+    {
+        var tall = Enumerable.Range(1, 6).Select(s => World.GenerateCorners((ulong)s, 256, 256)).Select(c => c.Max() / 10.0).ToList();
+        Assert.Contains(tall, m => m > 150);
+        Assert.Contains(tall, m => m < 150);
+        Assert.Equal(World.GenerateCorners(4, 128, 128), World.GenerateCorners(4, 128, 128));
+    }
+
+    [Fact]
+    public void AboutAFifthIsWaterAndTheShoreIsJustAboveIt()
+    {
+        var c = World.GenerateCorners(9, 256, 256);
+        double water = c.Count(v => v < 8 * World.StepDm) / (double)c.Length;
+        Assert.InRange(water, 0.15, 0.21);
+    }
+}

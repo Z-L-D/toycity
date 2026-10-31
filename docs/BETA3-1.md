@@ -4,7 +4,7 @@ Beta 3.1 moves the terrain to SimCity 4's model, takes the look toward realism, 
 smaller than planned. It is built part by part. Each part's rules are written down here as they're built.
 
 1. The ground as corners, in metres
-2. Mountains, valleys and rivers from the generator
+2. Mountains and valleys from the generator
 3. The Godot terrain renderer
 4. Realistic roads
 5. Rivers and floods
@@ -26,9 +26,9 @@ smaller than planned. It is built part by part. Each part's rules are written do
   - Smooth averages each corner with the eight around it.
   - Corners under a building or a path stay put.
   - The ground just outside the brush shares its edge corners, so it slopes up to meet the brush rather than leaving a wall.
-- **Roads, pads and the computer's levelling** set cells to a level the SimCity 4 way. Every corner they touch goes
-  to the average of the targets around it, so a road climbing a step a cell becomes a smooth ramp, and a pad is flat.
-  A cell set to a level always keeps it.
+- **Roads, pads and the computer's levelling** set the cells' steps they need exactly. The ground then follows:
+  every corner they touch goes to the average of the cells around it. So a road climbing a step a cell becomes a
+  smooth ramp, a pad is flat, and the land beside slopes to meet them.
 - **Saves.** The save format is 8 and carries the corners. An older save loads with each corner the average of the
   cells around it, so its terraces become slopes.
 - **Protocol.** The full state carries `corners`, two bytes per corner. A delta lists the corners that moved. A
@@ -43,3 +43,27 @@ smaller than planned. It is built part by part. Each part's rules are written do
 - Corners survive save and load.
 
 The grading tests now expect the cliff's face to be a sloped cell, not a wall.
+
+## Part 2: mountains and valleys from the generator
+
+- **Lowland** is five octaves of gradient noise. It's sampled through a slow warp, so coasts and ranges bend instead of
+  running straight.
+- **Mountains** rise where a slow mask, about two cities across, climbs past its middle. There, ridged noise makes
+  sharp crests and long spurs, up to 400 m or so. Some maps get a range and some are all lowland and lakes.
+- **Rain wears the ground.** Seeded droplets, about one for every two corners, run downhill. They cut where they speed
+  up and drop silt where they slow or pool, so valleys deepen and fans spread at their feet.
+- **Water.** The lowest 18% of the map is under water, with a bed shelving to 10 m deep, and the shore starts just
+  above the waterline.
+- **Height range.** The highest step is now 250 (500 m).
+- **Regions** generate one map for all their tiles, so ranges cross borders.
+- **Automation.** The computer counts a pad's earthworks against its monthly cap before it places a building.
+  Sloping ground made that cost show up.
+
+### Tests
+
+`GeneratorTests` checks three things:
+- Some seeds have mountains and some don't.
+- The same seed always makes the same ground.
+- About a fifth of the map is water.
+
+Seven tests that leaned on a particular seed's old map now use other seeds.

@@ -72,7 +72,7 @@ public sealed partial class World
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
-    public const int MaxHeight = 31;
+    public const int MaxHeight = 250;
 
     public ContentDb Content { get; }
     public int Width { get; }

@@ -10,8 +10,9 @@ public sealed partial class World
     /// <summary>
     /// The ground, as SimCity 4 kept it: a height in decimetres at every corner of the grid, (Width + 1) by
     /// (HeightCells + 1), row-major. A cell's ground is the four corners around it, so it can slope any way. Each
-    /// cell's <see cref="Height"/> in steps is derived from its corners (their average, rounded) for the rules that
-    /// count steps: what's water, how steep a road may climb, how uneven a lot may be.
+    /// cell's <see cref="Height"/> in steps, for the rules that count steps (what's water, how steep a road may
+    /// climb, how uneven a lot may be), is its corners averaged and rounded when the ground is made or terraformed;
+    /// a road or pad sets the step it needs and the corners follow it.
     /// </summary>
     public readonly ushort[] Corner;
     public int CornerIdx(int x, int y) => y * (Width + 1) + x;
@@ -33,36 +34,30 @@ public sealed partial class World
     }
 
     /// <summary>
-    /// Sets cells to step heights, SimCity 4's way: each corner the cells touch goes to the average of their targets,
-    /// so a run of cells a step apart becomes a smooth ramp and a level pad is flat. Ground beside them slopes to meet
-    /// them. The cells' and their neighbours' step heights are derived again.
+    /// Sets cells to step heights (a road's grade, a building's pad, levelled land) and reshapes the ground around
+    /// them: every corner they touch goes to the average of the cells around it, so a run of cells a step apart
+    /// becomes a smooth ramp, a pad is flat, and the ground beside slopes to meet them. The cells' steps are exactly
+    /// what was asked; nothing else's step changes.
     /// </summary>
     void SetLevels(IReadOnlyCollection<(int I, int H)> cells)
     {
         if (cells.Count == 0) return;
+        foreach (var (i, h) in cells) Height[i] = (byte)h;
         int cw = Width + 1;
-        var sum = new Dictionary<int, (int Sum, int N)>();
-        int x0 = int.MaxValue, y0 = int.MaxValue, x1 = int.MinValue, y1 = int.MinValue;
-        foreach (var (i, h) in cells)
+        var done = new HashSet<int>();
+        foreach (var (i, _) in cells)
         {
             int x = i % Width, y = i / Width;
-            x0 = Math.Min(x0, x); y0 = Math.Min(y0, y); x1 = Math.Max(x1, x); y1 = Math.Max(y1, y);
-            foreach (int c in new[] { y * cw + x, y * cw + x + 1, (y + 1) * cw + x + 1, (y + 1) * cw + x })
+            for (int cy = y; cy <= y + 1; cy++)
+            for (int cx = x; cx <= x + 1; cx++)
             {
-                sum.TryGetValue(c, out var t);
-                sum[c] = (t.Sum + h * StepDm, t.N + 1);
+                if (!done.Add(cy * cw + cx)) continue;
+                int sum = 0, n = 0;
+                for (int dy = -1; dy <= 0; dy++)
+                for (int dx = -1; dx <= 0; dx++)
+                    if (InBounds(cx + dx, cy + dy)) { sum += Height[Idx(cx + dx, cy + dy)]; n++; }
+                Corner[cy * cw + cx] = (ushort)((sum * StepDm + n / 2) / n);
             }
-        }
-        foreach (var (c, t) in sum) Corner[c] = (ushort)Math.Clamp((t.Sum + t.N / 2) / t.N, 0, MaxCornerDm);
-        DeriveHeights(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
-        // A cell set to a level keeps it: where its neighbours' targets pulled its corners off by enough to round
-        // away, its own corners win.
-        foreach (var (i, h) in cells)
-        {
-            if (Height[i] == h) continue;
-            int x = i % Width, y = i / Width, c = y * cw + x;
-            Corner[c] = Corner[c + 1] = Corner[c + cw + 1] = Corner[c + cw] = (ushort)(h * StepDm);
-            DeriveHeights(x - 1, y - 1, x + 1, y + 1);
         }
     }
 
@@ -77,9 +72,148 @@ public sealed partial class World
     /// The ground at every corner, in decimetres, for a map of the given size from the seed. A region makes one map
     /// for all its tiles and cuts it up, so their edges meet (a tile's last row of corners is its neighbour's first);
     /// a single city is the same thing at its own size.
+    /// <para>
+    /// Rolling lowland from fractal noise, a coast and lakes in its lowest fifth, and where a slow mask rises,
+    /// mountains: ridged noise, sharp crests and long spurs, up to a few hundred metres. Then rain wears it: droplets
+    /// run downhill, cutting where they run fast and dropping silt where they slow, so valleys and fans form the way
+    /// they do on real ground.
+    /// </para>
     /// </summary>
-    public static ushort[] GenerateCorners(ulong seed, int width, int heightCells, int waterLevel = 8) =>
-        CornersFromSteps(GenerateSteps(seed, width, heightCells, waterLevel), width, heightCells);
+    public static ushort[] GenerateCorners(ulong seed, int width, int heightCells, int waterLevel = 8)
+    {
+        int cw = width + 1, ch = heightCells + 1, n = cw * ch;
+        ulong salt = seed * 0x9E3779B97F4A7C15UL + 0x1234567UL;
+        double Lattice(int o, int x, int y)
+        {
+            ulong h = salt ^ ((ulong)(uint)o * 0xD6E8FEB86659FD93UL) ^ ((ulong)(uint)x * 0x9E3779B185EBCA87UL) ^ ((ulong)(uint)y * 0xC2B2AE3D27D4EB4FUL);
+            h ^= h >> 33; h *= 0xFF51AFD7ED558CCDUL; h ^= h >> 33; h *= 0xC4CEB9FE1A85EC53UL; h ^= h >> 33;
+            return (h >> 11) * (1.0 / (1UL << 53));
+        }
+        static double Smooth(double t) => t * t * t * (t * (t * 6 - 15) + 10);
+        // Gradient noise at a point, in cells, with lattice spacing `period`, about 0..1; octave o picks its own
+        // lattice. Gradients rather than values, so it has no square blocks.
+        double Noise(int o, double x, double y, double period)
+        {
+            double fx = x / period, fy = y / period;
+            int gx = (int)Math.Floor(fx), gy = (int)Math.Floor(fy);
+            double rx = fx - gx, ry = fy - gy;
+            double Dot(int cx, int cy, double ox, double oy)
+            {
+                double a = Lattice(o, cx, cy) * Math.Tau;
+                return Math.Cos(a) * ox + Math.Sin(a) * oy;
+            }
+            double tx = Smooth(rx), ty = Smooth(ry);
+            double top = Dot(gx, gy, rx, ry) + (Dot(gx + 1, gy, rx - 1, ry) - Dot(gx, gy, rx, ry)) * tx;
+            double bottom = Dot(gx, gy + 1, rx, ry - 1) + (Dot(gx + 1, gy + 1, rx - 1, ry - 1) - Dot(gx, gy + 1, rx, ry - 1)) * tx;
+            return 0.5 + (top + (bottom - top) * ty) * 0.7071;
+        }
+        // Hills about half a city across: a region's are the same size as a lone city's, just more of them.
+        double basePeriod = Math.Min(128, Math.Max(16, Math.Min(width, heightCells) / 2));
+        var m = new double[n];  // metres
+        for (int y = 0; y < ch; y++)
+        for (int x = 0; x < cw; x++)
+        {
+            // The ground is sampled through a slow warp, so coasts and ranges bend rather than run straight.
+            double wx = x + (Noise(30, x, y, basePeriod) - 0.5) * basePeriod * 0.6, wy = y + (Noise(31, x, y, basePeriod) - 0.5) * basePeriod * 0.6;
+            // Lowland: five octaves of rolling ground.
+            double v = 0, amp = 1, total = 0, period = basePeriod;
+            for (int o = 0; o < 5; o++) { v += Noise(o, wx, wy, period) * amp; total += amp; amp *= 0.5; period /= 2; }
+            v /= total;
+            // Where mountains stand: a slow mask, about two cities across.
+            double mask = Noise(10, wx, wy, basePeriod * 3);
+            mask = Math.Clamp((mask - 0.5) / 0.2, 0, 1);
+            mask = mask * mask * (3 - 2 * mask);
+            // Ridged noise: sharp crests where the noise crosses its middle, each octave adding finer spurs.
+            double ridge = 0; amp = 1; total = 0; period = basePeriod * 0.7; double weight = 1;
+            for (int o = 0; o < 5; o++)
+            {
+                double r = 1 - Math.Abs(Noise(20 + o, wx, wy, period) * 2 - 1);
+                r *= r * weight;
+                weight = Math.Clamp(r * 1.6, 0, 1);
+                ridge += r * amp; total += amp; amp *= 0.5; period /= 2;
+            }
+            ridge /= total;
+            m[y * cw + x] = v * 40 + mask * ridge * 420;
+        }
+        Erode(m, cw, ch, seed);
+
+        // The lowest fifth of the map is under water; the rest stands on the shore and climbs from there.
+        var sorted = (double[])m.Clone();
+        Array.Sort(sorted);
+        double shore = sorted[(int)(n * 0.18)], lowest = sorted[0];
+        double sea = waterLevel * StepDm / 10.0;
+        var corners = new ushort[n];
+        for (int i = 0; i < n; i++)
+        {
+            double h = m[i] >= shore
+                ? sea + 0.1 + (m[i] - shore)
+                // Under water the bed shelves down to ten metres at the deepest.
+                : sea - 0.5 - (shore - m[i]) / Math.Max(1e-9, shore - lowest) * 10;
+            corners[i] = (ushort)Math.Clamp((int)Math.Round(h * 10), 0, MaxCornerDm);
+        }
+        return corners;
+    }
+
+    /// <summary>
+    /// Hydraulic erosion on a height grid in metres: droplets of rain, from a seeded generator so the same seed makes
+    /// the same ground, run downhill carrying silt, cutting where they speed up and dropping it where they slow or
+    /// pool. A few on each corner of the map.
+    /// </summary>
+    static void Erode(double[] h, int w, int hgt, ulong seed)
+    {
+        var rng = new Rng(seed ^ 0xE20510A11UL);
+        int drops = w * hgt / 2;
+        const double Inertia = 0.1, Capacity = 4, Deposit = 0.3, ErodeRate = 0.3, Evaporate = 0.02, Gravity = 4, MinSlope = 0.01;
+        double At(int x, int y) => h[y * w + x];
+        for (int d = 0; d < drops; d++)
+        {
+            double px = (rng.NextU64() >> 11) * (1.0 / (1UL << 53)) * (w - 2), py = (rng.NextU64() >> 11) * (1.0 / (1UL << 53)) * (hgt - 2);
+            double dx = 0, dy = 0, speed = 1, water = 1, silt = 0;
+            for (int life = 0; life < 48; life++)
+            {
+                int ix = (int)px, iy = (int)py;
+                double u = px - ix, v = py - iy;
+                double a = At(ix, iy), b = At(ix + 1, iy), c = At(ix, iy + 1), e = At(ix + 1, iy + 1);
+                double gx = (b - a) * (1 - v) + (e - c) * v, gy = (c - a) * (1 - u) + (e - b) * u;
+                double here = a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + e * u * v;
+                dx = dx * Inertia - gx * (1 - Inertia);
+                dy = dy * Inertia - gy * (1 - Inertia);
+                double len = Math.Sqrt(dx * dx + dy * dy);
+                if (len < 1e-9) break;
+                dx /= len; dy /= len;
+                double nx = px + dx, ny = py + dy;
+                if (nx < 0 || ny < 0 || nx >= w - 1 || ny >= hgt - 1) break;
+                int jx = (int)nx, jy = (int)ny;
+                double ju = nx - jx, jv = ny - jy;
+                double next = At(jx, jy) * (1 - ju) * (1 - jv) + At(jx + 1, jy) * ju * (1 - jv) + At(jx, jy + 1) * (1 - ju) * jv + At(jx + 1, jy + 1) * ju * jv;
+                double drop = next - here;
+                double cap = Math.Max(-drop, MinSlope) * speed * water * Capacity;
+                void Spread(double amount)
+                {
+                    h[iy * w + ix] += amount * (1 - u) * (1 - v);
+                    h[iy * w + ix + 1] += amount * u * (1 - v);
+                    h[(iy + 1) * w + ix] += amount * (1 - u) * v;
+                    h[(iy + 1) * w + ix + 1] += amount * u * v;
+                }
+                if (silt > cap || drop > 0)
+                {
+                    // Uphill, fill the pit it's in; otherwise drop some of what it can't carry.
+                    double put = drop > 0 ? Math.Min(drop, silt) : (silt - cap) * Deposit;
+                    silt -= put;
+                    Spread(put);
+                }
+                else
+                {
+                    double take = Math.Min((cap - silt) * ErodeRate, -drop);
+                    silt += take;
+                    Spread(-take);
+                }
+                speed = Math.Sqrt(Math.Max(0, speed * speed - drop * Gravity));
+                water *= 1 - Evaporate;
+                px = nx; py = ny;
+            }
+        }
+    }
 
     /// <summary>Step heights for a map: each cell's, derived from the generated corners.</summary>
     public static byte[] GenerateHeights(ulong seed, int width, int heightCells, int waterLevel = 8) =>
@@ -121,64 +255,6 @@ public sealed partial class World
             corners[y * cw + x] = (ushort)((sum * StepDm + n / 2) / n);
         }
         return corners;
-    }
-
-    static byte[] GenerateSteps(ulong seed, int width, int heightCells, int waterLevel)
-    {
-        int N = width * heightCells;
-        int Idx(int x, int y) => y * width + x;
-        var height = new byte[N];
-        ulong salt = seed * 0x9E3779B97F4A7C15UL + 0x1234567UL;
-        // Lattice values for each octave, from a hash of (octave, x, y) so the result does not depend on call order.
-        double Lattice(int o, int x, int y)
-        {
-            ulong h = salt ^ ((ulong)(uint)o * 0xD6E8FEB86659FD93UL) ^ ((ulong)(uint)x * 0x9E3779B185EBCA87UL) ^ ((ulong)(uint)y * 0xC2B2AE3D27D4EB4FUL);
-            h ^= h >> 33; h *= 0xFF51AFD7ED558CCDUL; h ^= h >> 33; h *= 0xC4CEB9FE1A85EC53UL; h ^= h >> 33;
-            return (h >> 11) * (1.0 / (1UL << 53));
-        }
-        static double Smooth(double t) => t * t * (3 - 2 * t);
-
-        var raw = new double[N];
-        double min = double.MaxValue, max = double.MinValue;
-        // Hills about half a city across: a region's are the same size as a lone city's, just more of them.
-        int basePeriod = Math.Min(128, Math.Max(16, Math.Min(width, heightCells) / 2));
-        for (int y = 0; y < heightCells; y++)
-        for (int x = 0; x < width; x++)
-        {
-            double v = 0, amp = 1, total = 0;
-            int period = basePeriod;
-            for (int o = 0; o < 5 && period >= 2; o++)
-            {
-                int gx = x / period, gy = y / period;
-                double fx = Smooth((x % period) / (double)period), fy = Smooth((y % period) / (double)period);
-                double a = Lattice(o, gx, gy), b = Lattice(o, gx + 1, gy), c = Lattice(o, gx, gy + 1), d = Lattice(o, gx + 1, gy + 1);
-                double top = a + (b - a) * fx, bottom = c + (d - c) * fx;
-                v += (top + (bottom - top) * fy) * amp;
-                total += amp;
-                amp *= 0.5;
-                period /= 2;
-            }
-            v /= total;
-            raw[Idx(x, y)] = v;
-            min = Math.Min(min, v);
-            max = Math.Max(max, v);
-        }
-
-        // Map so the lowest ~18% of the map sits under water and the rest climbs gently to about 24.
-        var sorted = (double[])raw.Clone();
-        Array.Sort(sorted);
-        double waterCut = sorted[(int)(N * 0.18)];
-        for (int i = 0; i < N; i++)
-        {
-            double v = raw[i];
-            int h;
-            if (v < waterCut)
-                h = waterLevel - 1 - (int)((waterCut - v) / Math.Max(1e-9, waterCut - min) * 5);
-            else
-                h = waterLevel + (int)((v - waterCut) / Math.Max(1e-9, max - waterCut) * 16);
-            height[i] = (byte)Math.Clamp(h, 0, MaxHeight);
-        }
-        return height;
     }
 
     /// <summary>Distance from each cell to the nearest water, capped at 255.</summary>

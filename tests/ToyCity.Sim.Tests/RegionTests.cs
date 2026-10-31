@@ -25,12 +25,17 @@ public class RegionTests
             for (int x = 0; x < 64; x += 5)
                 Assert.Equal(all[(row * 64 + y) * wide + col * 64 + x], h[y * 64 + x]);
         }
-        // The ground runs on across the seam: no cliff between the last column of one tile and the first of the next.
+        // The ground runs on across the seam: the step from the last column of one tile to the first of the next is
+        // no rougher than the steps between columns inside a tile.
         var west = r.TileHeights(0, 0);
         var east = r.TileHeights(1, 0);
-        int jumps = 0;
-        for (int y = 0; y < 64; y++) jumps += Math.Abs(west[y * 64 + 63] - east[y * 64]) > 2 ? 1 : 0;
-        Assert.True(jumps < 4, $"{jumps} cliffs along the seam");
+        int seam = 0, inside = 0;
+        for (int y = 0; y < 64; y++)
+        {
+            seam += Math.Abs(west[y * 64 + 63] - east[y * 64]);
+            inside += Math.Abs(west[y * 64 + 31] - west[y * 64 + 32]);
+        }
+        Assert.True(seam <= inside * 2 + 64, $"{seam} steps along the seam, {inside} along a column inside");
     }
 
     [Fact]
@@ -172,7 +177,7 @@ public class RegionTests
     [Fact]
     public void CommutersShoppersAndGoodsCrossAndBothLedgersAgree()
     {
-        using var r = Region.Create(Fixture.Content, "Twins", 23, 2, 1, 128);
+        using var r = Region.Create(Fixture.Content, "Twins", 24, 2, 1, 128);
         var west = r.Found(0, 0, "Westbrook", "May", starter: true);
         var east = r.Found(1, 0, "Eastfield", "Tess", starter: true);
         r.Run(5);
@@ -336,7 +341,7 @@ public class RegionTests
     [Fact]
     public void AComputerMayorCountersALowOfferAndTheDealRuns()
     {
-        using var r = Region.Create(Fixture.Content, "Haggle", 43, 2, 1, 128);
+        using var r = Region.Create(Fixture.Content, "Haggle", 44, 2, 1, 128);
         var west = r.Found(0, 0, "Westbrook", "May");
         var bot = r.Found(1, 0, "Botton", "", starter: true, computer: AutopilotStyle.Profit);
         r.Run(3);

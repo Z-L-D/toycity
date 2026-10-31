@@ -124,6 +124,8 @@ public sealed partial class World
             if (!Affordable(t.Cost)) continue;
             var site = FindSite(t, x, y, 6, (sx, sy) => true, exact: true);
             if (site is not var (px, py)) continue;
+            // On sloping ground the pad's earthworks cost on top of the building.
+            if (!Affordable(t.Cost + PadCost(px, py, t.W, t.H))) continue;
             if (!Do(new PlaceBuildingAction(px, py, t.Id))) continue;
             away.Civic[k] = (Buildings.Count - 1, type, px, py);
             AwayNoteAdd($"Rebuilt the {t.Name} that was lost, like for like.", px, py);
@@ -189,6 +191,7 @@ public sealed partial class World
             int keepAway = t.Pollution > 0 ? 6 : 0;
             var site = FindSite(t, cx, cy, maxR, (x, y) => (keepAway == 0 || !NearResidential(x, y, t.W, t.H, keepAway)) && (extra?.Invoke(t, x, y) ?? true));
             if (site is not var (x, y)) continue;
+            if (!Affordable(t.Cost + PadCost(x, y, t.W, t.H))) continue;
             if (!Do(new PlaceBuildingAction(x, y, t.Id))) continue;
             AwayNoteAdd($"Built {Article(t.Name)} {t.Name}: {why}.", x, y);
             return true;
