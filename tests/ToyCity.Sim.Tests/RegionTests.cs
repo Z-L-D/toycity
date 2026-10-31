@@ -312,6 +312,49 @@ public class RegionTests
     }
 
     [Fact]
+    public void AComputerMayorBuildsOutToMeetANeighboursRoadLineAndPipe()
+    {
+        using var r = Region.Create(Fixture.Content, "Meet", 41, 2, 1, 128);
+        var west = r.Found(0, 0, "Westbrook", "May");
+        var bot = r.Found(1, 0, "Botton", "", starter: true, computer: AutopilotStyle.Growth);
+        west.Funds = 1_000_000;
+        // May brings a road, a power line and a pipe to her east edge, on rows where Botton's west edge is dry land
+        // with a way in to its town.
+        int y = Enumerable.Range(20, 88).First(yy => !bot.IsWater(bot.Idx(0, yy)) && !west.IsWater(west.Idx(west.Width - 1, yy))
+            && !west.IsWater(west.Idx(west.Width - 4, yy)) && Enumerable.Range(0, 3).All(d => !bot.IsWater(bot.Idx(0, yy + d))));
+        west.Enqueue(new PlacePathAction(west.Width - 4, y, west.Width - 1, y, "road"));
+        west.Enqueue(new PlaceUtilityAction(west.Width - 4, y + 1, west.Width - 1, y + 1, UtilityKind.PowerLine));
+        west.Enqueue(new PlaceUtilityAction(west.Width - 4, y + 2, west.Width - 1, y + 2, UtilityKind.WaterPipe));
+        west.ApplyPending();
+        Assert.True(west.Path[west.Idx(west.Width - 1, y)] != 0, string.Join(" | ", west.Notices.Select(n => n.Text)));
+        r.Run(2);
+        Assert.Equal(0, bot.Path[bot.Idx(0, y)]);
+        r.Run(130);
+        // Botton's computer met all three, each joined to its town.
+        Assert.True(bot.Path[bot.Idx(0, y)] != 0, $"no road; funds {bot.Funds}, cap {bot.MayorSeat.SpendCap}, level {bot.MayorSeat.Level}, next door {bot.NextDoor[3]?.Name} path {bot.NextDoor[3]?.Path[y]}");
+        var seen = new HashSet<int> { bot.Idx(0, y) };
+        var q = new Queue<int>(seen);
+        bool town = false;
+        while (q.Count > 0)
+        {
+            int c = q.Dequeue();
+            foreach (int j in new[] { c - 1, c + 1, c - bot.Width, c + bot.Width })
+            {
+                if (j < 0 || j >= bot.N || Math.Abs(j % bot.Width - c % bot.Width) > 1) continue;
+                if (bot.BuildingAt[j] != 0) town = true;
+                if (bot.Path[j] != 0 && seen.Add(j)) q.Enqueue(j);
+            }
+        }
+        Assert.True(town, $"the road from the crossing reaches no building ({seen.Count} road cells)");
+        Assert.True(bot.EdgeCapacity > 0, $"no capacity at the crossing; side capacity {string.Join(",", bot.SideCapacity)}; row {string.Concat(Enumerable.Range(0, 12).Select(x => bot.Path[bot.Idx(x, y)] != 0 ? '=' : '.'))}; west row {string.Concat(Enumerable.Range(west.Width - 6, 6).Select(x => west.Path[west.Idx(x, y)] != 0 ? '=' : '.'))}; nextdoor {bot.NextDoor[3]?.Path[y]} {bot.NextDoor[3]?.Path.Length}; west next {west.NextDoor[1]?.Name} cap {west.EdgeCapacity}");
+        Assert.True(bot.PowerLine[bot.Idx(0, y + 1)] != 0 || bot.Path[bot.Idx(0, y + 1)] != 0, "no power line meets May's");
+        Assert.NotEqual(0, bot.WaterPipe[bot.Idx(0, y + 2)]);
+        // And Botton's log still replays alone.
+        using var replay = r.ReplayTile(r.TileAt(1, 0)!, r.Tick);
+        Assert.Equal(bot.StateHash(), replay.StateHash());
+    }
+
+    [Fact]
     public void AComputerMayorGrowsItsCityAndReplaysAlone()
     {
         using var r = Region.Create(Fixture.Content, "Bots", 41, 2, 1, 128);

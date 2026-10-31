@@ -37,6 +37,7 @@ public sealed partial class World
         }
         ReplaceLostCivic();
         AutopilotUtilities(seat.Style);
+        AutopilotBorders();
         AutopilotPetitions();
         AutopilotDeals(seat.Style);
         AutopilotZoning(seat.Style);
