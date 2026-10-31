@@ -202,3 +202,56 @@ A bus line can now carry on past its last stop, over a road crossing into a neig
   computer meets it. A line asked to run on over a border with no crossing is refused. One run on to the
   neighbour has no problem, names the neighbour, carries through riders and raises the side's capacity, and keeps
   running on after a save.
+
+## Part 7: the HTML client catches up
+
+### Dispatch is a screen of its own
+
+The 🚒 Dispatch button no longer opens a board over the map. As in the Godot client, it switches to the emergency
+services' own screen, in place of the city's (the same way the bus company has its own):
+
+- **Top bar:** the service's name (with how many calls wait), the city's date and speed, its money, respect and
+  service, who runs it, and "Run it yourself" or "Hand back to the computer". 🏙 City goes back; the service carries on.
+- **Left:** the board's pages (Calls, with a badge for calls waiting, Units, Reports, Settings, Log). In a scene,
+  what to do with it (Return to calls, 📍 Where is this?, ▶ Run / ⏸ Hold, Hand to crews) and the eleven orders.
+- **Middle:** the city map, dimmed, with every open call marked; calls waiting for units pulse red. When a scene
+  opens it fills the middle, scaled to fit. "Where is this?" puts it aside to show the city around it.
+- **Right:** the board's page, or in a scene who's selected, who is on the way and what has happened.
+- **When a scene ends** it stays up as it finished, under its report card (score, response, saved, lost, property
+  lost, rules of engagement, notes), until the player goes back to the calls. Escape does the same.
+- A player's scene that opens comes up by itself, switching to the service's screen. Opening the bus company leaves
+  dispatch, and the other way round. `?view=dispatch` opens straight to it.
+
+### Waits
+
+Anything the server takes a moment over now shows at once:
+
+- **The bus company:** taking it over, handing it to the computer, leasing a lot and giving one up show
+  "⏳ Taking over the company…" and so on in the top bar and panel until the company's view shows it done (it hears
+  at the start of the city's next day). A refusal clears it. Godot already did this.
+- **New, Save and Load** put a "working" card with a spinner in the middle of the map until the new city arrives,
+  the save list comes back, or an error does.
+
+### Realistic map colours
+
+The 2D map now looks like the 3D client's ground from straight above:
+
+- **Ground from the corners.** The server already sends the ground's corners; the map draws its surface from them,
+  so slopes and embankments are smooth, not stepped by whole cells.
+- **Colours by height and slope,** as the terrain shader has them: meadow, drier grass higher up, earth then rock as
+  it steepens (measured the same way, one less the ground normal's up part), a sandy shore, rock then snow on the
+  heights, with patches of texture a few cells across. Light comes from the north-west.
+- **Water** is teal over a bed that darkens with depth, with the odd glint.
+- **Rivers** are water at their own surface; **floods** lie muddy over the low ground beside a river in flood,
+  worked out exactly as the server does.
+- **Roads** follow the same look rules as Godot's: concrete sidewalks with asphalt between in town, a double yellow on
+  busier roads and none on slow streets, dashed white on one-ways, edge lines and a barrier on highways, a grass or
+  tram median on avenues, earth for dirt roads, ballast for rail. Painted lines stop at junctions.
+- **Zones** are lighter tints in the 3D client's zone colours; a scene's tiles use the same ground colours.
+- **Bridges** preview as the server prices them: a river cell costs five times, the sea still can't be crossed, and
+  the grading treats the deck as fixed.
+
+### Bus lines run on
+
+The web line editor has the same "Runs on into" choice as Godot's (listing each neighbour a road reaches, with how
+many people cross a day), and the line list shows "→ Botton" after the stops.

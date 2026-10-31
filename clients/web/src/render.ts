@@ -25,7 +25,7 @@ export interface OverlayView {
   scheme: 'good' | 'bad' | 'diverging' | 'binary';
 }
 
-const ZONE_COLORS = ['', '#4caf50', '#4a7fe0', '#e0b030'];
+const ZONE_COLORS = ['', '#5f9e4a', '#5b7fb8', '#c09a45'];
 const CIVIC_LABEL: Record<string, string> = {
   power: '⚡', water: '💧', garbage: '🗑', police: 'P', fire: 'F', health: '+', education: 'E', park: '',
 };
@@ -34,19 +34,77 @@ const TRANSIT_LABEL: Record<string, string> = { bus: '🚌', tram: '🚋', rail:
 /** Pixels to a cell in the ground layer. */
 const TERRAIN_DETAIL = 4;
 
-function terrainColor(h: number, water: number): [number, number, number] {
-  if (h < water) {
-    const d = Math.min(1, (water - h) / 6);
-    return [Math.round(60 - 30 * d), Math.round(130 - 50 * d), Math.round(200 - 40 * d)];
+type RGB = [number, number, number];
+const mixRGB = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const smooth = (e0: number, e1: number, x: number) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+const rgb = (r: number, g: number, b: number): RGB => [r * 255, g * 255, b * 255];
+// The same ground as the 3D client's terrain shader (clients/godot/shaders/terrain.gdshader), seen from above.
+const MEADOW = rgb(0.33, 0.42, 0.20), DRY = rgb(0.45, 0.45, 0.26), EARTH = rgb(0.42, 0.36, 0.27), ROCK = rgb(0.47, 0.45, 0.42),
+  ROCK_DARK = rgb(0.32, 0.30, 0.28), SAND = rgb(0.71, 0.65, 0.50), SNOW = rgb(0.93, 0.94, 0.96), BED = rgb(0.45, 0.42, 0.32),
+  DEEP = rgb(0.12, 0.17, 0.16), WATER = rgb(0.13, 0.30, 0.38), FLOOD = rgb(0.36, 0.31, 0.22);
+/** A steady pseudo-random 0..1 for a pixel of the ground, so grass and rock have texture that doesn't flicker. */
+function grain(x: number, y: number): number {
+  let h = (x * 374761393 + y * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+
+const CONCRETE = '#a9a69e', YELLOW = '#d9b23a', PAINT = 'rgba(240,240,235,0.8)';
+interface Look { surface: string; carriageway: number; sidewalks: boolean; median: number; tram: boolean; edges: boolean; centre: 'none' | 'yellow' | 'dashed' | 'barrier' }
+/**
+ * How a path looks from the air: the same rules as the 3D client's (src/ToyCity.ClientModel/RoadLook.cs). Asphalt
+ * with concrete sidewalks in town, no centre line on a slow street, a double yellow on busier roads, dashed white
+ * between lanes going one way, edge lines and a barrier on a highway, grass or a tram reservation down a wide avenue.
+ */
+function roadLook(p: { id: string; widthM: number; cars: boolean; bikes: boolean; pedestrians: boolean; speedKmh: number; oneWay: boolean; rail?: boolean; tram?: string }): Look {
+  const w = Math.max(2, p.widthM);
+  if (p.rail) return { surface: '#7d756a', carriageway: 4.5, sidewalks: false, median: 0, tram: false, edges: false, centre: 'none' };
+  if (!p.cars) {
+    const surface = p.bikes && !p.pedestrians ? '#4f6e52' : p.bikes && w <= 3 ? '#a99a7c' : p.bikes ? '#4f6e52' : '#bdb8ac';
+    return { surface, carriageway: w, sidewalks: false, median: 0, tram: false, edges: false, centre: 'none' };
   }
-  const t = Math.min(1, (h - water) / 18);
-  // Lowland green to upland olive to rocky brown.
-  if (t < 0.6) {
-    const k = t / 0.6;
-    return [Math.round(110 + 40 * k), Math.round(170 - 20 * k), Math.round(80 - 10 * k)];
+  if (p.speedKmh <= 25) return { surface: '#8a7457', carriageway: Math.min(w, 8), sidewalks: false, median: 0, tram: false, edges: false, centre: 'none' };
+  const digit = Number(/(\d+)$/.exec(p.id)?.[1] ?? 0);
+  if (!p.pedestrians) {
+    const lanes = digit > 0 ? digit : Math.max(2, Math.floor(w / 7) * 2);
+    return { surface: '#3f3f43', carriageway: Math.min(w, 15), sidewalks: false, median: 0, tram: false, edges: true, centre: p.oneWay ? 'dashed' : lanes >= 4 ? 'barrier' : 'yellow' };
   }
-  const k = (t - 0.6) / 0.4;
-  return [Math.round(150 + 20 * k), Math.round(150 - 30 * k), Math.round(70 + 20 * k)];
+  const cw = Math.min(13, Math.max(6, w - 3));
+  let median = w > 16 ? Math.min(w - 16, 4) : 0;
+  const dedicated = p.tram === 'dedicated';
+  if (dedicated) median = Math.max(median, 4);
+  return { surface: '#47474b', carriageway: cw, sidewalks: true, median, tram: dedicated, edges: false,
+    centre: p.oneWay ? 'dashed' : median > 0 ? 'none' : p.speedKmh <= 30 ? 'none' : 'yellow' };
+}
+
+/** Smooth value noise, 0..1, varying over about one unit. */
+function noise(x: number, y: number): number {
+  const ix = Math.floor(x), iy = Math.floor(y), u = x - ix, v = y - iy;
+  const su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v);
+  const a = grain(ix, iy), b = grain(ix + 1, iy), c = grain(ix, iy + 1), d = grain(ix + 1, iy + 1);
+  return (a * (1 - su) + b * su) * (1 - sv) + (c * (1 - su) + d * su) * sv;
+}
+
+/**
+ * The ground at a point, by its height above the water in steps (2 m each), how steep it is (metres a metre) and a
+ * little grain: meadow and drier grass, earth then rock as it steepens, a sandy shore, snow high up on gentle ground.
+ * Under water, the bed darkens with depth under a teal surface.
+ */
+function groundColor(h: number, water: number, slope: number, g: number, depth: number): RGB {
+  if (depth > 0) {
+    const bed = mixRGB(BED, DEEP, Math.min(1, depth / 5));
+    return mixRGB(bed, WATER, 0.55 + 0.3 * Math.min(1, depth / 4));
+  }
+  const m = (h - water) * 2;
+  let c = mixRGB(MEADOW, DRY, smooth(0, 120, m) * 0.8 + (g - 0.5) * 0.25);
+  c = mixRGB(c, EARTH, smooth(0.18, 0.38, slope + (g - 0.5) * 0.15) * 0.7);
+  const rock = smooth(0.38, 0.55, slope + (g - 0.5) * 0.15);
+  c = mixRGB(c, mixRGB(ROCK_DARK, ROCK, g), rock);
+  c = mixRGB(c, ROCK, smooth(180, 260, m) * 0.6);
+  c = mixRGB(c, SNOW, smooth(280, 340, m + (g - 0.5) * 40) * (1 - smooth(0.35, 0.6, slope)));
+  c = mixRGB(c, SAND, (1 - smooth(0.5, 2.5, m)) * (1 - rock));
+  const f = 0.94 + g * 0.12;
+  return [c[0] * f, c[1] * f, c[2] * f];
 }
 
 function overlayColor(v: number, scheme: OverlayView['scheme']): string | null {
@@ -148,6 +206,11 @@ export class Renderer {
    * walking reach of its stops when asked for.
    */
   company: CompanyMap | null = null;
+  /**
+   * Set while the emergency services' own view is up: the city is dimmed and the service's calls are marked on it,
+   * those still waiting for units pulsing.
+   */
+  calls: { x: number; y: number; icon: string; waiting: boolean; scene: boolean }[] | null = null;
   /** What the neighbouring cities show across each side: roads, power lines and pipes, with their names. */
   borders: { side: number; name: string; paths: number[]; power: number[]; pipes: number[] }[] = [];
   private terrain: HTMLCanvasElement = document.createElement('canvas');
@@ -160,6 +223,7 @@ export class Renderer {
     if (d && d.length > 0) return true;
     if (this.flash && this.flash.until > performance.now()) return true;
     if (this.followed !== null) return true;
+    if (this.calls?.some((c) => c.waiting)) return true;
     if ((this.company || this.showRoutes) && this.busLines.some((l) => l.buses > 0) && this.city.stats.speed > 0) return true;
     return this.showAgents && this.agents.length > 0 && this.city.stats.speed > 0;
   }
@@ -232,28 +296,52 @@ export class Renderer {
     const tctx = this.terrain.getContext('2d')!;
     const img = tctx.createImageData(W, H);
     const at = (x: number, y: number) => c.heights[Math.min(c.height - 1, Math.max(0, y)) * c.width + Math.min(c.width - 1, Math.max(0, x))];
+    // The ground's own surface where the server sends its corners (in decimetres; a step is 20): smooth, as the 3D
+    // client draws it. Otherwise the cells' steps blended between their centres.
+    const cw = c.width + 1;
+    const ground = c.corners.length ? (fx: number, fy: number) => {
+      const x = Math.min(c.width - 1, Math.max(0, Math.floor(fx))), y = Math.min(c.height - 1, Math.max(0, Math.floor(fy)));
+      const u = Math.min(1, Math.max(0, fx - x)), v = Math.min(1, Math.max(0, fy - y));
+      const k = y * cw + x, q = c.corners;
+      return ((q[k] * (1 - u) + q[k + 1] * u) * (1 - v) + (q[k + cw] * (1 - u) + q[k + cw + 1] * u) * v) / 20;
+    } : null;
     // Blends a per-cell value at a point measured in cells, between the four nearest centres.
     const blend = (f: (x: number, y: number) => number, fx: number, fy: number) => {
       const gx = fx - 0.5, gy = fy - 0.5;
       const x = Math.floor(gx), y = Math.floor(gy), u = gx - x, v = gy - y;
       return (f(x, y) * (1 - u) + f(x + 1, y) * u) * (1 - v) + (f(x, y + 1) * (1 - u) + f(x + 1, y + 1) * u) * v;
     };
-    const wet = (x: number, y: number) => (at(x, y) < c.waterLevel ? 1 : 0);
+    const cell = (x: number, y: number) => Math.min(c.height - 1, Math.max(0, y)) * c.width + Math.min(c.width - 1, Math.max(0, x));
+    const wet = (x: number, y: number) => (c.isWater(cell(x, y)) ? 1 : 0);
+    // A river's water stands at its surface; the sea's at the water level.
+    const surface = (x: number, y: number) => { const i = cell(x, y); return c.isRiver(i) ? c.rivers[i] : c.waterLevel; };
     for (let py = 0; py < H; py++)
       for (let px = 0; px < W; px++) {
         const fx = cx0 + (px + 0.5) / K, fy = cy0 + (py + 0.5) / K;
-        const h = blend(at, fx, fy);
+        const hAt = ground ?? ((x: number, y: number) => blend(at, x, y));
+        const h = hAt(fx, fy);
         const water = blend(wet, fx, fy) > 0.5;
-        // On the land side of a shore the blended height can dip under the waterline: keep it on the shore.
-        let [r, g, b] = terrainColor(water ? Math.min(h, c.waterLevel - 0.01) : Math.max(h, c.waterLevel), c.waterLevel);
+        const gx = hAt(fx + 1 / K, fy) - hAt(fx - 1 / K, fy), gy = hAt(fx, fy + 1 / K) - hAt(fx, fy - 1 / K);
+        // Steps across two pixels, as metres a metre: a step is 2 m and a cell 16 m.
+        const rise = Math.hypot(gx, gy) * K / 2 * 2 / 16;
+        // As the 3D client's shader has it: one less the up-component of the ground's normal.
+        const slope = 1 - 1 / Math.sqrt(1 + rise * rise);
+        // Patches a few cells across, with a little fine grain in them.
+        const g = 0.75 * noise(fx / 3, fy / 3) + 0.25 * grain(cx0 * K + px, cy0 * K + py);
+        const top = surface(Math.floor(fx), Math.floor(fy));
+        let [r, gr, b] = groundColor(water ? Math.min(h, top - 0.01) : Math.max(h, c.waterLevel), c.waterLevel, slope, g, water ? Math.max(0.5, top - h) : 0);
         if (!water) {
-          // Hillshade: brighter on slopes facing north-west.
-          const d = h - (blend(at, fx - 1 / K, fy) + blend(at, fx, fy - 1 / K)) / 2;
-          r += d * 8 * K; g += d * 8 * K; b += d * 6 * K;
+          // Hillshade: light from the north-west, as the sun stands in the 3D view.
+          const lit = Math.max(0.55, Math.min(1.35, 1 - (gx + gy) * K * 0.09));
+          r *= lit; gr *= lit; b *= lit;
+        } else {
+          // Glints on the water.
+          const glint = g > 0.985 ? 30 : 0;
+          r += glint; gr += glint; b += glint;
         }
         const o = 4 * (py * W + px);
         img.data[o] = r;
-        img.data[o + 1] = g;
+        img.data[o + 1] = gr;
         img.data[o + 2] = b;
         img.data[o + 3] = 255;
       }
@@ -293,10 +381,12 @@ export class Renderer {
       this.drawZones(x0, y0, x1, y1, px, py);
       this.drawPaths(x0, y0, x1, y1, px, py);
       this.drawBuildings(x0, y0, x1, y1, px, py);
+      this.drawFlood(x0, y0, x1, y1, px, py);
       this.drawPowerLines(x0, y0, x1, y1, px, py);
       this.drawDisasters(px, py);
       this.drawBorders(px, py);
       if (this.company) this.drawCompany(px, py, r.width, r.height);
+      if (this.calls) this.drawCalls(px, py, r.width, r.height);
       if (this.company || this.showRoutes) this.drawBusLines(px, py);
       if (!this.company) this.drawAgents(px, py, x0, y0, x1, y1);
     }
@@ -428,6 +518,31 @@ export class Renderer {
   }
 
   /** The company's view: the city dimmed, its stops' walking reach, and its lots and the free ones marked. */
+  private drawCalls(px: (x: number) => number, py: (y: number) => number, w: number, h: number) {
+    const ctx = this.ctx;
+    const s = this.scale;
+    ctx.fillStyle = 'rgba(26,10,10,0.45)';
+    ctx.fillRect(0, 0, w, h);
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+    for (const c of this.calls!) {
+      const x = px(c.x) + s / 2, y = py(c.y) + s / 2;
+      const r = Math.max(9, s * 0.9);
+      ctx.beginPath();
+      ctx.arc(x, y, r + (c.waiting ? pulse * 6 : 0), 0, Math.PI * 2);
+      ctx.fillStyle = c.waiting ? `rgba(255,80,60,${0.25 + 0.3 * pulse})` : c.scene ? 'rgba(255,200,60,0.35)' : 'rgba(120,170,255,0.3)';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = c.waiting ? '#ff5a3c' : c.scene ? '#ffc83c' : '#7aaaff';
+      ctx.stroke();
+      ctx.font = `${Math.round(r * 1.2)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(c.icon, x, y + 1);
+    }
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+  }
+
   private drawCompany(px: (x: number) => number, py: (y: number) => number, w: number, h: number) {
     const ctx = this.ctx;
     const s = this.scale;
@@ -654,7 +769,7 @@ export class Renderer {
         if (!z || c.buildingAt[i]) continue;
         if (strip) {
           ctx.fillStyle = ZONE_COLORS[Math.floor(z / 3)];
-          ctx.globalAlpha = 0.28 + (z % 3) * 0.1;
+          ctx.globalAlpha = 0.24 + (z % 3) * 0.08;
           ctx.fillRect(px(x), py(y), s, s);
           ctx.globalAlpha = 1;
           continue;
@@ -662,7 +777,7 @@ export class Renderer {
         const kind = Math.floor(z / 3);
         const density = z % 3;
         ctx.fillStyle = ZONE_COLORS[kind];
-        ctx.globalAlpha = 0.28 + density * 0.1;
+        ctx.globalAlpha = 0.24 + density * 0.08;
         ctx.fillRect(px(x), py(y), s, s);
         if (!c.hasRoadAccess(x, y)) {
           // No road touches this lot, so it can never grow: grey it out with a red cross-hatch.
@@ -688,6 +803,19 @@ export class Renderer {
       }
   }
 
+  /** Floodwater over the low ground beside a river in flood: muddy, over whatever stands there. */
+  private drawFlood(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {
+    const c = this.city;
+    if (c.floodStage <= 0) return;
+    const water = c.flooded;
+    const ctx = this.ctx;
+    const s = this.scale;
+    ctx.fillStyle = `rgba(${FLOOD.map(Math.round).join(',')},0.78)`;
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++)
+        if (water[y * c.width + x]) ctx.fillRect(px(x), py(y), s + 0.5, s + 0.5);
+  }
+
   private drawPaths(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {
     const c = this.city;
     const ctx = this.ctx;
@@ -697,7 +825,8 @@ export class Renderer {
         const i = y * c.width + x;
         const p = c.profileAt(i);
         if (!p || c.underStrip.has(i)) continue;
-        const w = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
+        const look = roadLook(p);
+        const w = Math.max(s * 0.3, Math.min(s, ((look.sidewalks ? 16 : p.widthM) / 16) * s));
         const half = w / 2;
         const cx = px(x) + s / 2;
         const cy = py(y) + s / 2;
@@ -707,15 +836,42 @@ export class Renderer {
         const south = y + 1 < c.height && joins(i + c.width);
         const west = x > 0 && joins(i - 1);
         const north = y > 0 && joins(i - c.width);
-        ctx.fillStyle = p.color;
-        ctx.fillRect(cx - half, cy - half, w, w);
-        if (east) ctx.fillRect(cx, cy - half, s, w);
-        if (south) ctx.fillRect(cx - half, cy, w, s);
-        if (s >= 12 && p.cars && !p.tram) {
-          ctx.fillStyle = p.id.startsWith('highway') ? '#e8d36a' : 'rgba(255,255,255,0.55)';
-          const d = Math.max(1, s / 12);
-          if (east) ctx.fillRect(cx + s * 0.2, cy - d / 2, s * 0.4, d);
-          if (south) ctx.fillRect(cx - d / 2, cy + s * 0.2, d, s * 0.4);
+        // Sidewalks to the edge of the cell, then the carriageway, then what's painted down the middle.
+        const band = (width: number, colour: string) => {
+          const h2 = width / 2;
+          ctx.fillStyle = colour;
+          ctx.fillRect(cx - h2, cy - h2, width, width);
+          if (east) ctx.fillRect(cx, cy - h2, s, width);
+          if (south) ctx.fillRect(cx - h2, cy, width, s);
+          if (west) ctx.fillRect(px(x), cy - h2, s / 2, width);
+          if (north) ctx.fillRect(cx - h2, py(y), width, s / 2);
+        };
+        band(w, look.sidewalks && s >= 6 ? CONCRETE : look.surface);
+        if (look.sidewalks && s >= 6) band(Math.max(s * 0.3, (look.carriageway / 16) * s), look.surface);
+        if (look.median > 0 && s >= 8) band(Math.max(1, (look.median / 16) * s), look.tram ? '#6d6458' : '#5b7a3c');
+        if (s >= 10 && look.centre !== 'none' && !p.rail) {
+          const d = Math.max(1, s / 16);
+          const line = (colour: string, offset: number, dashed: boolean) => {
+            ctx.fillStyle = colour;
+            if (east || west) {
+              const a = west ? px(x) : cx, b2 = east ? px(x) + s : cx;
+              if (dashed) { if (east) ctx.fillRect(cx + s * 0.15, cy + offset - d / 2, s * 0.3, d); }
+              else ctx.fillRect(a, cy + offset - d / 2, b2 - a, d);
+            }
+            if (north || south) {
+              const a = north ? py(y) : cy, b2 = south ? py(y) + s : cy;
+              if (dashed) { if (south) ctx.fillRect(cx + offset - d / 2, cy + s * 0.15, d, s * 0.3); }
+              else ctx.fillRect(cx + offset - d / 2, a, d, b2 - a);
+            }
+          };
+          // Painted lines only along a straight run: a junction stays clear.
+          const straight = (east && west && !north && !south) || (north && south && !east && !west) || (east !== west && !north && !south) || (north !== south && !east && !west);
+          if (straight) {
+            if (look.centre === 'yellow') { line(YELLOW, -d, false); line(YELLOW, d, false); }
+            else if (look.centre === 'dashed') line(PAINT, 0, true);
+            else if (look.centre === 'barrier') line('#b8b8b0', 0, false);
+            if (look.edges) { const e = (look.carriageway / 16) * s / 2 - d * 1.5; line(PAINT, -e, false); line(PAINT, e, false); }
+          }
         }
         if (p.rail || p.tram) {
           // Two rails (and sleepers on a rail line) along each joined direction.
@@ -758,9 +914,15 @@ export class Renderer {
         pts.forEach(([x, y], k) => (k ? ctx.lineTo(px(x), py(y)) : ctx.moveTo(px(x), py(y))));
       };
       const w = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
+      const look = roadLook(p);
       trace();
-      ctx.strokeStyle = p.color;
-      ctx.lineWidth = w;
+      if (look.sidewalks) {
+        ctx.strokeStyle = CONCRETE;
+        ctx.lineWidth = s;
+        ctx.stroke();
+      }
+      ctx.strokeStyle = look.surface;
+      ctx.lineWidth = look.sidewalks ? Math.max(s * 0.3, (look.carriageway / 16) * s) : w;
       ctx.stroke();
       if (p.rail || p.tram) {
         // Two rails: a wide stroke in the rails' colour with the bed's colour down its middle.
@@ -769,13 +931,14 @@ export class Renderer {
         ctx.strokeStyle = p.rail ? '#c9ccd2' : 'rgba(225,225,235,0.85)';
         ctx.lineWidth = gauge + lw;
         ctx.stroke();
-        ctx.strokeStyle = p.color;
+        ctx.strokeStyle = look.surface;
         ctx.lineWidth = Math.max(0.5, gauge - lw);
         ctx.stroke();
       } else if (s >= 12 && p.cars) {
-        ctx.strokeStyle = p.id.startsWith('highway') ? '#e8d36a' : 'rgba(255,255,255,0.55)';
+        if (look.centre === 'none') continue;
+        ctx.strokeStyle = look.centre === 'yellow' ? YELLOW : PAINT;
         ctx.lineWidth = Math.max(1, s / 12);
-        ctx.setLineDash([s * 0.4, s * 0.6]);
+        ctx.setLineDash(look.centre === 'dashed' ? [s * 0.4, s * 0.6] : []);
         ctx.stroke();
         ctx.setLineDash([]);
       }

@@ -1,6 +1,6 @@
 import './style.css';
 import { Connection, type Msg } from './net';
-import { City, curveCells, lCells, lineCells as diagonalCells, gradeSteps, padSteps, GRADE_COST_PER_STEP, PAD_COST_PER_STEP, SIDE_DX, SIDE_DY, type BuildingType } from './state';
+import { BRIDGE_COST_TIMES, City, curveCells, lCells, lineCells as diagonalCells, gradeSteps, padSteps, GRADE_COST_PER_STEP, PAD_COST_PER_STEP, SIDE_DX, SIDE_DY, type BuildingType } from './state';
 import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
 import { Seats } from './seats';
@@ -98,6 +98,7 @@ const conn = new Connection({
   onStatus(ok) {
     $('#conn').classList.toggle('off', !ok);
     transport?.onCityTick();
+    emergency?.onCityTick();
     if (!ok) toast('Lost connection to the server. Reconnecting…', 'error');
   },
   onSignIn(welcome, error) {
@@ -132,6 +133,7 @@ const conn = new Connection({
       case 'full': {
         // A different city (moved within the region, or loaded): centre on it like the first time.
         const first = !city.loaded || city.width !== body.width || city.stats.cityName !== body.stats?.cityName;
+        if (busyKind === 'new' || busyKind === 'load') busy(null);
         region?.onFull();
         city.applyFull(body);
         if (first) {
@@ -150,6 +152,7 @@ const conn = new Connection({
         for (const n of body.notices as Msg[]) toast(n.text, n.severity, n.x, n.y);
         updateTopBar();
         transport?.onCityTick();
+    emergency?.onCityTick();
         if (city.stats.day === 1) {
           renderBudget();
           if (queried) query(queried.x, queried.y, false);
@@ -174,6 +177,7 @@ const conn = new Connection({
       }
       case 'saves':
         saveNames = body.names;
+        if (busyKind === 'save' || busyKind === 'list') busy(null);
         break;
       case 'agents':
         roster = body;
@@ -183,7 +187,9 @@ const conn = new Connection({
         break;
       case 'error':
         toast(body.message, 'error');
+        busy(null);
         emergency?.refused();
+        transport?.refused();
         region?.refused();
         break;
       case 'region':
@@ -531,8 +537,9 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
     let cost = 0;
     for (const [x, y] of cells) {
       const i = y * city.width + x;
-      if (!city.inBounds(x, y) || city.isWater(i) || city.buildingAt[i]) { ok = false; continue; }
-      if (city.paths[i] !== pi) cost += prof?.costPerCell ?? 0;
+      // A river is bridged, at five times the cost; the sea can't be.
+      if (!city.inBounds(x, y) || (city.isWater(i) && !city.isRiver(i)) || city.buildingAt[i]) { ok = false; continue; }
+      if (city.paths[i] !== pi) cost += (prof?.costPerCell ?? 0) * (city.isRiver(i) ? BRIDGE_COST_TIMES : 1);
     }
     const steps = gradeSteps(city, cells);
     if (steps === null) ok = false;
@@ -546,10 +553,10 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
     const pi = city.profiles.indexOf(prof!) + 1;
     for (const [x, y] of cells) {
       const i = y * city.width + x;
-      if (!city.inBounds(x, y) || city.isWater(i)) { ok = false; continue; }
+      if (!city.inBounds(x, y) || (city.isWater(i) && !city.isRiver(i))) { ok = false; continue; }
       if (tool.kind === 'path') {
         if (city.buildingAt[i]) ok = false;
-        if (city.paths[i] !== pi) cost += prof?.costPerCell ?? 0;
+        if (city.paths[i] !== pi) cost += (prof?.costPerCell ?? 0) * (city.isRiver(i) ? BRIDGE_COST_TIMES : 1);
       } else if (tool.utility === 0) {
         if (!city.buildingAt[i] && !city.powerLines[i]) cost += 5;
       } else if (!city.waterPipes[i]) cost += 3;
@@ -650,6 +657,8 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || !city.loaded) return;
   const cell = renderer.cellAt(sx, sy);
   if (transport?.company) { if (city.inBounds(cell.x, cell.y)) transport.mapClick(cell.x, cell.y); return; }
+  // The service's screen shows the city to look at, not to build on.
+  if (emergency?.active) return;
   if (tool.kind === 'query') { if (city.inBounds(cell.x, cell.y)) query(cell.x, cell.y); return; }
   if (tool.kind === 'path' && curveEnds) {
     const e = curveEnds;
@@ -728,8 +737,8 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Shift') { shiftHeld = true; return; }
   held.add(e.key);
   const k = e.key.toLowerCase();
-  // The company's view has its own tools; only the shared keys (pause, speed, panning) work there.
-  if (transport?.company) {
+  // The company's and the service's screens have their own tools; only the shared keys (pause, speed, panning) work there.
+  if (transport?.company || emergency?.active) {
     if (k === ' ') { e.preventDefault(); conn.send({ speed: { speed: city.stats.speed === 0 ? 1 : 0 } }); }
     else if (k >= '1' && k <= '3') conn.send({ speed: { speed: Number(k) } });
     return;
@@ -1159,6 +1168,21 @@ function updateAdmin() {
   $('#speed').classList.toggle('hidden', !conn.admin && !region?.isMayor(conn.player));
 }
 
+/**
+ * A long job the server is doing for this player (a new map, a save, a load), shown the moment it's asked for and
+ * until the answer comes: a click with no sign of anything happening reads as a miss.
+ */
+let busyKind: string | null = null;
+let busyTimer = 0;
+function busy(text: string | null, kind = '') {
+  busyKind = text ? kind : null;
+  const el = $('#busy');
+  el.classList.toggle('hidden', !text);
+  el.innerHTML = text ? `<span class="spinner"></span> ${esc(text)}` : '';
+  window.clearTimeout(busyTimer);
+  if (text) busyTimer = window.setTimeout(() => busy(null), 60_000);
+}
+
 $('#btn-new').addEventListener('click', () => {
   form.innerHTML = `
     <h3>New region or city</h3>
@@ -1175,9 +1199,11 @@ $('#btn-new').addEventListener('click', () => {
     const fd = new FormData(form);
     if (fd.get('kind') === 'region' && fd.get('benchmark') !== 'on') {
       const n = Number(fd.get('tiles'));
+      busy('Making the region…', 'new');
       conn.send({ newRegion: { name: `${String(fd.get('name') || 'New')} Region`, cityName: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), cols: n, rows: n, tileSize: Number(fd.get('size')), starterTown: fd.get('starter') === 'on' } });
       return;
     }
+    busy(fd.get('benchmark') === 'on' ? 'Building the benchmark city…' : 'Making the city…', 'new');
     conn.send({ newCity: { name: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), size: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', benchmark: fd.get('benchmark') === 'on' } });
   };
   dlg.showModal();
@@ -1192,6 +1218,7 @@ $('#btn-save').addEventListener('click', () => {
     <div class="actions"><button value="cancel">Cancel</button><button value="ok" class="active">Save</button></div>`;
   dlg.onclose = () => {
     if (dlg.returnValue !== 'ok') return;
+    busy('Saving…', 'save');
     conn.send({ save: { name: String(new FormData(form).get('name')) } });
   };
   dlg.showModal();
@@ -1205,6 +1232,7 @@ $('#btn-load').addEventListener('click', () => {
     <div class="actions"><button value="cancel">Cancel</button></div>`;
   dlg.onclose = () => {
     if (!dlg.returnValue.startsWith('load:')) return;
+    busy(`Loading “${dlg.returnValue.slice(5)}”…`, 'load');
     conn.send({ load: { name: dlg.returnValue.slice(5) } });
   };
   dlg.showModal();
@@ -1236,6 +1264,7 @@ transport = new Transport({
   setLines: (lines) => { renderer.busLines = lines; dirty = true; },
   setCompanyMap: (m) => { renderer.company = m; dirty = true; },
   onModeChange: (company) => {
+    if (company) emergency?.setMode(false);
     drag = null;
     renderer.preview = null;
     renderer.selected = null;
@@ -1244,7 +1273,19 @@ transport = new Transport({
     dirty = true;
   },
 });
-emergency = new Emergency({ conn, jumpTo, toast, cityWidth: () => city.width });
+emergency = new Emergency({
+  conn, jumpTo, toast, cityWidth: () => city.width,
+  clock: () => ({ month: city.stats.month ?? 0, day: city.stats.day ?? 0, year: city.stats.year ?? 0, speed: city.stats.speed ?? 0 }),
+  setCalls: (calls) => { renderer.calls = calls; dirty = true; },
+  onModeChange: (on) => {
+    if (on && transport?.company) transport.setMode(false);
+    drag = null;
+    renderer.preview = null;
+    renderer.selected = null;
+    renderer.resize();
+    dirty = true;
+  },
+});
 region = new Region({ conn, toast, onRegion: (r) => { renderer.borders = r.borders ?? []; dirty = true; updateAdmin(); updateTopBar(); } });
 requestAnimationFrame(frame);
 

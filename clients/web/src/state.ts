@@ -88,6 +88,10 @@ export class City {
   waterLevel = 8;
   seed = 0;
   heights = new Uint8Array(0);
+  /** The ground at each grid corner, (width + 1) × (height + 1), in decimetres; empty if the server didn't send it. */
+  corners = new Uint16Array(0);
+  /** Each cell's river surface in steps, 0 for none: a river cell's water stands over its ground. */
+  rivers = new Uint8Array(0);
   zones = new Uint8Array(0);
   paths = new Uint16Array(0);
   powerLines = new Uint8Array(0);
@@ -120,6 +124,11 @@ export class City {
     this.seed = f.seed;
     const n = this.width * this.height;
     this.heights = new Uint8Array(f.heights);
+    this.rivers = f.rivers?.length === n ? new Uint8Array(f.rivers) : new Uint8Array(n);
+    const cb = f.corners as Uint8Array | undefined;
+    const nc = (this.width + 1) * (this.height + 1);
+    this.corners = new Uint16Array(cb?.length === 2 * nc ? nc : 0);
+    for (let k = 0; k < this.corners.length; k++) this.corners[k] = cb![2 * k] | (cb![2 * k + 1] << 8);
     this.zones = new Uint8Array(f.zones);
     const pb = new Uint8Array(f.paths);
     this.paths = new Uint16Array(n);
@@ -163,6 +172,15 @@ export class City {
     }
     if (d.stats) this.stats = d.stats;
     if (d.stripsChanged) this.setStrips(d.strips ?? []);
+    for (const u of (d.corners ?? []) as Msg[]) {
+      if (u.index >= this.corners.length || this.corners[u.index] === u.dm) continue;
+      this.corners[u.index] = u.dm;
+      terrain = true;
+      // The four cells around the corner.
+      const cx = u.index % (this.width + 1), cy = Math.floor(u.index / (this.width + 1));
+      for (const [x, y] of [[cx - 1, cy - 1], [cx, cy - 1], [cx - 1, cy], [cx, cy]])
+        if (this.inBounds(x, y)) this.terrainDirty?.push(y * this.width + x);
+    }
     if (terrain) this.terrainVersion++;
   }
 
@@ -237,7 +255,49 @@ export class City {
   }
 
   isWater(i: number) {
-    return this.heights[i] < this.waterLevel;
+    return this.heights[i] < this.waterLevel || this.rivers[i] > this.heights[i];
+  }
+
+  isRiver(i: number) {
+    return this.rivers[i] > this.heights[i];
+  }
+
+  /** How many steps the rivers stand over their usual surface today: 0 normal, up to 3. */
+  get floodStage(): number { return this.stats.floodStage ?? 0; }
+
+  private floodKey = '';
+  private floodCells = new Uint8Array(0);
+  /**
+   * Each cell's floodwater surface in steps, or 0 where it's dry, worked out as the server does (World.FloodedCells):
+   * from each river cell outward up to five cells, onto dry ground lower than the river's raised surface.
+   */
+  get flooded(): Uint8Array {
+    const stage = this.floodStage, key = `${stage}:${this.terrainVersion}:${this.width}`;
+    if (key === this.floodKey) return this.floodCells;
+    this.floodKey = key;
+    const w = this.width, h = this.height, n = w * h, ground = this.heights, river = this.rivers;
+    const water = new Uint8Array(n);
+    this.floodCells = water;
+    if (stage <= 0 || river.length !== n) return water;
+    const dist = new Int32Array(n);
+    const queue: number[] = [];
+    for (let i = 0; i < n; i++) if (river[i] > ground[i]) { water[i] = Math.min(255, river[i] + stage); queue.push(i); }
+    for (let q = 0; q < queue.length; q++) {
+      const c = queue[q];
+      if (dist[c] >= 5) continue;
+      const x = c % w, y = (c / w) | 0;
+      for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (water[j] || ground[j] < this.waterLevel || river[j] > ground[j] || ground[j] >= water[c]) continue;
+        water[j] = water[c];
+        dist[j] = dist[c] + 1;
+        queue.push(j);
+      }
+    }
+    for (let i = 0; i < n; i++) if (river[i] > ground[i]) water[i] = 0;
+    return water;
   }
 
   isRoadside(b: Building) {
@@ -378,6 +438,8 @@ export function curveCells(x0: number, y0: number, cx: number, cy: number, x1: n
 }
 
 /** As World: a road's cut and fill per step a cell, a pad's, and the most a pad levels. */
+/** As World: a bridge cell over a river costs this many times the path. */
+export const BRIDGE_COST_TIMES = 5;
 export const GRADE_COST_PER_STEP = 10, PAD_COST_PER_STEP = 5, MAX_PAD_RISE = 3;
 
 /** The heights a run of cells is graded to: the same steps as World.Grade. Null when it can't be. */
@@ -409,8 +471,9 @@ export function grade(h: number[], fixed: boolean[], floor: number): number[] | 
 export function gradeSteps(c: City, cells: [number, number][]): number | null {
   if (cells.some(([x, y]) => !c.inBounds(x, y))) return 0;
   const idx = cells.map(([x, y]) => y * c.width + x);
-  const h = idx.map((i) => c.heights[i]);
-  const g = grade(h, idx.map((i) => !!c.paths[i]), c.waterLevel);
+  // A river cell is a bridge: its deck sits a step over the river, fixed, and nothing there is dug.
+  const h = idx.map((i) => (c.isRiver(i) ? c.rivers[i] + 1 : c.heights[i]));
+  const g = grade(h, idx.map((i) => !!c.paths[i] || c.isRiver(i)), c.waterLevel);
   if (!g) return null;
   const road = new Set(idx);
   const banks = new Map<number, number>();

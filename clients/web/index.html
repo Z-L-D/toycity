@@ -30,7 +30,7 @@
         <button id="btn-seat" title="Who runs the city: hand it to the computer while you're away">🧑 Mayor</button>
         <button id="btn-council" class="hidden" title="Deputies, the council and its votes">🏛 Council</button>
         <button id="btn-company" class="hidden" title="Switch to the bus company's own view">🚌 Bus company</button>
-        <button id="btn-emergency" class="hidden" title="The emergency services' dispatch board">🚒 Dispatch</button>
+        <button id="btn-emergency" class="hidden" title="Switch to the emergency services' own screen: calls, units and scenes">🚒 Dispatch</button>
         <div class="spacer"></div>
         <button id="btn-region" title="The region map: the cities around this one, and open land to found more">🗺 Region</button>
         <button id="btn-new">New</button>
@@ -57,7 +57,23 @@
         <button id="co-city" title="Back to the city">🏙 City</button>
         <div id="co-conn" class="conn off" title="Server connection"></div>
       </header>
+      <header id="em-top">
+        <div class="brand em-brand">🚒 <span id="em-name">Emergency services</span></div>
+        <div class="stat" id="em-date">…</div>
+        <div id="em-stats"></div>
+        <div class="speed" id="em-speed">
+          <button data-speed="0" title="Pause (Space)">⏸</button>
+          <button data-speed="1" title="Slow (1)">▶</button>
+          <button data-speed="2" title="Normal (2)">▶▶</button>
+          <button data-speed="3" title="Fast (3)">▶▶▶</button>
+        </div>
+        <div id="em-seat"></div>
+        <div class="spacer"></div>
+        <button id="em-city" title="Back to the city (the service carries on)">🏙 City</button>
+        <div id="em-conn" class="conn off" title="Server connection"></div>
+      </header>
       <aside id="tools"></aside>
+      <aside id="em-tools"></aside>
       <aside id="co-tools"></aside>
       <main id="view">
         <canvas id="map"></canvas>
@@ -67,6 +83,7 @@
         <div id="away" class="hidden"><span id="away-text"></span><button id="away-back" class="mini">Take it back</button></div>
         <div id="hints"></div>
         <div id="toasts"></div>
+        <div id="busy" class="hidden"></div>
         <div id="em" class="hidden"></div>
       </main>
       <aside id="panel">
@@ -105,6 +122,7 @@
         </nav>
         <div id="co-body"></div>
       </aside>
+      <aside id="em-panel"><div id="em-body"></div></aside>
     </div>
     <div id="region" class="hidden">
       <header class="rg-head"><div id="rg-title" class="brand"></div><div class="spacer"></div><button id="rg-close" title="Back to the city">🏙 City</button></header>
