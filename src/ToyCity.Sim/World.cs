@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 7;
+    public const int FormatVersion = 8;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -153,6 +153,7 @@ public sealed partial class World
         Name = name;
         Rng = new Rng(seed);
         Height = new byte[N];
+        Corner = new ushort[(width + 1) * (height + 1)];
         ZoneCode = new byte[N];
         Path = new ushort[N];
         PowerLine = new byte[N];
@@ -200,13 +201,14 @@ public sealed partial class World
     /// Founds a city on a region tile: the ground is the region's, cut out for this tile, and the calendar starts on
     /// the region's day so every tile shares one clock.
     /// </summary>
-    public static World CreateTile(ContentDb content, ulong seed, int size, string name, byte[] heights, long tick)
+    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick)
     {
         if (size is not (64 or 128 or 256)) throw new ArgumentOutOfRangeException(nameof(size), "size must be 64, 128 or 256");
-        if (heights.Length != size * size) throw new ArgumentException("heights must cover the tile", nameof(heights));
+        if (corners.Length != (size + 1) * (size + 1)) throw new ArgumentException("corners must cover the tile", nameof(corners));
         var w = new World(content, size, size, seed, name) { Tick = tick, FoundedTick = tick };
         w.Funds = content.StartingFunds;
-        heights.CopyTo(w.Height, 0);
+        corners.CopyTo(w.Corner, 0);
+        w.DeriveHeights(0, 0, size - 1, size - 1);
         w.RecomputeWaterDistance();
         w.RunMonthly();
         w.RunUtilities();
@@ -353,7 +355,7 @@ public sealed partial class World
             w.Write(Content.Fingerprint);
             w.Write(Width); w.Write(HeightCells); w.Write(WaterLevel); w.Write(Seed); w.Write(Name); w.Write(Tick);
             Rng.Write(w);
-            w.Write(Height); w.Write(ZoneCode); WriteU16(w, Path); w.Write(PowerLine); w.Write(WaterPipe); WriteI32(w, BuildingAt);
+            w.Write(Height); WriteU16(w, Corner); w.Write(ZoneCode); WriteU16(w, Path); w.Write(PowerLine); w.Write(WaterPipe); WriteI32(w, BuildingAt);
             w.Write(Powered); w.Write(Watered); w.Write(LandValue);
             WriteI16(w, DesR); WriteI16(w, DesC); WriteI16(w, DesI);
             w.Write(Pollution); w.Write(WaterPollution); w.Write(Noise); w.Write(Traffic);
@@ -420,7 +422,8 @@ public sealed partial class World
     {
         using var r = new BinaryReader(new MemoryStream(data));
         int version = r.ReadInt32();
-        // Format 5 is the same less the founding day, which was always day 0; format 6 less the road strips.
+        // Format 5 is the same less the founding day, which was always day 0; format 6 less the road strips; format 7
+        // less the corners.
         if (version is < 5 or > FormatVersion) throw new InvalidDataException($"save format {version} is not supported (expected {FormatVersion})");
         ulong fp = r.ReadUInt64();
         if (fp != content.Fingerprint) throw new InvalidDataException("this save was made with different content files");
@@ -430,7 +433,11 @@ public sealed partial class World
         var w = new World(content, width, height, seed, name) { WaterLevel = waterLevel };
         w.Tick = r.ReadInt64();
         w.Rng = Rng.Read(r);
-        ReadBytes(r, w.Height); ReadBytes(r, w.ZoneCode); ReadU16(r, w.Path); ReadBytes(r, w.PowerLine); ReadBytes(r, w.WaterPipe); ReadI32(r, w.BuildingAt);
+        ReadBytes(r, w.Height);
+        // Format 8 added the corners; an older save's ground becomes slopes between its cells' old steps.
+        if (version >= 8) ReadU16(r, w.Corner);
+        else { CornersFromSteps(w.Height, width, height).CopyTo(w.Corner, 0); w.DeriveHeights(0, 0, width - 1, height - 1); }
+        ReadBytes(r, w.ZoneCode); ReadU16(r, w.Path); ReadBytes(r, w.PowerLine); ReadBytes(r, w.WaterPipe); ReadI32(r, w.BuildingAt);
         ReadBytes(r, w.Powered); ReadBytes(r, w.Watered); ReadBytes(r, w.LandValue);
         ReadI16(r, w.DesR); ReadI16(r, w.DesC); ReadI16(r, w.DesI);
         ReadBytes(r, w.Pollution); ReadBytes(r, w.WaterPollution); ReadBytes(r, w.Noise); ReadBytes(r, w.Traffic);

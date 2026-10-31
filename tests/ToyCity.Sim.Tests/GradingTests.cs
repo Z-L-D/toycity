@@ -71,16 +71,17 @@ public class GradingTests
     public void RoadsTooCloseInHeightToJoinAreRefused()
     {
         var (w, x, y, _) = Cliff();
-        // A street at the foot of the cliff and one on top, two cells apart but three steps.
-        w.Enqueue(new PlacePathAction(x + 9, y + 2, x + 9, y + 12, "road"));
-        w.Enqueue(new PlacePathAction(x + 11, y + 2, x + 11, y + 12, "road"));
+        // A street at the foot of the cliff and one on top, two cells apart but three steps. (The raised corners
+        // along x + 10 make the cell west of it, x + 9, the cliff's face.)
+        w.Enqueue(new PlacePathAction(x + 8, y + 2, x + 8, y + 12, "road"));
+        w.Enqueue(new PlacePathAction(x + 10, y + 2, x + 10, y + 12, "road"));
         w.Step();
-        var join = new PlacePathAction(x + 9, y + 7, x + 11, y + 7, "road");
+        var join = new PlacePathAction(x + 8, y + 7, x + 10, y + 7, "road");
         Assert.Contains("Too steep", w.ValidatePath(join, out _, out _, out _));
         // Three cells apart, a road can climb the three steps between them.
-        w.Enqueue(new PlacePathAction(x + 8, y + 14, x + 8, y + 20, "road"));
+        w.Enqueue(new PlacePathAction(x + 7, y + 14, x + 7, y + 20, "road"));
         w.Step();
-        Assert.Null(w.ValidatePath(new PlacePathAction(x + 8, y + 17, x + 11, y + 17, "road"), out _, out _, out _));
+        Assert.Null(w.ValidatePath(new PlacePathAction(x + 7, y + 17, x + 10, y + 17, "road"), out _, out _, out _));
     }
 
     [Fact]
@@ -101,10 +102,10 @@ public class GradingTests
         Assert.Single(heights);
         Assert.InRange(heights[0], flat, flat + 3);
 
-        // Across a cliff four high, it's refused.
-        for (int k = 0; k < 4; k++) w.Enqueue(new TerraformAction(new CellRect(x + 20, y + 18, x + 24, y + 26), TerraformMode.Raise));
+        // Across the foot of a cliff raised eight more, where its face climbs four steps in a cell, it's refused.
+        for (int k = 0; k < 8; k++) w.Enqueue(new TerraformAction(new CellRect(x + 20, y + 18, x + 24, y + 26), TerraformMode.Raise));
         w.Step();
-        Assert.Contains("too uneven", w.ValidatePlacement(new PlaceBuildingAction(x + 20 - t.W / 2, y + 22, t.Id), out _) ?? "");
+        Assert.Contains("too uneven", w.ValidatePlacement(new PlaceBuildingAction(x + 19 - t.W / 2, y + 22, t.Id), out _) ?? "");
     }
 
     [Fact]

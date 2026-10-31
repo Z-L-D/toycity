@@ -99,7 +99,7 @@ public sealed partial class World
     /// <summary>Moves the earth. Earthworks never go under the waterline, so the water stays where it was.</summary>
     void ApplyEarthworks(List<(int I, int H)> works)
     {
-        foreach (var (i, h) in works) Height[i] = (byte)h;
+        SetLevels(works);
     }
 
     /// <summary>

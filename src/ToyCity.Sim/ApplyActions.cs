@@ -320,41 +320,60 @@ public sealed partial class World
     void ApplyTerraform(TerraformAction a)
     {
         var r = a.Area;
-        int x0 = Math.Max(0, r.MinX), x1 = Math.Min(Width - 1, r.MaxX), y0 = Math.Max(0, r.MinY), y1 = Math.Min(HeightCells - 1, r.MaxY);
         if (!InBounds(r.X0, r.Y0)) return;
-        int target = Height[Idx(r.X0, r.Y0)];
-        // Smooth reads the heights as they were before the brush, so the result doesn't depend on the order of cells.
-        int SmoothAt(int x, int y)
+        int x0 = Math.Max(0, r.MinX), x1 = Math.Min(Width - 1, r.MaxX), y0 = Math.Max(0, r.MinY), y1 = Math.Min(HeightCells - 1, r.MaxY);
+        int cw = Width + 1;
+        // The brush moves the corners of the cells it covers. A corner a building or a path stands on stays put, so
+        // nothing built is lifted or sunk.
+        bool Held(int cx, int cy)
+        {
+            for (int dy = -1; dy <= 0; dy++)
+            for (int dx = -1; dx <= 0; dx++)
+                if (InBounds(cx + dx, cy + dy) && (BuildingAt[Idx(cx + dx, cy + dy)] != 0 || Path[Idx(cx + dx, cy + dy)] != 0)) return true;
+            return false;
+        }
+        // Level brings the area to the first cell's height, a whole step, so levelled land is never under the water.
+        int target = Height[Idx(r.X0, r.Y0)] * StepDm;
+        // Smooth reads the corners as they were before the brush, so the result doesn't depend on the order.
+        int SmoothAt(int cx, int cy)
         {
             int sum = 0, n = 0;
             for (int dy = -1; dy <= 1; dy++)
             for (int dx = -1; dx <= 1; dx++)
-                if (InBounds(x + dx, y + dy)) { sum += Height[Idx(x + dx, y + dy)]; n++; }
-            return (2 * sum + n) / (2 * n);
+                if (cx + dx >= 0 && cy + dy >= 0 && cx + dx <= Width && cy + dy <= HeightCells) { sum += Corner[(cy + dy) * cw + cx + dx]; n++; }
+            return (sum + n / 2) / n;
         }
-        var cells = new List<(int I, int H)>();
-        for (int y = y0; y <= y1; y++)
-        for (int x = x0; x <= x1; x++)
+        var moves = new List<(int C, int H)>();
+        for (int cy = y0; cy <= y1 + 1; cy++)
+        for (int cx = x0; cx <= x1 + 1; cx++)
         {
-            int i = Idx(x, y);
-            if (BuildingAt[i] != 0 || Path[i] != 0) continue;
+            if (Held(cx, cy)) continue;
+            int c = cy * cw + cx, now = Corner[c];
             int h = a.Mode switch
             {
-                TerraformMode.Raise => Height[i] + 1,
-                TerraformMode.Lower => Height[i] - 1,
-                TerraformMode.Smooth => SmoothAt(x, y),
+                TerraformMode.Raise => now + StepDm,
+                TerraformMode.Lower => now - StepDm,
+                TerraformMode.Smooth => SmoothAt(cx, cy),
                 _ => target,
             };
-            h = Math.Clamp(h, 0, MaxHeight);
-            if (h != Height[i]) cells.Add((i, h));
+            h = Math.Clamp(h, 0, MaxCornerDm);
+            if (h != now) moves.Add((c, h));
         }
-        if (cells.Count == 0) return;
-        if (!Spend((long)cells.Count * Content.TerraformCostPerCell, r.X0, r.Y0)) return;
-        foreach (var (i, h) in cells)
+        if (moves.Count == 0) return;
+        // Priced by the cells the brush reshaped.
+        var cells = new HashSet<int>();
+        foreach (var (c, _) in moves)
         {
-            Height[i] = (byte)h;
-            if (IsWater(i)) { ZoneCode[i] = 0; PowerLine[i] = 0; }
+            int cx = c % cw, cy = c / cw;
+            for (int dy = -1; dy <= 0; dy++)
+            for (int dx = -1; dx <= 0; dx++)
+                if (InBounds(cx + dx, cy + dy)) cells.Add(Idx(cx + dx, cy + dy));
         }
+        if (!Spend((long)cells.Count * Content.TerraformCostPerCell, r.X0, r.Y0)) return;
+        foreach (var (c, h) in moves) Corner[c] = (ushort)h;
+        DeriveHeights(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+        foreach (int i in cells)
+            if (IsWater(i)) { ZoneCode[i] = 0; PowerLine[i] = 0; }
         RecomputeWaterDistance();
     }
 

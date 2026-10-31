@@ -911,6 +911,7 @@ message FullState {
   Catalog catalog = 11;
   uint64 seed = 12;
   repeated RoadStrip strips = 13;
+  bytes corners = 14;       // the ground: uint16 little-endian per grid corner, (width + 1) * (height + 1), in decimetres
 }
 
 // An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
@@ -944,6 +945,13 @@ message TickDelta {
   repeated Notice notices = 5;
   bool strips_changed = 6;           // the city's road strips changed: strips is the whole new list
   repeated RoadStrip strips = 7;
+  repeated CornerUpdate corners = 8; // ground corners that moved
+}
+
+// One corner of the ground grid: index = y * (width + 1) + x.
+message CornerUpdate {
+  int32 index = 1;
+  uint32 dm = 2;  // height in decimetres
 }
 
 message Requirement {

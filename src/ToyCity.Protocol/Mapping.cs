@@ -181,6 +181,13 @@ public static class Mapping
         return s;
     }
 
+    static byte[] CornerBytes(World w)
+    {
+        var bytes = new byte[w.Corner.Length * 2];
+        for (int i = 0; i < w.Corner.Length; i++) { bytes[2 * i] = (byte)w.Corner[i]; bytes[2 * i + 1] = (byte)(w.Corner[i] >> 8); }
+        return bytes;
+    }
+
     static byte[] PathBytes(World w)
     {
         var bytes = new byte[w.N * 2];
@@ -193,7 +200,7 @@ public static class Mapping
         var f = new P.FullState
         {
             Width = w.Width, Height = w.HeightCells, WaterLevel = w.WaterLevel,
-            Heights = ByteString.CopyFrom(w.Height), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)),
+            Heights = ByteString.CopyFrom(w.Height), Corners = ByteString.CopyFrom(CornerBytes(w)), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)),
             PowerLines = ByteString.CopyFrom(w.PowerLine), WaterPipes = ByteString.CopyFrom(w.WaterPipe),
             Stats = Stats(w, speed), Catalog = Catalog(w.Content), Seed = w.Seed,
         };
@@ -559,7 +566,7 @@ public static class Mapping
 public sealed class DeltaTracker
 {
     byte[] _heights = Array.Empty<byte>(), _zones = Array.Empty<byte>(), _lines = Array.Empty<byte>(), _pipes = Array.Empty<byte>();
-    ushort[] _paths = Array.Empty<ushort>();
+    ushort[] _paths = Array.Empty<ushort>(), _corners = Array.Empty<ushort>();
     int _strips;
     readonly Dictionary<int, P.BuildingState> _buildings = new();
 
@@ -571,6 +578,7 @@ public sealed class DeltaTracker
         _lines = (byte[])w.PowerLine.Clone();
         _pipes = (byte[])w.WaterPipe.Clone();
         _paths = (ushort[])w.Path.Clone();
+        _corners = (ushort[])w.Corner.Clone();
         _strips = w.StripsVersion;
         _buildings.Clear();
         foreach (var b in w.Buildings) if (b != null) _buildings[b.Id] = Mapping.Building(w, b);
@@ -591,6 +599,12 @@ public sealed class DeltaTracker
             if (_heights[i] == w.Height[i] && _zones[i] == w.ZoneCode[i] && _paths[i] == w.Path[i] && _lines[i] == w.PowerLine[i] && _pipes[i] == w.WaterPipe[i]) continue;
             _heights[i] = w.Height[i]; _zones[i] = w.ZoneCode[i]; _paths[i] = w.Path[i]; _lines[i] = w.PowerLine[i]; _pipes[i] = w.WaterPipe[i];
             d.Cells.Add(new P.CellUpdate { Index = i, Height = w.Height[i], Zone = w.ZoneCode[i], Path = w.Path[i], PowerLine = w.PowerLine[i] != 0, WaterPipe = w.WaterPipe[i] != 0 });
+        }
+        for (int i = 0; i < w.Corner.Length; i++)
+        {
+            if (_corners[i] == w.Corner[i]) continue;
+            _corners[i] = w.Corner[i];
+            d.Corners.Add(new P.CornerUpdate { Index = i, Dm = w.Corner[i] });
         }
         var alive = new HashSet<int>();
         foreach (var b in w.Buildings)

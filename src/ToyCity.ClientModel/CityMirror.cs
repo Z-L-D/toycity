@@ -13,6 +13,11 @@ public sealed class CityMirror
     public int WaterLevel { get; private set; } = 8;
     public ulong Seed { get; private set; }
     public byte[] Heights = Array.Empty<byte>();
+    /// <summary>The ground at every grid corner in decimetres, (Width + 1) by (Height + 1): what the terrain is drawn from.</summary>
+    public ushort[] Corners = Array.Empty<ushort>();
+    public int CornerIdx(int x, int y) => y * (Width + 1) + x;
+    /// <summary>A corner's height in height steps (2 m), the unit the views scale by.</summary>
+    public float CornerSteps(int x, int y) => Corners[CornerIdx(Math.Clamp(x, 0, Width), Math.Clamp(y, 0, Height))] / 20f;
     public byte[] Zones = Array.Empty<byte>();
     public ushort[] Paths = Array.Empty<ushort>();
     public byte[] PowerLines = Array.Empty<byte>();
@@ -69,6 +74,21 @@ public sealed class CityMirror
         Seed = f.Seed;
         int n = N;
         Heights = f.Heights.ToByteArray();
+        var cb = f.Corners.Span;
+        Corners = new ushort[(Width + 1) * (Height + 1)];
+        if (cb.Length == Corners.Length * 2)
+            for (int i = 0; i < Corners.Length; i++) Corners[i] = (ushort)(cb[2 * i] | (cb[2 * i + 1] << 8));
+        else
+            // A server from before corners: each corner the average of the cells around it.
+            for (int y = 0; y <= Height; y++)
+            for (int x = 0; x <= Width; x++)
+            {
+                int sum = 0, k = 0;
+                for (int dy = -1; dy <= 0; dy++)
+                for (int dx = -1; dx <= 0; dx++)
+                    if (InBounds(x + dx, y + dy)) { sum += Heights[Idx(x + dx, y + dy)]; k++; }
+                Corners[CornerIdx(x, y)] = (ushort)(sum * 20 / k);
+            }
         Zones = f.Zones.ToByteArray();
         var pb = f.Paths.Span;
         Paths = new ushort[n];
@@ -105,7 +125,16 @@ public sealed class CityMirror
 
     public void ApplyDelta(TickDelta d)
     {
-        bool terrain = false, roads = false;
+        bool terrain = d.Corners.Count > 0, roads = false;
+        foreach (var c in d.Corners)
+        {
+            Corners[c.Index] = (ushort)c.Dm;
+            // The cells around a moved corner are drawn again.
+            int cx = c.Index % (Width + 1), cy = c.Index / (Width + 1);
+            for (int dy = -1; dy <= 0; dy++)
+            for (int dx = -1; dx <= 0; dx++)
+                if (InBounds(cx + dx, cy + dy)) _dirtyCells.Add(Idx(cx + dx, cy + dy));
+        }
         foreach (var c in d.Cells)
         {
             int i = c.Index;

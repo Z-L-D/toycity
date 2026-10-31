@@ -417,14 +417,15 @@ public sealed partial class World
     /// <summary>Levels the ring's square, all but its road cells, to one height.</summary>
     void LevelSquare(int x, int y, int height)
     {
-        long cells = 0;
+        var works = new List<(int I, int H)>();
         for (int yy = y; yy < y + RingSize; yy++)
         for (int xx = x; xx < x + RingSize; xx++)
         {
             int i = Idx(xx, yy);
-            if (Path[i] == 0 && Height[i] != height) { Height[i] = (byte)height; cells++; }
+            if (Path[i] == 0 && Height[i] != height) works.Add((i, height));
         }
-        long cost = cells * Content.TerraformCostPerCell;
+        SetLevels(works);
+        long cost = works.Count * Content.TerraformCostPerCell;
         Funds -= cost;
         OneOffs -= cost;
         _autoSpent += cost;
