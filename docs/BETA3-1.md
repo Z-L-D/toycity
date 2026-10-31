@@ -86,3 +86,27 @@ Seven tests that leaned on a particular seed's old map now use other seeds.
   on empty zoned land. The minimap uses the same colours.
 - **Water** is a flat sheet at the waterline. Its colour comes from how deep the ground under it is, clear green in
   the shallows and dark blue far out, with foam at the shore and ripples that catch the sun.
+
+## Part 4: realistic roads
+
+- **A look for every profile.** `RoadLook` works out how a path looks from its profile, so a custom profile looks
+  right too. It follows North American practice, as SimCity 4 did:
+  - a residential street has sidewalks and no centre line;
+  - a busier two-way road has a double yellow, and lanes going the same way are split by dashed white;
+  - a highway has grass verges, solid white edge lines, and from four lanes a barrier down the middle;
+  - a boulevard keeps 13 m of carriageway and puts the rest in a grass median, and a tram avenue in a reservation
+    with its tracks; a tram street has rails in its lanes;
+  - a dirt road is packed earth, a trail gravel, a bike path red, a sidewalk paving;
+  - rail is ballast with sleepers and two steel rails.
+- **Drawn on the ground.** Each road cell is built from layers (sidewalk, carriageway, kerbs, paint) in pieces about
+  a quarter of a cell across, each set on the ground's surface, so a road climbs and banks with the corners. The
+  carriageway is a square where roads meet with an arm out to each side it joins. Lines run evenly from cell to
+  cell, and junctions of three or more roads get zebra crossings. The asphalt varies a little in shade.
+- **Arcs and diagonals** use the same layers along the line the player drew.
+- The map is drawn in chunks of 16 × 16 cells; a chunk is rebuilt only when a path or the ground in it changes.
+- The ground no longer paints road cells: the roads are their own shapes. The minimap still shows them in asphalt.
+
+### Tests
+
+`EachRoadLooksLikeItsKind` checks the look of each built-in profile, that every carriageway fits its cell, and that
+a road joins roads beside it but not a rail line.

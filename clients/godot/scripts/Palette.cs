@@ -32,17 +32,18 @@ public static class Palette
     /// <summary>A cell's ground as the minimap draws it: road, a zone's tint over the ground, or bare ground.</summary>
     public static Color Cell(CityMirror c, int i)
     {
+        if (c.Paths[i] != 0 && !RoadShape.UnderStrip(c, i)) return Road;
         var m = Mark(c, i);
         var g = Ground(c.Heights[i], c.WaterLevel);
         return g.Lerp(new Color(m.R, m.G, m.B), m.A);
     }
 
-    /// <summary>What the city lays over the 3D view's ground on a cell, with how much it covers (alpha): asphalt on
-    /// a road cell (the arcs and diagonals draw their own), a light zone tint on empty zoned land, nothing otherwise.</summary>
+    /// <summary>What the city lays over the 3D view's ground on a cell, with how much it covers (alpha): a light zone
+    /// tint on empty zoned land, nothing otherwise. Roads are drawn as their own shapes (RoadsView, StripsView).</summary>
     public static Color Mark(CityMirror c, int i)
     {
         bool strip = RoadShape.UnderStrip(c, i);
-        if (c.Paths[i] != 0 && !strip) return Road;
+        if (c.Paths[i] != 0 && !strip) return new Color(0, 0, 0, 0);
         int z = strip ? RoadShape.FillZone(c, i) : c.Zones[i];
         if (z == 0 || c.BuildingAt[i] != 0) return new Color(0, 0, 0, 0);
         var t = Zone[z / 3 % 4];
