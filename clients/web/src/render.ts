@@ -321,9 +321,11 @@ export class Renderer {
         const hAt = ground ?? ((x: number, y: number) => blend(at, x, y));
         const h = hAt(fx, fy);
         const water = blend(wet, fx, fy) > 0.5;
-        const gx = hAt(fx + 1 / K, fy) - hAt(fx - 1 / K, fy), gy = hAt(fx, fy + 1 / K) - hAt(fx, fy - 1 / K);
+        // The slope over most of a cell either way, so it doesn't jump at cell edges where the corners' blend bends.
+        const D = 0.75;
+        const sx = (hAt(fx + D, fy) - hAt(fx - D, fy)) / (2 * D), sy = (hAt(fx, fy + D) - hAt(fx, fy - D)) / (2 * D);
         // Steps across two pixels, as metres a metre: a step is 2 m and a cell 16 m.
-        const rise = Math.hypot(gx, gy) * K / 2 * 2 / 16;
+        const rise = Math.hypot(sx, sy) * 2 / 16;
         // As the 3D client's shader has it: one less the up-component of the ground's normal.
         const slope = 1 - 1 / Math.sqrt(1 + rise * rise);
         // Patches a few cells across, with a little fine grain in them.
@@ -332,7 +334,7 @@ export class Renderer {
         let [r, gr, b] = groundColor(water ? Math.min(h, top - 0.01) : Math.max(h, c.waterLevel), c.waterLevel, slope, g, water ? Math.max(0.5, top - h) : 0);
         if (!water) {
           // Hillshade: light from the north-west, as the sun stands in the 3D view.
-          const lit = Math.max(0.55, Math.min(1.35, 1 - (gx + gy) * K * 0.09));
+          const lit = Math.max(0.55, Math.min(1.35, 1 - (sx + sy) * 0.18));
           r *= lit; gr *= lit; b *= lit;
         } else {
           // Glints on the water.
