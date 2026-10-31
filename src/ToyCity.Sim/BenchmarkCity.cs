@@ -14,6 +14,9 @@ public static class BenchmarkCity
     /// <summary>Lays out the city and builds every lot. Returns the number of blocks built on.</summary>
     public static int Apply(World w)
     {
+        // A street every fifth cell can't climb a mountain: the benchmark is about a dense city, so its ground is
+        // gentled to rolling hills first (a sixth of the rise), keeping the coast and lakes as they were.
+        w.Soften(6);
         long funds = w.Funds;
         w.Funds = 500_000_000;
         int width = w.Width, height = w.HeightCells;

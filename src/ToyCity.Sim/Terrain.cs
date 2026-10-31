@@ -39,6 +39,18 @@ public sealed partial class World
     /// becomes a smooth ramp, a pad is flat, and the ground beside slopes to meet them. The cells' steps are exactly
     /// what was asked; nothing else's step changes.
     /// </summary>
+    /// <summary>
+    /// Gentles the dry land to a <paramref name="factor"/>th of its rise above the water, so a dense grid of streets
+    /// can be laid over it: mountains become hills. The benchmark city uses it. The ground follows as it does a road.
+    /// </summary>
+    public void Soften(int factor)
+    {
+        var cells = new List<(int, int)>();
+        for (int i = 0; i < N; i++)
+            if (!IsWater(i)) cells.Add((i, WaterLevel + (Height[i] - WaterLevel) / factor));
+        SetLevels(cells);
+    }
+
     void SetLevels(IReadOnlyCollection<(int I, int H)> cells)
     {
         if (cells.Count == 0) return;

@@ -263,6 +263,44 @@ public class ShapeTests
     }
 
     [Fact]
+    public void EachRoadLooksLikeItsKind()
+    {
+        var cat = Mapping.Catalog(ContentDb.LoadDefault());
+        RoadLook L(string id) => RoadLook.For(cat.Profiles.Single(p => p.Id == id));
+        // A residential street: sidewalks, no centre line. A busier road: a double yellow.
+        Assert.Equal(CentreLine.None, L("street").Centre);
+        Assert.True(L("street").Sidewalks);
+        Assert.Equal(CentreLine.DoubleYellow, L("road").Centre);
+        // Same-way lanes split by dashes; a four-lane highway has a barrier and edge lines, no sidewalks.
+        Assert.Equal(CentreLine.Dashed, L("one-way-road").Centre);
+        var hw = L("highway-4");
+        Assert.Equal((4, CentreLine.Barrier, false, true), (hw.Lanes, hw.Centre, hw.Sidewalks, hw.EdgeLines));
+        Assert.Equal(3, hw.LaneLines().Count());
+        // A boulevard keeps 13 m of carriageway and a grass median; a tram avenue a reservation with tracks.
+        Assert.Equal((13f, CentreLine.GrassMedian), (L("boulevard-4").CarriagewayM, L("boulevard-4").Centre));
+        Assert.Equal(CentreLine.TramReservation, L("tram-avenue").Centre);
+        Assert.Equal(2, L("tram-street").TramTracks);
+        Assert.Equal(Paving.Dirt, L("dirt-road").Paving);
+        Assert.Equal(Paving.Gravel, L("walking-trail").Paving);
+        Assert.Equal(Paving.Rail, L("rail").Paving);
+        foreach (var p in cat.Profiles)
+            Assert.True(RoadLook.For(p).Width is > 0 and <= 1, $"{p.Id} is wider than its cell");
+
+        // Arms: a road joins the roads beside it, not the rail line.
+        var w = World.Create(ContentDb.LoadDefault(), 501, 64, "Crossing");
+        var c = new CityMirror();
+        c.ApplyFull(Mapping.FullState(w, 0));
+        int road = cat.Profiles.ToList().FindIndex(p => p.Id == "street") + 1, rail = cat.Profiles.ToList().FindIndex(p => p.Id == "rail") + 1;
+        Array.Clear(c.Paths);
+        c.Paths[c.Idx(10, 10)] = (ushort)road;
+        c.Paths[c.Idx(11, 10)] = (ushort)road;
+        c.Paths[c.Idx(10, 11)] = (ushort)road;
+        c.Paths[c.Idx(10, 9)] = (ushort)rail;
+        Assert.Equal(0b0110, RoadLook.Arms(c, c.Idx(10, 10)));
+        Assert.Equal(0, RoadLook.Arms(c, c.Idx(10, 9)));
+    }
+
+    [Fact]
     public void TheShapeOptionsGetFinerFromLowToUltra()
     {
         var order = new[] { GraphicsSettings.Low, GraphicsSettings.Medium, GraphicsSettings.High, GraphicsSettings.Ultra };

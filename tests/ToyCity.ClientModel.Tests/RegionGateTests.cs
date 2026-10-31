@@ -78,7 +78,14 @@ public class RegionGateTests
             if (ox < 1 || ox > w - 2) return null;
             bool Row(int yy, int a, int b) => Enumerable.Range(Math.Min(a, b), Math.Abs(b - a) + 1).All(x => Clear(c.Idx(x, yy)));
             if (!Row(y, ox, edge)) return null;
-            var streets = Enumerable.Range(0, w * c.Height).Where(i => c.Paths[i] != 0 && i % w > 3 && i % w < w - 4)
+            // Only streets joined to the town: an earlier attempt refused halfway can leave a stub that leads nowhere.
+            var joined = new bool[w * c.Height];
+            var queue = new Queue<int>(Enumerable.Range(0, w * c.Height).Where(i => c.Paths[i] != 0 && Around(i).Any(j => c.BuildingAt[j] != 0)));
+            foreach (int i in queue) joined[i] = true;
+            while (queue.Count > 0)
+                foreach (int j in Around(queue.Dequeue()))
+                    if (!joined[j] && c.Paths[j] != 0) { joined[j] = true; queue.Enqueue(j); }
+            var streets = Enumerable.Range(0, w * c.Height).Where(i => joined[i] && i % w > 3 && i % w < w - 4)
                 .Select(i => (X: i % w, Y: i / w)).OrderBy(p => Math.Abs(p.Y - y)).ThenBy(p => Math.Abs(ox - p.X));
             foreach (var (fx, fy) in streets)
             {
@@ -87,6 +94,15 @@ public class RegionGateTests
                 return (fx, fy, ox);
             }
             return null;
+        }
+
+        IEnumerable<int> Around(int i)
+        {
+            int w = City.Width, x = i % w, y = i / w;
+            if (x > 0) yield return i - 1;
+            if (x < w - 1) yield return i + 1;
+            if (y > 0) yield return i - w;
+            if (y < City.Height - 1) yield return i + w;
         }
 
         public bool Build((int Fx, int Fy, int Ox) plan, int side, int y)
@@ -137,6 +153,9 @@ public class RegionGateTests
             may.Client.Connection.Send(new ClientMessage { Speed = new SetSpeed { Speed = 0 } });
             // A road across the border, at a row both towns can reach: May's from Toyville's west side, Tess's from
             // Westbrook's east side, meeting at the edge.
+            // Graded over hills a road to the border costs more than a starter town has in hand, so both mayors borrow.
+            may.Client.Connection.Act(new PAction { Loan = new TakeLoan { Amount = 150_000 } });
+            tess.Client.Connection.Act(new PAction { Loan = new TakeLoan { Amount = 150_000 } });
             int row = -1;
             var townRows = Enumerable.Range(0, may.City.Width * may.City.Height).Where(i => may.City.Paths[i] != 0).Select(i => i / may.City.Width).Distinct().OrderBy(r => r).ToList();
             foreach (int y in townRows.Concat(townRows.Select(r => r + 6)).Concat(Enumerable.Range(4, may.City.Height - 8)).Distinct())
@@ -169,6 +188,10 @@ public class RegionGateTests
             }, "a decade", 1500);
             var seen = $"day {may.Region.Tick - start} of {Decade} in {clock.Elapsed.TotalSeconds:F0} s; ledger months {may.Region.LedgerMonths}; most crossing a day {mostCrossing}; stopped \"{may.Region.Stopped}\"";
             Console.WriteLine($"GATE {seen}");
+            string RowGaps(Mayor m, int y) => string.Concat(Enumerable.Range(0, m.City.Width).Select(x => m.RoadAt(x, y) ? '=' : m.City.IsWater(m.City.Idx(x, y)) ? '~' : '.'));
+            Console.WriteLine($"GATE DIAG May pop {may.City.Stats.Population}; Tess pop {tess.City.Stats.Population}");
+            Console.WriteLine($"GATE DIAG May row {RowGaps(may, row)}");
+            Console.WriteLine($"GATE DIAG Tess row {RowGaps(tess, row)}");
             Assert.True(may.Region.Stopped == "", seen);
             Assert.True(may.Region.LedgerMonths >= Decade / 30 - 1, seen);
             Assert.True(mostCrossing > 0, seen);
