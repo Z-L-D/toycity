@@ -17,6 +17,19 @@ public static class HillSpots
         public float Fy => (Path.Y0 + Path.Y1) / 2f + 0.5f;
     }
 
+    /// <summary>The lowest and highest ground (dm) under any path: before the works, the town's streets.</summary>
+    public static (int Lo, int Hi) StreetRise(CityMirror c)
+    {
+        int lo = int.MaxValue, hi = int.MinValue;
+        for (int i = 0; i < c.Paths.Length; i++)
+        {
+            if (c.Paths[i] == 0) continue;
+            int h = Sim.PathGrade.CellDmOf(c.Corners, c.Width, i);
+            lo = Math.Min(lo, h); hi = Math.Max(hi, h);
+        }
+        return lo > hi ? (0, 0) : (lo, hi);
+    }
+
     /// <summary>
     /// The three works, each as dear as at most a third of <paramref name="budget"/>, on open ground within
     /// <paramref name="reach"/> cells of the town, not crossing one another. Any that can't be found are left out.

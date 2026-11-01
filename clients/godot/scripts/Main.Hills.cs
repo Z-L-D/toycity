@@ -12,7 +12,7 @@ namespace ToyCity.Godot;
 public partial class Main
 {
     /// <summary>The seed: a town among hills with rock near the surface (the same as the client model's HillTests).</summary>
-    public const ulong HillSeed = 501;
+    public const ulong HillSeed = 5;
 
     IEnumerable<GateWait> HillSteps()
     {
@@ -23,11 +23,11 @@ public partial class Main
         _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } });
         yield return new GateWait("the hill town drawn", () => _map!.Drawn && _centred, 120);
 
-        // The town stands on a hillside: its lots at different levels.
+        // The town stands on a hillside: its streets climb.
         var built = c.Buildings.Values.Where(b => !c.IsRoadside(b)).ToList();
         float tx = built.Average(b => b.X + b.Width / 2f), ty = built.Average(b => b.Y + b.Height / 2f);
-        int lo = built.Min(b => c.Corners[c.CornerIdx(b.X, b.Y)]), hi = built.Max(b => c.Corners[c.CornerIdx(b.X, b.Y)]);
-        MountainCheck("town on a hillside", hi - lo >= 40, $"{built.Count} lots from {lo / 10} m to {hi / 10} m, {(hi - lo) / 10.0:0.#} m apart");
+        var (lo, hi) = HillSpots.StreetRise(c);
+        MountainCheck("town on a hillside", hi - lo >= 60, $"streets from {lo / 10} m to {hi / 10} m, {(hi - lo) / 10.0:0.#} m apart");
         // The ground has its layers.
         var kinds = c.Rock.Where(k => k != 0).Distinct().Count();
         int bare = 0;

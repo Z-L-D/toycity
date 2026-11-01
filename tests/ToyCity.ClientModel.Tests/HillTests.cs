@@ -11,15 +11,20 @@ namespace ToyCity.ClientModel.Tests;
 public class HillTests(ITestOutputHelper output)
 {
     /// <summary>The Beta 3.2 gate's city: a starter town among hills, with rock near the surface.</summary>
-    public const ulong HillSeed = 501;
+    public const ulong HillSeed = 5;
 
     [Fact]
     public void TheGateFindsACutATunnelAndStairsAndTheServerBuildsWhatThePlannerPriced()
     {
         var w = World.Create(ContentDb.LoadDefault(), HillSeed, 128, "Hill Town");
         Assert.True(StarterTown.Apply(w));
+        w.Step();
         var c = new CityMirror();
         c.ApplyFull(Mapping.FullState(w, 0));
+        // The town's streets climb its hillside.
+        var (lo, hi) = HillSpots.StreetRise(c);
+        output.WriteLine($"streets from {lo / 10} m to {hi / 10} m");
+        Assert.True(hi - lo >= 60, $"the town's streets rise only {(hi - lo) / 10} m");
         var spots = HillSpots.Find(c, w.Funds);
         foreach (var s in spots) output.WriteLine($"{s.What}: {s.Path.X0},{s.Path.Y0} to {s.Path.X1},{s.Path.Y1}, ${s.Plan.Cost}, cut {s.Plan.DeepestCutDm} dm, tunnel {s.Plan.TunnelCells}");
         Assert.Equal(3, spots.Count);

@@ -116,7 +116,7 @@ public class EmergencyTests
     [Fact]
     public void APlayersSceneHoldsTheFireUntilItEnds()
     {
-        using var w = Town(714, player: "player");
+        using var w = Town(724, player: "player");
         var home = Home(w);
         w.Ignite(home);
         w.Step();
@@ -142,7 +142,7 @@ public class EmergencyTests
     [Fact]
     public void ADriverToldNotToWatchOutHitsSomeoneAndTheUnitIsSuspended()
     {
-        using var w = Town(705, player: "player");
+        using var w = Town(715, player: "player");
         w.Enqueue(Cmd(new EW.Command { Settings = Settings(EW.CommandStyle.SceneCommand, heads: false, watch: false) }));
         var home = Home(w);
         w.RaiseIncident("injury", home.X, home.Y, "city", "a fall", 1, "");

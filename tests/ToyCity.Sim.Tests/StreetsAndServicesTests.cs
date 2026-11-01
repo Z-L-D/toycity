@@ -88,7 +88,7 @@ public class StreetsAndServicesTests
     [Fact]
     public void SchoolsAndClinicsCountWhoTheyServeOnce()
     {
-        var w = Grown(404, 360);
+        var w = Grown(410, 360);
         var homes = w.Buildings.Where(b => b != null && b.Residents > 0).ToList();
         int cx = (int)homes.Average(b => b!.X), cy = (int)homes.Average(b => b!.Y);
         Building PlaceNear(string type, int skip)
