@@ -31,13 +31,18 @@ public static class StarterTown
         return best;
     }
 
-    /// <summary>Queues the actions for a town at (ox, oy): a road grid, R/C/I zones, a coal plant and water.</summary>
+    /// <summary>
+    /// Queues the actions for a town at (ox, oy): a road grid, R/C/I zones, a coal plant and water. Beta 3.2: the
+    /// town sits on a hillside: the site keeps the land's tilt, eased to at most 7%, its streets climb with it, and
+    /// homes and shops level their own pads.
+    /// </summary>
     public static List<SimAction> Build(int ox, int oy)
     {
         var a = new List<SimAction>();
         int s = Size;
-        // Level the whole site first so the roads never hit a slope.
-        a.Add(new TerraformAction(new CellRect(ox, oy, ox + s + 5, oy + s - 1), TerraformMode.Level));
+        // The site is evened to a hillside that keeps the land's own tilt (at most 7%), not flattened: the streets
+        // then climb it within a road's grade and every lot is gentle enough for its pad.
+        a.Add(new TerraformAction(new CellRect(ox, oy, ox + s + 5, oy + s - 1), TerraformMode.Slope));
         // Streets every fifth row: blocks four cells deep take lots facing either street.
         int bottom = oy + s - 1 - (s - 1) % 5;
         for (int y = oy; y <= bottom; y += 5) a.Add(new PlacePathAction(ox, y, ox + s, y, "road"));

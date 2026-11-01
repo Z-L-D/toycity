@@ -4,6 +4,8 @@ public sealed partial class World
 {
     /// <summary>A height step, the unit the city's rules count slopes in, in decimetres: 2 m.</summary>
     public const int StepDm = 20;
+    /// <summary>The steepest an even-slope terraform leaves the ground, in percent (Beta 3.2): gentler than a road climbs.</summary>
+    public const int MaxSlopePct = 7;
     /// <summary>The highest ground, in decimetres.</summary>
     public const int MaxCornerDm = MaxHeight * StepDm;
 

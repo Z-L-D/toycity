@@ -66,7 +66,7 @@ public static class Planner
     public static readonly string[] DensityNames = { "Low", "Medium", "High" };
     public static readonly string[] ZoneNames = { "", "residential", "commercial", "industrial" };
     public static readonly string[] DisasterNames = { "Fire", "Tornado", "Earthquake", "Clockwork Colossus" };
-    public static readonly string[] TerraformNames = { "Raise", "Lower", "Level", "Smooth" };
+    public static readonly string[] TerraformNames = { "Raise", "Lower", "Level", "Smooth", "Even slope" };
     public static readonly string[] SideNames = { "north", "east", "south", "west" };
     static readonly int[] SideDx = { 0, 1, 0, -1 }, SideDy = { -1, 0, 1, 0 };
 

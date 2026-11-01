@@ -94,10 +94,22 @@ public sealed partial class World
     }
 
     /// <summary>
-    /// The pad a building levels under its lot: every cell to the lot's average height, rounded. Null when the lot
-    /// rises more than <see cref="MaxPadRise"/> across it.
+    /// The pad a building levels under its lot: every cell to the lot's average height, rounded, or to the level of
+    /// the lots it touches (two pads that share a corner stand at one height, so neither leans). Null when the lot
+    /// rises more than <see cref="MaxPadRise"/> across it, or the lots it touches stand at different levels.
     /// </summary>
     List<(int I, int H)>? Pad(int x0, int y0, int w, int h)
+    {
+        if (PadLevel(x0, y0, w, h) is not int level) return null;
+        var works = new List<(int I, int H)>();
+        for (int y = y0; y < y0 + h; y++)
+        for (int x = x0; x < x0 + w; x++)
+            if (Height[Idx(x, y)] != level || !CornersAt(x, y, level * StepDm)) works.Add((Idx(x, y), level));
+        return works;
+    }
+
+    /// <summary>The level (in steps) a lot's pad would stand at, or null when it can't have one.</summary>
+    int? PadLevel(int x0, int y0, int w, int h)
     {
         int lo = int.MaxValue, hi = int.MinValue, sum = 0;
         for (int y = y0; y < y0 + h; y++)
@@ -107,24 +119,34 @@ public sealed partial class World
             lo = Math.Min(lo, v); hi = Math.Max(hi, v); sum += v;
         }
         if (hi - lo > MaxPadRise) return null;
-        int n = w * h, level = Math.Max(WaterLevel, (2 * sum + n) / (2 * n));
-        var works = new List<(int I, int H)>();
-        for (int y = y0; y < y0 + h; y++)
-        for (int x = x0; x < x0 + w; x++)
-            if (Height[Idx(x, y)] != level) works.Add((Idx(x, y), level));
-        return works;
+        // A neighbouring lot (not this one's own cells) sharing an edge or a corner fixes the level.
+        int next = -1;
+        for (int y = y0 - 1; y <= y0 + h; y++)
+        for (int x = x0 - 1; x <= x0 + w; x++)
+        {
+            if (x >= x0 && x < x0 + w && y >= y0 && y < y0 + h) continue;
+            if (!InBounds(x, y)) continue;
+            int i = Idx(x, y), b = BuildingAt[i];
+            if (b == 0 || Buildings[b - 1] is not { } nb || Content.Types[nb.Type].Roadside) continue;
+            // The lot being replaced (redevelopment) doesn't count.
+            if (nb.X < x0 + w && nb.X + nb.W > x0 && nb.Y < y0 + h && nb.Y + nb.H > y0) continue;
+            if (next >= 0 && next != Height[i]) return null;
+            next = Height[i];
+        }
+        if (next >= 0)
+            return Math.Max(hi, next) - Math.Min(lo, next) <= MaxPadRise && next >= WaterLevel ? next : null;
+        int n = w * h;
+        return Math.Max(WaterLevel, (2 * sum + n) / (2 * n));
+    }
+
+    /// <summary>Whether all four corners of a cell stand at this height (dm): ground evened to a slope can share a
+    /// cell's step and still lean.</summary>
+    bool CornersAt(int x, int y, int dm)
+    {
+        int cw = Width + 1, c = y * cw + x;
+        return Corner[c] == dm && Corner[c + 1] == dm && Corner[c + cw] == dm && Corner[c + cw + 1] == dm;
     }
 
     /// <summary>Whether a lot is gentle enough for a pad.</summary>
-    bool PadFits(int x0, int y0, int w, int h)
-    {
-        int lo = int.MaxValue, hi = int.MinValue;
-        for (int y = y0; y < y0 + h; y++)
-        for (int x = x0; x < x0 + w; x++)
-        {
-            int v = Height[Idx(x, y)];
-            lo = Math.Min(lo, v); hi = Math.Max(hi, v);
-        }
-        return hi - lo <= MaxPadRise;
-    }
+    bool PadFits(int x0, int y0, int w, int h) => PadLevel(x0, y0, w, h) != null;
 }

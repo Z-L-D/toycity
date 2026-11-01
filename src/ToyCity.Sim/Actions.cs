@@ -10,7 +10,11 @@ public readonly record struct CellRect(int X0, int Y0, int X1, int Y1)
 }
 
 /// <summary>Smooth evens each cell toward its neighbours' average, wearing steps down into slopes.</summary>
-public enum TerraformMode : byte { Raise = 0, Lower = 1, Level = 2, Smooth = 3 }
+/// <summary>
+/// How a terraform brush moves the ground. Slope (Beta 3.2) evens an area to a plane that keeps the land's own tilt,
+/// eased to at most <see cref="World.MaxSlopePct"/>: a hillside a town can stand on without being flattened.
+/// </summary>
+public enum TerraformMode : byte { Raise = 0, Lower = 1, Level = 2, Smooth = 3, Slope = 4 }
 
 public enum UtilityKind : byte { PowerLine = 0, WaterPipe = 1 }
 

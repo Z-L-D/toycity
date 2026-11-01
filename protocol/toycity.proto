@@ -393,6 +393,7 @@ enum TerraformMode {
   TERRAFORM_LOWER = 1;
   TERRAFORM_LEVEL = 2;
   TERRAFORM_SMOOTH = 3;  // each cell toward its neighbours' average
+  TERRAFORM_SLOPE = 4;   // an even slope keeping the land's tilt, at most 7% (Beta 3.2)
 }
 
 message Terraform {

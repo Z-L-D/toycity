@@ -252,6 +252,7 @@ public sealed partial class World
             maxH = Math.Max(maxH, Height[i]);
         }
         if (maxH - minH > MaxPadRise) return $"The ground is too uneven: it rises {maxH - minH} steps across the lot, and a pad can level at most {MaxPadRise}. Level it first.";
+        if (PadLevel(a.X, a.Y, type.W, type.H) == null) return "The lots beside it stand at another level: its pad would have to meet theirs. Level it first, or leave a gap.";
         return null;
     }
 
@@ -392,7 +393,37 @@ public sealed partial class World
             return false;
         }
         // Level brings the area to the first cell's height, a whole step, so levelled land is never under the water.
-        int target = Height[Idx(r.X0, r.Y0)] * StepDm;
+        int level = Height[Idx(r.X0, r.Y0)] * StepDm;
+        // Slope fits a plane to the area's corners and eases its tilt to at most MaxSlopePct, never under the water.
+        double pa = 0, pb = 0, pc = level;
+        if (a.Mode == TerraformMode.Slope)
+        {
+            double sx = 0, sy = 0, sz = 0, sxx = 0, syy = 0, sxz = 0, syz = 0; int n = 0;
+            for (int cy = y0; cy <= y1 + 1; cy++)
+            for (int cx = x0; cx <= x1 + 1; cx++) { double z = Corner[cy * cw + cx]; sx += cx; sy += cy; sz += z; n++; }
+            double mx = sx / n, my = sy / n, mz = sz / n;
+            for (int cy = y0; cy <= y1 + 1; cy++)
+            for (int cx = x0; cx <= x1 + 1; cx++)
+            {
+                double z = Corner[cy * cw + cx] - mz, dx = cx - mx, dy = cy - my;
+                sxx += dx * dx; syy += dy * dy; sxz += dx * z; syz += dy * z;
+            }
+            pa = sxx > 0 ? sxz / sxx : 0; pb = syy > 0 ? syz / syy : 0;
+            double g = Math.Sqrt(pa * pa + pb * pb), max = MaxSlopePct * 160 / 100.0;
+            if (g > max) { pa *= max / g; pb *= max / g; }
+            pc = mz - pa * mx - pb * my;
+            // The low corner stays dry.
+            double low = Math.Min(Math.Min(pc + pa * x0 + pb * y0, pc + pa * (x1 + 1) + pb * y0), Math.Min(pc + pa * x0 + pb * (y1 + 1), pc + pa * (x1 + 1) + pb * (y1 + 1)));
+            double floor = (WaterLevel + 1) * StepDm;
+            if (low < floor) pc += floor - low;
+        }
+        // The plane's height at a corner, held to the area's edge for the embankment beyond it.
+        int Target(int cx, int cy)
+        {
+            if (a.Mode != TerraformMode.Slope) return level;
+            int qx = Math.Clamp(cx, x0, x1 + 1), qy = Math.Clamp(cy, y0, y1 + 1);
+            return (int)Math.Round(pc + pa * qx + pb * qy);
+        }
         // Smooth reads the corners as they were before the brush, so the result doesn't depend on the order.
         int SmoothAt(int cx, int cy)
         {
@@ -413,7 +444,7 @@ public sealed partial class World
                 TerraformMode.Raise => now + StepDm,
                 TerraformMode.Lower => now - StepDm,
                 TerraformMode.Smooth => SmoothAt(cx, cy),
-                _ => target,
+                _ => Target(cx, cy),
             };
             h = Math.Clamp(h, 0, MaxCornerDm);
             if (h != now) moves.Add((c, h));
@@ -422,7 +453,7 @@ public sealed partial class World
         // cliff: each corner within reach comes to within EmbankDm a corner of the level, more the farther out it is.
         // Ground by the water is left as it is, so levelling never fills the sea.
         int ex0 = x0, ey0 = y0, ex1 = x1, ey1 = y1;
-        if (a.Mode == TerraformMode.Level)
+        if (a.Mode is TerraformMode.Level or TerraformMode.Slope)
         {
             ex0 = Math.Max(0, x0 - EmbankReach); ey0 = Math.Max(0, y0 - EmbankReach);
             ex1 = Math.Min(Width - 1, x1 + EmbankReach); ey1 = Math.Min(HeightCells - 1, y1 + EmbankReach);
@@ -439,7 +470,8 @@ public sealed partial class World
                 int d = Math.Max(Math.Max(x0 - cx, cx - (x1 + 1)), Math.Max(y0 - cy, cy - (y1 + 1)));
                 if (d <= 0 || Held(cx, cy) || ByWater(cx, cy)) continue;
                 int c = cy * cw + cx, now = Corner[c];
-                int h = Math.Clamp(now, target - d * EmbankDm, target + d * EmbankDm);
+                int t = Target(cx, cy);
+                int h = Math.Clamp(now, t - d * EmbankDm, t + d * EmbankDm);
                 if (h != now) moves.Add((c, h));
             }
         }
@@ -455,7 +487,12 @@ public sealed partial class World
         }
         long priced = cells.Count(i => i % Width >= x0 - 1 && i % Width <= x1 + 1 && i / Width >= y0 - 1 && i / Width <= y1 + 1);
         if (!Spend(priced * Content.TerraformCostPerCell, r.X0, r.Y0)) return;
-        foreach (var (c, h) in moves) Corner[c] = (ushort)h;
+        foreach (var (c, h) in moves)
+        {
+            Corner[c] = (ushort)h;
+            // Levelled and sloped ground is earthworks (Beta 3.2): it's drawn as grassed banks, not rock.
+            if (a.Mode is TerraformMode.Level or TerraformMode.Slope) MarkMade(c % cw, c / cw);
+        }
         DeriveHeights(ex0 - 1, ey0 - 1, ex1 + 1, ey1 + 1);
         foreach (int i in cells)
             if (IsWater(i)) { ZoneCode[i] = 0; PowerLine[i] = 0; }
