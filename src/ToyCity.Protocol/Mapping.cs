@@ -210,7 +210,7 @@ public static class Mapping
         var f = new P.FullState
         {
             Width = w.Width, Height = w.HeightCells, WaterLevel = w.WaterLevel,
-            Heights = ByteString.CopyFrom(w.Height), Corners = ByteString.CopyFrom(CornerBytes(w)), Rivers = ByteString.CopyFrom(w.River), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)), PathSurfaces = ByteString.CopyFrom(w.PathSurface), PathDecks = ByteString.CopyFrom(U16Bytes(w.PathDeck)),
+            Heights = ByteString.CopyFrom(w.Height), Corners = ByteString.CopyFrom(CornerBytes(w)), Rivers = ByteString.CopyFrom(w.River), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)), PathSurfaces = ByteString.CopyFrom(w.PathSurface), PathDecks = ByteString.CopyFrom(U16Bytes(w.PathDeck)), MadeGround = ByteString.CopyFrom(w.Made),
             PowerLines = ByteString.CopyFrom(w.PowerLine), WaterPipes = ByteString.CopyFrom(w.WaterPipe),
             Stats = Stats(w, speed), Catalog = Catalog(w.Content), Seed = w.Seed,
         };
@@ -579,6 +579,7 @@ public sealed class DeltaTracker
 {
     byte[] _heights = Array.Empty<byte>(), _zones = Array.Empty<byte>(), _lines = Array.Empty<byte>(), _pipes = Array.Empty<byte>(), _surfaces = Array.Empty<byte>();
     ushort[] _decks = Array.Empty<ushort>();
+    byte[] _made = Array.Empty<byte>();
     ushort[] _paths = Array.Empty<ushort>(), _corners = Array.Empty<ushort>();
     int _strips;
     readonly Dictionary<int, P.BuildingState> _buildings = new();
@@ -592,6 +593,7 @@ public sealed class DeltaTracker
         _pipes = (byte[])w.WaterPipe.Clone();
         _surfaces = (byte[])w.PathSurface.Clone();
         _decks = (ushort[])w.PathDeck.Clone();
+        _made = (byte[])w.Made.Clone();
         _paths = (ushort[])w.Path.Clone();
         _corners = (ushort[])w.Corner.Clone();
         _strips = w.StripsVersion;
@@ -611,9 +613,9 @@ public sealed class DeltaTracker
         }
         for (int i = 0; i < w.N; i++)
         {
-            if (_heights[i] == w.Height[i] && _zones[i] == w.ZoneCode[i] && _paths[i] == w.Path[i] && _surfaces[i] == w.PathSurface[i] && _decks[i] == w.PathDeck[i] && _lines[i] == w.PowerLine[i] && _pipes[i] == w.WaterPipe[i]) continue;
-            _heights[i] = w.Height[i]; _zones[i] = w.ZoneCode[i]; _paths[i] = w.Path[i]; _lines[i] = w.PowerLine[i]; _pipes[i] = w.WaterPipe[i]; _surfaces[i] = w.PathSurface[i]; _decks[i] = w.PathDeck[i];
-            d.Cells.Add(new P.CellUpdate { Index = i, Height = w.Height[i], Zone = w.ZoneCode[i], Path = w.Path[i], PowerLine = w.PowerLine[i] != 0, WaterPipe = w.WaterPipe[i] != 0, Surface = w.PathSurface[i], Deck = w.PathDeck[i] });
+            if (_heights[i] == w.Height[i] && _zones[i] == w.ZoneCode[i] && _paths[i] == w.Path[i] && _surfaces[i] == w.PathSurface[i] && _decks[i] == w.PathDeck[i] && _made[i] == w.Made[i] && _lines[i] == w.PowerLine[i] && _pipes[i] == w.WaterPipe[i]) continue;
+            _heights[i] = w.Height[i]; _zones[i] = w.ZoneCode[i]; _paths[i] = w.Path[i]; _lines[i] = w.PowerLine[i]; _pipes[i] = w.WaterPipe[i]; _surfaces[i] = w.PathSurface[i]; _decks[i] = w.PathDeck[i]; _made[i] = w.Made[i];
+            d.Cells.Add(new P.CellUpdate { Index = i, Height = w.Height[i], Zone = w.ZoneCode[i], Path = w.Path[i], PowerLine = w.PowerLine[i] != 0, WaterPipe = w.WaterPipe[i] != 0, Surface = w.PathSurface[i], Deck = w.PathDeck[i], Made = w.Made[i] != 0 });
         }
         for (int i = 0; i < w.Corner.Length; i++)
         {

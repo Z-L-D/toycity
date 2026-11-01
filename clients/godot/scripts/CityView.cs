@@ -38,6 +38,8 @@ public partial class CityView : Node3D
     double _lodAt;
     Image? _cellImage;
     ImageTexture? _cellTexture;
+    Image? _madeImage;
+    ImageTexture? _madeTexture;
     Image? _groundImage;
     ImageTexture? _groundTexture;
     ShaderMaterial? _waterMaterial;
@@ -267,14 +269,23 @@ public partial class CityView : Node3D
         if (_cellImage == null || _cellImage.GetWidth() != w || _cellImage.GetHeight() != h)
         {
             _cellImage = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
+            _madeImage = Image.CreateEmpty(w, h, false, Image.Format.R8);
             cells = null;
         }
-        void Paint(int i) => _cellImage.SetPixel(i % w, i / w, Palette.Mark(_city, i));
+        void Paint(int i)
+        {
+            _cellImage.SetPixel(i % w, i / w, Palette.Mark(_city, i));
+            // Beta 3.2: earthworks are grassed banks, never rock.
+            _madeImage!.SetPixel(i % w, i / w, new Color(_city.Made.Length > i ? _city.Made[i] : 0, 0, 0));
+        }
         if (cells == null) for (int i = 0; i < _city.N; i++) Paint(i);
         else foreach (int i in cells) Paint(i);
         if (_cellTexture == null || cells == null) _cellTexture = ImageTexture.CreateFromImage(_cellImage);
         else _cellTexture.Update(_cellImage);
         _ground!.SetShaderParameter("cells", _cellTexture);
+        if (_madeTexture == null || cells == null) _madeTexture = ImageTexture.CreateFromImage(_madeImage!);
+        else _madeTexture.Update(_madeImage!);
+        _ground.SetShaderParameter("made_ground", _madeTexture);
         _ground.SetShaderParameter("map_size", new Vector2(w, h));
     }
 

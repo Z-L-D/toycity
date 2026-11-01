@@ -24,6 +24,8 @@ public sealed class CityMirror
     public byte[] PathSurfaces = Array.Empty<byte>();
     /// <summary>The road's level in dm where it isn't on the ground: a bridge's deck or a tunnel's floor; 0 on the ground.</summary>
     public ushort[] PathDecks = Array.Empty<ushort>();
+    /// <summary>1 where earthworks reshaped the land (Beta 3.2): drawn as grassed banks, not rock.</summary>
+    public byte[] Made = Array.Empty<byte>();
     /// <summary>A path cell that runs in a tunnel under the ground (Beta 3.2).</summary>
     public bool IsTunnel(int i) => PathDecks.Length > i && PathDecks[i] > 0 && Paths[i] != 0 && !IsRiver(i);
     public List<SurfaceInfo> Surfaces = new();
@@ -146,6 +148,7 @@ public sealed class CityMirror
         Paths = new ushort[n];
         for (int i = 0; i < n; i++) Paths[i] = (ushort)(pb[2 * i] | (pb[2 * i + 1] << 8));
         PathSurfaces = f.PathSurfaces.Length == n ? f.PathSurfaces.ToByteArray() : new byte[n];
+        Made = f.MadeGround.Length == n ? f.MadeGround.ToByteArray() : new byte[n];
         PathDecks = new ushort[n];
         var db = f.PathDecks.Span;
         if (db.Length == 2 * n) for (int i = 0; i < n; i++) PathDecks[i] = (ushort)(db[2 * i] | (db[2 * i + 1] << 8));
@@ -204,6 +207,8 @@ public sealed class CityMirror
             PathSurfaces[i] = (byte)c.Surface;
             if (PathDecks[i] != c.Deck) roads = true;
             PathDecks[i] = (ushort)c.Deck;
+            if (Made[i] != (c.Made ? 1 : 0)) terrain = true;
+            Made[i] = (byte)(c.Made ? 1 : 0);
             PowerLines[i] = (byte)(c.PowerLine ? 1 : 0);
             WaterPipes[i] = (byte)(c.WaterPipe ? 1 : 0);
             _dirtyCells.Add(i);

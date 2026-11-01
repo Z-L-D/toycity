@@ -75,6 +75,7 @@ public sealed partial class World
         {
             Corner[c] = (ushort)Math.Clamp(v, 0, MaxCornerDm);
             int cx = c % cw, cy = c / cw;
+            MarkMade(cx, cy);
             for (int dy = -1; dy <= 0; dy++)
             for (int dx = -1; dx <= 0; dx++)
                 if (InBounds(cx + dx, cy + dy)) cells.Add(Idx(cx + dx, cy + dy));

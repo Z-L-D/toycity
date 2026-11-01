@@ -112,6 +112,8 @@ export class City {
   pathSurfaces = new Uint8Array(0);
   /** The road's level in dm on a bridge or in a tunnel, 0 on the ground (Beta 3.2). */
   pathDecks = new Uint16Array(0);
+  /** 1 where earthworks reshaped the land: drawn as grassed banks, not rock. */
+  made = new Uint8Array(0);
   surfaces: Surface[] = [];
   powerLines = new Uint8Array(0);
   waterPipes = new Uint8Array(0);
@@ -154,6 +156,8 @@ export class City {
     for (let i = 0; i < n; i++) this.paths[i] = pb[2 * i] | (pb[2 * i + 1] << 8);
     const sb = f.pathSurfaces as Uint8Array | undefined;
     this.pathSurfaces = sb?.length === n ? new Uint8Array(sb) : new Uint8Array(n);
+    const mb = f.madeGround as Uint8Array | undefined;
+    this.made = mb?.length === n ? new Uint8Array(mb) : new Uint8Array(n);
     const db = f.pathDecks as Uint8Array | undefined;
     this.pathDecks = new Uint16Array(n);
     if (db?.length === 2 * n) for (let i = 0; i < n; i++) this.pathDecks[i] = db[2 * i] | (db[2 * i + 1] << 8);
@@ -189,6 +193,8 @@ export class City {
       this.paths[i] = c.path;
       this.pathSurfaces[i] = c.surface ?? 0;
       this.pathDecks[i] = c.deck ?? 0;
+      if (this.made[i] !== (c.made ? 1 : 0)) this.terrainDirty?.push(i);
+      this.made[i] = c.made ? 1 : 0;
       this.powerLines[i] = c.powerLine ? 1 : 0;
       this.waterPipes[i] = c.waterPipe ? 1 : 0;
     }

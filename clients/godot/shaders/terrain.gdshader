@@ -10,6 +10,8 @@ render_mode cull_disabled;
 
 uniform sampler2D cells : filter_nearest, repeat_disable;
 uniform sampler2D overlay : filter_nearest, repeat_disable;
+// Made ground (Beta 3.2), one texel a cell, sampled smoothly: 1 where a road's banks or a pad reshaped the land.
+uniform sampler2D made_ground : filter_linear, repeat_disable;
 uniform bool use_overlay = false;
 uniform vec2 map_size = vec2(128.0);
 uniform vec2 selected = vec2(-1.0);
@@ -69,7 +71,14 @@ void fragment() {
 	ground = mix(ground, earth, clamp(smoothstep(0.62, 0.8, mid * 0.6 + large * 0.4) * 0.7 + smoothstep(0.18, 0.38, slope + (mid - 0.5) * 0.15), 0.0, 1.0));
 	// Rock on the steep, banded light and dark.
 	float rockiness = smoothstep(0.38, 0.55, slope + (mid - 0.5) * 0.2);
+	// Made ground is soil: a road's banks and a pad's sides are seeded grass with earth showing through where
+	// they're steep, never rock (Beta 3.2).
+	float made = texture(made_ground, p / map_size).r;
+	rockiness *= 1.0 - made;
 	ground = mix(ground, mix(rock_dark, rock, smoothstep(0.3, 0.7, fbm(vec2(p.x + p.y, world_pos.y * 8.0)))), rockiness);
+	vec3 bank = mix(meadow * 0.92, dry, 0.25 + 0.3 * mid);
+	bank = mix(bank, earth, smoothstep(0.25, 0.55, slope) * (0.35 + 0.4 * fine));
+	ground = mix(ground, bank, made * smoothstep(0.08, 0.25, slope));
 	// Snow above about 300 m, where it can lie.
 	float snowy = smoothstep(280.0, 340.0, metres + (large - 0.5) * 60.0) * (1.0 - smoothstep(0.35, 0.6, slope));
 	ground = mix(ground, snow, snowy);

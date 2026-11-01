@@ -49,10 +49,14 @@ public sealed partial class World
         var cells = new List<(int, int)>();
         for (int i = 0; i < N; i++)
             if (!IsWater(i)) cells.Add((i, WaterLevel + (Height[i] - WaterLevel) / factor));
-        SetLevels(cells);
+        SetLevels(cells, made: false);
     }
 
-    void SetLevels(IReadOnlyCollection<(int I, int H)> cells)
+    /// <summary>
+    /// <paramref name="made"/>: the cells around the corners it moves are made ground (pads and levelling), as
+    /// opposed to softening the whole map, which stays natural.
+    /// </summary>
+    void SetLevels(IReadOnlyCollection<(int I, int H)> cells, bool made = true)
     {
         if (cells.Count == 0) return;
         FloodGroundChanged();
@@ -66,9 +70,19 @@ public sealed partial class World
             for (int cx = x; cx <= x + 1; cx++)
             {
                 if (!done.Add(cy * cw + cx)) continue;
+                int was = Corner[cy * cw + cx];
                 Corner[cy * cw + cx] = (ushort)CornerFromCells(cx, cy);
+                if (made && was != Corner[cy * cw + cx]) MarkMade(cx, cy);
             }
         }
+    }
+
+    /// <summary>The cells around a corner that moved are made ground.</summary>
+    void MarkMade(int cx, int cy)
+    {
+        for (int dy = -1; dy <= 0; dy++)
+        for (int dx = -1; dx <= 0; dx++)
+            if (InBounds(cx + dx, cy + dy)) Made[Idx(cx + dx, cy + dy)] = 1;
     }
 
     /// <summary>

@@ -110,6 +110,7 @@ public partial class RoadsView : Node3D
                 // Beta 3.2: a footpath steeper than its surface holds a ramp is built as stairs.
                 if (_deck == null && RoadLook.IsStairs(_city, i, arms)) Stairs(x, y, look, arms);
                 else Cell(x, y, look, arms);
+                if (_deck == null) RetainingWalls(x, y, arms);
                 if (_deck is { } deck) Bridge(x, y, look, arms, deck);
                 _deck = null;
             }
@@ -236,6 +237,35 @@ public partial class RoadsView : Node3D
                 for (float t = -hw + 0.03f; t < hw - 0.03f; t += 0.05f)
                     Arm(centre, a, hw + 0.02f, hw + 0.12f, t, t + 0.025f, LiftPaint, White, false);
             }
+    }
+
+    /// <summary>
+    /// Retaining walls (Beta 3.2): where the ground beside a path climbs or falls away steeper than a soil bank stands
+    /// (lots, other roads or water kept its banks from spreading, or a natural cliff), a dressed-stone wall along the
+    /// path's edge, from the road to the ground beyond.
+    /// </summary>
+    void RetainingWalls(int x, int y, int arms)
+    {
+        var stone = new Color(0.56f, 0.53f, 0.48f);
+        var centre = new Vector2(x + 0.5f, y + 0.5f);
+        for (int a = 0; a < 4; a++)
+        {
+            if ((arms & 1 << a) != 0) continue;
+            int nx = x + (int)Dir[a].X, ny = y + (int)Dir[a].Y;
+            if (!_city.InBounds(nx, ny)) continue;
+            int j = _city.Idx(nx, ny);
+            if (_city.Paths[j] != 0 || _city.IsWater(j)) continue;
+            var edge = centre + Dir[a] * 0.5f;
+            var far = centre + Dir[a] * 1.45f;
+            float he = _view.Surface(edge.X, edge.Y), hf = _view.Surface(far.X, far.Y);
+            // A cell is a world unit across and a world unit is 16 m high, so this is rise over run.
+            if (Math.Abs(hf - he) / 0.95f < 0.8f) continue;
+            var v = new Vector2(-Dir[a].Y, Dir[a].X);
+            float top = Math.Min(Math.Max(he, hf), Math.Min(he, hf) + 0.5f);
+            Wall(edge - v * 0.5f, edge + v * 0.5f, Math.Min(he, hf) - 0.01f, top, stone);
+            // A coping along the top.
+            Wall(edge - v * 0.5f + Dir[a] * 0.012f, edge + v * 0.5f + Dir[a] * 0.012f, top - 0.004f, top + 0.004f, stone.Lightened(0.15f));
+        }
     }
 
     /// <summary>

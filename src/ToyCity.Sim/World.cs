@@ -99,6 +99,11 @@ public sealed partial class World
     /// under a hill. 0 for a path on the ground.
     /// </summary>
     public readonly ushort[] PathDeck;
+    /// <summary>
+    /// Made ground (Beta 3.2): 1 where a road's banks or a building's pad reshaped the land, 0 where it's as nature
+    /// left it (or a player terraformed it). The clients draw made ground as grassed earthworks, never as rock.
+    /// </summary>
+    public readonly byte[] Made;
     public readonly byte[] PowerLine;
     public readonly byte[] WaterPipe;
     public readonly int[] BuildingAt;    // building id + 1, 0 = none
@@ -166,6 +171,7 @@ public sealed partial class World
         Path = new ushort[N];
         PathSurface = new byte[N];
         PathDeck = new ushort[N];
+        Made = new byte[N];
         PowerLine = new byte[N];
         WaterPipe = new byte[N];
         BuildingAt = new int[N];
@@ -427,6 +433,7 @@ public sealed partial class World
             WriteStrips(w);
             w.Write(PathSurface);
             WriteU16(w, PathDeck);
+            w.Write(Made);
         }
         return ms.ToArray();
     }
@@ -523,7 +530,7 @@ public sealed partial class World
         }
         if (version >= 7) w.ReadStrips(r);
         // Format 9 added path surfaces; an older save's paths are in their type's default.
-        if (version >= 9) { ReadBytes(r, w.PathSurface); ReadU16(r, w.PathDeck); }
+        if (version >= 9) { ReadBytes(r, w.PathSurface); ReadU16(r, w.PathDeck); ReadBytes(r, w.Made); }
         else
             for (int i = 0; i < w.N; i++)
             {

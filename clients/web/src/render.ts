@@ -114,7 +114,7 @@ function noise(x: number, y: number): number {
  * little grain: meadow and drier grass, earth then rock as it steepens, a sandy shore, snow high up on gentle ground.
  * Under water, the bed darkens with depth under a teal surface.
  */
-function groundColor(h: number, water: number, slope: number, g: number, depth: number): RGB {
+function groundColor(h: number, water: number, slope: number, g: number, depth: number, made = 0): RGB {
   if (depth > 0) {
     const bed = mixRGB(BED, DEEP, Math.min(1, depth / 5));
     return mixRGB(bed, WATER, 0.55 + 0.3 * Math.min(1, depth / 4));
@@ -122,8 +122,10 @@ function groundColor(h: number, water: number, slope: number, g: number, depth: 
   const m = (h - water) * 2;
   let c = mixRGB(MEADOW, DRY, smooth(0, 120, m) * 0.8 + (g - 0.5) * 0.25);
   c = mixRGB(c, EARTH, smooth(0.18, 0.38, slope + (g - 0.5) * 0.15) * 0.7);
-  const rock = smooth(0.38, 0.55, slope + (g - 0.5) * 0.15);
+  // Made ground (a road's banks, a pad's sides) is soil, seeded grass with earth showing on the steep: never rock.
+  const rock = smooth(0.38, 0.55, slope + (g - 0.5) * 0.15) * (1 - made);
   c = mixRGB(c, mixRGB(ROCK_DARK, ROCK, g), rock);
+  if (made > 0) c = mixRGB(c, mixRGB(mixRGB(MEADOW, DRY, 0.3 + 0.3 * g), EARTH, smooth(0.25, 0.55, slope) * 0.5), made * smooth(0.08, 0.25, slope));
   c = mixRGB(c, ROCK, smooth(180, 260, m) * 0.6);
   c = mixRGB(c, SNOW, smooth(280, 340, m + (g - 0.5) * 40) * (1 - smooth(0.35, 0.6, slope)));
   c = mixRGB(c, SAND, (1 - smooth(0.5, 2.5, m)) * (1 - rock));
@@ -355,7 +357,8 @@ export class Renderer {
         // Patches a few cells across, with a little fine grain in them.
         const g = 0.75 * noise(fx / 3, fy / 3) + 0.25 * grain(cx0 * K + px, cy0 * K + py);
         const top = surface(Math.floor(fx), Math.floor(fy));
-        let [r, gr, b] = groundColor(water ? Math.min(h, top - 0.01) : Math.max(h, c.waterLevel), c.waterLevel, slope, g, water ? Math.max(0.5, top - h) : 0);
+        const made = c.made.length ? blend((x: number, y: number) => c.made[cell(x, y)], fx, fy) : 0;
+        let [r, gr, b] = groundColor(water ? Math.min(h, top - 0.01) : Math.max(h, c.waterLevel), c.waterLevel, slope, g, water ? Math.max(0.5, top - h) : 0, made);
         if (!water) {
           // Hillshade: light from the north-west, as the sun stands in the 3D view.
           const lit = Math.max(0.55, Math.min(1.35, 1 - (sx + sy) * 0.18));
