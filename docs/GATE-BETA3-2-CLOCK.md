@@ -65,7 +65,12 @@ The Alpha 3 loop and the together run keep their old timings by setting two year
 
 ## Results
 
-CI_RESULTS
+CI run 41302660816 on the PR's head was green on every job.
+
+- Tests: 235 in the sim and 91 in the client model, all passing (7 of them new for the clock).
+- The Godot gate set the pace from its menu and read: `GATE ok  two clocks: Mon 08:00 · January, year 1, the clock moving 2 min a calendar day`.
+- The Alpha 3 loop ran 11:45:52 to 11:58:46 and the together run 12:03:33 to 12:06:27, the same as before the clock. The region gate took 35 s.
+- Screenshots are in [`docs/screenshots/beta3-2-clock`](screenshots/beta3-2-clock).
 
 ## What's next
 

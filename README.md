@@ -28,6 +28,8 @@ Part 2, the clock ([`docs/screenshots/beta3-2-clock`](docs/screenshots/beta3-2-c
 | --- | --- |
 | ![The web client's top bar with both clocks](docs/screenshots/beta3-2-clock/web-clock-city.jpg) | ![The dispatch screen on the day clock](docs/screenshots/beta3-2-clock/web-dispatch-clock.jpg) |
 | Web client: "Mon 09:12 · January, year 1", the calendar at a month a clock day | The dispatch screen reads the day clock; its calls wait in hours and minutes |
+| ![The Godot client with the clock and pace menu](docs/screenshots/beta3-2-clock/godot-clock-city.jpg) | ![The Godot dispatch board on the day clock](docs/screenshots/beta3-2-clock/godot-dispatch-clock.jpg) |
+| Godot client (CI together run): "Mon 12:02 · May, year 1" with the pace menu at two years a day | Godot dispatch board: "Response, last clock day", a response of 21 min |
 
 Part 1, hills ([`docs/screenshots/beta3-2`](docs/screenshots/beta3-2)):
 
@@ -63,6 +65,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-01 | **Beta 3.2, part 2: the clock** (PR #14) | Two clocks: a day clock for the hours (calls, crews, fires, storms go by it in 48-minute turns) and a calendar for growth and money, at a pace the mayor picks from a month to two years a clock day; side games and every city in a region share both. [Gate](docs/GATE-BETA3-2-CLOCK.md) |
 | 2026-11-01 | **Beta 3.2, part 1: hills** (PR #13) | Path grades by type and surface, every path graded into the ground, tunnels and stairs, made ground with retaining walls, soil over four kinds of rock with cuts that follow the material, a starter town on a hillside. [Gate](docs/GATE-BETA3-2.md) |
 | 2026-10-31 | **Beta 3.1** (PR #12) | Corner heightfield, mountain generator, Godot terrain shader, realistic roads, rivers, bridges and floods, computer mayors build to their neighbours, bus lines across borders, web dispatch screen. [Gate](docs/GATE-BETA3-1.md) |
 | 2026-10-31 | **Beta 3: Regions** (PR #11) | Regions on one clock, border connections, commuters and freight across borders, neighbour deals, computer mayors, federated hosting, emergency services beta. [Gate](docs/GATE-BETA3.md) |
