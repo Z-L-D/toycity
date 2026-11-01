@@ -4,7 +4,7 @@ using ToyCity.Protocol.V0;
 namespace ToyCity.ClientModel;
 
 /// <summary>What a path is paved with.</summary>
-public enum Paving { Asphalt, Dirt, Gravel, Concrete, BikeLane, Rail }
+public enum Paving { Asphalt, Dirt, Gravel, Concrete, BikeLane, Rail, Limestone, Brick }
 
 /// <summary>The line painted down a two-way road's middle.</summary>
 public enum CentreLine { None, DoubleYellow, Dashed, Barrier, GrassMedian, TramReservation }
@@ -24,6 +24,59 @@ public sealed record RoadLook(Paving Paving, float CarriagewayM, int Lanes, bool
 {
     public const float CellM = 16f;
     const float MaxCarriagewayM = 13f, MaxHighwayM = 15f;
+
+    /// <summary>
+    /// The look of a path in the surface it was built in (Beta 3.2). An unsealed road (dirt, gravel, limestone) has
+    /// no sidewalks, kerbs or paint; a brick street keeps its sidewalks and kerbs but no paint; concrete is painted
+    /// like asphalt.
+    /// </summary>
+    public static RoadLook For(PathProfileInfo? p, SurfaceInfo? s)
+    {
+        var look = For(p);
+        if (s == null || p == null || p.Rail) return look;
+        var paving = s.Id switch
+        {
+            "dirt" => Paving.Dirt, "gravel" => Paving.Gravel, "limestone" => Paving.Limestone, "brick" => Paving.Brick,
+            "concrete" => Paving.Concrete, "asphalt" => p.Cars ? Paving.Asphalt : look.Paving == Paving.BikeLane ? Paving.BikeLane : Paving.Asphalt,
+            _ => look.Paving,
+        };
+        if (!p.Cars) return look with { Paving = paving };
+        bool unsealed = paving is Paving.Dirt or Paving.Gravel or Paving.Limestone;
+        if (unsealed)
+            return look with { Paving = paving, Sidewalks = false, Centre = CentreLine.None, MedianM = 0, EdgeLines = false, Crosswalks = false, CarriagewayM = Math.Min(look.CarriagewayM, 8) };
+        if (paving == Paving.Brick)
+            return look with { Paving = paving, Centre = look.Centre is CentreLine.GrassMedian or CentreLine.TramReservation ? look.Centre : CentreLine.None, EdgeLines = false };
+        return look with { Paving = paving };
+    }
+
+    /// <summary>Whether lane lines and crossings are painted on it.</summary>
+    public bool Painted => Paving is Paving.Asphalt or Paving.Concrete;
+
+    /// <summary>
+    /// The steepest a cell of path climbs, as rise over run, from the ground's corners along the sides it joins (or
+    /// both axes when it joins none).
+    /// </summary>
+    public static float Slope(CityMirror c, int i, int arms)
+    {
+        int x = i % c.Width, y = i / c.Width;
+        float nw = c.Corners[c.CornerIdx(x, y)], ne = c.Corners[c.CornerIdx(x + 1, y)];
+        float sw = c.Corners[c.CornerIdx(x, y + 1)], se = c.Corners[c.CornerIdx(x + 1, y + 1)];
+        float ns = Math.Abs((nw + ne) - (sw + se)) / 2, ew = Math.Abs((nw + sw) - (ne + se)) / 2;
+        bool alongNs = (arms & 0b0101) != 0, alongEw = (arms & 0b1010) != 0;
+        float rise = alongNs && !alongEw ? ns : alongEw && !alongNs ? ew : Math.Max(ns, ew);
+        return rise / 160f;
+    }
+
+    /// <summary>
+    /// Whether a footpath cell is drawn as stairs: it's a profile with stairs, steeper than its surface holds a ramp.
+    /// </summary>
+    public static bool IsStairs(CityMirror c, int i, int arms)
+    {
+        var p = c.ProfileAt(i);
+        if (p is not { Stairs: true }) return false;
+        float ramp = c.SurfaceAt(i) is { } s ? s.MaxGradePct : 25;
+        return Slope(c, i, arms) * 100 > ramp;
+    }
 
     public static RoadLook For(PathProfileInfo? p)
     {
@@ -75,7 +128,7 @@ public sealed record RoadLook(Paving Paving, float CarriagewayM, int Lanes, bool
     /// the centre (two-way) line. Lines between lanes going the same way are dashed.</summary>
     public IEnumerable<(float Offset, bool Centre)> LaneLines()
     {
-        if (Paving != Paving.Asphalt || Lanes < 2) yield break;
+        if (!Painted || Lanes < 2) yield break;
         float lane = (Width - MedianM / CellM) / Lanes, half = MedianM / CellM / 2;
         if (OneWay)
         {
