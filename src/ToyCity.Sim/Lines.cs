@@ -213,5 +213,6 @@ public sealed partial class World
                 }
             }
         }
+        CountThroughRiders();
     }
 }

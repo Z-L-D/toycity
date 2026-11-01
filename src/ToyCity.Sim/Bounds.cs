@@ -69,6 +69,7 @@ public sealed partial class World
             CityDealAction d => d.Side is < 0 or > 3 || !Def(d.Kind) || !Text(d.Other, 200) || !Text(d.Why, 200) || d.Amount is < 0 or > 1_000_000 || d.Price is < 0 or > 1_000_000
                 ? "That isn't a deal." : null,
             WeatherAction wa => !Def(wa.Kind) || wa.Strength is < 0 or > 3 ? "That isn't weather." : null,
+            FloodAction fa => fa.Stage is < 0 or > 3 ? "That isn't a flood stage." : null,
             RenameOwnerAction r => !Text(r.From, MaxName) || !Text(r.To, MaxName) ? "That player name is too long." : null,
             _ => null,
         };

@@ -100,9 +100,28 @@ public sealed partial class Region : IDisposable
     public IEnumerable<World> Cities => Tiles.Where(t => t.City != null).Select(t => t.City!);
 
     /// <summary>The whole region's ground, row-major over Cols * TileSize by Rows * TileSize cells. Made on first use.</summary>
-    public byte[] Heights => _heights ??= World.GenerateHeights(Seed, Cols * TileSize, Rows * TileSize);
+    public byte[] Heights => _heights ??= World.StepsFromCorners(Corners, Cols * TileSize, Rows * TileSize);
 
-    /// <summary>The ground of one tile, cut from the region's.</summary>
+    /// <summary>The whole region's ground at every corner, in decimetres, (Cols * TileSize + 1) wide. Made on first use.</summary>
+    public ushort[] Corners => Ground.Corners;
+
+    /// <summary>The whole region's rivers: each cell's water surface in steps, 0 for none. Made with the ground.</summary>
+    public byte[] Rivers => Ground.Rivers;
+
+    /// <summary>The whole region's ground, rivers and where each river cell flows. Made on first use.</summary>
+    public World.Ground Ground => _ground ??= World.GenerateGround(Seed, Cols * TileSize, Rows * TileSize);
+    World.Ground? _ground;
+
+    /// <summary>One tile's rivers, cut from the region's.</summary>
+    public byte[] TileRivers(int col, int row)
+    {
+        int s = TileSize, wide = Cols * s;
+        var r = new byte[s * s];
+        for (int y = 0; y < s; y++) Array.Copy(Rivers, (row * s + y) * wide + col * s, r, y * s, s);
+        return r;
+    }
+
+    /// <summary>The step heights of one tile's cells, cut from the region's.</summary>
     public byte[] TileHeights(int col, int row)
     {
         int s = TileSize, wide = Cols * s;
@@ -110,6 +129,16 @@ public sealed partial class Region : IDisposable
         var h = new byte[s * s];
         for (int y = 0; y < s; y++) Array.Copy(all, (row * s + y) * wide + col * s, h, y * s, s);
         return h;
+    }
+
+    /// <summary>The corners of one tile: its edge corners are its neighbours' too, so the ground meets exactly.</summary>
+    public ushort[] TileCorners(int col, int row)
+    {
+        int s = TileSize, wide = Cols * s + 1;
+        var all = Corners;
+        var c = new ushort[(s + 1) * (s + 1)];
+        for (int y = 0; y <= s; y++) Array.Copy(all, (row * s + y) * wide + col * s, c, y * (s + 1), s + 1);
+        return c;
     }
 
     /// <summary>Why a city can't be founded on this tile, or null.</summary>
@@ -131,7 +160,7 @@ public sealed partial class Region : IDisposable
         if (CantFound(col, row) is { } why) throw new InvalidOperationException(why);
         var t = TileAt(col, row)!;
         if (computer is { } style) mayor = World.ComputerName(style, t.Seed);
-        var w = World.CreateTile(Content, t.Seed, TileSize, name, TileHeights(col, row), Tick);
+        var w = World.CreateTile(Content, t.Seed, TileSize, name, TileCorners(col, row), Tick, TileRivers(col, row));
         // The seat changes hands by a logged action, so a replay of the tile puts the same mayor in it.
         if (mayor != w.MayorSeat.Owner && mayor.Length > 0) w.Enqueue(new RenameOwnerAction(w.MayorSeat.Owner, mayor));
         if (starter && StarterTown.FindSite(w) is { } site)
@@ -146,7 +175,7 @@ public sealed partial class Region : IDisposable
     public World ReplayTile(RegionTile t, long untilTick)
     {
         var w = t.City ?? throw new InvalidOperationException("nothing to replay on open land");
-        var fresh = World.CreateTile(Content, t.Seed, TileSize, w.Name, TileHeights(t.Col, t.Row), w.FoundedTick);
+        var fresh = World.CreateTile(Content, t.Seed, TileSize, w.Name, TileCorners(t.Col, t.Row), w.FoundedTick, TileRivers(t.Col, t.Row));
         return World.Replay(fresh, w.Log, untilTick);
     }
 
@@ -237,6 +266,7 @@ public sealed partial class Region : IDisposable
     {
         CheckDeals();
         SendWeather();
+        SendFloods();
         var sends = new List<(World, NeighbourEdgeAction)>();
         foreach (var t in Tiles)
         {

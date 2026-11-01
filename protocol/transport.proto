@@ -83,6 +83,7 @@ message SaveLine {
   Mode mode = 5;
   bool freight = 6;  // trucks or freight trains between freight depots; set when the line opens
   bool to_edge = 7;  // freight runs on from the last depot to the map edge
+  int32 through = 8; // passengers: runs on from the last stop into the neighbouring city across this side + 1 (0: doesn't)
 }
 
 message DeleteLine {
@@ -126,6 +127,7 @@ message View {
   repeated FranchiseView franchises = 23;
   string game_id = 24;                   // which company this is
   int32 signal_price = 25;
+  repeated CrossingView crossings = 26;  // roads into neighbouring cities, for lines to run on to
 }
 
 message SignalView {
@@ -228,6 +230,16 @@ message LineView {
   bool to_edge = 28;
   int32 tons = 29;            // freight carried today
   bool signal_limited = 30;   // runs less often than its trains could: the signals hold it back
+  int32 through = 31;         // runs on into the neighbour across side through - 1; 0 when it doesn't
+  string through_name = 32;   // that neighbour's name
+}
+
+// A road into a neighbouring city a line could run on to.
+message CrossingView {
+  int32 side = 1;        // 0 north, 1 east, 2 south, 3 west
+  string neighbour = 2;
+  int32 cell = 3;
+  int32 commuters = 4;   // crossing that side a day, both ways
 }
 
 message LotView {

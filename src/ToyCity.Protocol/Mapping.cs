@@ -175,10 +175,18 @@ public static class Mapping
         s.DisasterSetting = (P.DisasterSetting)(int)w.DisasterSetting;
         s.TransitBoardings = w.TransitBoardings;
         if (w.Weather != WeatherKind.Clear) s.Weather = $"{World.WeatherIcon(w.Weather)} {World.WeatherName(w.Weather, w.WeatherStrength)}";
+        s.FloodStage = w.FloodStage;
         foreach (var d in w.Disasters)
             s.Disasters.Add(new P.Disaster { Id = d.Id, Kind = (P.DisasterKind)(int)d.Kind, X = d.X, Y = d.Y, DaysLeft = d.DaysLeft, Destroyed = d.Destroyed, Damaged = d.Damaged });
         foreach (var (label, amount) in w.LastBudget) s.Budget.Add(new P.BudgetLine { Label = label, Amount = amount });
         return s;
+    }
+
+    static byte[] CornerBytes(World w)
+    {
+        var bytes = new byte[w.Corner.Length * 2];
+        for (int i = 0; i < w.Corner.Length; i++) { bytes[2 * i] = (byte)w.Corner[i]; bytes[2 * i + 1] = (byte)(w.Corner[i] >> 8); }
+        return bytes;
     }
 
     static byte[] PathBytes(World w)
@@ -193,7 +201,7 @@ public static class Mapping
         var f = new P.FullState
         {
             Width = w.Width, Height = w.HeightCells, WaterLevel = w.WaterLevel,
-            Heights = ByteString.CopyFrom(w.Height), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)),
+            Heights = ByteString.CopyFrom(w.Height), Corners = ByteString.CopyFrom(CornerBytes(w)), Rivers = ByteString.CopyFrom(w.River), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)),
             PowerLines = ByteString.CopyFrom(w.PowerLine), WaterPipes = ByteString.CopyFrom(w.WaterPipe),
             Stats = Stats(w, speed), Catalog = Catalog(w.Content), Seed = w.Seed,
         };
@@ -511,6 +519,7 @@ public static class Mapping
                 ForkAction fk => new P.ActionRecord { Tick = l.Tick, By = fk.By, Fork = new P.Fork { Player = fk.Player, HomeName = fk.HomeName } },
                 NeighbourEdgeAction ne => new P.ActionRecord { Tick = l.Tick, By = ne.By, Neighbour = Edge(ne) },
                 WeatherAction wa => new P.ActionRecord { Tick = l.Tick, By = wa.By, Weather = new P.RegionWeather { Kind = (P.WeatherKind)(int)wa.Kind, Strength = wa.Strength } },
+                FloodAction fa => new P.ActionRecord { Tick = l.Tick, By = fa.By, Flood = new P.RegionFlood { Stage = fa.Stage } },
                 CityDealAction cd => new P.ActionRecord
                 {
                     Tick = l.Tick, By = cd.By,
@@ -538,6 +547,7 @@ public static class Mapping
                 : r.Fork != null ? new ForkAction(r.Fork.Player, r.Fork.HomeName)
                 : r.Neighbour != null ? Edge(r.Neighbour)
                 : r.Weather is { } wr ? new WeatherAction((WeatherKind)(int)wr.Kind, wr.Strength)
+                : r.Flood is { } fr ? new FloodAction(fr.Stage)
                 : r.Deal is { } d ? new CityDealAction(d.Id, (DealKind)(int)d.Kind, d.Selling, d.Side, d.Other, d.Amount, d.Price, d.End, d.Why)
                 : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
                 : r.Action == null ? null : ToSim(r.Action);
@@ -559,7 +569,7 @@ public static class Mapping
 public sealed class DeltaTracker
 {
     byte[] _heights = Array.Empty<byte>(), _zones = Array.Empty<byte>(), _lines = Array.Empty<byte>(), _pipes = Array.Empty<byte>();
-    ushort[] _paths = Array.Empty<ushort>();
+    ushort[] _paths = Array.Empty<ushort>(), _corners = Array.Empty<ushort>();
     int _strips;
     readonly Dictionary<int, P.BuildingState> _buildings = new();
 
@@ -571,6 +581,7 @@ public sealed class DeltaTracker
         _lines = (byte[])w.PowerLine.Clone();
         _pipes = (byte[])w.WaterPipe.Clone();
         _paths = (ushort[])w.Path.Clone();
+        _corners = (ushort[])w.Corner.Clone();
         _strips = w.StripsVersion;
         _buildings.Clear();
         foreach (var b in w.Buildings) if (b != null) _buildings[b.Id] = Mapping.Building(w, b);
@@ -591,6 +602,12 @@ public sealed class DeltaTracker
             if (_heights[i] == w.Height[i] && _zones[i] == w.ZoneCode[i] && _paths[i] == w.Path[i] && _lines[i] == w.PowerLine[i] && _pipes[i] == w.WaterPipe[i]) continue;
             _heights[i] = w.Height[i]; _zones[i] = w.ZoneCode[i]; _paths[i] = w.Path[i]; _lines[i] = w.PowerLine[i]; _pipes[i] = w.WaterPipe[i];
             d.Cells.Add(new P.CellUpdate { Index = i, Height = w.Height[i], Zone = w.ZoneCode[i], Path = w.Path[i], PowerLine = w.PowerLine[i] != 0, WaterPipe = w.WaterPipe[i] != 0 });
+        }
+        for (int i = 0; i < w.Corner.Length; i++)
+        {
+            if (_corners[i] == w.Corner[i]) continue;
+            _corners[i] = w.Corner[i];
+            d.Corners.Add(new P.CornerUpdate { Index = i, Dm = w.Corner[i] });
         }
         var alive = new HashSet<int>();
         foreach (var b in w.Buildings)

@@ -68,6 +68,8 @@ public sealed partial class World
                 return "Only the region says what's across the border.";
             case WeatherAction:
                 return "Only the region brings the weather.";
+            case FloodAction:
+                return "Only the region's rain floods the rivers.";
             case CityDealAction:
                 return "Deals are made on the region map, with the neighbour's agreement.";
             case SideGameAction g:

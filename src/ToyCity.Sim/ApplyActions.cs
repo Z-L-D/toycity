@@ -44,6 +44,7 @@ public sealed partial class World
             case NeighbourEdgeAction a: ApplyNeighbourEdge(a); break;
             case CityDealAction a: ApplyCityDeal(a); break;
             case WeatherAction a: ApplyWeather(a); break;
+            case FloodAction a: ApplyFlood(a); break;
             case RenameOwnerAction a: RenameOwner(a.From, a.To); break;
             case LeaseLotAction a: ApplyLeaseLot(a); break;
             case SetLeaseTermsAction a: ApplySetLeaseTerms(a); break;
@@ -97,6 +98,9 @@ public sealed partial class World
     }
 
     /// <summary>Checks a path run without changing anything. Returns null when valid, else the reason.</summary>
+    /// <summary>A path over a river is a bridge, and costs this many times the path.</summary>
+    public const int BridgeCostTimes = 5;
+
     public string? ValidatePath(PlacePathAction a, out long cost, out int badX, out int badY)
     {
         cost = 0; badX = -1; badY = -1;
@@ -109,9 +113,10 @@ public sealed partial class World
             badX = x; badY = y;
             if (!InBounds(x, y)) return "That runs off the map.";
             int i = Idx(x, y);
-            if (IsWater(i)) return "Paths can't cross water yet (bridges come later).";
+            if (IsWater(i) && !IsRiver(i)) return "Paths can't cross the sea or a lake; a river they can bridge.";
             if (BuildingAt[i] != 0) return $"A building is in the way at {x},{y}. Bulldoze it first.";
-            if (Path[i] != profile + 1) cost += Content.Profiles[profile].CostPerCell;
+            // A bridge costs five times the road.
+            if (Path[i] != profile + 1) cost += Content.Profiles[profile].CostPerCell * (IsRiver(i) ? BridgeCostTimes : 1);
         }
         // The ground is graded to at most a step a cell, between the roads it meets.
         var works = Earthworks(cells, out int bad);
@@ -255,6 +260,7 @@ public sealed partial class World
         for (int yy = y; yy < y + h; yy++)
         for (int xx = x; xx < x + w; xx++)
             BuildingAt[Idx(xx, yy)] = b.Id + 1;
+        FlattenLot(x, y, w, h);
         return b;
     }
 
@@ -317,44 +323,94 @@ public sealed partial class World
         }
     }
 
+    /// <summary>How far, in cells, levelling reaches out to embank the ground around it.</summary>
+    public const int EmbankReach = 12;
+    /// <summary>How much an embankment rises or falls a cell: 3 m in 16, about 1 in 5.</summary>
+    public const int EmbankDm = 30;
+
     void ApplyTerraform(TerraformAction a)
     {
         var r = a.Area;
-        int x0 = Math.Max(0, r.MinX), x1 = Math.Min(Width - 1, r.MaxX), y0 = Math.Max(0, r.MinY), y1 = Math.Min(HeightCells - 1, r.MaxY);
         if (!InBounds(r.X0, r.Y0)) return;
-        int target = Height[Idx(r.X0, r.Y0)];
-        // Smooth reads the heights as they were before the brush, so the result doesn't depend on the order of cells.
-        int SmoothAt(int x, int y)
+        int x0 = Math.Max(0, r.MinX), x1 = Math.Min(Width - 1, r.MaxX), y0 = Math.Max(0, r.MinY), y1 = Math.Min(HeightCells - 1, r.MaxY);
+        int cw = Width + 1;
+        // The brush moves the corners of the cells it covers. A corner a building or a path stands on stays put, so
+        // nothing built is lifted or sunk.
+        bool Held(int cx, int cy)
+        {
+            for (int dy = -1; dy <= 0; dy++)
+            for (int dx = -1; dx <= 0; dx++)
+                if (InBounds(cx + dx, cy + dy) && (BuildingAt[Idx(cx + dx, cy + dy)] != 0 || Path[Idx(cx + dx, cy + dy)] != 0)) return true;
+            return false;
+        }
+        // Level brings the area to the first cell's height, a whole step, so levelled land is never under the water.
+        int target = Height[Idx(r.X0, r.Y0)] * StepDm;
+        // Smooth reads the corners as they were before the brush, so the result doesn't depend on the order.
+        int SmoothAt(int cx, int cy)
         {
             int sum = 0, n = 0;
             for (int dy = -1; dy <= 1; dy++)
             for (int dx = -1; dx <= 1; dx++)
-                if (InBounds(x + dx, y + dy)) { sum += Height[Idx(x + dx, y + dy)]; n++; }
-            return (2 * sum + n) / (2 * n);
+                if (cx + dx >= 0 && cy + dy >= 0 && cx + dx <= Width && cy + dy <= HeightCells) { sum += Corner[(cy + dy) * cw + cx + dx]; n++; }
+            return (sum + n / 2) / n;
         }
-        var cells = new List<(int I, int H)>();
-        for (int y = y0; y <= y1; y++)
-        for (int x = x0; x <= x1; x++)
+        var moves = new List<(int C, int H)>();
+        for (int cy = y0; cy <= y1 + 1; cy++)
+        for (int cx = x0; cx <= x1 + 1; cx++)
         {
-            int i = Idx(x, y);
-            if (BuildingAt[i] != 0 || Path[i] != 0) continue;
+            if (Held(cx, cy)) continue;
+            int c = cy * cw + cx, now = Corner[c];
             int h = a.Mode switch
             {
-                TerraformMode.Raise => Height[i] + 1,
-                TerraformMode.Lower => Height[i] - 1,
-                TerraformMode.Smooth => SmoothAt(x, y),
+                TerraformMode.Raise => now + StepDm,
+                TerraformMode.Lower => now - StepDm,
+                TerraformMode.Smooth => SmoothAt(cx, cy),
                 _ => target,
             };
-            h = Math.Clamp(h, 0, MaxHeight);
-            if (h != Height[i]) cells.Add((i, h));
+            h = Math.Clamp(h, 0, MaxCornerDm);
+            if (h != now) moves.Add((c, h));
         }
-        if (cells.Count == 0) return;
-        if (!Spend((long)cells.Count * Content.TerraformCostPerCell, r.X0, r.Y0)) return;
-        foreach (var (i, h) in cells)
+        // Levelled ground meets the land around it on an embankment, cut or fill sloping about 1 in 5, rather than a
+        // cliff: each corner within reach comes to within EmbankDm a corner of the level, more the farther out it is.
+        // Ground by the water is left as it is, so levelling never fills the sea.
+        int ex0 = x0, ey0 = y0, ex1 = x1, ey1 = y1;
+        if (a.Mode == TerraformMode.Level)
         {
-            Height[i] = (byte)h;
-            if (IsWater(i)) { ZoneCode[i] = 0; PowerLine[i] = 0; }
+            ex0 = Math.Max(0, x0 - EmbankReach); ey0 = Math.Max(0, y0 - EmbankReach);
+            ex1 = Math.Min(Width - 1, x1 + EmbankReach); ey1 = Math.Min(HeightCells - 1, y1 + EmbankReach);
+            bool ByWater(int cx, int cy)
+            {
+                for (int dy = -1; dy <= 0; dy++)
+                for (int dx = -1; dx <= 0; dx++)
+                    if (InBounds(cx + dx, cy + dy) && IsWater(Idx(cx + dx, cy + dy))) return true;
+                return false;
+            }
+            for (int cy = ey0; cy <= ey1 + 1; cy++)
+            for (int cx = ex0; cx <= ex1 + 1; cx++)
+            {
+                int d = Math.Max(Math.Max(x0 - cx, cx - (x1 + 1)), Math.Max(y0 - cy, cy - (y1 + 1)));
+                if (d <= 0 || Held(cx, cy) || ByWater(cx, cy)) continue;
+                int c = cy * cw + cx, now = Corner[c];
+                int h = Math.Clamp(now, target - d * EmbankDm, target + d * EmbankDm);
+                if (h != now) moves.Add((c, h));
+            }
         }
+        if (moves.Count == 0) return;
+        // Priced by the cells the brush reshaped; the embankment around a levelled area comes with it.
+        var cells = new HashSet<int>();
+        foreach (var (c, _) in moves)
+        {
+            int cx = c % cw, cy = c / cw;
+            for (int dy = -1; dy <= 0; dy++)
+            for (int dx = -1; dx <= 0; dx++)
+                if (InBounds(cx + dx, cy + dy)) cells.Add(Idx(cx + dx, cy + dy));
+        }
+        long priced = cells.Count(i => i % Width >= x0 - 1 && i % Width <= x1 + 1 && i / Width >= y0 - 1 && i / Width <= y1 + 1);
+        if (!Spend(priced * Content.TerraformCostPerCell, r.X0, r.Y0)) return;
+        foreach (var (c, h) in moves) Corner[c] = (ushort)h;
+        DeriveHeights(ex0 - 1, ey0 - 1, ex1 + 1, ey1 + 1);
+        foreach (int i in cells)
+            if (IsWater(i)) { ZoneCode[i] = 0; PowerLine[i] = 0; }
         RecomputeWaterDistance();
     }
 
@@ -367,7 +423,7 @@ public sealed partial class World
         {
             if (!InBounds(x, y)) { Reject("That runs off the map.", x, y); return; }
             int i = Idx(x, y);
-            if (IsWater(i)) { Reject("Lines and pipes can't cross water yet.", x, y); return; }
+            if (IsWater(i) && !IsRiver(i)) { Reject("Lines and pipes can't cross the sea or a lake; a river they can.", x, y); return; }
             if (a.Kind == UtilityKind.PowerLine)
             {
                 if (BuildingAt[i] != 0 || PowerLine[i] != 0) continue; // buildings conduct by themselves

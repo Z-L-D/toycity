@@ -1,6 +1,8 @@
-// The emergency services' own view: a dispatch board over the map. Calls come in, units go out, and a call played
-// at the scene opens a small top-down picture of it where the player moves crews, draws paths and gives orders.
-// Nothing here aims or drives carefully for the player: the switches in Settings decide how much the crews do alone.
+// The emergency services' own view, a game screen of its own as the bus company has: its top bar, its tools down the
+// left, its board on the right, and the city map in the middle with the calls marked on it. A call played at the
+// scene fills the middle with a top-down picture of it, where the player moves crews, draws paths and gives orders;
+// when it ends its report card comes up over it. Nothing here aims or drives carefully for the player: the switches
+// in Settings decide how much the crews do alone.
 import { decodeEmergencyView, encodeEmergencyCommand, type Connection, type Msg } from './net';
 
 export interface EmergencyHost {
@@ -9,7 +11,28 @@ export interface EmergencyHost {
   toast(text: string, severity?: string): void;
   /** The city's cells across, for naming its 32-cell districts. */
   cityWidth?(): number;
+  /** The city's date and speed, for the service's top bar. */
+  clock?(): { month: number; day: number; year: number; speed: number };
+  /** The service's screen came up (true) or went (false): the city's tools and panel go or come back. */
+  onModeChange?(on: boolean): void;
+  /** Marks the service's calls on the city map while its screen is up, or clears them (null). */
+  setCalls?(calls: { x: number; y: number; icon: string; waiting: boolean; scene: boolean }[] | null): void;
 }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const ORDERS: [Order, string, string][] = [
+  ['move', 'Move', 'Right-click a tile: the selected find their own way there'],
+  ['path', 'Draw path', 'Drag from the selected one: it follows exactly what you draw, through anything in the way'],
+  ['hose', 'Hose', 'Firefighters spray the fire at a tile'],
+  ['treat', 'Treat', 'Paramedics treat the person you click'],
+  ['warn', 'Warn', 'Officers call on the person you click to give up'],
+  ['arrest', 'Arrest', 'Officers close in on the person you click and cuff them'],
+  ['taser', 'Taser', 'Officers fire a taser at a tile: it hits the first person on the line'],
+  ['shoot', 'Shoot', 'Officers fire at a tile: it hits the first person on the line, whoever they are'],
+  ['cordon', 'Cordon', "Officers hold a tile: onlookers keep back and a suspect can't slip out past them"],
+  ['search', 'Search', 'Officers go to a tile and look around it for anyone hiding'],
+  ['breach', 'Breach', 'SWAT goes into the building you click; two or more together stun whoever is inside'],
+];
 
 type EmTab = 'calls' | 'units' | 'reports' | 'settings' | 'log';
 type Order = 'move' | 'path' | 'hose' | 'treat' | 'warn' | 'arrest' | 'taser' | 'shoot' | 'cordon' | 'search' | 'breach';
@@ -47,15 +70,25 @@ const STYLE_HELP = [
 const TASKS: Record<Order, number> = { move: 0, path: 0, hose: 1, treat: 2, arrest: 3, warn: 4, shoot: 5, taser: 6, breach: 7, cordon: 8, search: 9 };
 const ROLE_COLOR = ['#e04f3a', '#f2f2f2', '#3f7fe0', '#9aa0a8', '#f0c030', '#a050d0', '#f08ad0'];
 const ROLE_NAME = ['firefighter', 'paramedic', 'officer', 'bystander', 'casualty', 'suspect', 'hostage'];
-const TILE_COLOR = ['#c9c0a0', '#6e6e6e', '#a88d6c', '#4a7fe0', '#7cbf6a', '#3a3330'];
+// Ground, road, building, water, park, burnt: the same colours as the city map's.
+const TILE_COLOR = ['#66783e', '#47474b', '#8a8278', '#21505f', '#4f7a34', '#2e2926'];
 
 export class Emergency {
   view: Msg | null = null;
-  private open = false;
+  /** Whether the service's own screen is up in place of the city's. */
+  active = false;
   private tab: EmTab = 'calls';
   private public = false;
   /** The scene being watched, if any. */
   private sceneId = 0;
+  /**
+   * The scene on show after it ended: kept as it last was, under its report card, until the player goes back to the
+   * calls. A scene that just vanishes looks like the board broke.
+   */
+  private ended: Msg | null = null;
+  private reportOpen = true;
+  /** Whether the scene is put aside to show the city map around it. */
+  private sceneHidden = false;
   private running = true;
   private order: Order = 'move';
   private selected: number[] = [];
@@ -66,15 +99,31 @@ export class Emergency {
   private picks = new Map<number, Set<number>>();
 
   constructor(private readonly host: EmergencyHost) {
-    $('#btn-emergency').addEventListener('click', () => this.toggle());
+    $('#btn-emergency').addEventListener('click', () => this.setMode(true));
+    $('#em-city').addEventListener('click', () => this.setMode(false));
+    document.querySelectorAll<HTMLButtonElement>('#em-speed button').forEach((b) =>
+      b.addEventListener('click', () => this.host.conn.send({ speed: { speed: Number(b.dataset.speed) } })));
+    window.addEventListener('keydown', (e) => {
+      if (!this.active || (e.target as HTMLElement).closest('input, select, dialog')) return;
+      if (e.key === 'Escape' && (this.scene || this.ended)) { this.toBoard(); e.preventDefault(); }
+    });
+    window.addEventListener('resize', () => { if (this.active && this.shown) this.drawScene(); });
     window.setInterval(() => this.stepScene(), 500);
+    if (new URLSearchParams(location.search).get('view') === 'dispatch') this.setMode(true);
   }
 
-  private toggle() {
-    this.open = !this.open;
-    $('#em').classList.toggle('hidden', !this.open);
+  /** Switches between the city's screen and the service's. */
+  setMode(on: boolean) {
+    if (on === this.active) return;
+    this.active = on;
+    document.body.classList.toggle('dispatch', on);
+    document.title = on ? `${this.view?.name ?? 'Dispatch'} · ToyCity` : 'ToyCity';
+    this.host.onModeChange?.(on);
     this.render();
   }
+
+  /** The city's day turned: the date on the top bar. */
+  onCityTick() { if (this.active) this.renderTop(); }
 
   /**
    * What the player asked for and is waiting on, shown at once. The city takes it now, but the service only hears at
@@ -102,66 +151,131 @@ export class Emergency {
     this.public = body.seat === 'public';
     const btn = $('#btn-emergency');
     btn.classList.remove('hidden');
-    const open = (this.view.calls as Msg[]).filter((c) => c.status === 'waiting' || c.status === 'proposed').length;
+    const open = this.waiting;
     btn.textContent = `🚒 ${open ? `Dispatch (${open})` : 'Dispatch'}`;
-    // A scene of ours that just opened comes up by itself.
     const scenes = this.view.scenes as Msg[];
-    if (this.mine && !scenes.some((s) => s.id === this.sceneId)) {
-      const fresh = scenes.find((s) => !(before?.scenes as Msg[] | undefined)?.some((b) => b.id === s.id));
+    // The scene on show ended: keep it up, as it last was, under its report.
+    const was = (before?.scenes as Msg[] | undefined)?.find((x) => x.id === this.sceneId);
+    if (this.sceneId && was && !scenes.some((x) => x.id === this.sceneId)) {
+      this.ended = was;
+      this.reportOpen = true;
+      this.selected = []; this.drawing = null; this.box = null;
+    }
+    // A scene of ours that just opened comes up by itself, unless a report is being read.
+    if (this.mine && !this.ended && !scenes.some((x) => x.id === this.sceneId)) {
+      const fresh = scenes.find((x) => !(before?.scenes as Msg[] | undefined)?.some((b) => b.id === x.id));
       this.sceneId = fresh?.id ?? 0;
-      if (fresh && !this.open) this.toggle();
+      if (fresh) { this.sceneHidden = false; if (!this.active) this.setMode(true); }
       if (!fresh) { this.selected = []; this.drawing = null; }
     }
     for (const card of (this.view.cards as Msg[]).filter((c) => !(before?.cards as Msg[] | undefined)?.some((b) => b.sceneId === c.sceneId)))
-      if (before) this.host.toast(`Scene report: ${card.where}, ${card.score} (${card.outcome})`, card.score < 40 ? 'warning' : 'info');
-    if (this.open) this.render();
+      if (before && !(this.active && this.ended?.id === card.sceneId)) this.host.toast(`Scene report: ${card.where}, ${card.score} (${card.outcome})`, card.score < 40 ? 'warning' : 'info');
+    this.render();
   }
 
   private get me() { return this.host.conn.player || 'player'; }
   private get mine() { return this.view?.operator === 'manual' && this.view.owner === this.me; }
+  /** Calls waiting for someone to send units. */
+  private get waiting() { return ((this.view?.calls ?? []) as Msg[]).filter((c) => c.status === 'waiting' || c.status === 'proposed').length; }
 
   private command(cmd: Msg) {
     this.host.conn.action({ sideGame: { game: GAME, seat: 'operator', payload: encodeEmergencyCommand(cmd) } });
   }
 
   private get scene(): Msg | undefined { return (this.view?.scenes as Msg[] | undefined)?.find((s) => s.id === this.sceneId); }
+  /** The scene in the middle of the screen: running, or ended under its report. */
+  private get shown(): Msg | undefined { return this.ended ?? this.scene; }
 
   private stepScene() {
-    if (this.mine && this.running && this.scene && this.drawing === null) this.command({ step: { sceneId: this.sceneId, steps: 2 } });
+    if (this.mine && this.running && this.scene && !this.ended && this.drawing === null) this.command({ step: { sceneId: this.sceneId, steps: 2 } });
   }
 
   private unit(id: number): Msg | undefined { return (this.view?.units as Msg[] | undefined)?.find((u) => u.id === id); }
 
+  private toBoard() {
+    this.sceneId = 0; this.ended = null; this.sceneHidden = false;
+    this.selected = []; this.drawing = null; this.box = null;
+    this.render();
+  }
+
   // -------------------------------------------------------------------------
-  // The board
+  // The screen: top bar, tools, board, and the scene in the middle
   // -------------------------------------------------------------------------
 
   private render() {
     const v = this.view;
-    const el = $('#em');
-    if (!this.open || !v) return;
-    const op = v.operator === 'manual' ? `run by ${esc(v.owner || 'nobody')}` : v.operator;
-    const head = `
-      <div class="em-head">
-        <b>🚒 ${esc(v.name)}</b>
-        ${this.public ? '' : `<span>${money(v.cash)}</span>`}
-        <span title="What the crews and the public think of the service">respect ${v.respect}</span>
-        <span title="How well calls go: feeds the service's standing with the city">service ${v.serviceQuality}</span>
-        <span class="muted">${op}</span>
-        <span class="spacer"></span>
-        ${this.pending ? `<span class="em-pending">⏳ ${esc(this.pending.text)} <span class="muted small">It happens when the city's next day starts (not while paused).</span></span>`
-          : this.mine ? `<button class="mini" data-em="release">Hand back to the computer</button>` : `<button class="mini" data-em="claim">Run it yourself</button>`}
-        <button class="mini" data-em="close">✕</button>
-      </div>
-      <nav class="em-tabs">${(['calls', 'units', 'reports', 'settings', 'log'] as EmTab[]).map((t) =>
-        `<button data-emtab="${t}" class="${t === this.tab ? 'active' : ''}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</nav>`;
-    const body = this.scene ? this.renderScene() : this.tab === 'calls' ? this.renderCalls() : this.tab === 'units' ? this.renderUnits()
+    this.host.setCalls?.(this.active && v ? (v.calls as Msg[]).filter((c) => c.status !== 'done').map((c) => ({
+      x: c.x, y: c.y, icon: KIND_ICON[c.kind] ?? '•', waiting: c.status === 'waiting' || c.status === 'proposed', scene: c.status === 'scene',
+    })) : null);
+    if (!this.active) return;
+    this.renderTop();
+    this.renderTools();
+    this.renderPanel();
+    this.renderStage();
+  }
+
+  private renderTop() {
+    const v = this.view;
+    const c = this.host.clock?.();
+    $('#em-date').textContent = c?.month ? `${MONTHS[c.month - 1]} ${c.day}, ${c.year}` : '…';
+    document.querySelectorAll<HTMLButtonElement>('#em-speed button').forEach((b) => b.classList.toggle('active', Number(b.dataset.speed) === c?.speed));
+    $('#em-conn').className = $('#conn').className;
+    if (!v) { $('#em-name').textContent = 'No emergency services'; $('#em-stats').innerHTML = ''; $('#em-seat').innerHTML = ''; return; }
+    const w = this.waiting;
+    $('#em-name').textContent = v.name + (w && !this.shown ? ` (${w} waiting)` : '');
+    const op = v.operator === 'manual' ? `run by ${esc(v.owner || 'nobody')}` : `the computer runs it (${esc(v.operator)})`;
+    $('#em-stats').innerHTML = `${this.public ? '' : `<span class="stat ${v.cash < 0 ? 'neg' : ''}" title="The service's cash">${money(v.cash)}</span>`}
+      <span class="stat" title="What the crews and the public think of the service">respect ${v.respect}</span>
+      <span class="stat" title="How well calls go: feeds the service's standing with the city">service ${v.serviceQuality}</span>
+      <span class="stat muted">${op}</span>`;
+    $('#em-seat').innerHTML = this.pending
+      ? `<span class="em-pending">⏳ ${esc(this.pending.text)}</span>`
+      : this.mine ? `<button data-em="release">Hand back to the computer</button>` : `<button data-em="claim">Run it yourself</button>`;
+    this.wire($('#em-seat'));
+  }
+
+  /** The tools down the left: the board's pages, or in a scene what to do with it and the orders. */
+  private renderTools() {
+    const el = $('#em-tools');
+    const v = this.view;
+    if (!v) { el.innerHTML = ''; return; }
+    const s = this.shown;
+    const btn = (meta: string, text: string, on = false, tip = '') => `<button data-em="${meta}" class="${on ? 'active' : ''}" ${tip ? `title="${esc(tip)}"` : ''}>${text}</button>`;
+    let html = '';
+    if (!s) {
+      const w = this.waiting;
+      html += '<h4>Board</h4>' + (['calls', 'units', 'reports', 'settings', 'log'] as EmTab[]).map((t) =>
+        btn(`tab:${t}`, `${t[0].toUpperCase() + t.slice(1)}${t === 'calls' && w ? ` <span class="badge">${w}</span>` : ''}`, t === this.tab)).join('');
+      if (!this.mine && !this.pending) html += '<p class="tip">The computer runs the service. Run it yourself (top bar) to send units and command scenes.</p>';
+    } else {
+      html += '<h4>Scene</h4>' + btn('board', '← Return to calls');
+      html += this.sceneHidden ? btn('scene', 'Back to the scene') : btn('locate', '📍 Where is this?', false, 'Put the scene aside and show the city around it');
+      if (this.ended) html += btn('report', this.reportOpen ? 'Close report' : 'Show report', this.reportOpen);
+      else if (this.mine) {
+        html += btn('run', this.running ? '⏸ Hold' : '▶ Run', !this.running, 'Hold the scene still while you give orders');
+        html += btn('leave', 'Hand to crews', false, 'The crews finish it the way the computer would');
+      }
+      if (this.mine && !this.ended) {
+        html += '<h4>Orders</h4>' + ORDERS.map(([o, label, tip]) => btn(`order:${o}`, label, this.order === o, tip)).join('');
+        html += `<p class="tip">Click to select (shift adds; drag a box for several), then ${this.order === 'move' ? 'right-click where to go' : this.order === 'path' ? 'drag a path from the selected one' : 'click the target'}.</p>`;
+      }
+    }
+    el.innerHTML = html;
+    this.wire(el);
+  }
+
+  /** The board's page on the right, or the scene's news. */
+  private renderPanel() {
+    const el = $('#em-body');
+    const v = this.view;
+    if (!v) { el.innerHTML = '<p class="muted">No emergency services in this city.</p>'; return; }
+    const s = this.shown;
+    const wait = this.pending ? `<div class="co-hint em-pending">⏳ ${esc(this.pending.text)} <span class="muted small">It happens when the city's next day starts (not while paused).</span></div>` : '';
+    const body = s ? this.renderSceneNews(s) : this.tab === 'calls' ? this.renderCalls() : this.tab === 'units' ? this.renderUnits()
       : this.tab === 'reports' ? this.renderReports() : this.tab === 'settings' ? this.renderSettings() : this.renderLog();
-    el.innerHTML = head + `<div class="em-body">${body}</div>`;
-    el.querySelectorAll<HTMLButtonElement>('[data-emtab]').forEach((b) => b.addEventListener('click', () => {
-      this.tab = b.dataset.emtab as EmTab; this.sceneId = 0; this.render();
-    }));
-    el.querySelectorAll<HTMLElement>('[data-em]').forEach((b) => b.addEventListener('click', (e) => this.click(b.dataset.em!, e)));
+    const title = s ? '' : `<h3>${this.tab[0].toUpperCase() + this.tab.slice(1)}</h3>`;
+    el.innerHTML = wait + title + body;
+    this.wire(el);
     el.querySelectorAll<HTMLInputElement>('input[data-pick]').forEach((i) => i.addEventListener('change', () => {
       const [call, unit] = i.dataset.pick!.split(':').map(Number);
       const set = this.picks.get(call) ?? new Set<number>();
@@ -169,14 +283,36 @@ export class Emergency {
       this.picks.set(call, set);
     }));
     el.querySelectorAll<HTMLInputElement>('[data-set]').forEach((i) => i.addEventListener('change', () => this.saveSettings()));
-    if (this.scene) this.drawScene();
+  }
+
+  /** The middle: the scene, filling the map's place, with its report card over it once it ended. */
+  private renderStage() {
+    const el = $('#em');
+    const s = this.shown;
+    const show = !!s && !this.sceneHidden;
+    el.classList.toggle('hidden', !show);
+    if (!show) { el.innerHTML = ''; return; }
+    const secs = Math.floor(s!.step / 4);
+    const call = (this.view!.calls as Msg[]).find((c) => c.id === s!.callId);
+    const card = this.ended ? (this.view!.cards as Msg[]).find((c) => c.sceneId === s!.id) : undefined;
+    el.innerHTML = `
+      <div class="em-stage-bar"><b>${KIND_ICON[s!.kind] ?? ''} ${esc(call?.text ?? '')}</b>
+        <span class="muted">${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} · ${s!.burning} alight${this.ended ? ' · over' : this.mine && !this.running ? ' · held' : ''}</span></div>
+      <div class="em-stage"><canvas id="em-canvas" width="${s!.width * TILE}" height="${s!.height * TILE}"></canvas></div>
+      ${this.ended && this.reportOpen ? `<div class="em-report">${this.renderReport(card)}</div>` : ''}`;
+    this.wire(el);
+    this.drawScene();
+  }
+
+  private wire(el: HTMLElement) {
+    el.querySelectorAll<HTMLElement>('[data-em]').forEach((b) => b.addEventListener('click', (e) => this.click(b.dataset.em!, e)));
   }
 
   private click(what: string, e: Event) {
     const [verb, arg] = what.split(':');
     const n = Number(arg);
     switch (verb) {
-      case 'close': this.toggle(); break;
+      case 'tab': this.tab = arg as EmTab; this.toBoard(); break;
       case 'claim':
         if (this.pending) break;
         this.host.conn.action({ seat: { seat: GAME, owner: this.me, level: 0, style: 0, spendCap: 25000 } });
@@ -198,11 +334,22 @@ export class Emergency {
         if (!units.length) { this.host.toast('Tick the units to send first.', 'warning'); break; }
         this.command({ dispatch: { callId: n, unitIds: units } });
         this.picks.delete(n);
+        this.host.toast(`Sent ${units.map((u) => this.unit(u)?.name ?? '?').join(', ')}.`);
         break;
       }
-      case 'take': this.command({ take: { callId: n } }); break;
-      case 'watch': this.sceneId = n; this.selected = []; this.render(); break;
-      case 'board': this.sceneId = 0; this.render(); break;
+      case 'take': this.command({ take: { callId: n } }); this.host.toast('Taking the scene: it opens when the crews arrive.'); break;
+      case 'watch': this.ended = null; this.sceneId = n; this.selected = []; this.sceneHidden = false; this.render(); break;
+      case 'board': this.toBoard(); break;
+      case 'locate': {
+        const s = this.shown;
+        const c = s && (this.view!.calls as Msg[]).find((x) => x.id === s.callId);
+        this.sceneHidden = true;
+        this.render();
+        if (c) this.host.jumpTo(c.x, c.y);
+        break;
+      }
+      case 'scene': this.sceneHidden = false; this.render(); break;
+      case 'report': this.reportOpen = !this.reportOpen; this.render(); break;
       case 'leave': this.command({ leave: { sceneId: this.sceneId } }); break;
       case 'run': this.running = !this.running; this.render(); break;
       case 'order': this.order = arg as Order; this.render(); break;
@@ -348,46 +495,47 @@ export class Emergency {
   // The scene
   // -------------------------------------------------------------------------
 
-  private renderScene(): string {
-    const s = this.scene!;
-    const orders: [Order, string, string][] = [
-      ['move', 'Move', 'Right-click a tile: the selected find their own way there'],
-      ['path', 'Draw path', 'Drag from the selected one: it follows exactly what you draw, through anything in the way'],
-      ['hose', 'Hose', 'Firefighters spray the fire at a tile'],
-      ['treat', 'Treat', 'Paramedics treat the person you click'],
-      ['warn', 'Warn', 'Officers call on the person you click to give up'],
-      ['arrest', 'Arrest', 'Officers close in on the person you click and cuff them'],
-      ['taser', 'Taser', 'Officers fire a taser at a tile: it hits the first person on the line'],
-      ['shoot', 'Shoot', 'Officers fire at a tile: it hits the first person on the line, whoever they are'],
-      ['cordon', 'Cordon', "Officers hold a tile: onlookers keep back and a suspect can't slip out past them"],
-      ['search', 'Search', 'Officers go to a tile and look around it for anyone hiding'],
-      ['breach', 'Breach', 'SWAT goes into the building you click; two or more together stun whoever is inside'],
-    ];
+  /** Who is selected, what just happened at the scene, and who is on the way. */
+  private renderSceneNews(s: Msg): string {
     const sel = this.selected.map((id) => {
       const p = (s.people as Msg[]).find((x) => x.id === id);
       if (p) return `${ROLE_NAME[p.role]} (${this.unit(p.unitId)?.name ?? ''})`;
       return this.unit(id)?.name ?? '';
     }).filter(Boolean).join(', ');
-    const secs = Math.floor(s.step / 4);
-    return `
-      <div class="em-scene-bar">
-        <button class="mini" data-em="board">← Board</button>
-        <b>${KIND_ICON[s.kind] ?? ''} ${esc((this.view!.calls as Msg[]).find((c) => c.id === s.callId)?.text ?? '')}</b>
-        <span class="muted">${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} · ${s.burning} alight</span>
-        <span class="spacer"></span>
-        ${this.mine ? `<button class="mini" data-em="run">${this.running ? '⏸ Hold' : '▶ Run'}</button>
-        <button class="mini" data-em="leave" title="The crews finish it the way the computer would">Hand to crews</button>` : ''}
-      </div>
-      <canvas id="em-canvas" width="${s.width * TILE}" height="${s.height * TILE}"></canvas>
-      ${this.mine ? `<div class="em-orders">${orders.map(([o, label, tip]) => `<button class="mini ${this.order === o ? 'active' : ''}" data-em="order:${o}" title="${tip}">${label}</button>`).join('')}</div>
-      <div class="muted small">Click to select (shift adds; drag a box for several), then ${this.order === 'move' ? 'right-click where to go' : this.order === 'path' ? 'drag a path from the selected one' : 'click the target'}. ${sel ? `Selected: ${esc(sel)}` : ''}</div>` : '<p class="muted small">Watching.</p>'}
-      <div class="em-events">${(s.events as string[]).slice().reverse().map((e) => `<div class="small">${esc(e)}</div>`).join('')}</div>
-      ${(s.arriving as Msg[]).length ? `<div class="muted small">On the way: ${(s.arriving as Msg[]).map((a) => `${this.unit(a.unitId)?.name ?? '?'} in ${Math.max(0, Math.ceil((a.atStep - s.step) / 4))}s`).join(', ')}</div>` : ''}`;
+    const call = (this.view!.calls as Msg[]).find((c) => c.id === s.callId);
+    return `<h3>${KIND_ICON[s.kind] ?? ''} ${esc(call?.text ?? 'Scene')}</h3>
+      <p class="muted small">${this.ended ? 'The scene is over.' : this.mine ? (sel ? `Selected: ${esc(sel)}` : 'Nobody selected.') : 'Watching: the crews run it.'}</p>
+      ${(s.arriving as Msg[]).length && !this.ended ? `<p class="small">On the way: ${(s.arriving as Msg[]).map((a) => `${esc(this.unit(a.unitId)?.name ?? '?')} in ${Math.max(0, Math.ceil((a.atStep - s.step) / 4))}s`).join(', ')}</p>` : ''}
+      <h4>What happened</h4>
+      <div class="em-events">${(s.events as string[]).slice().reverse().map((e) => `<div class="small">${esc(e)}</div>`).join('') || '<p class="muted small">Nothing yet.</p>'}</div>`;
+  }
+
+  /** The ended scene's report card: the score and what made it. */
+  private renderReport(c: Msg | undefined): string {
+    if (this.public) return `<h3>Scene over</h3><p class="muted">Scene reports are the service's own business.</p>`;
+    if (!c) return `<h3>Scene over</h3><p class="muted">⏳ Writing the report…</p>`;
+    const row = (k: string, v: string | number) => `<tr><td>${k}</td><td><b>${v}</b></td></tr>`;
+    return `<h3>Report: ${esc(c.where)}</h3>
+      <div class="em-score ${c.score < 40 ? 'neg' : ''}">${c.score}<span class="muted small"> / 100 · ${esc(c.outcome)}</span></div>
+      <table class="em-card-table">
+        ${row('Response', `${c.responseMinutes} min`)}${row('Saved', c.saved)}${row('Lost', c.lost)}
+        ${c.harmedByCrews ? row('Hurt by crews', c.harmedByCrews) : ''}${c.friendlyFire ? row('Friendly fire', c.friendlyFire) : ''}
+        ${c.unauthorizedForce ? row('Unauthorised force', c.unauthorizedForce) : ''}${row('Property lost', `${c.propertyLostPercent}%`)}
+        ${row('Rules of engagement', c.rulesOfEngagement)}${c.hostagesFreed + c.hostagesLost ? row('Hostages', `${c.hostagesFreed} freed, ${c.hostagesLost} lost`) : ''}
+      </table>
+      ${(c.notes as string[]).map((n) => `<div class="small">${esc(n)}</div>`).join('')}
+      <div class="row-flex" style="margin-top:10px"><button data-em="report">See the scene</button><button class="active" data-em="board">Return to calls</button></div>`;
   }
 
   private drawScene() {
-    const s = this.scene!;
-    const cv = $<HTMLCanvasElement>('#em-canvas');
+    const s = this.shown;
+    const cv = document.querySelector<HTMLCanvasElement>('#em-canvas');
+    if (!s || !cv) return;
+    // Fit the picture to the middle of the screen, square tiles.
+    const stage = cv.parentElement!;
+    const k = Math.max(0.5, Math.min((stage.clientWidth - 16) / cv.width, (stage.clientHeight - 16) / cv.height));
+    cv.style.width = `${Math.floor(cv.width * k)}px`;
+    cv.style.height = `${Math.floor(cv.height * k)}px`;
     const g = cv.getContext('2d')!;
     const tiles = s.tiles as Uint8Array, fire = s.fire as Uint8Array;
     for (let y = 0; y < s.height; y++)
@@ -438,7 +586,7 @@ export class Emergency {
       const x = Math.min(b.x0, b.x1) * TILE, y = Math.min(b.y0, b.y1) * TILE, w = Math.abs(b.x1 - b.x0) * TILE, h = Math.abs(b.y1 - b.y0) * TILE;
       g.fillRect(x, y, w, h); g.strokeRect(x, y, w, h);
     }
-    if (!this.mine) return;
+    if (!this.mine || this.ended) { cv.onmousedown = cv.onmousemove = cv.onmouseup = null; cv.oncontextmenu = (e) => e.preventDefault(); return; }
     const exact = (e: MouseEvent) => {
       const r = cv.getBoundingClientRect();
       return { x: (e.clientX - r.left) / r.width * s.width, y: (e.clientY - r.top) / r.height * s.height };

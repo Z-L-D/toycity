@@ -56,7 +56,7 @@ export class Transport {
   /** The lot picked with the look tool, by building id. */
   private selected: number | null = null;
   /** The line being drawn: its stops (lease ids) in order. */
-  private draft: { lineId: number; name: string; stops: number[]; fare: number; mode: number; freight: boolean; toEdge: boolean } | null = null;
+  private draft: { lineId: number; name: string; stops: number[]; fare: number; mode: number; freight: boolean; toEdge: boolean; through: number } | null = null;
   /** Every transit company's view, by game id, and the one shown. */
   private views = new Map<string, { view: Msg; public: boolean }>();
   private game = 'transport';
@@ -78,6 +78,46 @@ export class Transport {
   // Switching views
   // -------------------------------------------------------------------------
 
+  /**
+   * What the player asked for and is waiting on (taking the company, handing it back, a lease), shown at once. The
+   * city takes it now, but the company only hears at the start of the city's next day, up to ten seconds away at the
+   * slowest speed; a click with no sign of it looks like a miss.
+   */
+  private pending: { text: string; done: (v: Msg) => boolean } | null = null;
+
+  private wait(text: string, done: (v: Msg) => boolean) {
+    this.pending = { text, done };
+    this.render();
+  }
+
+  /** The server refused something: stop waiting on it. */
+  refused() {
+    if (!this.pending) return;
+    this.pending = null;
+    this.render();
+  }
+
+  private get seatPending() { return !!this.pending && /^(Taking|Handing)/.test(this.pending.text); }
+
+  private claim() {
+    if (this.seatPending) return;
+    const me = this.host.conn.player || 'player';
+    this.host.conn.action({ seat: { seat: this.game, owner: me, level: 0, style: 0, spendCap: 25000 } });
+    this.wait('Taking over the company…', (v) => v.operator === 'manual' && v.owner === me);
+  }
+
+  private handOff() {
+    if (this.seatPending) return;
+    const me = this.host.conn.player || 'player';
+    this.host.conn.action({ seat: { seat: this.game, owner: '', level: 3, style: 0, spendCap: 25000 } });
+    this.wait('Handing the company to the computer…', (v) => !(v.operator === 'manual' && v.owner === me));
+  }
+
+  private lease(buildingId: number) {
+    this.host.conn.action({ lease: { game: this.game, buildingId } });
+    this.wait('Leasing the lot…', (v) => !(v.openLots as Msg[]).some((o) => o.buildingId === buildingId));
+  }
+
   setMode(company: boolean) {
     this.company = company;
     document.body.classList.toggle('company', company);
@@ -95,7 +135,7 @@ export class Transport {
 
   private setTool(t: CoTool) {
     this.tool = t;
-    if (t === 'line' && !this.draft) this.draft = { lineId: 0, name: '', stops: [], fare: 150, mode: -1, freight: false, toEdge: false };
+    if (t === 'line' && !this.draft) this.draft = { lineId: 0, name: '', stops: [], fare: 150, mode: -1, freight: false, toEdge: false, through: 0 };
     if (t !== 'line') this.draft = null;
     if (t === 'line') this.tab = 'lines';
     this.render();
@@ -121,6 +161,7 @@ export class Transport {
     if (!cur) return;
     this.view = cur.view;
     this.public = cur.public;
+    if (this.pending?.done(this.view)) this.pending = null;
     $('#btn-company').classList.remove('hidden');
     $('#btn-company').textContent = `🚌 ${this.view.name}`;
     this.host.setLines([...this.views.values()].flatMap((x) => (x.view.lines as Msg[]).filter((l) => l.routeCells.length > 1).map((l) => ({
@@ -247,7 +288,7 @@ export class Transport {
       if (!lot) { this.host.toast('Click a free stop, station or depot (dashed outline).', 'warning'); return; }
       if (lot.leaseId > 0) { this.host.toast('The company already leases that.', 'info'); return; }
       if (!this.mine) { this.host.toast('Run the company yourself to lease lots.', 'warning'); return; }
-      this.host.conn.action({ lease: { game: this.game, buildingId: lot.buildingId } });
+      this.lease(lot.buildingId);
       return;
     }
     this.selected = lot ? lot.buildingId : null;
@@ -309,14 +350,14 @@ export class Transport {
     $('#co-buses').textContent = `${v.buses} of ${v.busCapacity} buses`;
     $('#co-quality').textContent = `service ${v.serviceQuality}/100`;
     const seat = $('#co-seat');
-    seat.innerHTML = this.mine
+    seat.innerHTML = this.pending ? `<span class="note em-pending">⏳ ${esc(this.pending.text)}</span>` : this.mine
       ? `<span class="note">You run it</span><button class="mini" id="co-handoff">Hand to the computer</button>`
       : this.public ? `<span class="note">${esc(v.owner)} runs it</span>`
       : `<span class="note">The computer runs it (${esc(v.operator)})</span><button class="mini active" id="co-claim">Run it yourself</button>`;
     if (this.views.size > 1)
       seat.innerHTML += [...this.views].filter(([id]) => id !== this.game).map(([id, x]) => `<button class="mini" data-cogame="${esc(id)}" title="Show the other company">⇄ ${esc(x.view.name)}</button>`).join('');
-    seat.querySelector('#co-claim')?.addEventListener('click', () => this.host.conn.action({ seat: { seat: this.game, owner: this.host.conn.player || 'player', level: 0, style: 0, spendCap: 25000 } }));
-    seat.querySelector('#co-handoff')?.addEventListener('click', () => this.host.conn.action({ seat: { seat: this.game, owner: '', level: 3, style: 0, spendCap: 25000 } }));
+    seat.querySelector('#co-claim')?.addEventListener('click', () => this.claim());
+    seat.querySelector('#co-handoff')?.addEventListener('click', () => this.handOff());
     seat.querySelectorAll<HTMLButtonElement>('[data-cogame]').forEach((b) => b.addEventListener('click', () => this.pick(b.dataset.cogame!)));
   }
 
@@ -364,7 +405,8 @@ export class Transport {
       return;
     }
     const paused = this.host.city.stats.speed === 0 ? '<div class="co-hint">Paused: the company hears about new lots, lines and purchases when the day turns.</div>' : '';
-    el.innerHTML = paused + ({ lines: () => this.linesHtml(v), lots: () => this.lotsHtml(v), money: () => this.moneyHtml(v), standing: () => this.standingHtml(v), log: () => this.logHtml(v) })[this.tab]();
+    const waiting = this.pending ? `<div class="co-hint em-pending">⏳ ${esc(this.pending.text)} It happens when the city's next day starts (not while paused).</div>` : '';
+    el.innerHTML = waiting + paused + ({ lines: () => this.linesHtml(v), lots: () => this.lotsHtml(v), money: () => this.moneyHtml(v), standing: () => this.standingHtml(v), log: () => this.logHtml(v) })[this.tab]();
     this.wirePanel(el, v);
   }
 
@@ -395,7 +437,11 @@ export class Transport {
           <label><input type="radio" name="draft-fmode" value="2" ${d.mode === 2 ? 'checked' : ''}> 🚂 Freight trains</label>`}
           <label title="After the last depot, carry what's left to the map edge: exports, which raise industry's demand"><input type="checkbox" id="draft-edge" ${d.toEdge ? 'checked' : ''}> On to the map edge</label></div>
         <p class="small muted">Goods made by factories near a depot go to the shops near the line's other depots${d.toEdge ? ', and the rest out of the city' : ''}. Each ton pays more the longer the run.</p>`
-        : `<label>Fare ($)</label><input type="number" id="draft-fare" min="0" max="10" step="0.25" value="${d.fare / 100}">`}
+        : `<label>Fare ($)</label><input type="number" id="draft-fare" min="0" max="10" step="0.25" value="${d.fare / 100}">
+          ${d.mode <= 0 && (v.crossings as Msg[] | undefined)?.length ? `<label>Runs on into</label>
+          <select id="draft-through"><option value="0" ${!d.through ? 'selected' : ''}>Nowhere: it ends at its last stop</option>
+            ${(v.crossings as Msg[]).map((c) => `<option value="${c.side + 1}" ${d.through === c.side + 1 ? 'selected' : ''}>${esc(c.neighbour)} (${['north', 'east', 'south', 'west'][c.side]}, ${c.commuters} people cross a day)</option>`).join('')}</select>
+          <p class="small muted">From its last stop the buses carry on over the border, picking up people crossing it (more the more often they run), and their seats let more people cross.</p>` : ''}`}
         <label>Name</label><input type="text" id="draft-name" maxlength="30" value="${esc(d.name)}" placeholder="${d.freight ? 'Freight' : 'Route'} ${(v.lines as Msg[]).length + 1}">
         <div class="row-flex" style="margin-top:6px"><button class="active" id="draft-save" ${d.stops.length < need ? 'disabled' : ''}>Save line</button><button id="draft-cancel">Cancel</button></div>
       </div>` : '';
@@ -421,7 +467,7 @@ export class Transport {
         ${l.signalLimited ? `<div class="co-warn">The signals hold it to a train every ${l.headwayMinutes} min: the track ahead is still held by the last one. Put up signals (🚦) along the line so more trains can share it; path signals keep trains on different lines out of each other's way at junctions.</div>` : ''}
         ${why}
         ${fr ? `<div class="small muted">Depots: ${(l.stopLeaseIds as number[]).map((s) => `<a href="#" data-jumplot="${s}">${this.stopName(s)}</a>`).join(' → ')}${l.toEdge ? ' → edge' : ''}</div>`
-          : `<div class="small muted">Boardings: ${(l.stopLeaseIds as number[]).map((s, i) => `<a href="#" data-jumplot="${s}">${this.stopName(s)}</a> ${l.boardings[i] ?? 0}`).join(' → ')}</div>`}
+          : `<div class="small muted">Boardings: ${(l.stopLeaseIds as number[]).map((s, i) => `<a href="#" data-jumplot="${s}">${this.stopName(s)}</a> ${l.boardings[i] ?? 0}`).join(' → ')}${l.through ? ` → ${esc(l.throughName)}` : ''}</div>`}
         <div class="small">Last month: ${fr ? 'freight' : 'fares'} ${money(l.lastMonth.fares)}, costs ${money(l.lastMonth.wages + l.lastMonth.upkeep + l.lastMonth.rent)}, <b class="${l.lastMonth.profit >= 0 ? 'pos' : 'neg'}">${money(l.lastMonth.profit)}</b></div>
         ${veh.length ? `<div class="small">Fleet: ${fleet} · condition <b class="${cond < 40 ? 'neg' : cond < 70 ? '' : 'pos'}">${cond}%</b> · oldest ${Math.floor(oldest / 360)}y ${Math.floor((oldest % 360) / 30)}m${l.timetableMinutes ? ` · on time ${l.onTimePercent}% last month` : ''}</div>` : ''}
         ${this.mine ? `<div class="row-flex" style="margin-top:4px">
@@ -519,7 +565,7 @@ export class Transport {
     on('#tc-new', () => this.setTool('line'));
     on('[data-edit]', (b) => {
       const line = (v.lines as Msg[]).find((l) => l.id === Number(b.dataset.edit))!;
-      this.draft = { lineId: line.id, name: line.name, stops: [...line.stopLeaseIds], fare: line.fareCents, mode: line.mode, freight: !!line.freight, toEdge: !!line.toEdge };
+      this.draft = { lineId: line.id, name: line.name, stops: [...line.stopLeaseIds], fare: line.fareCents, mode: line.mode, freight: !!line.freight, toEdge: !!line.toEdge, through: line.through ?? 0 };
       this.tool = 'line';
       this.render();
     });
@@ -533,8 +579,12 @@ export class Transport {
       const amount = Number($<HTMLInputElement>(`#bid-${b.dataset.bid}`).value || 0);
       this.command({ bid: { district: Number(b.dataset.bid), amount } });
     });
-    on('[data-lease]', (b) => this.host.conn.action({ lease: { game: this.game, buildingId: Number(b.dataset.lease) } }));
-    on('[data-release]', (b) => this.host.conn.action({ endLease: { leaseId: Number(b.dataset.release), byOperator: true } }));
+    on('[data-lease]', (b) => this.lease(Number(b.dataset.lease)));
+    on('[data-release]', (b) => {
+      const id = Number(b.dataset.release);
+      this.host.conn.action({ endLease: { leaseId: id, byOperator: true } });
+      this.wait('Giving up the lot…', (v) => !(v.lots as Msg[]).some((l) => l.leaseId === id));
+    });
     on('[data-jx]', (b) => this.host.jumpTo(Number(b.dataset.jx), Number(b.dataset.jy)));
     on('[data-jumplot]', (b) => { const l = this.lot(Number(b.dataset.jumplot)); if (l) this.host.jumpTo(l.x, l.y); });
     on('#draft-cancel', () => this.setTool('look'));
@@ -543,11 +593,12 @@ export class Transport {
       const name = ($<HTMLInputElement>('#draft-name').value || '').trim();
       const fareCents = this.draft.freight ? 0 : Math.round(Number($<HTMLInputElement>('#draft-fare').value || 0) * 100);
       const d = this.draft;
-      this.command({ saveLine: { lineId: d.lineId, name, stopLeaseIds: d.stops, fareCents, mode: Math.max(0, d.mode), freight: d.freight, toEdge: d.toEdge } });
+      this.command({ saveLine: { lineId: d.lineId, name, stopLeaseIds: d.stops, fareCents, mode: Math.max(0, d.mode), freight: d.freight, toEdge: d.toEdge, through: d.freight || d.mode > 0 ? 0 : d.through } });
       this.setTool('look');
     });
     el.querySelector('#draft-name')?.addEventListener('input', (e) => { if (this.draft) this.draft.name = (e.target as HTMLInputElement).value; });
     el.querySelectorAll<HTMLInputElement>('input[name="draft-fmode"]').forEach((r) => r.addEventListener('change', () => { if (this.draft) this.draft.mode = Number(r.value); this.renderPanel(); }));
+    el.querySelector('#draft-through')?.addEventListener('change', (e) => { if (this.draft) this.draft.through = Number((e.target as HTMLSelectElement).value); });
     el.querySelector('#draft-edge')?.addEventListener('change', (e) => { if (this.draft) this.draft.toEdge = (e.target as HTMLInputElement).checked; this.renderPanel(); });
     el.querySelector('#draft-fare')?.addEventListener('input', (e) => { if (this.draft) this.draft.fare = Math.round(Number((e.target as HTMLInputElement).value) * 100); });
   }

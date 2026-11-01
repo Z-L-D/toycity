@@ -66,6 +66,7 @@ public static class ContractWire
             m.Tenders.Add(new W.Tender { DistrictId = t.DistrictId, Months = t.Months, DaysLeft = t.DaysLeft, Exclusive = t.Exclusive, MinBid = t.MinBid, YourBid = t.YourBid });
         foreach (var f in c.Franchises) m.Franchises.Add(new W.Franchise { DistrictId = f.DistrictId, Holder = f.Holder, Exclusive = f.Exclusive, DaysLeft = f.DaysLeft });
         foreach (var f in c.Freight) m.Freight.Add(new W.FreightLot { LeaseId = f.LeaseId, TonsReady = f.TonsReady, TonsWanted = f.TonsWanted });
+        foreach (var x in c.Crossings) m.Crossings.Add(new W.BorderCrossing { Side = x.Side, Neighbour = x.Neighbour, Cell = x.Cell, Commuters = x.CommutersADay });
         return m;
     }
 
@@ -91,6 +92,7 @@ public static class ContractWire
         foreach (var t in m.Tenders) c.Tenders.Add(new C.Tender(t.DistrictId, t.Months, t.DaysLeft, t.Exclusive, t.MinBid, t.YourBid));
         foreach (var f in m.Franchises) c.Franchises.Add(new C.Franchise(f.DistrictId, f.Holder, f.Exclusive, f.DaysLeft));
         foreach (var f in m.Freight) c.Freight.Add(new C.FreightLot(f.LeaseId, f.TonsReady, f.TonsWanted));
+        foreach (var x in m.Crossings) c.Crossings.Add(new C.BorderCrossing(x.Side, x.Neighbour, x.Cell, x.Commuters));
         return c;
     }
 
@@ -99,7 +101,7 @@ public static class ContractWire
         var m = new W.GameToCity { ServiceQuality = g.ServiceQuality, Status = g.Status };
         foreach (var l in g.Lines)
         {
-            var w = new W.TransitLine { LineId = l.LineId, Name = l.Name, Color = l.Color, HeadwayMinutes = l.HeadwayMinutes, FareCents = l.FareCents, SeatsPerHour = l.SeatsPerHour, Mode = (W.TransitMode)l.Mode };
+            var w = new W.TransitLine { LineId = l.LineId, Name = l.Name, Color = l.Color, HeadwayMinutes = l.HeadwayMinutes, FareCents = l.FareCents, SeatsPerHour = l.SeatsPerHour, Mode = (W.TransitMode)l.Mode, Through = l.ThroughSide + 1 };
             w.StopLeaseIds.AddRange(l.StopLeaseIds);
             m.Lines.Add(w);
         }
@@ -120,7 +122,7 @@ public static class ContractWire
     public static C.GameToCity FromWire(W.GameToCity m)
     {
         var g = new C.GameToCity { ServiceQuality = m.ServiceQuality, Status = m.Status };
-        foreach (var l in m.Lines) g.Lines.Add(new C.TransitLine(l.LineId, l.Name, l.Color, l.StopLeaseIds.ToArray(), l.HeadwayMinutes, l.FareCents, l.SeatsPerHour, (C.TransitMode)l.Mode));
+        foreach (var l in m.Lines) g.Lines.Add(new C.TransitLine(l.LineId, l.Name, l.Color, l.StopLeaseIds.ToArray(), l.HeadwayMinutes, l.FareCents, l.SeatsPerHour, (C.TransitMode)l.Mode, l.Through - 1));
         foreach (var (k, v) in m.JobsByLease) g.JobsByLease[k] = v;
         foreach (var i in m.Incidents) g.Incidents.Add(FromWire(i));
         foreach (var (k, v) in m.Paid) g.Paid[k] = v;

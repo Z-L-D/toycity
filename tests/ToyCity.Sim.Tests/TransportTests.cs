@@ -168,4 +168,59 @@ public class TransportTests
         var replay = World.Replay(Fixture.Content, w.Seed, w.Width, w.Name, w.Log, w.Tick);
         Assert.Equal(w.StateHash(), replay.StateHash());
     }
+
+    [Fact]
+    public void ABusLineRunsOnIntoTheNeighbourAndCarriesCommutersOverTheBorder()
+    {
+        SideGameCatalog.Register(TransportGame.Id, () => new TransportGame());
+        using var r = Region.Create(Fixture.Content, "Through", 41, 2, 1, 128);
+        var west = r.Found(0, 0, "Westbrook", "May", starter: true);
+        var bot = r.Found(1, 0, "Botton", "", starter: true, computer: AutopilotStyle.Growth);
+        west.Funds = 2_000_000;
+        bot.Funds = 500_000;
+        // May runs a road from her town out to the east border; Botton's computer comes to meet it.
+        var route = Enumerable.Range(10, 108).Select(y => west.Idx(west.Width - 1, y))
+            .Select(c => west.RouteInward(c, World.Link.Road)).Where(x => x != null).OrderBy(x => x!.Count).First()!;
+        foreach (var (a, b) in west.Straights(route)) west.Enqueue(new PlacePathAction(a % west.Width, a / west.Width, b % west.Width, b / west.Width, "road"));
+        west.ApplyPending();
+        r.Run(150);
+        Assert.True(west.CrossingCell(1) >= 0, "Botton never met the road");
+        Assert.True(bot.SideCapacity[3] > 0, $"Botton's road doesn't reach its town; {bot.LastRefusal}");
+
+        west.Enqueue(new AttachSideGameAction(TransportGame.Id));
+        west.Step();
+        PlaceAlongRoads(west, "bus-stop", 4, spacing: 7);
+        PlaceAlongRoads(west, "bus-depot", 1, spacing: 0);
+        west.Enqueue(new SetSeatAction(TransportGame.Id, "player", OperatorLevel.Manual));
+        foreach (var b in west.Buildings.Where(b => b != null && west.LotKindOf(b) != "")) west.Enqueue(new LeaseLotAction(TransportGame.Id, b!.Id));
+        r.Run(2);
+        Assert.Equal("Botton", View(west).Crossings.Single(c => c.Side == 1).Neighbour);
+        int before = west.SideCapacity[1];
+
+        // Over the west border there's nobody: refused. Over the east, it runs on to Botton.
+        var save = new TW.SaveLine { Name = "Botton Express", FareCents = 200, Through = 4 };
+        save.StopLeaseIds.AddRange(west.Leases.Where(l => l.Kind == "bus-stop").Select(l => l.Id));
+        west.Enqueue(Cmd(new TW.Command { SaveLine = save }));
+        r.Run(1);
+        Assert.Empty(View(west).Lines);
+        save.Through = 2;
+        west.Enqueue(Cmd(new TW.Command { SaveLine = save }));
+        r.Run(1);
+        int lineId = View(west).Lines.Single().Id;
+        west.Enqueue(Cmd(new TW.Command { Buses = new TW.SetBuses { LineId = lineId, Buses = 4 } }));
+        r.Run(40);
+        var line = View(west).Lines.Single();
+        Assert.Equal("", line.Problem);
+        Assert.Equal(2, line.Through);
+        Assert.Equal("Botton", line.ThroughName);
+        var contract = west.SideGames.Single().Last.Lines.Single();
+        Assert.Equal(1, contract.ThroughSide);
+        Assert.True(west.ThroughRiders(contract) > 0, $"no through riders; crossing {west.PeopleCrossing(1)}, cap {west.Flows[1].Capacity}, pops {west.Population}/{west.NextDoor[1]!.Stats[0]}, sides {west.SideCapacity[1]}/{r.Tiles[1].City!.SideCapacity[3]}, before {before}");
+        Assert.True(line.Riders >= west.ThroughRiders(contract));
+        Assert.True(west.SideCapacity[1] > before, $"capacity {before} -> {west.SideCapacity[1]}");
+
+        // It runs on after a save.
+        var back = World.FromSnapshot(Fixture.Content, west.Snapshot());
+        Assert.Equal(2, TW.View.Parser.ParseFrom(back.SideGame(TransportGame.Id)!.Game.View("operator")).Lines.Single().Through);
+    }
 }

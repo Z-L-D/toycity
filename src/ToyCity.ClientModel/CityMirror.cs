@@ -13,6 +13,11 @@ public sealed class CityMirror
     public int WaterLevel { get; private set; } = 8;
     public ulong Seed { get; private set; }
     public byte[] Heights = Array.Empty<byte>();
+    /// <summary>The ground at every grid corner in decimetres, (Width + 1) by (Height + 1): what the terrain is drawn from.</summary>
+    public ushort[] Corners = Array.Empty<ushort>();
+    public int CornerIdx(int x, int y) => y * (Width + 1) + x;
+    /// <summary>A corner's height in height steps (2 m), the unit the views scale by.</summary>
+    public float CornerSteps(int x, int y) => Corners[CornerIdx(Math.Clamp(x, 0, Width), Math.Clamp(y, 0, Height))] / 20f;
     public byte[] Zones = Array.Empty<byte>();
     public ushort[] Paths = Array.Empty<ushort>();
     public byte[] PowerLines = Array.Empty<byte>();
@@ -59,7 +64,51 @@ public sealed class CityMirror
     public int N => Width * Height;
     public bool InBounds(int x, int y) => x >= 0 && y >= 0 && x < Width && y < Height;
     public int Idx(int x, int y) => y * Width + x;
-    public bool IsWater(int i) => Heights[i] < WaterLevel;
+    public bool IsWater(int i) => Heights[i] < WaterLevel || Rivers[i] > Heights[i];
+
+    /// <summary>Each cell's river surface in steps, 0 for none (Beta 3.1 part 5).</summary>
+    public byte[] Rivers = Array.Empty<byte>();
+    public bool IsRiver(int i) => Rivers[i] > Heights[i];
+
+    /// <summary>
+    /// Each cell's floodwater surface in steps, 0 where dry, from the stats' flood stage: the same rule the server
+    /// uses (World.FloodedCells), so the views show the water the sim damages buildings with.
+    /// </summary>
+    public byte[] Flooded => _flooded is { } f && _floodedFor == (FloodStage, TerrainVersion) ? f : (_flooded = FloodedCells(), _floodedFor = (FloodStage, TerrainVersion)).Item1;
+    byte[]? _flooded;
+    (int, int) _floodedFor = (-1, -1);
+    public int FloodStage => Stats.FloodStage;
+
+    byte[] FloodedCells()
+    {
+        const int Reach = 5;
+        int n = N, stage = FloodStage;
+        var water = new byte[n];
+        if (stage <= 0) return water;
+        var dist = new int[n];
+        var queue = new Queue<int>();
+        for (int i = 0; i < n; i++)
+            if (IsRiver(i)) { water[i] = (byte)Math.Min(255, Rivers[i] + stage); queue.Enqueue(i); }
+        int[] dx = { 0, 1, 0, -1 }, dy = { -1, 0, 1, 0 };
+        while (queue.Count > 0)
+        {
+            int c = queue.Dequeue();
+            if (dist[c] >= Reach) continue;
+            int x = c % Width, y = c / Width;
+            for (int k = 0; k < 4; k++)
+            {
+                int nx = x + dx[k], ny = y + dy[k];
+                if (!InBounds(nx, ny)) continue;
+                int j = Idx(nx, ny);
+                if (water[j] != 0 || Heights[j] < WaterLevel || IsRiver(j) || Heights[j] >= water[c]) continue;
+                water[j] = water[c];
+                dist[j] = dist[c] + 1;
+                queue.Enqueue(j);
+            }
+        }
+        for (int i = 0; i < n; i++) if (IsRiver(i)) water[i] = 0;
+        return water;
+    }
 
     public void ApplyFull(FullState f)
     {
@@ -69,6 +118,22 @@ public sealed class CityMirror
         Seed = f.Seed;
         int n = N;
         Heights = f.Heights.ToByteArray();
+        Rivers = f.Rivers.Length == Width * Height ? f.Rivers.ToByteArray() : new byte[Width * Height];
+        var cb = f.Corners.Span;
+        Corners = new ushort[(Width + 1) * (Height + 1)];
+        if (cb.Length == Corners.Length * 2)
+            for (int i = 0; i < Corners.Length; i++) Corners[i] = (ushort)(cb[2 * i] | (cb[2 * i + 1] << 8));
+        else
+            // A server from before corners: each corner the average of the cells around it.
+            for (int y = 0; y <= Height; y++)
+            for (int x = 0; x <= Width; x++)
+            {
+                int sum = 0, k = 0;
+                for (int dy = -1; dy <= 0; dy++)
+                for (int dx = -1; dx <= 0; dx++)
+                    if (InBounds(x + dx, y + dy)) { sum += Heights[Idx(x + dx, y + dy)]; k++; }
+                Corners[CornerIdx(x, y)] = (ushort)(sum * 20 / k);
+            }
         Zones = f.Zones.ToByteArray();
         var pb = f.Paths.Span;
         Paths = new ushort[n];
@@ -105,7 +170,16 @@ public sealed class CityMirror
 
     public void ApplyDelta(TickDelta d)
     {
-        bool terrain = false, roads = false;
+        bool terrain = d.Corners.Count > 0, roads = false;
+        foreach (var c in d.Corners)
+        {
+            Corners[c.Index] = (ushort)c.Dm;
+            // The cells around a moved corner are drawn again.
+            int cx = c.Index % (Width + 1), cy = c.Index / (Width + 1);
+            for (int dy = -1; dy <= 0; dy++)
+            for (int dx = -1; dx <= 0; dx++)
+                if (InBounds(cx + dx, cy + dy)) _dirtyCells.Add(Idx(cx + dx, cy + dy));
+        }
         foreach (var c in d.Cells)
         {
             int i = c.Index;

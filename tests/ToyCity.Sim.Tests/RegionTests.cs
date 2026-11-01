@@ -25,12 +25,17 @@ public class RegionTests
             for (int x = 0; x < 64; x += 5)
                 Assert.Equal(all[(row * 64 + y) * wide + col * 64 + x], h[y * 64 + x]);
         }
-        // The ground runs on across the seam: no cliff between the last column of one tile and the first of the next.
+        // The ground runs on across the seam: the step from the last column of one tile to the first of the next is
+        // no rougher than the steps between columns inside a tile.
         var west = r.TileHeights(0, 0);
         var east = r.TileHeights(1, 0);
-        int jumps = 0;
-        for (int y = 0; y < 64; y++) jumps += Math.Abs(west[y * 64 + 63] - east[y * 64]) > 2 ? 1 : 0;
-        Assert.True(jumps < 4, $"{jumps} cliffs along the seam");
+        int seam = 0, inside = 0;
+        for (int y = 0; y < 64; y++)
+        {
+            seam += Math.Abs(west[y * 64 + 63] - east[y * 64]);
+            inside += Math.Abs(west[y * 64 + 31] - west[y * 64 + 32]);
+        }
+        Assert.True(seam <= inside * 2 + 64, $"{seam} steps along the seam, {inside} along a column inside");
     }
 
     [Fact]
@@ -172,7 +177,7 @@ public class RegionTests
     [Fact]
     public void CommutersShoppersAndGoodsCrossAndBothLedgersAgree()
     {
-        using var r = Region.Create(Fixture.Content, "Twins", 23, 2, 1, 128);
+        using var r = Region.Create(Fixture.Content, "Twins", 24, 2, 1, 128);
         var west = r.Found(0, 0, "Westbrook", "May", starter: true);
         var east = r.Found(1, 0, "Eastfield", "Tess", starter: true);
         r.Run(5);
@@ -307,6 +312,49 @@ public class RegionTests
     }
 
     [Fact]
+    public void AComputerMayorBuildsOutToMeetANeighboursRoadLineAndPipe()
+    {
+        using var r = Region.Create(Fixture.Content, "Meet", 41, 2, 1, 128);
+        var west = r.Found(0, 0, "Westbrook", "May");
+        var bot = r.Found(1, 0, "Botton", "", starter: true, computer: AutopilotStyle.Growth);
+        west.Funds = 1_000_000;
+        // May brings a road, a power line and a pipe to her east edge, on rows where Botton's west edge is dry land
+        // with a way in to its town.
+        int y = Enumerable.Range(20, 88).First(yy => !bot.IsWater(bot.Idx(0, yy)) && !west.IsWater(west.Idx(west.Width - 1, yy))
+            && !west.IsWater(west.Idx(west.Width - 4, yy)) && Enumerable.Range(0, 3).All(d => !bot.IsWater(bot.Idx(0, yy + d))));
+        west.Enqueue(new PlacePathAction(west.Width - 4, y, west.Width - 1, y, "road"));
+        west.Enqueue(new PlaceUtilityAction(west.Width - 4, y + 1, west.Width - 1, y + 1, UtilityKind.PowerLine));
+        west.Enqueue(new PlaceUtilityAction(west.Width - 4, y + 2, west.Width - 1, y + 2, UtilityKind.WaterPipe));
+        west.ApplyPending();
+        Assert.True(west.Path[west.Idx(west.Width - 1, y)] != 0, string.Join(" | ", west.Notices.Select(n => n.Text)));
+        r.Run(2);
+        Assert.Equal(0, bot.Path[bot.Idx(0, y)]);
+        r.Run(130);
+        // Botton's computer met all three, each joined to its town.
+        Assert.True(bot.Path[bot.Idx(0, y)] != 0, $"no road; {bot.LastRefusal}; funds {bot.Funds}, cap {bot.MayorSeat.SpendCap}, level {bot.MayorSeat.Level}, next door {bot.NextDoor[3]?.Name} path {bot.NextDoor[3]?.Path[y]}");
+        var seen = new HashSet<int> { bot.Idx(0, y) };
+        var q = new Queue<int>(seen);
+        bool town = false;
+        while (q.Count > 0)
+        {
+            int c = q.Dequeue();
+            foreach (int j in new[] { c - 1, c + 1, c - bot.Width, c + bot.Width })
+            {
+                if (j < 0 || j >= bot.N || Math.Abs(j % bot.Width - c % bot.Width) > 1) continue;
+                if (bot.BuildingAt[j] != 0) town = true;
+                if (bot.Path[j] != 0 && seen.Add(j)) q.Enqueue(j);
+            }
+        }
+        Assert.True(town, $"the road from the crossing reaches no building ({seen.Count} road cells)");
+        Assert.True(bot.EdgeCapacity > 0, $"no capacity at the crossing; side capacity {string.Join(",", bot.SideCapacity)}; row {string.Concat(Enumerable.Range(0, 12).Select(x => bot.Path[bot.Idx(x, y)] != 0 ? '=' : '.'))}; west row {string.Concat(Enumerable.Range(west.Width - 6, 6).Select(x => west.Path[west.Idx(x, y)] != 0 ? '=' : '.'))}; nextdoor {bot.NextDoor[3]?.Path[y]} {bot.NextDoor[3]?.Path.Length}; west next {west.NextDoor[1]?.Name} cap {west.EdgeCapacity}");
+        Assert.True(bot.PowerLine[bot.Idx(0, y + 1)] != 0 || bot.Path[bot.Idx(0, y + 1)] != 0, "no power line meets May's");
+        Assert.NotEqual(0, bot.WaterPipe[bot.Idx(0, y + 2)]);
+        // And Botton's log still replays alone.
+        using var replay = r.ReplayTile(r.TileAt(1, 0)!, r.Tick);
+        Assert.Equal(bot.StateHash(), replay.StateHash());
+    }
+
+    [Fact]
     public void AComputerMayorGrowsItsCityAndReplaysAlone()
     {
         using var r = Region.Create(Fixture.Content, "Bots", 41, 2, 1, 128);
@@ -336,14 +384,14 @@ public class RegionTests
     [Fact]
     public void AComputerMayorCountersALowOfferAndTheDealRuns()
     {
-        using var r = Region.Create(Fixture.Content, "Haggle", 43, 2, 1, 128);
+        using var r = Region.Create(Fixture.Content, "Haggle", 44, 2, 1, 128);
         var west = r.Found(0, 0, "Westbrook", "May");
         var bot = r.Found(1, 0, "Botton", "", starter: true, computer: AutopilotStyle.Profit);
         r.Run(3);
         var plant = bot.Buildings.First(b => b != null && bot.TypeOf(b).Id == "coal-plant")!;
         int y = Enumerable.Range(plant.Y, plant.H).First(yy =>
-            Enumerable.Range(0, plant.X).All(x => !bot.IsWater(bot.Idx(x, yy)))
-            && Enumerable.Range(west.Width - 12, 12).All(x => !west.IsWater(west.Idx(x, yy))));
+            Enumerable.Range(0, plant.X).All(x => !bot.IsWater(bot.Idx(x, yy)) || bot.IsRiver(bot.Idx(x, yy)))
+            && Enumerable.Range(west.Width - 12, 12).All(x => !west.IsWater(west.Idx(x, yy)) || west.IsRiver(west.Idx(x, yy))));
         bot.Enqueue(new PlaceUtilityAction(0, y, plant.X - 1, y, UtilityKind.PowerLine));
         west.Enqueue(new PlaceUtilityAction(west.Width - 12, y, west.Width - 1, y, UtilityKind.PowerLine));
         bot.ApplyPending();

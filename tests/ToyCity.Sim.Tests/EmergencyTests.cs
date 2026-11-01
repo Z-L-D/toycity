@@ -95,7 +95,7 @@ public class EmergencyTests
     [Fact]
     public void InFullCommandAnUnansweredCallGetsWorseAndIsLost()
     {
-        using var w = Town(703, player: "player");
+        using var w = Town(713, player: "player");
         w.Enqueue(Cmd(new EW.Command { Settings = Settings(EW.CommandStyle.FullCommand) }));
         var home = Home(w);
         w.RaiseIncident("injury", home.X, home.Y, "city", "a fall", 1, "");
@@ -116,7 +116,7 @@ public class EmergencyTests
     [Fact]
     public void APlayersSceneHoldsTheFireUntilItEnds()
     {
-        using var w = Town(704, player: "player");
+        using var w = Town(714, player: "player");
         var home = Home(w);
         w.Ignite(home);
         w.Step();

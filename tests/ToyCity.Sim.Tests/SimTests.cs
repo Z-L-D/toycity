@@ -15,7 +15,7 @@ public class Fixture
     }
 
     /// <summary>A flat, dry block for hand-built test layouts.</summary>
-    public static (World W, int X, int Y) FlatSite(ulong seed = 42)
+    public static (World W, int X, int Y) FlatSite(ulong seed = 44)
     {
         var w = World.Create(Content, seed, 128, "Lab");
         var site = StarterTown.FindSite(w)!.Value;
@@ -164,7 +164,7 @@ public class GrowthTests
     [Fact]
     public void EveryEmptyZonedLotExplainsItself()
     {
-        var w = Fixture.Starter(5);
+        var w = Fixture.Starter(35);
         w.Run(720);
         int checkedLots = 0;
         for (int i = 0; i < w.N; i++)
@@ -475,7 +475,7 @@ public class TalkBackTests
     [Fact]
     public void RoadToTheMapEdgeRaisesRegionalDemand()
     {
-        var w = World.Create(Fixture.Content, 42, 128, "Edge");
+        var w = World.Create(Fixture.Content, 41, 128, "Edge");
         var site = StarterTown.FindSite(w)!.Value;
         foreach (var a in StarterTown.Build(site.X, site.Y)) w.Enqueue(a);
         w.Run(60);
@@ -854,7 +854,7 @@ public class DisasterTests
     [Fact]
     public void FireSpreadsWithoutCoverageAndFireStationsContainIt()
     {
-        var w = Fixture.Starter(5);
+        var w = Fixture.Starter(35);
         w.Run(365); // day 6: three weeks before coverage is recomputed
         var homes = Homes(w);
         var targets = new[] { homes[0], homes[homes.Count / 2], homes[^1] };

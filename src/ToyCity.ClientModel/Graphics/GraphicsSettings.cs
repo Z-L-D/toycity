@@ -34,8 +34,8 @@ public sealed record GraphicsSettings
     public BuildingDetail Detail { get; init; } = BuildingDetail.High;
     public Smoothing Smoothing { get; init; } = Smoothing.Near;
     public ShapeDetail ShapeDetail { get; init; } = ShapeDetail.Medium;
-    /// <summary>Open ground slopes between neighbouring levels instead of stepping.</summary>
-    public bool SmoothTerrain { get; init; } = true;
+    /// <summary>Ground far from the camera keeps every triangle; off, distant ground is drawn at half the detail.</summary>
+    public bool FullTerrain { get; init; } = true;
     public AntiAliasing AntiAliasing { get; init; } = AntiAliasing.Msaa2;
     /// <summary>How far, in cells, the free camera draws buildings in detail; beyond it they use their far models.</summary>
     public int DetailDistance { get; init; } = 120;
@@ -53,7 +53,7 @@ public sealed record GraphicsSettings
     public static readonly GraphicsSettings Low = new()
     {
         RenderScale = 75, Shadows = ShadowQuality.Off, Detail = BuildingDetail.Low, Smoothing = Smoothing.Off,
-        AntiAliasing = AntiAliasing.Off, DetailDistance = 40, ShapeDetail = ShapeDetail.Low, SmoothTerrain = false,
+        AntiAliasing = AntiAliasing.Off, DetailDistance = 40, ShapeDetail = ShapeDetail.Low, FullTerrain = false,
     };
     public static readonly GraphicsSettings Medium = new()
     {
@@ -144,8 +144,8 @@ public sealed record GraphicsSettings
             new[] { "Off", "Nearest blocks", "Wide" }, s => (int)s.Smoothing, (s, i) => s with { Smoothing = (Smoothing)i }),
         new("Smooth shape detail", "How finely smooth shapes are made. Higher is rounder and takes more triangles; each shape is made once and kept on disk.",
             new[] { "Low", "Medium", "High" }, s => (int)s.ShapeDetail, (s, i) => s with { ShapeDetail = (ShapeDetail)i }),
-        new("Smooth terrain", "Open ground slopes between levels instead of stepping. Built and paved cells stay flat.",
-            new[] { "Off", "On" }, s => s.SmoothTerrain ? 1 : 0, (s, i) => s with { SmoothTerrain = i == 1 }),
+        new("Distant terrain", "How finely the ground far from the camera is drawn. Coarse uses a quarter of the triangles there; nearby ground is always full.",
+            new[] { "Coarse", "Full" }, s => s.FullTerrain ? 1 : 0, (s, i) => s with { FullTerrain = i == 1 }),
         new("Anti-aliasing", "Smooths jagged edges. FXAA is cheap and a little soft; MSAA is sharper and costs more.",
             new[] { "Off", "FXAA", "MSAA 2×", "MSAA 4×" }, s => (int)s.AntiAliasing, (s, i) => s with { AntiAliasing = (AntiAliasing)i }),
         new("Detail distance", "How far the free camera draws buildings in detail before switching to their far models.",
@@ -175,7 +175,7 @@ public sealed record GraphicsSettings
         Line("detail", Detail);
         Line("smoothing", Smoothing);
         Line("shape_detail", ShapeDetail);
-        Line("smooth_terrain", SmoothTerrain);
+        Line("terrain_detail", FullTerrain);
         Line("anti_aliasing", AntiAliasing);
         Line("detail_distance", DetailDistance);
         Line("vsync", VSync);
@@ -204,7 +204,7 @@ public sealed record GraphicsSettings
                 "detail" => s with { Detail = E(s.Detail) },
                 "smoothing" => s with { Smoothing = E(s.Smoothing) },
                 "shape_detail" => s with { ShapeDetail = E(s.ShapeDetail) },
-                "smooth_terrain" => s with { SmoothTerrain = B(s.SmoothTerrain) },
+                "terrain_detail" => s with { FullTerrain = B(s.FullTerrain) },
                 "anti_aliasing" => s with { AntiAliasing = E(s.AntiAliasing) },
                 "detail_distance" => s with { DetailDistance = Math.Clamp(I(s.DetailDistance), 20, 400) },
                 "vsync" => s with { VSync = B(s.VSync) },

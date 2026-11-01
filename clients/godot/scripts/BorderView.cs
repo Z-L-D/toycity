@@ -12,7 +12,7 @@ public partial class BorderView : Node3D
     readonly CityMirror _city;
     readonly CityView _view;
     object? _shown;
-    static readonly StandardMaterial3D Road = new() { AlbedoColor = new Color(0.54f, 0.56f, 0.6f), Roughness = 0.9f };
+    static readonly StandardMaterial3D Road = new() { AlbedoColor = new Color(0.25f, 0.25f, 0.26f), Roughness = 0.92f };
     static readonly StandardMaterial3D Edge = new() { AlbedoColor = new Color(1f, 1f, 1f, 0.12f), Transparency = BaseMaterial3D.TransparencyEnum.Alpha, ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded };
     static readonly StandardMaterial3D Power = new() { AlbedoColor = new Color(1f, 0.85f, 0.29f), ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded };
     static readonly StandardMaterial3D Pipe = new() { AlbedoColor = new Color(0.37f, 0.78f, 1f), ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded };

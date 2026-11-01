@@ -117,6 +117,7 @@ message CityToGame {
   repeated Tender tenders = 17;        // v1.3: franchises out to tender
   repeated Franchise franchises = 18;  // v1.3: franchises and exclusive rights in force
   repeated FreightLot freight = 19;    // v1.3: goods at the game's freight depots today
+  repeated BorderCrossing crossings = 20;  // v1.4: roads into neighbouring cities
 }
 
 // v1.3: a district's transit franchise out to tender. your_bid is 0 until the game bids.
@@ -191,6 +192,15 @@ message TransitLine {
   int32 fare_cents = 6;
   int32 seats_per_hour = 7;
   TransitMode mode = 8;  // v1.2
+  int32 through = 9;     // v1.4: runs on past its last stop into the neighbour across side through - 1; 0: doesn't
+}
+
+// v1.4: a road into a neighbouring city on one side, and the commuters crossing that side a day, both ways.
+message BorderCrossing {
+  int32 side = 1;
+  string neighbour = 2;
+  int32 cell = 3;
+  int32 commuters = 4;
 }
 
 // v1.2: what a line's vehicles run on.

@@ -37,6 +37,7 @@ public sealed partial class World
         }
         ReplaceLostCivic();
         AutopilotUtilities(seat.Style);
+        AutopilotBorders();
         AutopilotPetitions();
         AutopilotDeals(seat.Style);
         AutopilotZoning(seat.Style);
@@ -44,6 +45,9 @@ public sealed partial class World
 
     /// <summary>What the computer may still spend this month: the owner's cap, and never more than the treasury holds.</summary>
     bool Affordable(long cost) => cost <= Funds && _autoSpent + cost <= MayorSeat.SpendCap;
+
+    /// <summary>Why the computer's last action was turned down, or "". Not saved.</summary>
+    internal string LastRefusal = "";
 
     /// <summary>Applies an action as the computer and counts what it cost against the month's cap.</summary>
     bool Do(SimAction a)
@@ -54,6 +58,7 @@ public sealed partial class World
         _autoSpent += Math.Max(0, before - Funds);
         // A rejection leaves a warning; the computer's attempts shouldn't read as the player's mistakes.
         bool ok = !Notices.Skip(notices).Any(n => n.Severity == "warning");
+        LastRefusal = ok ? "" : Notices.Skip(notices).First(n => n.Severity == "warning").Text;
         if (!ok) Notices.RemoveRange(notices, Notices.Count - notices);
         return ok;
     }
@@ -124,6 +129,8 @@ public sealed partial class World
             if (!Affordable(t.Cost)) continue;
             var site = FindSite(t, x, y, 6, (sx, sy) => true, exact: true);
             if (site is not var (px, py)) continue;
+            // On sloping ground the pad's earthworks cost on top of the building.
+            if (!Affordable(t.Cost + PadCost(px, py, t.W, t.H))) continue;
             if (!Do(new PlaceBuildingAction(px, py, t.Id))) continue;
             away.Civic[k] = (Buildings.Count - 1, type, px, py);
             AwayNoteAdd($"Rebuilt the {t.Name} that was lost, like for like.", px, py);
@@ -189,6 +196,7 @@ public sealed partial class World
             int keepAway = t.Pollution > 0 ? 6 : 0;
             var site = FindSite(t, cx, cy, maxR, (x, y) => (keepAway == 0 || !NearResidential(x, y, t.W, t.H, keepAway)) && (extra?.Invoke(t, x, y) ?? true));
             if (site is not var (x, y)) continue;
+            if (!Affordable(t.Cost + PadCost(x, y, t.W, t.H))) continue;
             if (!Do(new PlaceBuildingAction(x, y, t.Id))) continue;
             AwayNoteAdd($"Built {Article(t.Name)} {t.Name}: {why}.", x, y);
             return true;
@@ -417,14 +425,15 @@ public sealed partial class World
     /// <summary>Levels the ring's square, all but its road cells, to one height.</summary>
     void LevelSquare(int x, int y, int height)
     {
-        long cells = 0;
+        var works = new List<(int I, int H)>();
         for (int yy = y; yy < y + RingSize; yy++)
         for (int xx = x; xx < x + RingSize; xx++)
         {
             int i = Idx(xx, yy);
-            if (Path[i] == 0 && Height[i] != height) { Height[i] = (byte)height; cells++; }
+            if (Path[i] == 0 && Height[i] != height) works.Add((i, height));
         }
-        long cost = cells * Content.TerraformCostPerCell;
+        SetLevels(works);
+        long cost = works.Count * Content.TerraformCostPerCell;
         Funds -= cost;
         OneOffs -= cost;
         _autoSpent += cost;

@@ -64,6 +64,7 @@ public partial class Main : Node
             if (args[i] == "--company") _company = true;
             if (args[i] == "--gate" && i + 1 < args.Length) _gateFile = args[++i];
             if (args[i] == "--together" && i + 1 < args.Length) _togetherFile = args[++i];
+            if (args[i] == "--mountains" && i + 1 < args.Length) _mountainFile = args[++i];
             if (args[i] == "--graphics" && i + 1 < args.Length) _graphicsPreset = args[++i];
             if (args[i] == "--user" && i + 1 < args.Length) user = args[++i];
             if (args[i] == "--password" && i + 1 < args.Length) password = args[++i];
@@ -76,7 +77,7 @@ public partial class Main : Node
         _user = user;
         var credentials = user != null && password != null ? new Protocol.V0.SignIn { Name = user, Password = password, Create = newAccount } : SignInPanel.StoredCredentials(server);
         _client = new CityClient(uri, credentials: credentials);
-        if (_bench != null || _gateFile != null || _togetherFile != null)
+        if (Scripted)
         {
             System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
         }
@@ -110,7 +111,7 @@ public partial class Main : Node
         AddChild(_view);
         _disasters = new DisasterView(_client.City);
         AddChild(_disasters);
-        _camera = new ClassicCamera { EdgePan = !_smoke && _bench == null && _gateFile == null && _togetherFile == null };
+        _camera = new ClassicCamera { EdgePan = !_smoke && !Scripted };
         AddChild(_camera);
 
         var hud = new CanvasLayer();
@@ -141,9 +142,9 @@ public partial class Main : Node
             OS.CreateProcess(OS.GetExecutablePath(), OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--server", address }).ToArray());
             GetTree().Quit();
         };
-        if (!_smoke && _bench == null && _gateFile == null && _togetherFile == null) AddChild(signIn);
+        if (!_smoke && !Scripted) AddChild(signIn);
 
-        _panels = new PanelView(_client) { Tools = _tools, Camera = _camera, City = _view, Map = _map, Transitions = _shots == null && _bench == null && _gateFile == null && _togetherFile == null };
+        _panels = new PanelView(_client) { Tools = _tools, Camera = _camera, City = _view, Map = _map, Transitions = _shots == null && !Scripted };
         AddChild(_panels);
         var pm = _panels.Model;
         pm.Me = () => _client.Connection.Player is { Length: > 0 } me ? me : "player";
@@ -174,6 +175,8 @@ public partial class Main : Node
         _streets = new StreetLabels(_client.City, _view);
         AddChild(_streets);
         AddChild(new BorderView(_client.City, _view));
+        AddChild(new RiversView(_client.City, _view));
+        AddChild(new RoadsView(_client.City, _view));
         AddChild(new StripsView(_client.City, _view));
         var buses = _buses = new BusLinesView(_client.City, pm, _view);
         AddChild(buses);
@@ -266,6 +269,7 @@ public partial class Main : Node
             if (_gate == null) GateStart();
             Gate(delta);
         }
+        else if (_mountainFile != null) Mountains(delta);
         else if (_togetherFile != null)
         {
             if (_together == null) TogetherStart();
@@ -410,7 +414,7 @@ public partial class Main : Node
                 _camera.ToggleFree();
                 (_free!.Pitch, _free.Distance, _free.Yaw) = (22, 10, 30);
                 // The free camera's views show smooth shapes and smooth terrain whatever the preset, so every run's shots have them.
-                _graphics = _graphics with { Smoothing = ToyCity.ClientModel.Graphics.Smoothing.Wide, SmoothTerrain = true };
+                _graphics = _graphics with { Smoothing = ToyCity.ClientModel.Graphics.Smoothing.Wide, FullTerrain = true };
                 ApplyGraphics();
             }
             else (_free!.Pitch, _free.Distance, _free.Yaw) = (40, 45, 60);

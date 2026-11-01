@@ -228,47 +228,76 @@ public class ShapeTests
     }
 
     [Fact]
-    public void SmoothTerrainSlopesTheGroundRoadsAndShoresAndKeepsBuiltCellsFlat()
+    public void TheGroundIsTheServersCornersAndBuiltCellsStandFlat()
     {
         var w = World.Create(ContentDb.LoadDefault(), 501, 128, "Hilltown");
         Assert.True(StarterTown.Apply(w));
         w.Run(30);
         var c = new CityMirror();
         c.ApplyFull(Mapping.FullState(w, 0));
-        int sloped = 0, roads = 0, shores = 0;
+        Assert.Equal(w.Corner, c.Corners);
+        int sloped = 0;
         for (int y = 0; y < c.Height; y++)
             for (int x = 0; x < c.Width; x++)
             {
-                int i = c.Idx(x, y);
-                float raw = c.Heights[i];
-                Assert.Equal((raw, raw, raw, raw), TerrainShape.Corners(c, x, y, smooth: false));
-                // Under water the bed counts as one step below the waterline.
-                float own = c.IsWater(i) ? c.WaterLevel - 1 : raw;
-                var k = TerrainShape.Corners(c, x, y, smooth: true);
-                if (TerrainShape.Locked(c, x, y)) { Assert.Equal((own, own, own, own), k); continue; }
-                foreach (float h in new[] { k.NW, k.NE, k.SE, k.SW }) Assert.InRange(h, own - 1.5f, own + 1.5f);
-                if (k != (own, own, own, own))
-                {
-                    sloped++;
-                    if (c.Paths[i] != 0) roads++;
-                    // Land running down below the water's surface (a third of a step under the waterline).
-                    if (!c.IsWater(i) && Math.Min(Math.Min(k.NW, k.NE), Math.Min(k.SE, k.SW)) < c.WaterLevel - 0.35f) shores++;
-                }
-                // Where a corner is sloped, the neighbour sharing it meets it at the same height: no crack.
-                if (x + 1 < c.Width && !TerrainShape.Locked(c, x + 1, y))
-                {
-                    var e = TerrainShape.Corners(c, x + 1, y, true);
-                    float he = c.Heights[c.Idx(x + 1, y)];
-                    if (k.NE != own || e.NW != he) Assert.Equal(k.NE, e.NW);
-                    if (k.SE != own || e.SW != he) Assert.Equal(k.SE, e.SW);
-                }
+                var k = TerrainShape.Corners(c, x, y);
+                if (TerrainShape.Slope(c, x, y) > 0) sloped++;
+                // Under a building the ground is its pad: flat.
+                if (c.BuildingAt[c.Idx(x, y)] != 0 && !c.TypeById[c.BuildingAtCell(x, y)!.TypeId].Roadside)
+                    Assert.True(k.NW == k.NE && k.NE == k.SE && k.SE == k.SW, $"the ground under the building at {x},{y} isn't flat");
             }
-        _out.WriteLine($"{sloped} sloped cells, {roads} of them roads, {shores} shore cells running into the water");
-        Assert.True(sloped > 100, $"only {sloped} cells sloped");
-        Assert.True(shores > 20, $"only {shores} shore cells slope into the water");
-        // Halfway along a cell the surface is between its corners.
-        var (nw, ne, _, _) = TerrainShape.Corners(c, 10, 10, true);
-        Assert.Equal((nw + ne) / 2, TerrainShape.Surface(c, 10.5f, 10f, true), 4);
+        _out.WriteLine($"{sloped} sloped cells");
+        Assert.True(sloped > 1000, $"only {sloped} cells sloped");
+        // The surface lies on the same two triangles the views draw: along the top edge, between the top corners;
+        // across the diagonal, between north-west and south-east.
+        var (nw, ne, se, _) = TerrainShape.Corners(c, 10, 10);
+        Assert.Equal((nw + ne) / 2, TerrainShape.Surface(c, 10.5f, 10f), 4);
+        Assert.Equal((nw + se) / 2, TerrainShape.Surface(c, 10.5f, 10.5f), 4);
+        // A moved corner reaches the client in a delta.
+        var tracker = new DeltaTracker();
+        tracker.Reset(w);
+        w.Enqueue(new TerraformAction(new CellRect(2, 2, 4, 4), TerraformMode.Raise));
+        w.Step();
+        c.ApplyDelta(tracker.Next(w, 0, Array.Empty<SimNotice>()));
+        Assert.Equal(w.Corner, c.Corners);
+    }
+
+    [Fact]
+    public void EachRoadLooksLikeItsKind()
+    {
+        var cat = Mapping.Catalog(ContentDb.LoadDefault());
+        RoadLook L(string id) => RoadLook.For(cat.Profiles.Single(p => p.Id == id));
+        // A residential street: sidewalks, no centre line. A busier road: a double yellow.
+        Assert.Equal(CentreLine.None, L("street").Centre);
+        Assert.True(L("street").Sidewalks);
+        Assert.Equal(CentreLine.DoubleYellow, L("road").Centre);
+        // Same-way lanes split by dashes; a four-lane highway has a barrier and edge lines, no sidewalks.
+        Assert.Equal(CentreLine.Dashed, L("one-way-road").Centre);
+        var hw = L("highway-4");
+        Assert.Equal((4, CentreLine.Barrier, false, true), (hw.Lanes, hw.Centre, hw.Sidewalks, hw.EdgeLines));
+        Assert.Equal(3, hw.LaneLines().Count());
+        // A boulevard keeps 13 m of carriageway and a grass median; a tram avenue a reservation with tracks.
+        Assert.Equal((13f, CentreLine.GrassMedian), (L("boulevard-4").CarriagewayM, L("boulevard-4").Centre));
+        Assert.Equal(CentreLine.TramReservation, L("tram-avenue").Centre);
+        Assert.Equal(2, L("tram-street").TramTracks);
+        Assert.Equal(Paving.Dirt, L("dirt-road").Paving);
+        Assert.Equal(Paving.Gravel, L("walking-trail").Paving);
+        Assert.Equal(Paving.Rail, L("rail").Paving);
+        foreach (var p in cat.Profiles)
+            Assert.True(RoadLook.For(p).Width is > 0 and <= 1, $"{p.Id} is wider than its cell");
+
+        // Arms: a road joins the roads beside it, not the rail line.
+        var w = World.Create(ContentDb.LoadDefault(), 501, 64, "Crossing");
+        var c = new CityMirror();
+        c.ApplyFull(Mapping.FullState(w, 0));
+        int road = cat.Profiles.ToList().FindIndex(p => p.Id == "street") + 1, rail = cat.Profiles.ToList().FindIndex(p => p.Id == "rail") + 1;
+        Array.Clear(c.Paths);
+        c.Paths[c.Idx(10, 10)] = (ushort)road;
+        c.Paths[c.Idx(11, 10)] = (ushort)road;
+        c.Paths[c.Idx(10, 11)] = (ushort)road;
+        c.Paths[c.Idx(10, 9)] = (ushort)rail;
+        Assert.Equal(0b0110, RoadLook.Arms(c, c.Idx(10, 10)));
+        Assert.Equal(0, RoadLook.Arms(c, c.Idx(10, 9)));
     }
 
     [Fact]
@@ -280,10 +309,10 @@ public class ShapeTests
             Assert.True(order[k].ShapeDetail >= order[k - 1].ShapeDetail);
             Assert.True(order[k].Shapes.Budget >= order[k - 1].Shapes.Budget);
         }
-        Assert.False(GraphicsSettings.Low.SmoothTerrain);
-        Assert.True(GraphicsSettings.High.SmoothTerrain);
-        var s = GraphicsSettings.Load("shape_detail = high\nsmooth_terrain = false\n", GraphicsSettings.High);
-        Assert.Equal((ShapeDetail.High, false), (s.ShapeDetail, s.SmoothTerrain));
+        Assert.False(GraphicsSettings.Low.FullTerrain);
+        Assert.True(GraphicsSettings.High.FullTerrain);
+        var s = GraphicsSettings.Load("shape_detail = high\nterrain_detail = false\n", GraphicsSettings.High);
+        Assert.Equal((ShapeDetail.High, false), (s.ShapeDetail, s.FullTerrain));
         Assert.Equal(s, GraphicsSettings.Load(s.Save(), GraphicsSettings.Low));
     }
 }

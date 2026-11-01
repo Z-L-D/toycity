@@ -202,6 +202,9 @@ public sealed class GateRun
             if (!Enumerable.Range(0, 25).All(k => c.Paths[c.Idx(x + k, y)] != 0)) continue;
             if (!Enumerable.Range(0, 16).All(k => !c.IsWater(c.Idx(x + 1 + k % 4, y + 1 + k / 4)) && c.Paths[c.Idx(x + 1 + k % 4, y + 1 + k / 4)] == 0)) continue;
             if (c.BuildingAtCell(x + 1, y + 1) is not { } b || c.TypeById.GetValueOrDefault(b.TypeId)?.Category != "zoned") continue;
+            // The depot's pad can only level so much: on hilly ground, a block that rises too far won't take it.
+            var pad = Enumerable.Range(0, 16).Select(k => (int)c.Heights[c.Idx(x + 1 + k % 4, y + 1 + k / 4)]).ToList();
+            if (pad.Max() - pad.Min() > 3) continue;
             return (x, y);
         }
         return null;

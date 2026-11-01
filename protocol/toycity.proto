@@ -890,6 +890,7 @@ message CityStats {
   DisasterSetting disaster_setting = 25;
   int32 transit_boardings = 26;  // a day, from last month's commutes
   string weather = 27;           // today's weather over the city with its icon ("🌧 Heavy rain"); empty when clear
+  int32 flood_stage = 28;        // steps the rivers stand over their usual surface: 0 none, up to 3
 }
 
 message BudgetLine {
@@ -911,6 +912,8 @@ message FullState {
   Catalog catalog = 11;
   uint64 seed = 12;
   repeated RoadStrip strips = 13;
+  bytes corners = 14;       // the ground: uint16 little-endian per grid corner, (width + 1) * (height + 1), in decimetres
+  bytes rivers = 15;        // each cell's river surface in steps, 0 for none
 }
 
 // An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
@@ -944,6 +947,13 @@ message TickDelta {
   repeated Notice notices = 5;
   bool strips_changed = 6;           // the city's road strips changed: strips is the whole new list
   repeated RoadStrip strips = 7;
+  repeated CornerUpdate corners = 8; // ground corners that moved
+}
+
+// One corner of the ground grid: index = y * (width + 1) + x.
+message CornerUpdate {
+  int32 index = 1;
+  uint32 dm = 2;  // height in decimetres
 }
 
 message Requirement {
@@ -1481,6 +1491,11 @@ message ActionRecord {
   NeighbourEdge neighbour = 9;  // set instead of action: the region said what a neighbouring city shows across a border
   CityDeal deal = 10;           // set instead of action: the region started or ended a deal with a neighbour
   RegionWeather weather = 11;   // set instead of action: the region's weather over the city changed
+  RegionFlood flood = 12;       // set instead of action: the river's flood stage over the city changed
+}
+
+message RegionFlood {
+  int32 stage = 1;  // steps the rivers stand above their banks' usual level: 0 none .. 3
 }
 
 enum WeatherKind {

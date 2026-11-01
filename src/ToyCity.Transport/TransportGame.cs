@@ -25,6 +25,8 @@ public sealed class TransportGame : ISideGame
     public const int SeatsPerBus = 40, BusesPerDepot = 12, DriversPerBus = 2, DepotStaff = 2;
     public const int DefaultFareCents = 150, MaxFareCents = 1_000;
     public const int TurnaroundMinutes = 4, MinHeadway = 3, TargetHeadway = 15;
+    /// <summary>The run on into the neighbouring city past the border, each way.</summary>
+    public const int ThroughMinutes = 12;
     public const int ClosedDays = 5;
     /// <summary>Days between services unless the owner says otherwise.</summary>
     public const int DefaultServiceDays = 30;
@@ -125,6 +127,8 @@ public sealed class TransportGame : ISideGame
         public Money This = new(), Last = new();
         /// <summary>A freight line (trucks or freight trains between freight depots), and whether it runs on to the map edge.</summary>
         public bool Freight, ToEdge;
+        /// <summary>A bus line that runs on from its last stop into the neighbouring city across this side + 1; 0 when it doesn't.</summary>
+        public int Through;
         /// <summary>Freight carried today, in tons.</summary>
         public int Tons;
         /// <summary>The signals don't let it run as often as its vehicles could.</summary>
@@ -162,6 +166,8 @@ public sealed class TransportGame : ISideGame
     readonly List<Franchise> _franchises = new();
     /// <summary>Goods at the company's freight depots today.</summary>
     readonly List<FreightLot> _freight = new();
+    /// <summary>Today's roads into neighbouring cities (contract v1.4). From the city each day; saved with the rest.</summary>
+    readonly List<BorderCrossing> _crossings = new();
     /// <summary>Signals on the company's rail lines, by cell; and how much of each hour each track cell is reserved, in minutes.</summary>
     readonly SortedDictionary<int, SignalKind> _signals = new();
     readonly SortedDictionary<int, int> _reserved = new();
@@ -226,6 +232,8 @@ public sealed class TransportGame : ISideGame
         _tenders.Clear(); _tenders.AddRange(input.Tenders);
         _franchises.Clear(); _franchises.AddRange(input.Franchises);
         _freight.Clear(); _freight.AddRange(input.Freight);
+        if (!_crossings.SequenceEqual(input.Crossings)) { foreach (var l in _lines) l.RouteDirty = true; }
+        _crossings.Clear(); _crossings.AddRange(input.Crossings);
         HearStanding(input);
 
         // Lines lose stops the company no longer leases.
@@ -460,6 +468,15 @@ public sealed class TransportGame : ISideGame
             if (cells.Count > 0) cells.RemoveAt(cells.Count - 1);
             cells.AddRange(edge.Cells);
         }
+        if (line.Through > 0 && _crossings.FirstOrDefault(x => x.Side == line.Through - 1) is { } over)
+        {
+            // On from the last stop to the border crossing and over it (contract v1.4); the far end is the neighbour's.
+            var last = Lot(line.Stops[^1]);
+            if (last == null || last.AccessCell < 0 || city.Route(last.AccessCell, over.Cell) is not { } run) return;
+            minutes += run.Minutes + 1 + ThroughMinutes;
+            if (cells.Count > 0) cells.RemoveAt(cells.Count - 1);
+            cells.AddRange(run.Cells);
+        }
         line.RoundTrip = minutes * 11 / 10 * 2 + TurnaroundMinutes;
         line.RouteCells = cells.ToArray();
     }
@@ -565,7 +582,8 @@ public sealed class TransportGame : ISideGame
             if (line.Running >= line.Needed) line.DaysOnTime++;
             line.Seats = spec.Seats * 60 / line.Headway;
             if (line.Freight) continue;
-            output.Lines.Add(new TransitLine(line.Id, line.Name, line.Color, stops, line.Headway, line.EffectiveFare, line.Seats, line.Mode));
+            int through = line.Through > 0 && _crossings.Any(x => x.Side == line.Through - 1) ? line.Through - 1 : -1;
+            output.Lines.Add(new TransitLine(line.Id, line.Name, line.Color, stops, line.Headway, line.EffectiveFare, line.Seats, line.Mode, through));
             running++;
             riders += line.Riders;
             int load = LoadPercent(line);
@@ -844,9 +862,13 @@ public sealed class TransportGame : ISideGame
                     return new CommandResult(false, $"Every stop on a {lineSpec.Word} line must be a {kind.Replace('-', ' ')} the company leases.");
                 if (stops.Distinct().Count() != stops.Count) return new CommandResult(false, "A line can't visit the same stop twice.");
                 if (c.FareCents is < 0 or > MaxFareCents) return new CommandResult(false, $"Fares run from free to ${MaxFareCents / 100}.");
+                if (c.Through is < 0 or > 4) return new CommandResult(false, "A line runs on over the north, east, south or west border.");
+                if (c.Through > 0 && (freight || mode != TransitMode.Bus)) return new CommandResult(false, "Only bus lines run on into a neighbouring city.");
+                if (c.Through > 0 && _crossings.All(x => x.Side != c.Through - 1)) return new CommandResult(false, "No road crosses that border into a neighbouring city yet.");
                 var line = existing ?? NewLine(c.Name.Length > 0 ? c.Name : $"{(freight ? "Freight" : mode == TransitMode.Bus ? "Route" : mode == TransitMode.Tram ? "Tram" : "Rail")} {_nextLineId}", mode, stops);
                 line.Freight = freight;
                 line.ToEdge = toEdge;
+                line.Through = c.Through;
                 if (c.Name.Length > 0) line.Name = c.Name.Length > 30 ? c.Name[..30] : c.Name;
                 line.Stops = stops;
                 line.FareCents = c.FareCents;
@@ -991,6 +1013,7 @@ public sealed class TransportGame : ISideGame
                 Mode = (W.Mode)(int)l.Mode, TimetableMinutes = l.Timetable, ServiceDays = l.ServiceDays, Needed = l.Needed, Running = l.Running,
                 OnTimePercent = l.OnTimePercent, Condition = l.Fleet.Count == 0 ? 0 : (int)l.Fleet.Average(v => v.Condition) / 10,
                 Freight = l.Freight, ToEdge = l.ToEdge, Tons = l.Tons, SignalLimited = l.SignalLimited,
+                Through = l.Through, ThroughName = _crossings.FirstOrDefault(x => x.Side == l.Through - 1)?.Neighbour ?? "",
             };
             foreach (var veh in l.Fleet)
                 lv.Vehicles.Add(new W.VehicleView
@@ -1033,6 +1056,7 @@ public sealed class TransportGame : ISideGame
             });
         foreach (var (cell, kind) in _signals) v.Signals.Add(new W.SignalView { Cell = cell, Kind = (W.Signal)(int)kind });
         foreach (var (cell, minutes) in _reserved) v.Reserved.Add(new W.CellLoad { Cell = cell, Percent = minutes * 100 / 60 });
+        foreach (var c in _crossings) v.Crossings.Add(new W.CrossingView { Side = c.Side, Neighbour = c.Neighbour, Cell = c.Cell, Commuters = c.CommutersADay });
         foreach (var t in _tenders)
             v.Tenders.Add(new W.TenderView { District = t.DistrictId, Name = DistrictName(t.DistrictId), Months = t.Months, DaysLeft = t.DaysLeft, Exclusive = t.Exclusive, MinBid = t.MinBid, YourBid = t.YourBid, Lots = _lots.Count(l => l.DistrictId == t.DistrictId) });
         foreach (var f in _franchises)
@@ -1107,6 +1131,12 @@ public sealed class TransportGame : ISideGame
         foreach (var (c, k) in _signals) { w.Write(c); w.Write((byte)k); }
         w.Write(_reserved.Count);
         foreach (var (c, m) in _reserved) { w.Write(c); w.Write(m); }
+        // Beta 3.1: lines that run on into a neighbour, and the crossings they run over. Older saves end before this.
+        var through = _lines.Where(l => l.Through > 0).ToList();
+        w.Write(through.Count);
+        foreach (var l in through) { w.Write(l.Id); w.Write(l.Through); }
+        w.Write(_crossings.Count);
+        foreach (var c in _crossings) { w.Write(c.Side); w.Write(c.Neighbour); w.Write(c.Cell); w.Write(c.CommutersADay); }
     }
 
     public void Load(BinaryReader r)
@@ -1170,6 +1200,15 @@ public sealed class TransportGame : ISideGame
         for (int i = 0; i < nsg; i++) _signals[r.ReadInt32()] = (SignalKind)r.ReadByte();
         int nrs = r.ReadInt32();
         for (int i = 0; i < nrs; i++) _reserved[r.ReadInt32()] = r.ReadInt32();
+        if (r.BaseStream.Position >= r.BaseStream.Length) return;
+        int nth = r.ReadInt32();
+        for (int i = 0; i < nth; i++)
+        {
+            int id = r.ReadInt32(), through = r.ReadInt32();
+            if (_lines.FirstOrDefault(l => l.Id == id) is { } l) l.Through = through;
+        }
+        int ncr = r.ReadInt32();
+        for (int i = 0; i < ncr; i++) _crossings.Add(new BorderCrossing(r.ReadInt32(), r.ReadString(), r.ReadInt32(), r.ReadInt32()));
     }
 
     static void WriteTerms(BinaryWriter w, LeaseTerms t)

@@ -183,6 +183,7 @@ public sealed partial class World : IDisposable
             FillOffers(hg, input, results);
             FillTenders(hg, input);
             FillFreight(hg, input);
+            FillCrossings(input);
             var output = new GameToCity();
             if (hg.MissedTick == Tick) output = Held(hg, "");
             else

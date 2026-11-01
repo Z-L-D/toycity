@@ -16,7 +16,8 @@ public static class DenseCity
         var f = template.Clone();
         int w = f.Width, h = f.Height, n = w * h;
         var heights = f.Heights.ToByteArray();
-        bool Dry(int x, int y) => heights[y * w + x] >= f.WaterLevel;
+        var rivers = f.Rivers.Length == n ? f.Rivers.ToByteArray() : new byte[n];
+        bool Dry(int x, int y) => heights[y * w + x] >= f.WaterLevel && rivers[y * w + x] <= heights[y * w + x];
         var zones = new byte[n];
         var paths = new byte[2 * n];
         f.Buildings.Clear();

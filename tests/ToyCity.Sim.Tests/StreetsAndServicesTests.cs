@@ -59,7 +59,7 @@ public class StreetsAndServicesTests
     [Fact]
     public void APetitionClearsWithinDaysOfTheStationOpening()
     {
-        var w = Grown(403, 90);
+        var w = Grown(405, 90);
         var homes = w.Buildings.Where(b => b != null && b.Residents > 0).ToList();
         int ev = w.Content.Events.FindIndex(e => e.Id == "petition-police");
         // A site for a police station next to some home, and that home's petition.

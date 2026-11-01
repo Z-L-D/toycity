@@ -89,6 +89,9 @@ public sealed partial class World
         // A shuttle adds its seats to a side whose roads meet.
         foreach (var d in Deals)
             if (d.Kind == DealKind.Transit && SideCapacity[d.Side] > 0) { SideCapacity[d.Side] += d.Amount; cap += d.Amount; }
+        // So does a company line running on over it (Beta 3.1).
+        for (int s = 0; s < 4; s++)
+            if (SideCapacity[s] > 0 && ThroughSeats(s) is var seats and > 0) { SideCapacity[s] += seats; cap += seats; }
         EdgeCapacity = cap;
         EdgeCell = first;
     }
