@@ -860,6 +860,7 @@ public class DisasterTests
         var targets = new[] { homes[0], homes[homes.Count / 2], homes[^1] };
         var bare = Fork(w);
         var covered = Fork(w);
+        var calm = Fork(w);
         Array.Fill(covered.Coverage[(int)Service.Fire], (byte)255);
         foreach (var t in targets)
         {
@@ -867,8 +868,12 @@ public class DisasterTests
             covered.Enqueue(new TriggerDisasterAction(DisasterKind.Fire, t.X, t.Y));
         }
         bare.Run(20);
-        covered.Run(20);
-        int lostBare = Lost(w, bare), lostCovered = Lost(w, covered);
+        // Full cover all the while: coverage is measured again whenever a station or home changes, so it's set daily.
+        for (int d = 0; d < 20; d++) { Array.Fill(covered.Coverage[(int)Service.Fire], (byte)255); covered.Step(); }
+        calm.Run(20);
+        // Counted against the same twenty days without a fire, so a town redeveloping its lots doesn't count.
+        int churn = Lost(w, calm);
+        int lostBare = Lost(w, bare) - churn, lostCovered = Lost(w, covered) - churn;
         Assert.True(lostBare >= 3, $"only {lostBare} lost with no fire coverage");
         Assert.True(lostCovered < lostBare, $"{lostCovered} lost with full coverage vs {lostBare} without");
         Assert.DoesNotContain(covered.Buildings, b => b is { BurningDays: > 0 });

@@ -4,6 +4,8 @@ public sealed partial class World
 {
     /// <summary>A height step, the unit the city's rules count slopes in, in decimetres: 2 m.</summary>
     public const int StepDm = 20;
+    /// <summary>The steepest an even-slope terraform leaves the ground, in percent (Beta 3.2): gentler than a road climbs.</summary>
+    public const int MaxSlopePct = 7;
     /// <summary>The highest ground, in decimetres.</summary>
     public const int MaxCornerDm = MaxHeight * StepDm;
 
@@ -49,10 +51,14 @@ public sealed partial class World
         var cells = new List<(int, int)>();
         for (int i = 0; i < N; i++)
             if (!IsWater(i)) cells.Add((i, WaterLevel + (Height[i] - WaterLevel) / factor));
-        SetLevels(cells);
+        SetLevels(cells, made: false);
     }
 
-    void SetLevels(IReadOnlyCollection<(int I, int H)> cells)
+    /// <summary>
+    /// <paramref name="made"/>: the cells around the corners it moves are made ground (pads and levelling), as
+    /// opposed to softening the whole map, which stays natural.
+    /// </summary>
+    void SetLevels(IReadOnlyCollection<(int I, int H)> cells, bool made = true)
     {
         if (cells.Count == 0) return;
         FloodGroundChanged();
@@ -66,9 +72,20 @@ public sealed partial class World
             for (int cx = x; cx <= x + 1; cx++)
             {
                 if (!done.Add(cy * cw + cx)) continue;
+                int was = Corner[cy * cw + cx];
                 Corner[cy * cw + cx] = (ushort)CornerFromCells(cx, cy);
+                KeepBedrockUnder(cy * cw + cx);
+                if (made && was != Corner[cy * cw + cx]) MarkMade(cx, cy);
             }
         }
+    }
+
+    /// <summary>The cells around a corner that moved are made ground.</summary>
+    void MarkMade(int cx, int cy)
+    {
+        for (int dy = -1; dy <= 0; dy++)
+        for (int dx = -1; dx <= 0; dx++)
+            if (InBounds(cx + dx, cy + dy)) Made[Idx(cx + dx, cy + dy)] = 1;
     }
 
     /// <summary>
@@ -95,7 +112,7 @@ public sealed partial class World
         int cw = Width + 1;
         for (int cy = y; cy <= y + h; cy++)
         for (int cx = x; cx <= x + w; cx++)
-            if (cx <= Width && cy <= HeightCells) Corner[cy * cw + cx] = (ushort)CornerFromCells(cx, cy);
+            if (cx <= Width && cy <= HeightCells) { Corner[cy * cw + cx] = (ushort)CornerFromCells(cx, cy); KeepBedrockUnder(cy * cw + cx); }
     }
 
     /// <summary>Every lot's ground flat to its edges: for ground made from cells, which averages across them.</summary>
@@ -112,6 +129,7 @@ public sealed partial class World
         g.Corners.CopyTo(Corner, 0);
         g.Rivers.CopyTo(River, 0);
         DeriveHeights(0, 0, Width - 1, HeightCells - 1);
+        GenerateGeology();
     }
 
     /// <summary>

@@ -6,92 +6,83 @@ namespace ToyCity.Sim;
 /// </summary>
 public sealed partial class World
 {
-    /// <summary>What a road pays for each step of earth it cuts or fills, a cell at a time.</summary>
-    public const int GradeCostPerStep = 10;
+    /// <summary>What a road paid for each step of earth it cut or filled, a cell at a time, before Beta 3.2.</summary>
+    public const int GradeCostPerStep = PathGrade.CostPerStep;
     /// <summary>The most a lot's ground may rise across it for a building to level a pad there.</summary>
     public const int MaxPadRise = 3;
     /// <summary>What a placed building pays for each step of earth its pad moves, a cell at a time.</summary>
     public const int PadCostPerStep = 5;
 
     /// <summary>
-    /// The heights a run of cells is graded to so it climbs at most one step a cell: halfway between the highest
-    /// gentle profile under the ground and the lowest one over it, so cut and fill roughly balance. Cells marked
-    /// fixed (a road already there) keep their height, and nothing goes under <paramref name="floor"/> (the water).
-    /// Null when the fixed cells are too far apart in height to join.
+    /// The heights (dm) a run is graded to at <paramref name="step"/> dm a cell; see <see cref="PathGrade.Grade"/>.
     /// </summary>
-    public static int[]? Grade(IReadOnlyList<int> h, IReadOnlyList<bool> fixedCell, int floor)
-    {
-        int n = h.Count;
-        const int Inf = 1 << 20;
-        var under = new int[n];  // the highest profile with steps of one that never rises above the ground
-        var over = new int[n];   // the lowest such profile that never dips below it
-        var lo = new int[n];
-        var hi = new int[n];
-        for (int k = 0; k < n; k++)
-        {
-            under[k] = k > 0 ? Math.Min(h[k], under[k - 1] + 1) : h[k];
-            over[k] = k > 0 ? Math.Max(h[k], over[k - 1] - 1) : h[k];
-            lo[k] = Math.Max(fixedCell[k] ? h[k] : -Inf, k > 0 ? lo[k - 1] - 1 : -Inf);
-            hi[k] = Math.Min(fixedCell[k] ? h[k] : Inf, k > 0 ? hi[k - 1] + 1 : Inf);
-        }
-        for (int k = n - 2; k >= 0; k--)
-        {
-            under[k] = Math.Min(under[k], under[k + 1] + 1);
-            over[k] = Math.Max(over[k], over[k + 1] - 1);
-            lo[k] = Math.Max(lo[k], lo[k + 1] - 1);
-            hi[k] = Math.Min(hi[k], hi[k + 1] + 1);
-        }
-        var g = new int[n];
-        for (int k = 0; k < n; k++)
-        {
-            int low = Math.Max(lo[k], floor);
-            if (low > hi[k]) return null;
-            g[k] = Math.Clamp((under[k] + over[k]) >> 1, low, hi[k]);
-        }
-        return g;
-    }
+    public static int[]? Grade(IReadOnlyList<int> h, IReadOnlyList<bool> fixedCell, int floor, int step) => PathGrade.Grade(h, fixedCell, floor, step);
 
     /// <summary>
-    /// The earthworks for a path along these cells: each cell's new height, then the banks beside it (open land next
-    /// to a cut or fill eased to within a step of the road). Null with the cell that can't be graded.
+    /// The ground works a path needs: each run cell's graded height (dm), which cells are tunnel, the corners it moves,
+    /// what the earth costs, the grade it holds, and the deepest cut it leaves open (dm).
     /// </summary>
-    List<(int I, int H)>? Earthworks(List<(int X, int Y)> cells, out int badCell)
+    public sealed record PathWorks(int[] Target, bool[] Tunnel, Dictionary<int, int> Corners, long Cost, int GradePct, int StairsAbovePct, int DeepestCutDm);
+
+    /// <summary>Whether a cell's corners stay put when a path is graded beside or over it.</summary>
+    bool GradeLocked(int i) => BuildingAt[i] != 0 || IsWater(i) || Path[i] != 0;
+
+    /// <summary>A path cell's road surface, in dm: its deck on a bridge or in a tunnel, else its ground.</summary>
+    public int PathLevelDm(int i) => PathDeck[i] > 0 ? PathDeck[i] : PathGrade.CellDmOf(Corner, Width, i);
+
+    /// <summary>
+    /// The earthworks for a path of a profile and surface along these cells (Beta 3.2): graded by the decimetre
+    /// to at most the grade its type and surface allow, through a tunnel where it runs deep under a hill if
+    /// <paramref name="tunnel"/>. Null, with the cell and the grade it would need, when two paths it joins are too
+    /// far apart in height for it.
+    /// </summary>
+    public PathWorks? PlanPath(List<(int X, int Y)> cells, int profile, int surfaceCode, bool tunnel, out int badCell, out int neededPct)
     {
-        badCell = -1;
-        // A bridge's deck stands a step over the river, fixed like a road already there; the river keeps its bed.
-        var h = cells.Select(c => IsRiver(Idx(c.X, c.Y)) ? River[Idx(c.X, c.Y)] + 1 : (int)Height[Idx(c.X, c.Y)]).ToList();
-        var fix = cells.Select(c => Path[Idx(c.X, c.Y)] != 0 || IsRiver(Idx(c.X, c.Y))).ToList();
-        var g = Grade(h, fix, WaterLevel);
+        badCell = -1; neededPct = 0;
+        int pct = Content.GradePct(profile, surfaceCode);
+        var idx = cells.Select(c => Idx(c.X, c.Y)).ToList();
+        // A bridge's deck stands at least a step over the river, higher where the road's grade needs it; the river
+        // keeps its bed. A path already there keeps its level, on a deck or the ground.
+        var h = idx.Select(i => Path[i] != 0 ? PathLevelDm(i) : IsRiver(i) ? (River[i] + 1) * StepDm : PathGrade.CellDmOf(Corner, Width, i)).ToList();
+        var fix = idx.Select(i => Path[i] != 0).ToList();
+        var deck = idx.Select(i => IsRiver(i) ? (River[i] + 1) * StepDm : int.MinValue).ToList();
+        var g = PathGrade.Grade(h, fix, WaterLevel * StepDm, PathGrade.MaxDeltaDm(pct), deck);
         if (g == null)
         {
-            // The first cell where the climb between two fixed roads is too much.
-            for (int k = 1; k < cells.Count; k++)
-                if (Math.Abs(h[k] - h[k - 1]) > 1) { badCell = k; break; }
-            if (badCell < 0) badCell = 0;
+            var (need, at) = PathGrade.Needed(h, fix);
+            badCell = at; neededPct = need;
             return null;
         }
-        var works = new List<(int I, int H)>();
-        var road = new HashSet<int>(cells.Select(c => Idx(c.X, c.Y)));
-        var banks = new Dictionary<int, int>();
-        for (int k = 0; k < cells.Count; k++)
+        var under = tunnel ? PathGrade.TunnelCells(h, g, fix) : new bool[g.Length];
+        // Tunnel cells leave the ground above them alone.
+        var openIdx = new List<int>();
+        var openG = new List<int>();
+        for (int k = 0; k < idx.Count; k++)
+            if (!under[k]) { openIdx.Add(idx[k]); openG.Add(g[k]); }
+        var moved = PathGrade.Shape(Corner, Width, HeightCells, openIdx, openG, GradeLocked, WaterLevel * StepDm, Bedrock, Rock);
+        return new PathWorks(g, under, moved, PathGrade.Cost(Corner, Width, openIdx, moved, Bedrock, Rock), pct, Content.StairsAbovePct(profile, surfaceCode),
+            PathGrade.DeepestCut(h, g, fix, under));
+    }
+
+    /// <summary>Moves the corners a path's works name, and re-derives the steps of the cells they touch.</summary>
+    void ApplyPathWorks(PathWorks works)
+    {
+        if (works.Corners.Count == 0) return;
+        FloodGroundChanged();
+        int cw = Width + 1;
+        var cells = new HashSet<int>();
+        foreach (var (c, v) in works.Corners)
         {
-            if (g[k] == h[k] || IsRiver(Idx(cells[k].X, cells[k].Y))) continue;
-            var (x, y) = cells[k];
-            works.Add((Idx(x, y), g[k]));
-            for (int d = 0; d < 4; d++)
-            {
-                int nx = x + Dx4[d], ny = y + Dy4[d];
-                if (!InBounds(nx, ny)) continue;
-                int j = Idx(nx, ny);
-                if (road.Contains(j) || Path[j] != 0 || BuildingAt[j] != 0 || IsWater(j)) continue;
-                int now = banks.TryGetValue(j, out var b) ? b : Height[j];
-                int eased = Math.Clamp(now, Math.Max(g[k] - 1, WaterLevel), g[k] + 1);
-                if (eased != now) banks[j] = eased;
-            }
+            Corner[c] = (ushort)Math.Clamp(v, 0, MaxCornerDm);
+            KeepBedrockUnder(c);
+            int cx = c % cw, cy = c / cw;
+            MarkMade(cx, cy);
+            for (int dy = -1; dy <= 0; dy++)
+            for (int dx = -1; dx <= 0; dx++)
+                if (InBounds(cx + dx, cy + dy)) cells.Add(Idx(cx + dx, cy + dy));
         }
-        foreach (var (j, eh) in banks.OrderBy(p => p.Key))
-            if (eh != Height[j]) works.Add((j, eh));
-        return works;
+        foreach (int i in cells.OrderBy(i => i))
+            if (!GradeLocked(i)) DeriveHeights(i % Width, i / Width, i % Width, i / Width);
     }
 
     /// <summary>What earthworks cost: a step of earth moved per cell.</summary>
@@ -104,10 +95,22 @@ public sealed partial class World
     }
 
     /// <summary>
-    /// The pad a building levels under its lot: every cell to the lot's average height, rounded. Null when the lot
-    /// rises more than <see cref="MaxPadRise"/> across it.
+    /// The pad a building levels under its lot: every cell to the lot's average height, rounded, or to the level of
+    /// the lots it touches (two pads that share a corner stand at one height, so neither leans). Null when the lot
+    /// rises more than <see cref="MaxPadRise"/> across it, or the lots it touches stand at different levels.
     /// </summary>
     List<(int I, int H)>? Pad(int x0, int y0, int w, int h)
+    {
+        if (PadLevel(x0, y0, w, h) is not int level) return null;
+        var works = new List<(int I, int H)>();
+        for (int y = y0; y < y0 + h; y++)
+        for (int x = x0; x < x0 + w; x++)
+            if (Height[Idx(x, y)] != level || !CornersAt(x, y, level * StepDm)) works.Add((Idx(x, y), level));
+        return works;
+    }
+
+    /// <summary>The level (in steps) a lot's pad would stand at, or null when it can't have one.</summary>
+    int? PadLevel(int x0, int y0, int w, int h)
     {
         int lo = int.MaxValue, hi = int.MinValue, sum = 0;
         for (int y = y0; y < y0 + h; y++)
@@ -117,24 +120,34 @@ public sealed partial class World
             lo = Math.Min(lo, v); hi = Math.Max(hi, v); sum += v;
         }
         if (hi - lo > MaxPadRise) return null;
-        int n = w * h, level = Math.Max(WaterLevel, (2 * sum + n) / (2 * n));
-        var works = new List<(int I, int H)>();
-        for (int y = y0; y < y0 + h; y++)
-        for (int x = x0; x < x0 + w; x++)
-            if (Height[Idx(x, y)] != level) works.Add((Idx(x, y), level));
-        return works;
+        // A neighbouring lot (not this one's own cells) sharing an edge or a corner fixes the level.
+        int next = -1;
+        for (int y = y0 - 1; y <= y0 + h; y++)
+        for (int x = x0 - 1; x <= x0 + w; x++)
+        {
+            if (x >= x0 && x < x0 + w && y >= y0 && y < y0 + h) continue;
+            if (!InBounds(x, y)) continue;
+            int i = Idx(x, y), b = BuildingAt[i];
+            if (b == 0 || Buildings[b - 1] is not { } nb || Content.Types[nb.Type].Roadside) continue;
+            // The lot being replaced (redevelopment) doesn't count.
+            if (nb.X < x0 + w && nb.X + nb.W > x0 && nb.Y < y0 + h && nb.Y + nb.H > y0) continue;
+            if (next >= 0 && next != Height[i]) return null;
+            next = Height[i];
+        }
+        if (next >= 0)
+            return Math.Max(hi, next) - Math.Min(lo, next) <= MaxPadRise && next >= WaterLevel ? next : null;
+        int n = w * h;
+        return Math.Max(WaterLevel, (2 * sum + n) / (2 * n));
+    }
+
+    /// <summary>Whether all four corners of a cell stand at this height (dm): ground evened to a slope can share a
+    /// cell's step and still lean.</summary>
+    bool CornersAt(int x, int y, int dm)
+    {
+        int cw = Width + 1, c = y * cw + x;
+        return Corner[c] == dm && Corner[c + 1] == dm && Corner[c + cw] == dm && Corner[c + cw + 1] == dm;
     }
 
     /// <summary>Whether a lot is gentle enough for a pad.</summary>
-    bool PadFits(int x0, int y0, int w, int h)
-    {
-        int lo = int.MaxValue, hi = int.MinValue;
-        for (int y = y0; y < y0 + h; y++)
-        for (int x = x0; x < x0 + w; x++)
-        {
-            int v = Height[Idx(x, y)];
-            lo = Math.Min(lo, v); hi = Math.Max(hi, v);
-        }
-        return hi - lo <= MaxPadRise;
-    }
+    bool PadFits(int x0, int y0, int w, int h) => PadLevel(x0, y0, w, h) != null;
 }

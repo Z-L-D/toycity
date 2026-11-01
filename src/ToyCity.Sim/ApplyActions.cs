@@ -97,17 +97,22 @@ public sealed partial class World
         return true;
     }
 
-    /// <summary>Checks a path run without changing anything. Returns null when valid, else the reason.</summary>
     /// <summary>A path over a river is a bridge, and costs this many times the path.</summary>
     public const int BridgeCostTimes = 5;
 
-    public string? ValidatePath(PlacePathAction a, out long cost, out int badX, out int badY)
+    /// <summary>Checks a path run without changing anything. Returns null when valid, else the reason.</summary>
+    public string? ValidatePath(PlacePathAction a, out long cost, out int badX, out int badY) => ValidatePath(a, out cost, out badX, out badY, out _);
+
+    string? ValidatePath(PlacePathAction a, out long cost, out int badX, out int badY, out PathWorks? works)
     {
-        cost = 0; badX = -1; badY = -1;
+        cost = 0; badX = -1; badY = -1; works = null;
         int profile = Content.ProfileIndex(a.ProfileId);
         if (profile < 0) return $"Unknown path type '{a.ProfileId}'.";
+        int surface = Content.SurfaceCode(profile, a.Surface);
+        if (surface < 0) return $"A {Content.Profiles[profile].Name.ToLowerInvariant()} can't be built in '{a.Surface}'.";
         var cells = PathCellsOf(a);
         if (cells.Count > MaxPathRun) return $"That run is too long: at most {MaxPathRun} cells at a time.";
+        int costPct = surface > 0 ? Content.Surfaces[surface - 1].CostPct : 100;
         foreach (var (x, y) in cells)
         {
             badX = x; badY = y;
@@ -115,39 +120,80 @@ public sealed partial class World
             int i = Idx(x, y);
             if (IsWater(i) && !IsRiver(i)) return "Paths can't cross the sea or a lake; a river they can bridge.";
             if (BuildingAt[i] != 0) return $"A building is in the way at {x},{y}. Bulldoze it first.";
-            // A bridge costs five times the road.
-            if (Path[i] != profile + 1) cost += Content.Profiles[profile].CostPerCell * (IsRiver(i) ? BridgeCostTimes : 1);
         }
-        // The ground is graded to at most a step a cell, between the roads it meets.
-        var works = Earthworks(cells, out int bad);
+        // The ground is graded to the steepest the path's type and surface allow, between the paths it meets.
+        works = PlanPath(cells, profile, surface, a.Tunnel, out int bad, out int need);
         if (works == null)
         {
             (badX, badY) = cells[bad];
-            return $"Too steep at {badX},{badY}: the roads it joins are too far apart in height to grade between.";
+            return $"Too steep at {badX},{badY}: the paths it joins would need a {need}% climb, and a {Content.Profiles[profile].Name.ToLowerInvariant()}" +
+                   $"{(surface > 0 ? " in " + Content.Surfaces[surface - 1].Name.ToLowerInvariant() : "")} climbs at most {Content.GradePct(profile, surface)}%.{SteeperSuggestion(profile, need)}";
         }
-        cost += EarthworksCost(works, GradeCostPerStep);
+        // The path itself: a bridge costs five times the road on the ground, a tunnel eight.
+        for (int k = 0; k < cells.Count; k++)
+        {
+            int i = Idx(cells[k].X, cells[k].Y);
+            if (Path[i] == profile + 1 && PathSurface[i] == surface) continue;
+            long each = (long)Content.Profiles[profile].CostPerCell * costPct / 100;
+            cost += each * (works.Tunnel[k] ? PathGrade.TunnelCostTimes : IsRiver(i) ? BridgeCostTimes : 1);
+        }
+        cost += works.Cost;
         badX = badY = -1;
         return null;
     }
 
-    /// <summary>The cut and fill a path would need, as the cells it changes and their new heights.</summary>
-    public List<(int I, int H)> PathEarthworks(PlacePathAction a) => Earthworks(PathCellsOf(a), out _) ?? new();
+    /// <summary>" Try a ..." naming a path type and surface that climbs <paramref name="pct"/>, or "" when none does.</summary>
+    string SteeperSuggestion(int profile, int pct)
+    {
+        var p = Content.Profiles[profile];
+        // The same type in a surface that holds the grade first, then a type that carries the same traffic.
+        foreach (var sid in p.Surfaces)
+        {
+            int s = Content.SurfaceIndex(sid) + 1;
+            if (Content.GradePct(profile, s) >= pct) return $" Try it in {Content.Surfaces[s - 1].Name.ToLowerInvariant()}.";
+        }
+        for (int k = 0; k < Content.Profiles.Count; k++)
+        {
+            var q = Content.Profiles[k];
+            if (q.Rail != p.Rail || (p.Cars && !q.Cars)) continue;
+            foreach (var sid in q.Surfaces.DefaultIfEmpty(""))
+            {
+                int s = sid == "" ? 0 : Content.SurfaceIndex(sid) + 1;
+                if (Content.GradePct(k, s) >= pct) return $" Try a {q.Name.ToLowerInvariant()}{(s > 0 && sid != q.Surfaces[0] ? " in " + Content.Surfaces[s - 1].Name.ToLowerInvariant() : "")}.";
+            }
+        }
+        return "";
+    }
+
+    /// <summary>The time to cross a path cell at free flow, by its type and surface.</summary>
+    public int PathCellTime(int i)
+    {
+        if (Path[i] == 0) return 0;
+        int t = Content.Profiles[Path[i] - 1].CellTime;
+        return PathSurface[i] > 0 ? Math.Max(1, t * 100 / Content.Surfaces[PathSurface[i] - 1].SpeedPct) : t;
+    }
 
     void ApplyPath(PlacePathAction a)
     {
-        var err = ValidatePath(a, out long cost, out int bx, out int by);
+        var err = ValidatePath(a, out long cost, out int bx, out int by, out var works);
         if (err != null) { Reject(err, bx, by); return; }
         if (!Spend(cost, a.X0, a.Y0)) return;
-        ushort code = (ushort)(Content.ProfileIndex(a.ProfileId) + 1);
+        int profile = Content.ProfileIndex(a.ProfileId);
+        ushort code = (ushort)(profile + 1);
+        byte surface = (byte)Content.SurfaceCode(profile, a.Surface);
         ForgetBusRoutes();
         var cells = PathCellsOf(a);
-        ApplyEarthworks(Earthworks(cells, out _)!);
-        foreach (var (x, y) in cells)
+        ApplyPathWorks(works!);
+        for (int k = 0; k < cells.Count; k++)
         {
+            var (x, y) = cells[k];
             int i = Idx(x, y);
+            // A bridge or tunnel keeps the road's own level; a path on the ground follows the ground.
+            if (Path[i] == 0) PathDeck[i] = (ushort)(works!.Tunnel[k] || IsRiver(i) ? Math.Clamp(works.Target[k], 1, MaxCornerDm) : 0);
             Path[i] = code;
+            PathSurface[i] = surface;
             ZoneCode[i] = 0;
-            TravelCost[i] = Content.Profiles[code - 1].CellTime;
+            TravelCost[i] = PathCellTime(i);
         }
         CheckStrips();
         AddStrip(a, code, cells);
@@ -206,6 +252,7 @@ public sealed partial class World
             maxH = Math.Max(maxH, Height[i]);
         }
         if (maxH - minH > MaxPadRise) return $"The ground is too uneven: it rises {maxH - minH} steps across the lot, and a pad can level at most {MaxPadRise}. Level it first.";
+        if (PadLevel(a.X, a.Y, type.W, type.H) == null) return "The lots beside it stand at another level: its pad would have to meet theirs. Level it first, or leave a gap.";
         return null;
     }
 
@@ -317,6 +364,8 @@ public sealed partial class World
             int i = Idx(x, y);
             if (a.Underground) { WaterPipe[i] = 0; continue; }
             Path[i] = 0;
+            PathSurface[i] = 0;
+            PathDeck[i] = 0;
             PowerLine[i] = 0;
             TravelCost[i] = 0;
             Traffic[i] = 0;
@@ -344,7 +393,37 @@ public sealed partial class World
             return false;
         }
         // Level brings the area to the first cell's height, a whole step, so levelled land is never under the water.
-        int target = Height[Idx(r.X0, r.Y0)] * StepDm;
+        int level = Height[Idx(r.X0, r.Y0)] * StepDm;
+        // Slope fits a plane to the area's corners and eases its tilt to at most MaxSlopePct, never under the water.
+        double pa = 0, pb = 0, pc = level;
+        if (a.Mode == TerraformMode.Slope)
+        {
+            double sx = 0, sy = 0, sz = 0, sxx = 0, syy = 0, sxz = 0, syz = 0; int n = 0;
+            for (int cy = y0; cy <= y1 + 1; cy++)
+            for (int cx = x0; cx <= x1 + 1; cx++) { double z = Corner[cy * cw + cx]; sx += cx; sy += cy; sz += z; n++; }
+            double mx = sx / n, my = sy / n, mz = sz / n;
+            for (int cy = y0; cy <= y1 + 1; cy++)
+            for (int cx = x0; cx <= x1 + 1; cx++)
+            {
+                double z = Corner[cy * cw + cx] - mz, dx = cx - mx, dy = cy - my;
+                sxx += dx * dx; syy += dy * dy; sxz += dx * z; syz += dy * z;
+            }
+            pa = sxx > 0 ? sxz / sxx : 0; pb = syy > 0 ? syz / syy : 0;
+            double g = Math.Sqrt(pa * pa + pb * pb), max = MaxSlopePct * 160 / 100.0;
+            if (g > max) { pa *= max / g; pb *= max / g; }
+            pc = mz - pa * mx - pb * my;
+            // The low corner stays dry.
+            double low = Math.Min(Math.Min(pc + pa * x0 + pb * y0, pc + pa * (x1 + 1) + pb * y0), Math.Min(pc + pa * x0 + pb * (y1 + 1), pc + pa * (x1 + 1) + pb * (y1 + 1)));
+            double floor = (WaterLevel + 1) * StepDm;
+            if (low < floor) pc += floor - low;
+        }
+        // The plane's height at a corner, held to the area's edge for the embankment beyond it.
+        int Target(int cx, int cy)
+        {
+            if (a.Mode != TerraformMode.Slope) return level;
+            int qx = Math.Clamp(cx, x0, x1 + 1), qy = Math.Clamp(cy, y0, y1 + 1);
+            return (int)Math.Round(pc + pa * qx + pb * qy);
+        }
         // Smooth reads the corners as they were before the brush, so the result doesn't depend on the order.
         int SmoothAt(int cx, int cy)
         {
@@ -365,7 +444,7 @@ public sealed partial class World
                 TerraformMode.Raise => now + StepDm,
                 TerraformMode.Lower => now - StepDm,
                 TerraformMode.Smooth => SmoothAt(cx, cy),
-                _ => target,
+                _ => Target(cx, cy),
             };
             h = Math.Clamp(h, 0, MaxCornerDm);
             if (h != now) moves.Add((c, h));
@@ -374,7 +453,7 @@ public sealed partial class World
         // cliff: each corner within reach comes to within EmbankDm a corner of the level, more the farther out it is.
         // Ground by the water is left as it is, so levelling never fills the sea.
         int ex0 = x0, ey0 = y0, ex1 = x1, ey1 = y1;
-        if (a.Mode == TerraformMode.Level)
+        if (a.Mode is TerraformMode.Level or TerraformMode.Slope)
         {
             ex0 = Math.Max(0, x0 - EmbankReach); ey0 = Math.Max(0, y0 - EmbankReach);
             ex1 = Math.Min(Width - 1, x1 + EmbankReach); ey1 = Math.Min(HeightCells - 1, y1 + EmbankReach);
@@ -391,7 +470,8 @@ public sealed partial class World
                 int d = Math.Max(Math.Max(x0 - cx, cx - (x1 + 1)), Math.Max(y0 - cy, cy - (y1 + 1)));
                 if (d <= 0 || Held(cx, cy) || ByWater(cx, cy)) continue;
                 int c = cy * cw + cx, now = Corner[c];
-                int h = Math.Clamp(now, target - d * EmbankDm, target + d * EmbankDm);
+                int t = Target(cx, cy);
+                int h = Math.Clamp(now, t - d * EmbankDm, t + d * EmbankDm);
                 if (h != now) moves.Add((c, h));
             }
         }
@@ -407,7 +487,13 @@ public sealed partial class World
         }
         long priced = cells.Count(i => i % Width >= x0 - 1 && i % Width <= x1 + 1 && i / Width >= y0 - 1 && i / Width <= y1 + 1);
         if (!Spend(priced * Content.TerraformCostPerCell, r.X0, r.Y0)) return;
-        foreach (var (c, h) in moves) Corner[c] = (ushort)h;
+        foreach (var (c, h) in moves)
+        {
+            Corner[c] = (ushort)h;
+            KeepBedrockUnder(c);
+            // Levelled and sloped ground is earthworks (Beta 3.2): it's drawn as grassed banks, not rock.
+            if (a.Mode is TerraformMode.Level or TerraformMode.Slope) MarkMade(c % cw, c / cw);
+        }
         DeriveHeights(ex0 - 1, ey0 - 1, ex1 + 1, ey1 + 1);
         foreach (int i in cells)
             if (IsWater(i)) { ZoneCode[i] = 0; PowerLine[i] = 0; }

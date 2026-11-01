@@ -10,6 +10,8 @@ render_mode cull_disabled;
 
 uniform sampler2D cells : filter_nearest, repeat_disable;
 uniform sampler2D overlay : filter_nearest, repeat_disable;
+// Per cell: r earthworks, g soil depth (0 bare rock, 1 eight metres or more), b rock kind / 4.
+uniform sampler2D ground_layers : filter_linear, repeat_disable;
 uniform bool use_overlay = false;
 uniform vec2 map_size = vec2(128.0);
 uniform vec2 selected = vec2(-1.0);
@@ -67,9 +69,25 @@ void fragment() {
 	ground = mix(ground, ground * 0.82, smoothstep(0.45, 0.8, mid));
 	// Bare earth in patches on the flats, and coming through as the ground tilts.
 	ground = mix(ground, earth, clamp(smoothstep(0.62, 0.8, mid * 0.6 + large * 0.4) * 0.7 + smoothstep(0.18, 0.38, slope + (mid - 0.5) * 0.15), 0.0, 1.0));
-	// Rock on the steep, banded light and dark.
-	float rockiness = smoothstep(0.38, 0.55, slope + (mid - 0.5) * 0.2);
+	// The ground's layers (Beta 3.2): soil over rock of four kinds.
+	vec4 layers = texture(ground_layers, p / map_size);
+	float made = layers.r, soil = layers.g, kind = layers.b * 4.0;
+	// Each rock its colour: shale blue-grey, sandstone tan, limestone pale, granite pinkish grey.
+	vec3 rock_kind = mix(vec3(0.38, 0.39, 0.42), vec3(0.62, 0.51, 0.37), clamp(kind - 1.0, 0.0, 1.0));
+	rock_kind = mix(rock_kind, vec3(0.70, 0.68, 0.62), clamp(kind - 2.0, 0.0, 1.0));
+	rock_kind = mix(rock_kind, vec3(0.56, 0.48, 0.46), clamp(kind - 3.0, 0.0, 1.0));
+	rock = mix(rock, rock_kind, step(0.5, kind));
+	rock_dark = rock * 0.68;
+	// Rock on the steep, banded light and dark; where the soil is thin it shows on gentler ground too.
+	float bare = 1.0 - smoothstep(0.03, 0.3, soil + (mid - 0.5) * 0.1);
+	float rockiness = smoothstep(0.38, 0.55, slope + (mid - 0.5) * 0.2 + bare * 0.25);
+	// Made ground is soil: a road's banks and a pad's sides are seeded grass with earth showing through where
+	// they're steep, never rock, unless the cut went down into the rock: then it's a raw rock face.
+	rockiness = max(rockiness * (1.0 - made), made * bare * smoothstep(0.2, 0.4, slope));
 	ground = mix(ground, mix(rock_dark, rock, smoothstep(0.3, 0.7, fbm(vec2(p.x + p.y, world_pos.y * 8.0)))), rockiness);
+	vec3 bank = mix(meadow * 0.92, dry, 0.25 + 0.3 * mid);
+	bank = mix(bank, earth, smoothstep(0.25, 0.55, slope) * (0.35 + 0.4 * fine));
+	ground = mix(ground, bank, made * (1.0 - bare) * smoothstep(0.08, 0.25, slope));
 	// Snow above about 300 m, where it can lie.
 	float snowy = smoothstep(280.0, 340.0, metres + (large - 0.5) * 60.0) * (1.0 - smoothstep(0.35, 0.6, slope));
 	ground = mix(ground, snow, snowy);

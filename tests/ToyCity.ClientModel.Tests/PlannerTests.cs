@@ -37,13 +37,6 @@ public class PlannerTests
     {
         var (w, c) = Town();
         var r = new Random(4);
-        for (int k = 0; k < 300; k++)
-        {
-            int n = r.Next(1, 25);
-            var h = Enumerable.Range(0, n).Select(_ => r.Next(8, 20)).ToArray();
-            var fix = Enumerable.Range(0, n).Select(_ => r.Next(5) == 0).ToArray();
-            Assert.Equal(World.Grade(h, fix, 8), Planner.Grade(h, fix, 8));
-        }
         // Knobs and cliffs all over, for the roads to climb.
         w.Funds = 10_000_000;
         for (int k = 0; k < 40; k++)

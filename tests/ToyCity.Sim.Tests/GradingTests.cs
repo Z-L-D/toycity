@@ -4,33 +4,59 @@ namespace ToyCity.Sim.Tests;
 public class GradingTests
 {
     [Fact]
-    public void GradingClimbsAStepACellKeepsTheRoadsItMeetsAndRefusesOnlyWhatCantBeJoined()
+    public void GradingHoldsTheStepItIsGivenKeepsThePathsItMeetsAndRefusesOnlyWhatCantBeJoined()
     {
         var r = new Random(12);
         for (int k = 0; k < 2000; k++)
         {
-            int n = r.Next(1, 30);
-            var h = Enumerable.Range(0, n).Select(_ => r.Next(8, 20)).ToArray();
+            int n = r.Next(1, 30), step = r.Next(1, 60);
+            var h = Enumerable.Range(0, n).Select(_ => r.Next(160, 400)).ToArray();
             var fix = Enumerable.Range(0, n).Select(_ => r.Next(6) == 0).ToArray();
-            var g = World.Grade(h, fix, 8);
+            var g = World.Grade(h, fix, 160, step);
             bool joinable = true;
             for (int i = 0; i < n; i++)
                 for (int j = i + 1; j < n; j++)
-                    if (fix[i] && fix[j] && Math.Abs(h[i] - h[j]) > j - i) joinable = false;
+                    if (fix[i] && fix[j] && Math.Abs(h[i] - h[j]) > step * (j - i)) joinable = false;
             Assert.Equal(joinable, g != null);
-            if (g == null) continue;
+            if (g == null)
+            {
+                Assert.True(PathGrade.Needed(h, fix).Pct > PathGrade.Pct(step, 1) - 1);
+                continue;
+            }
             for (int i = 0; i < n; i++)
             {
                 if (fix[i]) Assert.Equal(h[i], g[i]);
-                Assert.True(g[i] >= 8);
-                if (i > 0) Assert.InRange(g[i] - g[i - 1], -1, 1);
+                Assert.True(g[i] >= 160);
+                if (i > 0) Assert.InRange(g[i] - g[i - 1], -step, step);
             }
-            // Ground that's already gentle is left alone.
-            if (h.Zip(h.Skip(1)).All(p => Math.Abs(p.First - p.Second) <= 1)) Assert.Equal(h, g);
+            // Ground that's already gentle enough is left alone.
+            if (h.Zip(h.Skip(1)).All(p => Math.Abs(p.First - p.Second) <= step)) Assert.Equal(h, g);
         }
     }
 
-    /// <summary>The flat site with a cliff three steps high from <c>x + 10</c> eastward.</summary>
+    [Fact]
+    public void EachPathTypeAndSurfaceHasItsOwnGrade()
+    {
+        var c = Fixture.Content;
+        int P(string id) => c.ProfileIndex(id);
+        int S(string id) => c.SurfaceIndex(id) + 1;
+        // Zac's order: footpath stairs, dirt, gravel and limestone, brick, asphalt, concrete, roads, highways.
+        Assert.Equal(120, c.GradePct(P("walking-trail"), S("dirt")));
+        Assert.Equal(25, c.StairsAbovePct(P("walking-trail"), S("dirt")));
+        Assert.Equal(25, c.GradePct(P("dirt-road"), S("dirt")));
+        Assert.Equal(20, c.GradePct(P("street"), S("gravel")));
+        Assert.Equal(20, c.GradePct(P("street"), S("limestone")));
+        Assert.Equal(17, c.GradePct(P("street"), S("brick")));
+        Assert.Equal(15, c.GradePct(P("street"), c.SurfaceCode(P("street"), null)));
+        Assert.Equal(12, c.GradePct(P("street"), S("concrete")));
+        Assert.Equal(10, c.GradePct(P("road"), S("asphalt")));
+        Assert.Equal(6, c.GradePct(P("highway-4"), S("concrete")));
+        Assert.Equal(3, c.GradePct(P("rail"), 0));
+        Assert.Equal(-1, c.SurfaceCode(P("highway-4"), "dirt"));
+        Assert.Equal(0, c.SurfaceCode(P("rail"), null));
+    }
+
+    /// <summary>The flat site with a cliff three steps (6 m) high from <c>x + 10</c> eastward.</summary>
     static (World W, int X, int Y, int Flat) Cliff()
     {
         var (w, x, y) = Fixture.FlatSite();
@@ -39,8 +65,10 @@ public class GradingTests
         return (w, x, y, w.Height[w.Idx(x, y)]);
     }
 
+    static int CellDm(World w, int x, int y) => PathGrade.CellDmOf(w.Corner, w.Width, w.Idx(x, y));
+
     [Fact]
-    public void ARoadUpACliffCutsAndFillsItsWayWithBanksBesideIt()
+    public void ARoadUpACliffIsGradedByTheDecimetreWithSoilBanksBesideIt()
     {
         var (w, x, y, flat) = Cliff();
         long funds = w.Funds;
@@ -51,13 +79,16 @@ public class GradingTests
         w.Enqueue(a);
         w.Step();
         Assert.Equal(funds - cost, w.Funds);
+        // A road climbs at most 10%: 16 dm across a 16 m cell (a little more where corners round).
         for (int xx = x + 3; xx <= x + 20; xx++)
+            Assert.InRange(CellDm(w, xx, y + 5) - CellDm(w, xx - 1, y + 5), -17, 17);
+        // The ground beside it stands no steeper than soil: a bank of at most 100 dm a cell.
+        int cw = w.Width + 1;
+        for (int xx = x + 2; xx <= x + 21; xx++)
+        for (int yy = y + 1; yy <= y + 9; yy++)
         {
-            int here = w.Height[w.Idx(xx, y + 5)];
-            Assert.InRange(here - w.Height[w.Idx(xx - 1, y + 5)], -1, 1);
-            // The banks either side are within a step of the road.
-            Assert.InRange(w.Height[w.Idx(xx, y + 4)] - here, -1, 1);
-            Assert.InRange(w.Height[w.Idx(xx, y + 6)] - here, -1, 1);
+            int c = yy * cw + xx;
+            Assert.InRange(w.Corner[c] - w.Corner[c - cw], -101, 101);
         }
         // The ends are where they were: flat ground at one, the top of the cliff at the other.
         Assert.Equal(flat, w.Height[w.Idx(x + 2, y + 5)]);
@@ -68,20 +99,77 @@ public class GradingTests
     }
 
     [Fact]
-    public void RoadsTooCloseInHeightToJoinAreRefused()
+    public void AGentleTypeIsRefusedWhereASteeperOneOrStairsWouldClimb()
     {
         var (w, x, y, _) = Cliff();
-        // A street at the foot of the cliff and one on top, two cells apart but three steps. (The raised corners
-        // along x + 10 make the cell west of it, x + 9, the cliff's face.)
-        w.Enqueue(new PlacePathAction(x + 8, y + 2, x + 8, y + 12, "road"));
-        w.Enqueue(new PlacePathAction(x + 10, y + 2, x + 10, y + 12, "road"));
+        // A street at the foot of the cliff and one on top, three cells apart and 6 m: a 12.5% climb.
+        w.Enqueue(new PlacePathAction(x + 7, y + 2, x + 7, y + 12, "street"));
+        w.Enqueue(new PlacePathAction(x + 10, y + 2, x + 10, y + 12, "street"));
         w.Step();
-        var join = new PlacePathAction(x + 8, y + 7, x + 10, y + 7, "road");
-        Assert.Contains("Too steep", w.ValidatePath(join, out _, out _, out _));
-        // Three cells apart, a road can climb the three steps between them.
-        w.Enqueue(new PlacePathAction(x + 7, y + 14, x + 7, y + 20, "road"));
+        // A road climbs at most 10%, so it's refused, and told what would make it.
+        string? why = w.ValidatePath(new PlacePathAction(x + 7, y + 7, x + 10, y + 7, "road"), out _, out _, out _);
+        Assert.Contains("Too steep", why);
+        Assert.Contains("Try a", why);
+        // A concrete street holds 12%; in asphalt it holds 15%, which climbs it.
+        Assert.Contains("Try it in", w.ValidatePath(new PlacePathAction(x + 7, y + 7, x + 10, y + 7, "street", Surface: "concrete"), out _, out _, out _));
+        Assert.Null(w.ValidatePath(new PlacePathAction(x + 7, y + 7, x + 10, y + 7, "street"), out _, out _, out _));
+        // A footpath climbs it as stairs.
+        Assert.Null(w.ValidatePath(new PlacePathAction(x + 7, y + 4, x + 10, y + 4, "walking-trail"), out _, out _, out _));
+        // A surface the type can't take is refused.
+        Assert.Contains("can't be built in", w.ValidatePath(new PlacePathAction(x + 2, y + 20, x + 5, y + 20, "highway-4", Surface: "dirt"), out _, out _, out _));
+    }
+
+    [Fact]
+    public void ASurfaceScalesCostAndSpeedAndIsSaved()
+    {
+        var (w, x, y, _) = Cliff();
+        var c = Fixture.Content;
+        int street = c.ProfileIndex("street");
+        Assert.Null(w.ValidatePath(new PlacePathAction(x, y + 20, x + 5, y + 20, "street", Surface: "dirt"), out long dirt, out _, out _));
+        Assert.Null(w.ValidatePath(new PlacePathAction(x, y + 20, x + 5, y + 20, "street", Surface: "brick"), out long brick, out _, out _));
+        Assert.True(brick > dirt);
+        w.Enqueue(new PlacePathAction(x, y + 20, x + 5, y + 20, "street", Surface: "dirt"));
         w.Step();
-        Assert.Null(w.ValidatePath(new PlacePathAction(x + 7, y + 17, x + 10, y + 17, "road"), out _, out _, out _));
+        int i = w.Idx(x + 2, y + 20);
+        Assert.Equal(c.SurfaceIndex("dirt") + 1, w.PathSurface[i]);
+        Assert.True(w.PathCellTime(i) > c.Profiles[street].CellTime);
+        var back = World.FromSnapshot(c, w.Snapshot());
+        Assert.Equal(w.PathSurface, back.PathSurface);
+    }
+
+    [Fact]
+    public void ARoadCanTunnelUnderAHillInsteadOfCuttingThroughIt()
+    {
+        var (w, x, y) = Fixture.FlatSite();
+        w.Funds = 10_000_000;
+        // A ridge 40 m high and 12 cells wide across the way: the land either side of it dug down.
+        for (int k = 0; k < 20; k++)
+        {
+            w.Enqueue(new TerraformAction(new CellRect(x, y, x + 9, y + 30), TerraformMode.Lower));
+            w.Enqueue(new TerraformAction(new CellRect(x + 22, y, x + 31, y + 30), TerraformMode.Lower));
+        }
+        w.Step();
+        var cut = new PlacePathAction(x + 2, y + 15, x + 29, y + 15, "road");
+        var bore = cut with { Tunnel = true };
+        Assert.Null(w.ValidatePath(cut, out long cutCost, out _, out _));
+        Assert.Null(w.ValidatePath(bore, out long boreCost, out _, out _));
+        Assert.NotEqual(cutCost, boreCost);
+        var top = w.Corner[(y + 15) * (w.Width + 1) + x + 16];
+        w.Enqueue(bore);
+        w.Step();
+        Assert.DoesNotContain(w.Notices, n => n.Severity == "warning");
+        // Under the middle of the ridge the road has its own floor, well under the ground, which is left alone.
+        int mid = w.Idx(x + 16, y + 15);
+        Assert.True(w.PathDeck[mid] > 0);
+        Assert.True(CellDm(w, x + 16, y + 15) - w.PathDeck[mid] >= PathGrade.TunnelMinDm);
+        Assert.Equal(top, w.Corner[(y + 15) * (w.Width + 1) + x + 16]);
+        // Out on the flat it's on the ground.
+        Assert.Equal(0, w.PathDeck[w.Idx(x + 3, y + 15)]);
+        // It saves and bulldozes. (Funds were set by hand, so this one doesn't replay.)
+        Assert.Equal(w.PathDeck, World.FromSnapshot(Fixture.Content, w.Snapshot()).PathDeck);
+        w.Enqueue(new BulldozeAction(new CellRect(x + 16, y + 15, x + 16, y + 15)));
+        w.Step();
+        Assert.Equal(0, w.PathDeck[mid]);
     }
 
     [Fact]

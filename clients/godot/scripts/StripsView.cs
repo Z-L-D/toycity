@@ -39,7 +39,7 @@ public partial class StripsView : Node3D
         foreach (var s in _city.Strips)
         {
             var prof = s.Path >= 1 && s.Path <= _city.Profiles.Count ? _city.Profiles[s.Path - 1] : null;
-            var look = RoadLook.For(prof);
+            var look = RoadLook.For(prof, s.Cells.Count > 0 ? _city.SurfaceAt(s.Cells[0]) : null);
             float half = look.Width / 2;
             var pts = RoadShape.Points(s);
             // The same layers as a road cell (RoadsView): sidewalks, carriageway, kerbs, paint.
@@ -48,11 +48,12 @@ public partial class StripsView : Node3D
             {
                 Paving.Dirt => new Color(0.48f, 0.40f, 0.30f), Paving.Gravel => new Color(0.62f, 0.58f, 0.52f),
                 Paving.BikeLane => new Color(0.52f, 0.25f, 0.22f), Paving.Concrete => new Color(0.70f, 0.68f, 0.64f),
+                Paving.Limestone => new Color(0.76f, 0.73f, 0.66f), Paving.Brick => new Color(0.55f, 0.31f, 0.24f),
                 Paving.Rail => new Color(0.45f, 0.42f, 0.38f), _ => Palette.Road,
             };
             Ribbon(mesh, pts, half, 0.028f, surface);
             var white = new Color(0.90f, 0.90f, 0.88f);
-            if (look.Paving == Paving.Asphalt)
+            if (look.Painted || look.Paving == Paving.Brick)
             {
                 if (look.Sidewalks)
                 {

@@ -10,7 +10,11 @@ public readonly record struct CellRect(int X0, int Y0, int X1, int Y1)
 }
 
 /// <summary>Smooth evens each cell toward its neighbours' average, wearing steps down into slopes.</summary>
-public enum TerraformMode : byte { Raise = 0, Lower = 1, Level = 2, Smooth = 3 }
+/// <summary>
+/// How a terraform brush moves the ground. Slope (Beta 3.2) evens an area to a plane that keeps the land's own tilt,
+/// eased to at most <see cref="World.MaxSlopePct"/>: a hillside a town can stand on without being flattened.
+/// </summary>
+public enum TerraformMode : byte { Raise = 0, Lower = 1, Level = 2, Smooth = 3, Slope = 4 }
 
 public enum UtilityKind : byte { PowerLine = 0, WaterPipe = 1 }
 
@@ -28,7 +32,11 @@ public abstract record SimAction
 /// the control cell (CX,CY), snapped to the grid; or, when <c>Diagonal</c>, a straight line at any angle, snapped to
 /// the grid. Arcs and diagonals are remembered as the line drawn (<see cref="RoadStrip"/>), so clients draw them smooth.
 /// </summary>
-public sealed record PlacePathAction(int X0, int Y0, int X1, int Y1, string ProfileId, bool Curved = false, int CX = 0, int CY = 0, bool Diagonal = false) : SimAction;
+/// <summary>
+/// Lays a path; <c>Surface</c> is a surface id the profile allows, or "" for its default, and <c>Tunnel</c> takes it
+/// under a hill where it runs deep rather than cutting through (Beta 3.2).
+/// </summary>
+public sealed record PlacePathAction(int X0, int Y0, int X1, int Y1, string ProfileId, bool Curved = false, int CX = 0, int CY = 0, bool Diagonal = false, string Surface = "", bool Tunnel = false) : SimAction;
 public sealed record PaintZoneAction(CellRect Area, Zone Zone, Level Density) : SimAction;
 
 /// <summary>What block zoning does with cells too deep in the block for any lot to reach a road.</summary>

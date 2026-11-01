@@ -37,8 +37,35 @@ public sealed class PathProfile
     /// <summary>How the clients draw the cross-section; the sim doesn't read it.</summary>
     public System.Text.Json.JsonElement? Strips { get; set; }
 
+    /// <summary>
+    /// The steepest this type of path may climb, in percent (rise over run). The surface it's built in may hold it
+    /// lower; see <see cref="ContentDb.GradePct"/>.
+    /// </summary>
+    public int MaxGradePct { get; set; } = 12;
+    /// <summary>A footpath that turns to stairs where it's steeper than its surface allows a ramp.</summary>
+    public bool Stairs { get; set; }
+    /// <summary>The surfaces it may be built in, by id; the first is the default. Empty for none (rail).</summary>
+    public List<string> Surfaces { get; set; } = new();
+
     /// <summary>Free-flow travel time across one 16 m cell, in deciseconds of commute time.</summary>
     [JsonIgnore] public int CellTime { get; set; }
+}
+
+/// <summary>
+/// What a path is paved with (Beta 3.2): dirt, gravel, limestone, brick, asphalt or concrete. It sets how steep the
+/// path may climb, and scales its cost, upkeep and speed.
+/// </summary>
+public sealed class SurfaceDef
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>The steepest a road in this surface holds, in percent.</summary>
+    public int MaxGradePct { get; set; } = 15;
+    /// <summary>Percent of the path type's build cost, upkeep and free-flow speed.</summary>
+    public int CostPct { get; set; } = 100;
+    public int MaintenancePct { get; set; } = 100;
+    public int SpeedPct { get; set; } = 100;
+    public string Color { get; set; } = "#888888";
 }
 
 /// <summary>
@@ -146,6 +173,42 @@ public sealed partial class ContentDb
     readonly int[] _zoned = new int[27];
 
     public int ProfileIndex(string id) => _profileIndex.TryGetValue(id, out var i) ? i : -1;
+
+    /// <summary>Path surfaces, in file order. A cell's surface code is its index + 1; 0 is none.</summary>
+    public readonly List<SurfaceDef> Surfaces = new();
+    readonly Dictionary<string, int> _surfaceIndex = new();
+    public int SurfaceIndex(string id) => _surfaceIndex.TryGetValue(id, out var i) ? i : -1;
+
+    /// <summary>
+    /// The surface code (index + 1) a path of this profile is built in when asked for <paramref name="surface"/>:
+    /// that surface if the profile allows it, else its default; 0 when it has none. -1 when it asks for one it can't take.
+    /// </summary>
+    public int SurfaceCode(int profile, string? surface)
+    {
+        var p = Profiles[profile];
+        if (p.Surfaces.Count == 0) return string.IsNullOrEmpty(surface) ? 0 : -1;
+        if (string.IsNullOrEmpty(surface)) return SurfaceIndex(p.Surfaces[0]) + 1;
+        return p.Surfaces.Contains(surface) ? SurfaceIndex(surface) + 1 : -1;
+    }
+
+    /// <summary>
+    /// How steep a path of this profile and surface code may climb, in percent. A footpath with stairs climbs as
+    /// steep as its type allows (as stairs past its surface's ramp); any other path, the lower of its type's and its
+    /// surface's.
+    /// </summary>
+    public int GradePct(int profile, int surfaceCode)
+    {
+        var p = Profiles[profile];
+        return PathGrade.GradePct(p.MaxGradePct, p.Stairs, surfaceCode > 0 ? Surfaces[surfaceCode - 1].MaxGradePct : -1);
+    }
+
+    /// <summary>Where a footpath turns to stairs, in percent: steeper than its surface holds a ramp. Int.MaxValue for no stairs.</summary>
+    public int StairsAbovePct(int profile, int surfaceCode)
+    {
+        var p = Profiles[profile];
+        if (!p.Stairs) return int.MaxValue;
+        return surfaceCode > 0 ? Surfaces[surfaceCode - 1].MaxGradePct : 25;
+    }
     public int TypeIndex(string id) => _typeIndex.TryGetValue(id, out var i) ? i : -1;
 
     public BuildingType Zoned(Zone zone, Level density, Level wealth) =>
@@ -168,6 +231,7 @@ public sealed partial class ContentDb
         public int Version { get; set; }
         public System.Text.Json.JsonElement? Notes { get; set; }
         public List<PathProfile> Profiles { get; set; } = new();
+        public List<SurfaceDef> Surfaces { get; set; } = new();
     }
 
     sealed class ZonedEntry
@@ -291,8 +355,15 @@ public sealed partial class ContentDb
     {
         var db = new ContentDb();
         var pf = JsonSerializer.Deserialize<ProfilesFile>(profilesJson, Json) ?? throw new InvalidDataException("profiles.json");
+        foreach (var s in pf.Surfaces)
+        {
+            db._surfaceIndex[s.Id] = db.Surfaces.Count;
+            db.Surfaces.Add(s);
+        }
         foreach (var p in pf.Profiles)
         {
+            foreach (var s in p.Surfaces)
+                if (!db._surfaceIndex.ContainsKey(s)) throw new InvalidDataException($"{p.Id}: unknown surface '{s}'");
             // 16 m at the profile speed, stretched 30x so a 60 minute commute spans about 100 road cells.
             double seconds = 16.0 / (Math.Max(1, p.SpeedKmh) / 3.6) * 30.0;
             p.CellTime = Math.Max(1, (int)Math.Round(seconds * 10));

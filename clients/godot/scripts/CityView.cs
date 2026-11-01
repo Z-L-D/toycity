@@ -38,6 +38,8 @@ public partial class CityView : Node3D
     double _lodAt;
     Image? _cellImage;
     ImageTexture? _cellTexture;
+    Image? _madeImage;
+    ImageTexture? _madeTexture;
     Image? _groundImage;
     ImageTexture? _groundTexture;
     ShaderMaterial? _waterMaterial;
@@ -55,6 +57,14 @@ public partial class CityView : Node3D
     public float Ground(int i) => _city.Heights[i] * ClassicView.HeightStep;
     /// <summary>The ground's surface at a point (in cells), as drawn.</summary>
     public float Surface(float x, float y) => TerrainShape.Surface(_city, x, y) * ClassicView.HeightStep;
+    /// <summary>Where traffic runs: a bridge's deck or a tunnel's floor where the road has one (Beta 3.2), else the ground.</summary>
+    public float RoadSurface(float x, float y)
+    {
+        int cx = (int)MathF.Floor(x), cy = (int)MathF.Floor(y);
+        if (_city.InBounds(cx, cy) && _city.PathDecks.Length == _city.Width * _city.Height && _city.PathDecks[_city.Idx(cx, cy)] is var d and > 0)
+            return d / 20f * ClassicView.HeightStep;
+        return Surface(x, y);
+    }
     /// <summary>The highest thing on a cell: its building's roof, else the ground (or the water's surface).</summary>
     public float Top(int x, int y) => _top[_city.Idx(x, y)];
 
@@ -259,15 +269,34 @@ public partial class CityView : Node3D
         if (_cellImage == null || _cellImage.GetWidth() != w || _cellImage.GetHeight() != h)
         {
             _cellImage = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
+            _madeImage = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
             cells = null;
         }
-        void Paint(int i) => _cellImage.SetPixel(i % w, i / w, Palette.Mark(_city, i));
+        void Paint(int i)
+        {
+            _cellImage.SetPixel(i % w, i / w, Palette.Mark(_city, i));
+            // Beta 3.2: the ground's layers. Red: earthworks, grassed banks. Green: how deep the soil is (a cut into
+            // the rock shows it). Blue: which rock.
+            _madeImage!.SetPixel(i % w, i / w, new Color(_city.Made.Length > i ? _city.Made[i] : 0, SoilShare(i), _city.Rock.Length > i ? _city.Rock[i] / 4f : 0, 1));
+        }
         if (cells == null) for (int i = 0; i < _city.N; i++) Paint(i);
         else foreach (int i in cells) Paint(i);
         if (_cellTexture == null || cells == null) _cellTexture = ImageTexture.CreateFromImage(_cellImage);
         else _cellTexture.Update(_cellImage);
         _ground!.SetShaderParameter("cells", _cellTexture);
+        if (_madeTexture == null || cells == null) _madeTexture = ImageTexture.CreateFromImage(_madeImage!);
+        else _madeTexture.Update(_madeImage!);
+        _ground.SetShaderParameter("ground_layers", _madeTexture);
         _ground.SetShaderParameter("map_size", new Vector2(w, h));
+    }
+
+    /// <summary>The thinnest soil at a cell's corners, as a share of deep soil (8 m): 0 is bare rock.</summary>
+    float SoilShare(int i)
+    {
+        if (_city.Bedrock.Length == 0) return 1;
+        int cw = _city.Width + 1, x = i % _city.Width, y = i / _city.Width, c = y * cw + x;
+        int soil = Math.Min(Math.Min(_city.SoilDm(c), _city.SoilDm(c + 1)), Math.Min(_city.SoilDm(c + cw), _city.SoilDm(c + cw + 1)));
+        return Math.Clamp(soil / 80f, 0, 1);
     }
 
     /// <summary>The corner heights as a texture, for the water to know how deep it is.</summary>

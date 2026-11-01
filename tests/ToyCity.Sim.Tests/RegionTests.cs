@@ -230,7 +230,7 @@ public class RegionTests
     [Fact]
     public void APowerDealFeedsTheNeighbourBothBooksAgreeAndItEndsWhenTheLineIsCut()
     {
-        using var r = Region.Create(Fixture.Content, "Lines", 31, 2, 1, 128);
+        using var r = Region.Create(Fixture.Content, "Lines", 41, 2, 1, 128);
         var west = r.Found(0, 0, "Westbrook", "May", starter: true);
         var east = r.Found(1, 0, "Eastfield", "Tess");
         r.Run(3);

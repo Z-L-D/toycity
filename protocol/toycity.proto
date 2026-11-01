@@ -326,6 +326,8 @@ message PlacePath {
   int32 cx = 7;
   int32 cy = 8;
   bool diagonal = 9;  // a straight line at any angle, snapped to the grid
+  string surface = 10; // a surface id the profile allows (Beta 3.2); empty for its default
+  bool tunnel = 11;     // under a hill where it runs 8 m or more deep, rather than a cut (Beta 3.2)
 }
 
 enum Leftover {
@@ -391,6 +393,7 @@ enum TerraformMode {
   TERRAFORM_LOWER = 1;
   TERRAFORM_LEVEL = 2;
   TERRAFORM_SMOOTH = 3;  // each cell toward its neighbours' average
+  TERRAFORM_SLOPE = 4;   // an even slope keeping the land's tilt, at most 7% (Beta 3.2)
 }
 
 message Terraform {
@@ -788,6 +791,19 @@ message PathProfileInfo {
   bool frontage = 12;  // lots beside it get road access (false for highways)
   string tram = 13;    // "shared", "dedicated" or empty
   bool rail = 14;      // trains only
+  int32 max_grade_pct = 15;   // the steepest its type climbs (Beta 3.2)
+  bool stairs = 16;           // a footpath that turns to stairs past its surface's grade
+  repeated string surfaces = 17;  // surface ids it may be built in; the first is the default
+}
+
+// What a path may be paved with (Beta 3.2).
+message SurfaceInfo {
+  string id = 1;
+  string name = 2;
+  int32 max_grade_pct = 3;
+  int32 cost_pct = 4;
+  int32 speed_pct = 5;
+  string color = 6;
 }
 
 message BuildingTypeInfo {
@@ -833,6 +849,7 @@ message Catalog {
   repeated int32 lot_depth = 3;  // deepest lot a zoned building can grow on, by density (low, medium, high)
   repeated string street_names = 4;  // for naming roads as the server does (see World.StreetAt)
   repeated string street_kinds = 5;
+  repeated SurfaceInfo surfaces = 6;
 }
 
 message BuildingState {
@@ -914,6 +931,11 @@ message FullState {
   repeated RoadStrip strips = 13;
   bytes corners = 14;       // the ground: uint16 little-endian per grid corner, (width + 1) * (height + 1), in decimetres
   bytes rivers = 15;        // each cell's river surface in steps, 0 for none
+  bytes path_surfaces = 16; // each cell's path surface: index into Catalog.surfaces + 1, 0 for none
+  bytes path_decks = 17;    // uint16 little-endian per cell: the road's level in dm on a bridge or in a tunnel, 0 on the ground
+  bytes made_ground = 18;   // one byte per cell: 1 where earthworks (road banks, pads) reshaped the land
+  bytes bedrock = 19;       // uint16 little-endian per grid corner: the top of the rock in dm; the ground above it is soil
+  bytes rock = 20;          // one byte per cell: the rock under it, 1 shale, 2 sandstone, 3 limestone, 4 granite
 }
 
 // An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
@@ -937,6 +959,9 @@ message CellUpdate {
   int32 path = 4;
   bool power_line = 5;
   bool water_pipe = 6;
+  int32 surface = 7;  // path surface: index into Catalog.surfaces + 1, 0 for none
+  int32 deck = 8;     // the road's level in dm on a bridge or in a tunnel, 0 on the ground
+  bool made = 9;      // earthworks reshaped the land here
 }
 
 message TickDelta {
@@ -954,6 +979,7 @@ message TickDelta {
 message CornerUpdate {
   int32 index = 1;
   uint32 dm = 2;  // height in decimetres
+  uint32 bedrock_dm = 3; // the top of the rock under it, in decimetres
 }
 
 message Requirement {

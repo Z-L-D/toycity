@@ -112,6 +112,22 @@ public sealed partial class Region : IDisposable
     public World.Ground Ground => _ground ??= World.GenerateGround(Seed, Cols * TileSize, Rows * TileSize);
     World.Ground? _ground;
 
+    /// <summary>The whole region's soil and rock, made over all its ground at once so tiles agree at their borders.</summary>
+    public (ushort[] Bedrock, byte[] Rock) Geology => _geology ??= World.GenerateGeology(Seed, Corners, Rivers, Cols * TileSize, Rows * TileSize);
+    (ushort[] Bedrock, byte[] Rock)? _geology;
+
+    /// <summary>One tile's soil and rock, cut from the region's: its edge corners are its neighbours' too.</summary>
+    public (ushort[] Bedrock, byte[] Rock) TileGeology(int col, int row)
+    {
+        int s = TileSize, wide = Cols * s;
+        var (bed, rock) = Geology;
+        var b = new ushort[(s + 1) * (s + 1)];
+        for (int y = 0; y <= s; y++) Array.Copy(bed, (row * s + y) * (wide + 1) + col * s, b, y * (s + 1), s + 1);
+        var r = new byte[s * s];
+        for (int y = 0; y < s; y++) Array.Copy(rock, (row * s + y) * wide + col * s, r, y * s, s);
+        return (b, r);
+    }
+
     /// <summary>One tile's rivers, cut from the region's.</summary>
     public byte[] TileRivers(int col, int row)
     {
@@ -160,7 +176,7 @@ public sealed partial class Region : IDisposable
         if (CantFound(col, row) is { } why) throw new InvalidOperationException(why);
         var t = TileAt(col, row)!;
         if (computer is { } style) mayor = World.ComputerName(style, t.Seed);
-        var w = World.CreateTile(Content, t.Seed, TileSize, name, TileCorners(col, row), Tick, TileRivers(col, row));
+        var w = World.CreateTile(Content, t.Seed, TileSize, name, TileCorners(col, row), Tick, TileRivers(col, row), TileGeology(col, row));
         // The seat changes hands by a logged action, so a replay of the tile puts the same mayor in it.
         if (mayor != w.MayorSeat.Owner && mayor.Length > 0) w.Enqueue(new RenameOwnerAction(w.MayorSeat.Owner, mayor));
         if (starter && StarterTown.FindSite(w) is { } site)
@@ -175,7 +191,7 @@ public sealed partial class Region : IDisposable
     public World ReplayTile(RegionTile t, long untilTick)
     {
         var w = t.City ?? throw new InvalidOperationException("nothing to replay on open land");
-        var fresh = World.CreateTile(Content, t.Seed, TileSize, w.Name, TileCorners(t.Col, t.Row), w.FoundedTick, TileRivers(t.Col, t.Row));
+        var fresh = World.CreateTile(Content, t.Seed, TileSize, w.Name, TileCorners(t.Col, t.Row), w.FoundedTick, TileRivers(t.Col, t.Row), TileGeology(t.Col, t.Row));
         return World.Replay(fresh, w.Log, untilTick);
     }
 

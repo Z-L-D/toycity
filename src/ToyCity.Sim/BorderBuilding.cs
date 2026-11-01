@@ -158,7 +158,10 @@ public sealed partial class World
                 {
                     int hj = IsRiver(j) ? River[j] + 1 : Height[j];
                     bool turn = from[c] >= 0 && j - c != c - from[c];
-                    step = 10 + 30 * Math.Abs(hj - hc) + (IsRiver(j) ? 60 : 0) + (turn ? 4 : 0);
+                    // Climbing means cutting, and cutting rock costs more than soil: thin soil weighs the climb up.
+                    int climb = 30 * Math.Abs(hj - hc);
+                    if (CellSoilDm(j) < 40) climb = climb * (1 + PathGrade.RockKinds[Math.Min((int)Rock[j], PathGrade.RockKinds.Length - 1)].CostTimes) / 2;
+                    step = 10 + climb + (IsRiver(j) ? 60 : 0) + (turn ? 4 : 0);
                 }
                 int next = cost[c] + step;
                 if (cost.TryGetValue(j, out int had) && had <= next) continue;

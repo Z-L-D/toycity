@@ -275,7 +275,7 @@ public sealed partial class World
             // BPR congestion curve: time = free * (1 + 0.15 (v/c)^4), capped at 5x.
             double vc = level / 128.0;
             double factor = Math.Min(5.0, 1 + 0.15 * vc * vc * vc * vc);
-            TravelCost[i] = (int)(p.CellTime * factor);
+            TravelCost[i] = (int)(PathCellTime(i) * factor);
         }
     }
 }

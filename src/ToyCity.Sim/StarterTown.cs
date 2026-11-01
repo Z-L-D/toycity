@@ -8,7 +8,14 @@ public static class StarterTown
 {
     public const int Size = 30;
 
-    /// <summary>Finds the flattest all-land block for the town, or null when none fits.</summary>
+    /// <summary>How far the town's ground should fall across it, in steps (2 m each): about a 4% hillside.</summary>
+    public const int HillsideRise = 8;
+
+    /// <summary>
+    /// Finds an all-land block for the town (Beta 3.2): an even hillside, not the flattest ground there is. Ground
+    /// that steps more than one height between neighbours counts heavily against a site, bumps a little, and a fall
+    /// across it far from <see cref="HillsideRise"/> steps either way counts against it too. Null when none fits.
+    /// </summary>
     public static (int X, int Y)? FindSite(World w, int size = Size + 6)
     {
         (int, int)? best = null;
@@ -17,27 +24,42 @@ public static class StarterTown
         for (int ox = 2; ox + size < w.Width - 2; ox += 2)
         {
             int score = 0;
+            long sx = 0, sy = 0;
             bool ok = true;
             for (int y = oy; y < oy + size && ok; y++)
             for (int x = ox; x < ox + size; x++)
             {
                 int i = w.Idx(x, y);
                 if (w.IsWater(i)) { ok = false; break; }
+                // For the tilt: the height against the cell's place across the site (a least-squares plane).
+                sx += (long)w.Height[i] * (2 * (x - ox) - (size - 1));
+                sy += (long)w.Height[i] * (2 * (y - oy) - (size - 1));
                 if (x + 1 < ox + size) score += Math.Abs(w.Height[i] - w.Height[i + 1]) > 1 ? 50 : Math.Abs(w.Height[i] - w.Height[i + 1]);
                 if (y + 1 < oy + size) score += Math.Abs(w.Height[i] - w.Height[i + w.Width]) > 1 ? 50 : Math.Abs(w.Height[i] - w.Height[i + w.Width]);
             }
-            if (ok && score < bestScore) { bestScore = score; best = (ox, oy); }
+            if (!ok) continue;
+            // The plane's fall across the site, in steps: its slope, 6 sum(u h) / (n^2 (n^2 - 1)) with u = 2(x - mean),
+            // times the n - 1 cells across.
+            double norm = (double)size * size * (size + 1) / 6.0;
+            double fall = Math.Sqrt((double)sx * sx + (double)sy * sy) / norm;
+            score += (int)(60 * Math.Abs(fall - HillsideRise));
+            if (score < bestScore) { bestScore = score; best = (ox, oy); }
         }
         return best;
     }
 
-    /// <summary>Queues the actions for a town at (ox, oy): a road grid, R/C/I zones, a coal plant and water.</summary>
+    /// <summary>
+    /// Queues the actions for a town at (ox, oy): a road grid, R/C/I zones, a coal plant and water. Beta 3.2: the
+    /// town sits on a hillside: the site keeps the land's tilt, eased to at most 7%, its streets climb with it, and
+    /// homes and shops level their own pads.
+    /// </summary>
     public static List<SimAction> Build(int ox, int oy)
     {
         var a = new List<SimAction>();
         int s = Size;
-        // Level the whole site first so the roads never hit a slope.
-        a.Add(new TerraformAction(new CellRect(ox, oy, ox + s + 5, oy + s - 1), TerraformMode.Level));
+        // The site is evened to a hillside that keeps the land's own tilt (at most 7%), not flattened: the streets
+        // then climb it within a road's grade and every lot is gentle enough for its pad.
+        a.Add(new TerraformAction(new CellRect(ox, oy, ox + s + 5, oy + s - 1), TerraformMode.Slope));
         // Streets every fifth row: blocks four cells deep take lots facing either street.
         int bottom = oy + s - 1 - (s - 1) % 5;
         for (int y = oy; y <= bottom; y += 5) a.Add(new PlacePathAction(ox, y, ox + s, y, "road"));

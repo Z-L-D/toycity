@@ -96,7 +96,7 @@ public sealed partial class World
         int lines = 0, pipes = 0;
         for (int i = 0; i < N; i++)
         {
-            if (Path[i] != 0) pathCost += Content.Profiles[Path[i] - 1].MaintenancePerCell;
+            if (Path[i] != 0) pathCost += Content.Profiles[Path[i] - 1].MaintenancePerCell * (PathSurface[i] > 0 ? Content.Surfaces[PathSurface[i] - 1].MaintenancePct : 100) / 100.0;
             lines += PowerLine[i];
             pipes += WaterPipe[i];
         }

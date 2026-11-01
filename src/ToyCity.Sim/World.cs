@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 8;
+    public const int FormatVersion = 10;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -92,6 +92,18 @@ public sealed partial class World
     public readonly byte[] Height;
     public readonly byte[] ZoneCode;     // zone * 3 + density, 0 = none
     public readonly ushort[] Path;       // profile index + 1, 0 = none
+    /// <summary>What each path cell is paved with: the surface index + 1 (Beta 3.2), 0 for none.</summary>
+    public readonly byte[] PathSurface;
+    /// <summary>
+    /// The road's own level where it isn't on the ground, in dm (Beta 3.2): a bridge's deck, or the floor of a tunnel
+    /// under a hill. 0 for a path on the ground.
+    /// </summary>
+    public readonly ushort[] PathDeck;
+    /// <summary>
+    /// Made ground (Beta 3.2): 1 where a road's banks or a building's pad reshaped the land, 0 where it's as nature
+    /// left it (or a player terraformed it). The clients draw made ground as grassed earthworks, never as rock.
+    /// </summary>
+    public readonly byte[] Made;
     public readonly byte[] PowerLine;
     public readonly byte[] WaterPipe;
     public readonly int[] BuildingAt;    // building id + 1, 0 = none
@@ -157,6 +169,11 @@ public sealed partial class World
         River = new byte[width * height];
         ZoneCode = new byte[N];
         Path = new ushort[N];
+        PathSurface = new byte[N];
+        PathDeck = new ushort[N];
+        Made = new byte[N];
+        Bedrock = new ushort[(width + 1) * (height + 1)];
+        Rock = new byte[N];
         PowerLine = new byte[N];
         WaterPipe = new byte[N];
         BuildingAt = new int[N];
@@ -202,7 +219,7 @@ public sealed partial class World
     /// Founds a city on a region tile: the ground is the region's, cut out for this tile, and the calendar starts on
     /// the region's day so every tile shares one clock.
     /// </summary>
-    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick, byte[]? rivers = null)
+    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick, byte[]? rivers = null, (ushort[] Bedrock, byte[] Rock)? geology = null)
     {
         if (size is not (64 or 128 or 256)) throw new ArgumentOutOfRangeException(nameof(size), "size must be 64, 128 or 256");
         if (corners.Length != (size + 1) * (size + 1)) throw new ArgumentException("corners must cover the tile", nameof(corners));
@@ -211,6 +228,9 @@ public sealed partial class World
         corners.CopyTo(w.Corner, 0);
         rivers?.CopyTo(w.River, 0);
         w.DeriveHeights(0, 0, size - 1, size - 1);
+        // The region's layers, cut out with its ground so they meet at the borders; without them, this tile's own.
+        if (geology is { } g) { g.Bedrock.CopyTo(w.Bedrock, 0); g.Rock.CopyTo(w.Rock, 0); }
+        else w.GenerateGeology();
         w.RecomputeWaterDistance();
         w.RunMonthly();
         w.RunUtilities();
@@ -416,6 +436,11 @@ public sealed partial class World
             WriteDeals(w);
             WriteRegionState(w);
             WriteStrips(w);
+            w.Write(PathSurface);
+            WriteU16(w, PathDeck);
+            w.Write(Made);
+            WriteU16(w, Bedrock);
+            w.Write(Rock);
         }
         return ms.ToArray();
     }
@@ -511,6 +536,19 @@ public sealed partial class World
             w.ReadRegionState(r);
         }
         if (version >= 7) w.ReadStrips(r);
+        // Format 9 added path surfaces; an older save's paths are in their type's default.
+        if (version >= 9) { ReadBytes(r, w.PathSurface); ReadU16(r, w.PathDeck); ReadBytes(r, w.Made); }
+        else
+            for (int i = 0; i < w.N; i++)
+            {
+                if (w.Path[i] == 0) continue;
+                w.PathSurface[i] = (byte)Math.Max(0, content.SurfaceCode(w.Path[i] - 1, null));
+                // A bridge stood a step over its river.
+                if (w.IsRiver(i)) w.PathDeck[i] = (ushort)((w.River[i] + 1) * StepDm);
+            }
+        // Format 10 added the ground's layers; an older save gets them from its ground as it stands.
+        if (version >= 10) { ReadU16(r, w.Bedrock); ReadBytes(r, w.Rock); }
+        else w.GenerateGeology();
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

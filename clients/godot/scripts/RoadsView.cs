@@ -28,6 +28,7 @@ public partial class RoadsView : Node3D
     static readonly Color White = new(0.90f, 0.90f, 0.88f), Yellow = new(0.88f, 0.72f, 0.20f), Grass = new(0.30f, 0.40f, 0.19f);
     static readonly Color Ballast = new(0.45f, 0.42f, 0.38f), Sleeper = new(0.30f, 0.24f, 0.19f), Steel = new(0.72f, 0.73f, 0.75f);
     static readonly Color Barrier = new(0.74f, 0.74f, 0.72f);
+    static readonly Color Limestone = new(0.76f, 0.73f, 0.66f), Brick = new(0.55f, 0.31f, 0.24f), Concrete = new(0.63f, 0.63f, 0.60f);
     static readonly Vector2[] Dir = { new(0, -1), new(1, 0), new(0, 1), new(-1, 0) };
 
     readonly CityMirror _city;
@@ -78,6 +79,7 @@ public partial class RoadsView : Node3D
                 if (!_city.InBounds(x, y)) continue;
                 int i = _city.Idx(x, y);
                 Mix(_city.Paths[i]);
+                Mix(_city.PathSurfaces.Length > i ? _city.PathSurfaces[i] : 0UL);
                 if (_city.Paths[i] != 0) Mix(RoadShape.UnderStrip(_city, i) ? 1UL : 2UL);
             }
         for (int y = cy * Chunk; y <= Math.Min(_city.Height, (cy + 1) * Chunk); y++)
@@ -95,10 +97,21 @@ public partial class RoadsView : Node3D
             {
                 int i = _city.Idx(x, y);
                 if (_city.Paths[i] == 0 || RoadShape.UnderStrip(_city, i)) continue;
-                // A path over a river is a bridge: its deck a step over the water, as the server grades it.
-                _deck = _city.IsRiver(i) ? (_city.Rivers[i] + 1) * ClassicView.HeightStep : null;
-                Cell(x, y, RoadLook.For(_city.ProfileAt(i)), RoadLook.Arms(_city, i));
-                if (_deck is { } deck) Bridge(x, y, RoadLook.For(_city.ProfileAt(i)), RoadLook.Arms(_city, i), deck);
+                // A tunnel is under the ground (the underground view shows it); where it meets the open air, a portal.
+                if (_city.IsTunnel(i))
+                {
+                    Portals(x, y);
+                    continue;
+                }
+                // A path over a river is a bridge: its deck where the server graded it, at least a step over the water.
+                _deck = _city.IsRiver(i) ? (_city.PathDecks[i] > 0 ? _city.PathDecks[i] / 20f : _city.Rivers[i] + 1) * ClassicView.HeightStep : null;
+                var look = RoadLook.For(_city.ProfileAt(i), _city.SurfaceAt(i));
+                int arms = RoadLook.Arms(_city, i);
+                // Beta 3.2: a footpath steeper than its surface holds a ramp is built as stairs.
+                if (_deck == null && RoadLook.IsStairs(_city, i, arms)) Stairs(x, y, look, arms);
+                else Cell(x, y, look, arms);
+                if (_deck == null) RetainingWalls(x, y, arms);
+                if (_deck is { } deck) Bridge(x, y, look, arms, deck);
                 _deck = null;
             }
         if (_v.Count == 0)
@@ -133,11 +146,7 @@ public partial class RoadsView : Node3D
         // Under the carriageway: sidewalks to the cell's edge on a town road.
         if (look.Sidewalks) Rect(centre, Vector2.Right, Vector2.Down, -0.5f, 0.5f, -0.5f, 0.5f, LiftWalk, Sidewalk, true);
 
-        var surface = look.Paving switch
-        {
-            Paving.Dirt => Earth, Paving.Gravel => Gravel, Paving.BikeLane => BikeRed, Paving.Concrete => Pavers,
-            Paving.Rail => Ballast, _ => Asphalt,
-        };
+        var surface = Colour(look.Paving);
         // The carriageway: a square where the arms meet, then each arm out to the cell's edge.
         Rect(centre, Vector2.Right, Vector2.Down, -hw, hw, -hw, hw, LiftDeck, surface, true);
         for (int a = 0; a < 4; a++)
@@ -148,7 +157,7 @@ public partial class RoadsView : Node3D
             Track(centre, arms, hw * 0.55f, true);
             return;
         }
-        if (look.Paving != Paving.Asphalt) return;
+        if (!look.Painted && !(look.Paving == Paving.Brick && look.Sidewalks)) return;
 
         // Kerbs along the open sides of the carriageway on a town road.
         if (look.Sidewalks)
@@ -228,6 +237,144 @@ public partial class RoadsView : Node3D
                 for (float t = -hw + 0.03f; t < hw - 0.03f; t += 0.05f)
                     Arm(centre, a, hw + 0.02f, hw + 0.12f, t, t + 0.025f, LiftPaint, White, false);
             }
+    }
+
+    /// <summary>
+    /// Retaining walls (Beta 3.2): where the ground beside a path climbs or falls away steeper than a soil bank stands
+    /// (lots, other roads or water kept its banks from spreading, or a natural cliff), a dressed-stone wall along the
+    /// path's edge, from the road to the ground beyond.
+    /// </summary>
+    void RetainingWalls(int x, int y, int arms)
+    {
+        var stone = new Color(0.56f, 0.53f, 0.48f);
+        var centre = new Vector2(x + 0.5f, y + 0.5f);
+        for (int a = 0; a < 4; a++)
+        {
+            if ((arms & 1 << a) != 0) continue;
+            int nx = x + (int)Dir[a].X, ny = y + (int)Dir[a].Y;
+            if (!_city.InBounds(nx, ny)) continue;
+            int j = _city.Idx(nx, ny);
+            if (_city.Paths[j] != 0 || _city.IsWater(j)) continue;
+            var edge = centre + Dir[a] * 0.5f;
+            var far = centre + Dir[a] * 1.45f;
+            float he = _view.Surface(edge.X, edge.Y), hf = _view.Surface(far.X, far.Y);
+            // A cell is a world unit across and a world unit is 16 m high, so this is rise over run.
+            if (Math.Abs(hf - he) / 0.95f < 0.8f) continue;
+            var v = new Vector2(-Dir[a].Y, Dir[a].X);
+            float top = Math.Min(Math.Max(he, hf), Math.Min(he, hf) + 0.5f);
+            Wall(edge - v * 0.5f, edge + v * 0.5f, Math.Min(he, hf) - 0.01f, top, stone);
+            // A coping along the top.
+            Wall(edge - v * 0.5f + Dir[a] * 0.012f, edge + v * 0.5f + Dir[a] * 0.012f, top - 0.004f, top + 0.004f, stone.Lightened(0.15f));
+        }
+    }
+
+    /// <summary>
+    /// A tunnel cell's portals (Beta 3.2): on each side where the path comes out onto open ground, a concrete headwall
+    /// across the cut with the dark mouth of the bore in it, standing from the road up to the ground above.
+    /// </summary>
+    void Portals(int x, int y)
+    {
+        int i = _city.Idx(x, y);
+        float floor = _city.PathDecks[i] / 20f * ClassicView.HeightStep;
+        var look = RoadLook.For(_city.ProfileAt(i), _city.SurfaceAt(i));
+        float hw = Math.Max(look.Sidewalks ? 0.45f : look.Width / 2 + 0.05f, 0.12f);
+        var concrete = new Color(0.66f, 0.65f, 0.61f);
+        var mouth = new Color(0.05f, 0.05f, 0.06f);
+        for (int a = 0; a < 4; a++)
+        {
+            int nx = x + (int)Dir[a].X, ny = y + (int)Dir[a].Y;
+            if (!_city.InBounds(nx, ny)) continue;
+            int j = _city.Idx(nx, ny);
+            if (_city.Paths[j] == 0 || _city.IsTunnel(j)) continue;
+            // The face stands on the cell's edge toward the open road.
+            var centre = new Vector2(x + 0.5f, y + 0.5f) + Dir[a] * 0.5f;
+            var v = new Vector2(-Dir[a].Y, Dir[a].X);
+            float top = Math.Max(_view.Surface(centre.X, centre.Y), floor + 0.25f);
+            float clear = 0.0035f * 16 * 5.5f;  // 5.5 m of headroom
+            var l = centre - v * (hw + 0.08f);
+            var r = centre + v * (hw + 0.08f);
+            Wall(l, r, floor, top, concrete);
+            // The bore: a dark opening the road's width, a little in front of the face.
+            Wall(centre - v * hw + Dir[a] * 0.004f, centre + v * hw + Dir[a] * 0.004f, floor + LiftDeck, floor + clear, mouth);
+        }
+    }
+
+    static Color Colour(Paving p) => p switch
+    {
+        Paving.Dirt => Earth, Paving.Gravel => Gravel, Paving.Limestone => Limestone, Paving.Brick => Brick,
+        Paving.BikeLane => BikeRed, Paving.Concrete => Pavers, Paving.Rail => Ballast, _ => Asphalt,
+    };
+
+    /// <summary>
+    /// A footpath steep enough to be stairs (Beta 3.2): level treads with a riser up to each, along the way it runs,
+    /// and a handrail post-and-rail either side. Treads are about 30 cm deep for the climb they take, so a gentle
+    /// stair has long treads and a steep one short.
+    /// </summary>
+    void Stairs(int x, int y, RoadLook look, int arms)
+    {
+        var centre = new Vector2(x + 0.5f, y + 0.5f);
+        float hw = Math.Max(look.Width / 2, 0.09f);
+        var colour = Colour(look.Paving);
+        bool ns = (arms & 0b0101) != 0 && (arms & 0b1010) == 0 || arms == 0 && Math.Abs(_view.Surface(centre.X, y) - _view.Surface(centre.X, y + 1)) >= Math.Abs(_view.Surface(x, centre.Y) - _view.Surface(x + 1, centre.Y));
+        var u = ns ? new Vector2(0, 1) : new Vector2(1, 0);
+        var v = new Vector2(-u.Y, u.X);
+        float h0 = _view.Surface((centre - u * 0.5f).X, (centre - u * 0.5f).Y), h1 = _view.Surface((centre + u * 0.5f).X, (centre + u * 0.5f).Y);
+        // A riser of about 17 cm: a cell is 16 m, a world unit, so 17 cm is about 0.0106.
+        int steps = Math.Clamp((int)MathF.Ceiling(Math.Abs(h1 - h0) / 0.0106f), 2, 96);
+        var riserColour = colour.Darkened(0.25f);
+        for (int k = 0; k < steps; k++)
+        {
+            float s0 = -0.5f + (float)k / steps, s1 = -0.5f + (float)(k + 1) / steps;
+            float h = h0 + (h1 - h0) * (k + 0.5f) / steps + LiftDeck;
+            var a = centre + u * s0 + v * -hw;
+            var b = centre + u * s0 + v * hw;
+            var c = centre + u * s1 + v * hw;
+            var d = centre + u * s1 + v * -hw;
+            Quad(new Vector3(a.X, h, a.Y), new Vector3(b.X, h, b.Y), new Vector3(c.X, h, c.Y), new Vector3(d.X, h, d.Y), colour);
+            // The riser from this tread up (or down) to the next.
+            float next = k + 1 < steps ? h0 + (h1 - h0) * (k + 1.5f) / steps + LiftDeck : h;
+            if (k + 1 < steps) Wall(d, c, Math.Min(h, next), Math.Max(h, next), riserColour);
+        }
+        // Handrails: a rail a metre over the nosings, either side.
+        var steel = new Color(0.35f, 0.36f, 0.38f);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            var a = centre - u * 0.5f + v * (side * (hw + 0.005f));
+            var b = centre + u * 0.5f + v * (side * (hw + 0.005f));
+            Rail(new Vector3(a.X, h0 + LiftDeck + 0.0625f, a.Y), new Vector3(b.X, h1 + LiftDeck + 0.0625f, b.Y), steel);
+            for (int k = 0; k <= 4; k++)
+            {
+                var p = a.Lerp(b, k / 4f);
+                float hp = h0 + (h1 - h0) * k / 4f + LiftDeck;
+                Wall(p - u * 0.002f, p + u * 0.002f, hp, hp + 0.0625f, steel);
+            }
+        }
+    }
+
+    /// <summary>A flat quad from four points, its normal facing up.</summary>
+    void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color colour)
+    {
+        var n = (b - a).Cross(d - a).Normalized();
+        if (n.Y < 0) n = -n;
+        foreach (var p in new[] { a, b, c, a, c, d })
+        {
+            _v.Add(p);
+            _n.Add(n);
+            _c.Add(colour);
+        }
+    }
+
+    /// <summary>A thin sloping rail from a to b: a narrow upright strip.</summary>
+    void Rail(Vector3 a, Vector3 b, Color colour)
+    {
+        var up = new Vector3(0, 0.004f, 0);
+        var n = (b - a).Cross(up).Normalized();
+        foreach (var p in new[] { a - up, b - up, b + up, a - up, b + up, a + up })
+        {
+            _v.Add(p);
+            _n.Add(n);
+            _c.Add(colour);
+        }
     }
 
     /// <summary>

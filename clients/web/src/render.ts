@@ -40,7 +40,7 @@ const smooth = (e0: number, e1: number, x: number) => { const t = Math.min(1, Ma
 const rgb = (r: number, g: number, b: number): RGB => [r * 255, g * 255, b * 255];
 // The same ground as the 3D client's terrain shader (clients/godot/shaders/terrain.gdshader), seen from above.
 const MEADOW = rgb(0.33, 0.42, 0.20), DRY = rgb(0.45, 0.45, 0.26), EARTH = rgb(0.42, 0.36, 0.27), ROCK = rgb(0.47, 0.45, 0.42),
-  ROCK_DARK = rgb(0.32, 0.30, 0.28), SAND = rgb(0.71, 0.65, 0.50), SNOW = rgb(0.93, 0.94, 0.96), BED = rgb(0.45, 0.42, 0.32),
+  SAND = rgb(0.71, 0.65, 0.50), SNOW = rgb(0.93, 0.94, 0.96), BED = rgb(0.45, 0.42, 0.32),
   DEEP = rgb(0.12, 0.17, 0.16), WATER = rgb(0.13, 0.30, 0.38), FLOOD = rgb(0.36, 0.31, 0.22);
 /** A steady pseudo-random 0..1 for a pixel of the ground, so grass and rock have texture that doesn't flicker. */
 function grain(x: number, y: number): number {
@@ -77,6 +77,30 @@ function roadLook(p: { id: string; widthM: number; cars: boolean; bikes: boolean
     centre: p.oneWay ? 'dashed' : median > 0 ? 'none' : p.speedKmh <= 30 ? 'none' : 'yellow' };
 }
 
+const SURFACE_COLOURS: Record<string, string> = { dirt: '#8a7457', gravel: '#a29a8c', limestone: '#c3bba9', brick: '#8c4f3d', asphalt: '#47474b', concrete: '#a9a69e' };
+/**
+ * The look of a path in the surface it was built in (Beta 3.2), as RoadLook.For(profile, surface): unsealed roads
+ * lose sidewalks and paint, brick keeps its sidewalks but no paint, concrete is painted like asphalt.
+ */
+function surfaceLook(look: Look, p: { cars: boolean; rail?: boolean; bikes: boolean; pedestrians: boolean }, surface: string | undefined): Look {
+  if (!surface || p.rail) return look;
+  const colour = surface === 'asphalt' && !p.cars && p.bikes && !p.pedestrians ? look.surface : SURFACE_COLOURS[surface] ?? look.surface;
+  if (!p.cars) return { ...look, surface: colour };
+  if (surface === 'dirt' || surface === 'gravel' || surface === 'limestone')
+    return { ...look, surface: colour, sidewalks: false, median: 0, edges: false, centre: 'none', carriageway: Math.min(look.carriageway, 8) };
+  if (surface === 'brick') return { ...look, surface: colour, edges: false, centre: look.centre === 'barrier' ? 'barrier' : 'none' };
+  return { ...look, surface: colour };
+}
+
+/** The steepest a path cell climbs (rise over run) along the way it runs, from the ground's corners. As RoadLook.Slope. */
+function cellSlope(c: City, i: number, alongNs: boolean, alongEw: boolean): number {
+  const cw = c.width + 1, x = i % c.width, y = (i / c.width) | 0, k = y * cw + x;
+  const nw = c.corners[k], ne = c.corners[k + 1], sw = c.corners[k + cw], se = c.corners[k + cw + 1];
+  const ns = Math.abs(nw + ne - (sw + se)) / 2, ew = Math.abs(nw + sw - (ne + se)) / 2;
+  const rise = alongNs && !alongEw ? ns : alongEw && !alongNs ? ew : Math.max(ns, ew);
+  return rise / 160;
+}
+
 /** Smooth value noise, 0..1, varying over about one unit. */
 function noise(x: number, y: number): number {
   const ix = Math.floor(x), iy = Math.floor(y), u = x - ix, v = y - iy;
@@ -90,7 +114,10 @@ function noise(x: number, y: number): number {
  * little grain: meadow and drier grass, earth then rock as it steepens, a sandy shore, snow high up on gentle ground.
  * Under water, the bed darkens with depth under a teal surface.
  */
-function groundColor(h: number, water: number, slope: number, g: number, depth: number): RGB {
+/** Each rock's colour, by kind (1 shale, 2 sandstone, 3 limestone, 4 granite): as the 3D client's shader. */
+const ROCK_COLORS: RGB[] = [rgb(0.47, 0.45, 0.42), rgb(0.38, 0.39, 0.42), rgb(0.62, 0.51, 0.37), rgb(0.70, 0.68, 0.62), rgb(0.56, 0.48, 0.46)];
+
+function groundColor(h: number, water: number, slope: number, g: number, depth: number, made = 0, soil = 1, kind = 0): RGB {
   if (depth > 0) {
     const bed = mixRGB(BED, DEEP, Math.min(1, depth / 5));
     return mixRGB(bed, WATER, 0.55 + 0.3 * Math.min(1, depth / 4));
@@ -98,8 +125,13 @@ function groundColor(h: number, water: number, slope: number, g: number, depth: 
   const m = (h - water) * 2;
   let c = mixRGB(MEADOW, DRY, smooth(0, 120, m) * 0.8 + (g - 0.5) * 0.25);
   c = mixRGB(c, EARTH, smooth(0.18, 0.38, slope + (g - 0.5) * 0.15) * 0.7);
-  const rock = smooth(0.38, 0.55, slope + (g - 0.5) * 0.15);
-  c = mixRGB(c, mixRGB(ROCK_DARK, ROCK, g), rock);
+  // Where the soil is thin the rock shows, on gentler ground too. Made ground (a road's banks, a pad's sides) is soil,
+  // seeded grass with earth showing on the steep, unless the cut went down into the rock: a raw rock face.
+  const bare = 1 - smooth(0.03, 0.3, soil + (g - 0.5) * 0.1);
+  const rock = Math.max(smooth(0.38, 0.55, slope + (g - 0.5) * 0.15 + bare * 0.25) * (1 - made), made * bare * smooth(0.2, 0.4, slope));
+  const stone = ROCK_COLORS[kind] ?? ROCK;
+  c = mixRGB(c, mixRGB([stone[0] * 0.68, stone[1] * 0.68, stone[2] * 0.68], stone, g), rock);
+  if (made > 0) c = mixRGB(c, mixRGB(mixRGB(MEADOW, DRY, 0.3 + 0.3 * g), EARTH, smooth(0.25, 0.55, slope) * 0.5), made * (1 - bare) * smooth(0.08, 0.25, slope));
   c = mixRGB(c, ROCK, smooth(180, 260, m) * 0.6);
   c = mixRGB(c, SNOW, smooth(280, 340, m + (g - 0.5) * 40) * (1 - smooth(0.35, 0.6, slope)));
   c = mixRGB(c, SAND, (1 - smooth(0.5, 2.5, m)) * (1 - rock));
@@ -313,6 +345,12 @@ export class Renderer {
     };
     const cell = (x: number, y: number) => Math.min(c.height - 1, Math.max(0, y)) * c.width + Math.min(c.width - 1, Math.max(0, x));
     const wet = (x: number, y: number) => (c.isWater(cell(x, y)) ? 1 : 0);
+    // The soil's depth over a cell, as a share of deep soil (8 m): its thinnest corner.
+    const soilAt = (x: number, y: number) => {
+      const i = cell(x, y), cw = c.width + 1, k = Math.floor(i / c.width) * cw + (i % c.width);
+      const s = Math.min(c.corners[k] - c.bedrock[k], c.corners[k + 1] - c.bedrock[k + 1], c.corners[k + cw] - c.bedrock[k + cw], c.corners[k + cw + 1] - c.bedrock[k + cw + 1]);
+      return Math.max(0, Math.min(1, s / 80));
+    };
     // A river's water stands at its surface; the sea's at the water level.
     const surface = (x: number, y: number) => { const i = cell(x, y); return c.isRiver(i) ? c.rivers[i] : c.waterLevel; };
     for (let py = 0; py < H; py++)
@@ -331,7 +369,10 @@ export class Renderer {
         // Patches a few cells across, with a little fine grain in them.
         const g = 0.75 * noise(fx / 3, fy / 3) + 0.25 * grain(cx0 * K + px, cy0 * K + py);
         const top = surface(Math.floor(fx), Math.floor(fy));
-        let [r, gr, b] = groundColor(water ? Math.min(h, top - 0.01) : Math.max(h, c.waterLevel), c.waterLevel, slope, g, water ? Math.max(0.5, top - h) : 0);
+        const made = c.made.length ? blend((x: number, y: number) => c.made[cell(x, y)], fx, fy) : 0;
+        const soil = c.bedrock.length ? blend(soilAt, fx, fy) : 1;
+        const kind = c.rock.length ? c.rock[cell(Math.floor(fx), Math.floor(fy))] : 0;
+        let [r, gr, b] = groundColor(water ? Math.min(h, top - 0.01) : Math.max(h, c.waterLevel), c.waterLevel, slope, g, water ? Math.max(0.5, top - h) : 0, made, soil, kind);
         if (!water) {
           // Hillshade: light from the north-west, as the sun stands in the 3D view.
           const lit = Math.max(0.55, Math.min(1.35, 1 - (sx + sy) * 0.18));
@@ -827,7 +868,20 @@ export class Renderer {
         const i = y * c.width + x;
         const p = c.profileAt(i);
         if (!p || c.underStrip.has(i)) continue;
-        const look = roadLook(p);
+        // Beta 3.2: a tunnel runs under the ground; from above it's a dashed outline over the hill.
+        if (c.isTunnel(i)) {
+          if (s >= 4) {
+            ctx.strokeStyle = 'rgba(30,30,34,0.7)';
+            ctx.lineWidth = Math.max(1, s / 16);
+            ctx.setLineDash([Math.max(2, s / 6), Math.max(2, s / 6)]);
+            const tw = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
+            ctx.strokeRect(px(x) + (s - tw) / 2, py(y) + (s - tw) / 2, tw, tw);
+            ctx.setLineDash([]);
+          }
+          continue;
+        }
+        const surf = c.pathSurfaces[i] ? c.surfaces[c.pathSurfaces[i] - 1] : undefined;
+        const look = surfaceLook(roadLook(p), p, surf?.id);
         const w = Math.max(s * 0.3, Math.min(s, ((look.sidewalks ? 16 : p.widthM) / 16) * s));
         const half = w / 2;
         const cx = px(x) + s / 2;
@@ -849,6 +903,17 @@ export class Renderer {
           if (north) ctx.fillRect(cx - h2, py(y), width, s / 2);
         };
         band(w, look.sidewalks && s >= 6 ? CONCRETE : look.surface);
+        // Beta 3.2: a footpath steeper than its surface holds a ramp is stairs; its treads are drawn across it.
+        if (p.stairs && s >= 8 && cellSlope(c, i, north || south, east || west) * 100 > (surf?.maxGradePct ?? 25)) {
+          const ns = (north || south) && !(east || west);
+          const treads = Math.max(3, Math.min(12, Math.round(cellSlope(c, i, north || south, east || west) * 8)));
+          ctx.fillStyle = 'rgba(0,0,0,0.35)';
+          for (let k = 1; k < treads; k++) {
+            const o = (k / treads - 0.5) * s;
+            if (ns) ctx.fillRect(cx - half, cy + o, w, Math.max(1, s / 24));
+            else ctx.fillRect(cx + o, cy - half, Math.max(1, s / 24), w);
+          }
+        }
         if (look.sidewalks && s >= 6) band(Math.max(s * 0.3, (look.carriageway / 16) * s), look.surface);
         if (look.median > 0 && s >= 8) band(Math.max(1, (look.median / 16) * s), look.tram ? '#6d6458' : '#5b7a3c');
         if (s >= 10 && look.centre !== 'none' && !p.rail) {
@@ -916,7 +981,9 @@ export class Renderer {
         pts.forEach(([x, y], k) => (k ? ctx.lineTo(px(x), py(y)) : ctx.moveTo(px(x), py(y))));
       };
       const w = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
-      const look = roadLook(p);
+      const first = st.cells?.[0];
+      const surf = first !== undefined && c.pathSurfaces[first] ? c.surfaces[c.pathSurfaces[first] - 1] : undefined;
+      const look = surfaceLook(roadLook(p), p, surf?.id);
       trace();
       if (look.sidewalks) {
         ctx.strokeStyle = CONCRETE;
