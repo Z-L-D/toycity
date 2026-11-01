@@ -1,6 +1,6 @@
 import './style.css';
 import { Connection, type Msg } from './net';
-import { BRIDGE_COST_TIMES, City, curveCells, lCells, lineCells as diagonalCells, gradeSteps, padSteps, GRADE_COST_PER_STEP, PAD_COST_PER_STEP, SIDE_DX, SIDE_DY, type BuildingType } from './state';
+import { City, curveCells, lCells, lineCells as diagonalCells, planPath, padSteps, PAD_COST_PER_STEP, SIDE_DX, SIDE_DY, type BuildingType } from './state';
 import { Renderer, type OverlayView } from './render';
 import { TalkBack } from './talkback';
 import { Seats } from './seats';
@@ -28,9 +28,8 @@ const DISASTER_SETTINGS = ['Off', 'Rare', 'Normal'];
 
 const DENSITY_NAMES = ['Low', 'Medium', 'High'];
 const TERRAFORM_NAMES = ['Raise', 'Lower', 'Level', 'Smooth'];
-const TOO_STEEP = 'Too steep to grade between the roads it joins';
 /** The cost line's grading part, or nothing on ground that needs none. */
-const grading = (steps: number | null) => (steps ? ` (grading ${money(steps * GRADE_COST_PER_STEP)})` : '');
+const grading = (dollars: number) => (dollars > 0 ? ` (grading ${money(dollars)})` : '');
 const ZONE_COST = 5;
 
 const OVERLAYS: { kind: number; name: string; scheme: OverlayView['scheme'] }[] = [
@@ -67,6 +66,8 @@ const renderer = new Renderer(canvas, city);
 let tool: Tool = { kind: 'query' };
 let density = 0;
 let profileId = 'road';
+/** The surface paths are built in; '' for the type's default (Beta 3.2). */
+let surfaceId = '';
 let buildingTypeId = 'police-station';
 let terraformMode = 0;
 let disasterKind = 0;
@@ -272,6 +273,28 @@ function setTool(t: Tool) {
   dirty = true;
 }
 
+/** The surfaces the chosen path type may be built in, each with the grade it climbs (Beta 3.2). */
+function surfaceOptions(): string {
+  const prof = city.profiles.find((p) => p.id === profileId);
+  const list = prof?.surfaces ?? [];
+  if (!prof || list.length === 0) return `<option value="">${prof ? `Climbs ${prof.maxGradePct ?? 0}%` : ''}</option>`;
+  return list
+    .map((id, k) => {
+      const s = city.surfaces.find((q) => q.id === id);
+      const pct = prof.stairs ? `ramp ${s?.maxGradePct ?? 0}%, stairs to ${prof.maxGradePct}%` : `${Math.min(prof.maxGradePct, s?.maxGradePct ?? 100)}%`;
+      const value = k === 0 ? '' : id;
+      return `<option value="${value}" ${value === surfaceId ? 'selected' : ''}>${esc(s?.name ?? id)} (${pct})</option>`;
+    })
+    .join('');
+}
+
+/** " in brick" when paths are built in a surface other than the type's default. */
+function surfaceLabel(): string {
+  if (!surfaceId) return '';
+  const s = city.surfaces.find((q) => q.id === surfaceId);
+  return s ? ` in ${s.name.toLowerCase()}` : '';
+}
+
 function buildToolbar() {
   const el = $('#tools');
   const btn = (label: string, key: string, t: Tool, swatch?: string) =>
@@ -301,6 +324,7 @@ function buildToolbar() {
     <h4>Paths</h4>
     ${btn('Build path', 'R', { kind: 'path' })}
     <select id="sel-profile" title="Path type">${profiles}</select>
+    <select id="sel-surface" title="Surface: sets how steep it may climb">${surfaceOptions()}</select>
     <div class="row"><button data-pathmode="straight" class="${pathMode === 'straight' ? 'active' : ''}" title="Straight or L-shaped runs">Straight</button><button data-pathmode="diagonal" class="${pathMode === 'diagonal' ? 'active' : ''}" title="Smooth diagonals at any angle (A cycles)">Diagonal</button><button data-pathmode="curve" class="${pathMode === 'curve' ? 'active' : ''}" title="Arcs snapped to the grid (A cycles)">Curve</button></div>
     <h4>Zones</h4>
     ${btn('Residential', 'Z', { kind: 'zone', zone: 1 }, 'var(--r)')}
@@ -332,7 +356,8 @@ function buildToolbar() {
   el.querySelectorAll<HTMLButtonElement>('button[data-terraform]').forEach((b) =>
     b.addEventListener('click', () => { terraformMode = Number(b.dataset.terraform); setTool({ kind: 'terraform' }); }),
   );
-  $<HTMLSelectElement>('#sel-profile').addEventListener('change', (e) => { profileId = (e.target as HTMLSelectElement).value; setTool({ kind: 'path' }); });
+  $<HTMLSelectElement>('#sel-profile').addEventListener('change', (e) => { profileId = (e.target as HTMLSelectElement).value; surfaceId = ''; setTool({ kind: 'path' }); });
+  $<HTMLSelectElement>('#sel-surface').addEventListener('change', (e) => { surfaceId = (e.target as HTMLSelectElement).value; setTool({ kind: 'path' }); });
   el.querySelectorAll<HTMLButtonElement>('button[data-pathmode]').forEach((b) =>
     b.addEventListener('click', () => { pathMode = b.dataset.pathmode as typeof pathMode; curveEnds = null; setTool({ kind: 'path' }); }),
   );
@@ -493,18 +518,14 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
   } else if (tool.kind === 'path' && curveEnds) {
     const cells = curveCells(curveEnds.x0, curveEnds.y0, cell.x, cell.y, curveEnds.x1, curveEnds.y1);
     const prof = city.profiles.find((p) => p.id === profileId);
-    const pi = city.profiles.indexOf(prof!) + 1;
-    let cost = 0;
     for (const [x, y] of cells) {
       const i = y * city.width + x;
-      if (!city.inBounds(x, y) || city.isWater(i) || city.buildingAt[i]) ok = false;
-      else if (city.paths[i] !== pi) cost += prof?.costPerCell ?? 0;
+      if (!city.inBounds(x, y) || (city.isWater(i) && !city.isRiver(i)) || city.buildingAt[i]) ok = false;
     }
-    const steps = gradeSteps(city, cells);
-    if (steps === null) ok = false;
-    cost += (steps ?? 0) * GRADE_COST_PER_STEP;
+    const plan = planPath(city, profileId, surfaceId, cells);
+    if (plan.problem) ok = false;
     renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok, color: (prof?.color ?? '#888') + 'cc', cells };
-    text = steps === null ? TOO_STEEP : `Curve, ${cells.length} cells: ${money(cost)}${grading(steps)}`;
+    text = plan.problem ?? `Curve${surfaceLabel()}, ${cells.length} cells: ${money(plan.cost)}${grading(plan.grading)}`;
   } else if (tool.kind === 'zone' && zoneMode === 'block' && !drag) {
     const block = city.blockAt(cell.x, cell.y);
     if (block) {
@@ -533,48 +554,44 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
     const end = borderSnap(cell);
     const cells = diagonalCells(drag.x, drag.y, end.x, end.y);
     const prof = city.profiles.find((p) => p.id === profileId);
-    const pi = city.profiles.indexOf(prof!) + 1;
-    let cost = 0;
     for (const [x, y] of cells) {
       const i = y * city.width + x;
       // A river is bridged, at five times the cost; the sea can't be.
-      if (!city.inBounds(x, y) || (city.isWater(i) && !city.isRiver(i)) || city.buildingAt[i]) { ok = false; continue; }
-      if (city.paths[i] !== pi) cost += (prof?.costPerCell ?? 0) * (city.isRiver(i) ? BRIDGE_COST_TIMES : 1);
+      if (!city.inBounds(x, y) || (city.isWater(i) && !city.isRiver(i)) || city.buildingAt[i]) ok = false;
     }
-    const steps = gradeSteps(city, cells);
-    if (steps === null) ok = false;
-    cost += (steps ?? 0) * GRADE_COST_PER_STEP;
+    const plan = planPath(city, profileId, surfaceId, cells);
+    if (plan.problem) ok = false;
     renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok, color: (prof?.color ?? '#888') + 'cc', cells };
-    text = steps === null ? TOO_STEEP : `Diagonal, ${cells.length} cells: ${money(cost)}${grading(steps)}`;
+    text = plan.problem ?? `Diagonal${surfaceLabel()}, ${cells.length} cells: ${money(plan.cost)}${grading(plan.grading)}`;
   } else if (drag && (tool.kind === 'path' || tool.kind === 'utility')) {
     const cells = lineCells(drag.x, drag.y, cell.x, cell.y, shiftHeld);
     let cost = 0;
     const prof = city.profiles.find((p) => p.id === profileId);
-    const pi = city.profiles.indexOf(prof!) + 1;
     for (const [x, y] of cells) {
       const i = y * city.width + x;
       if (!city.inBounds(x, y) || (city.isWater(i) && !city.isRiver(i))) { ok = false; continue; }
       if (tool.kind === 'path') {
         if (city.buildingAt[i]) ok = false;
-        if (city.paths[i] !== pi) cost += (prof?.costPerCell ?? 0) * (city.isRiver(i) ? BRIDGE_COST_TIMES : 1);
       } else if (tool.utility === 0) {
         if (!city.buildingAt[i] && !city.powerLines[i]) cost += 5;
       } else if (!city.waterPipes[i]) cost += 3;
     }
-    let steps: number | null = 0;
+    let graded = 0;
+    let problem: string | null = null;
     if (tool.kind === 'path') {
       // Each leg is graded as the server grades it.
       const legs = shiftHeld ? [[drag.x, drag.y, drag.x, cell.y], [drag.x, cell.y, cell.x, cell.y]] : [[drag.x, drag.y, cell.x, cell.y]];
       for (const [x0, y0, x1, y1] of legs) {
-        const s = gradeSteps(city, lCells(x0, y0, x1, y1));
-        steps = s === null || steps === null ? null : steps + s;
+        const plan = planPath(city, profileId, surfaceId, lCells(x0, y0, x1, y1));
+        cost += plan.cost;
+        graded += plan.grading;
+        problem ??= plan.problem;
       }
-      if (steps === null) ok = false;
-      cost += (steps ?? 0) * GRADE_COST_PER_STEP;
+      if (problem) ok = false;
     }
     const color = tool.kind === 'path' ? (prof?.color ?? '#888') + 'cc' : tool.utility === 0 ? '#ffd84acc' : '#5ec8ffcc';
     renderer.preview = { kind: 'line', x0: drag.x, y0: drag.y, x1: cell.x, y1: cell.y, ok, color, verticalFirst: shiftHeld };
-    text = steps === null ? TOO_STEEP : `${cells.length} cells: ${money(cost)}${grading(steps)}`;
+    text = problem ?? `${tool.kind === 'path' ? `${prof?.name ?? ''}${surfaceLabel()}, ` : ''}${cells.length} cells: ${money(cost)}${grading(graded)}`;
   } else if (drag) {
     const w = Math.abs(cell.x - drag.x) + 1;
     const h = Math.abs(cell.y - drag.y) + 1;
@@ -611,14 +628,14 @@ function commit(start: { x: number; y: number }, end: { x: number; y: number }) 
     case 'path':
     case 'utility': {
       if (tool.kind === 'path' && pathMode === 'diagonal') {
-        act({ path: { x0: start.x, y0: start.y, x1: end.x, y1: end.y, profileId, diagonal: true } }, `Diagonal ${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${start.x},${start.y} to ${end.x},${end.y}`);
+        act({ path: { x0: start.x, y0: start.y, x1: end.x, y1: end.y, profileId, surface: surfaceId, diagonal: true } }, `Diagonal ${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${start.x},${start.y} to ${end.x},${end.y}`);
         break;
       }
       const legs = shiftHeld
         ? [[start.x, start.y, start.x, end.y], [start.x, end.y, end.x, end.y]]
         : [[start.x, start.y, end.x, end.y]];
       for (const [x0, y0, x1, y1] of legs) {
-        if (tool.kind === 'path') act({ path: { x0, y0, x1, y1, profileId } }, `${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${x0},${y0} to ${x1},${y1}`);
+        if (tool.kind === 'path') act({ path: { x0, y0, x1, y1, profileId, surface: surfaceId } }, `${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${x0},${y0} to ${x1},${y1}`);
         else act({ utility: { x0, y0, x1, y1, kind: tool.utility } }, `${tool.utility ? 'Water pipe' : 'Power line'} from ${x0},${y0} to ${x1},${y1}`);
       }
       break;
@@ -662,7 +679,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (tool.kind === 'query') { if (city.inBounds(cell.x, cell.y)) query(cell.x, cell.y); return; }
   if (tool.kind === 'path' && curveEnds) {
     const e = curveEnds;
-    act({ path: { x0: e.x0, y0: e.y0, x1: e.x1, y1: e.y1, profileId, curved: true, cx: cell.x, cy: cell.y } }, `Curved ${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${e.x0},${e.y0} to ${e.x1},${e.y1}`);
+    act({ path: { x0: e.x0, y0: e.y0, x1: e.x1, y1: e.y1, profileId, surface: surfaceId, curved: true, cx: cell.x, cy: cell.y } }, `Curved ${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${e.x0},${e.y0} to ${e.x1},${e.y1}`);
     curveEnds = null;
     updateHints();
     updatePreview(cell, sx, sy);

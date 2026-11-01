@@ -44,6 +44,20 @@ export interface Profile {
   /** "shared", "dedicated" or "" */
   tram: string;
   rail: boolean;
+  /** Beta 3.2: the steepest its type climbs, whether a footpath turns to stairs, and the surfaces it may be built in (first = default). */
+  maxGradePct: number;
+  stairs: boolean;
+  surfaces: string[];
+}
+
+/** What a path may be paved with (Beta 3.2). */
+export interface Surface {
+  id: string;
+  name: string;
+  maxGradePct: number;
+  costPct: number;
+  speedPct: number;
+  color: string;
 }
 
 export interface BuildingType {
@@ -94,6 +108,9 @@ export class City {
   rivers = new Uint8Array(0);
   zones = new Uint8Array(0);
   paths = new Uint16Array(0);
+  /** Each cell's path surface: index into `surfaces` + 1, 0 for none (Beta 3.2). */
+  pathSurfaces = new Uint8Array(0);
+  surfaces: Surface[] = [];
   powerLines = new Uint8Array(0);
   waterPipes = new Uint8Array(0);
   buildingAt = new Int32Array(0);
@@ -133,9 +150,12 @@ export class City {
     const pb = new Uint8Array(f.paths);
     this.paths = new Uint16Array(n);
     for (let i = 0; i < n; i++) this.paths[i] = pb[2 * i] | (pb[2 * i + 1] << 8);
+    const sb = f.pathSurfaces as Uint8Array | undefined;
+    this.pathSurfaces = sb?.length === n ? new Uint8Array(sb) : new Uint8Array(n);
     this.powerLines = new Uint8Array(f.powerLines);
     this.waterPipes = new Uint8Array(f.waterPipes);
     this.profiles = f.catalog.profiles;
+    this.surfaces = f.catalog.surfaces ?? [];
     this.types = f.catalog.buildingTypes;
     this.typeById = new Map(this.types.map((t) => [t.id, t]));
     if (f.catalog.lotDepth?.length === 3) this.lotDepth = f.catalog.lotDepth;
@@ -162,6 +182,7 @@ export class City {
       this.heights[i] = c.height;
       this.zones[i] = c.zone;
       this.paths[i] = c.path;
+      this.pathSurfaces[i] = c.surface ?? 0;
       this.powerLines[i] = c.powerLine ? 1 : 0;
       this.waterPipes[i] = c.waterPipe ? 1 : 0;
     }
@@ -355,6 +376,15 @@ export class City {
     return p ? this.profiles[p - 1] : undefined;
   }
 
+  /** The surface code (index + 1) a profile is built in when asked for `id`, as the server picks it; -1 if not allowed. */
+  surfaceCode(p: Profile, id: string): number {
+    const list = p.surfaces ?? [];
+    if (list.length === 0) return id ? -1 : 0;
+    const want = id || list[0];
+    if (!list.includes(want)) return -1;
+    return this.surfaces.findIndex((s) => s.id === want) + 1;
+  }
+
   /** The block of open land around a cell, enclosed by paths, or null when it isn't enclosed. Mirrors World.BlockAt. */
   blockAt(x: number, y: number, max = 1600): number[] | null {
     if (!this.inBounds(x, y)) return null;
@@ -437,62 +467,164 @@ export function curveCells(x0: number, y0: number, cx: number, cy: number, x1: n
   return cells;
 }
 
-/** As World: a road's cut and fill per step a cell, a pad's, and the most a pad levels. */
 /** As World: a bridge cell over a river costs this many times the path. */
 export const BRIDGE_COST_TIMES = 5;
-export const GRADE_COST_PER_STEP = 10, PAD_COST_PER_STEP = 5, MAX_PAD_RISE = 3;
+export const PAD_COST_PER_STEP = 5, MAX_PAD_RISE = 3;
 
-/** The heights a run of cells is graded to: the same steps as World.Grade. Null when it can't be. */
-export function grade(h: number[], fixed: boolean[], floor: number): number[] | null {
-  const n = h.length, inf = 1 << 20;
+// Path grading, ported line for line from PathGrade.cs (Beta 3.2), so previews price what the server builds.
+const CELL_DM = 160, BANK_DM_PER_CELL = 100, BANK_RADIUS = 10, COST_PER_STEP = 10, COST_PER_STEP_DM = 20, BANK_COST_DIVISOR = 10;
+export const maxDeltaDm = (pct: number) => Math.max(1, Math.trunc((pct * CELL_DM + 50) / 100));
+export const gradePctOf = (profileMax: number, stairs: boolean, surfaceMax: number) => (stairs || surfaceMax < 0 ? profileMax : Math.min(profileMax, surfaceMax));
+
+/** The heights (dm) a run is graded to at `step` dm a cell; null when fixed cells are too far apart. As PathGrade.Grade. */
+export function grade(h: number[], fixed: boolean[], floor: number, step: number, atLeast?: number[]): number[] | null {
+  const n = h.length, inf = 1 << 28;
   const under = new Array<number>(n), over = new Array<number>(n), lo = new Array<number>(n), hi = new Array<number>(n);
   for (let k = 0; k < n; k++) {
-    under[k] = k > 0 ? Math.min(h[k], under[k - 1] + 1) : h[k];
-    over[k] = k > 0 ? Math.max(h[k], over[k - 1] - 1) : h[k];
-    lo[k] = Math.max(fixed[k] ? h[k] : -inf, k > 0 ? lo[k - 1] - 1 : -inf);
-    hi[k] = Math.min(fixed[k] ? h[k] : inf, k > 0 ? hi[k - 1] + 1 : inf);
+    under[k] = k > 0 ? Math.min(h[k], under[k - 1] + step) : h[k];
+    over[k] = k > 0 ? Math.max(h[k], over[k - 1] - step) : h[k];
+    lo[k] = Math.max(Math.max(fixed[k] ? h[k] : -inf, atLeast ? atLeast[k] : -inf), k > 0 ? lo[k - 1] - step : -inf);
+    hi[k] = Math.min(fixed[k] ? h[k] : inf, k > 0 ? hi[k - 1] + step : inf);
   }
   for (let k = n - 2; k >= 0; k--) {
-    under[k] = Math.min(under[k], under[k + 1] + 1);
-    over[k] = Math.max(over[k], over[k + 1] - 1);
-    lo[k] = Math.max(lo[k], lo[k + 1] - 1);
-    hi[k] = Math.min(hi[k], hi[k + 1] + 1);
+    under[k] = Math.min(under[k], under[k + 1] + step);
+    over[k] = Math.max(over[k], over[k + 1] - step);
+    lo[k] = Math.max(lo[k], lo[k + 1] - step);
+    hi[k] = Math.min(hi[k], hi[k + 1] + step);
   }
   const g = new Array<number>(n);
   for (let k = 0; k < n; k++) {
-    const low = Math.max(lo[k], floor);
+    const low = fixed[k] ? lo[k] : Math.max(lo[k], floor);
     if (low > hi[k]) return null;
-    g[k] = Math.min(hi[k], Math.max(low, (under[k] + over[k]) >> 1));
+    g[k] = fixed[k] ? h[k] : Math.min(hi[k], Math.max(low, (under[k] + over[k]) >> 1));
   }
   return g;
 }
 
-/** Steps of earth a path along these cells moves (road and banks), as the server works it out; null when too steep. */
-export function gradeSteps(c: City, cells: [number, number][]): number | null {
-  if (cells.some(([x, y]) => !c.inBounds(x, y))) return 0;
-  const idx = cells.map(([x, y]) => y * c.width + x);
-  // A river cell is a bridge: its deck sits a step over the river, fixed, and nothing there is dug.
-  const h = idx.map((i) => (c.isRiver(i) ? c.rivers[i] + 1 : c.heights[i]));
-  const g = grade(h, idx.map((i) => !!c.paths[i] || c.isRiver(i)), c.waterLevel);
-  if (!g) return null;
-  const road = new Set(idx);
-  const banks = new Map<number, number>();
-  let steps = 0;
-  for (let k = 0; k < idx.length; k++) {
-    if (g[k] === h[k]) continue;
-    steps += Math.abs(g[k] - h[k]);
-    for (let d = 0; d < 4; d++) {
-      const nx = cells[k][0] + [1, -1, 0, 0][d], ny = cells[k][1] + [0, 0, 1, -1][d];
-      if (!c.inBounds(nx, ny)) continue;
-      const j = ny * c.width + nx;
-      if (road.has(j) || c.paths[j] || c.buildingAt[j] || c.isWater(j)) continue;
-      const now = banks.get(j) ?? c.heights[j];
-      const eased = Math.min(g[k] + 1, Math.max(Math.max(g[k] - 1, c.waterLevel), now));
-      if (eased !== now) banks.set(j, eased);
-    }
+/** The steepest grade (percent) a run needs between two fixed cells. As PathGrade.Needed. */
+export function neededPct(h: number[], fixed: boolean[]): number {
+  let best = 0, last = -1;
+  for (let k = 0; k < h.length; k++) {
+    if (!fixed[k]) continue;
+    if (last >= 0) best = Math.max(best, Math.ceil((Math.abs(h[k] - h[last]) * 100) / ((k - last) * CELL_DM)));
+    last = k;
   }
-  for (const [j, eh] of banks) steps += Math.abs(eh - c.heights[j]);
-  return steps;
+  return best;
+}
+
+export function cellDm(c: City, i: number): number {
+  const cw = c.width + 1, x = i % c.width, y = (i / c.width) | 0, k = y * cw + x;
+  return (c.corners[k] + c.corners[k + 1] + c.corners[k + cw] + c.corners[k + cw + 1] + 2) >> 2;
+}
+
+/** The corners a path and its banks move. As PathGrade.Shape. */
+export function shape(c: City, run: number[], target: number[], locked: (i: number) => boolean, floorDm: number): Map<number, number> {
+  const width = c.width, height = c.height, cw = width + 1, ch = height + 1, corners = c.corners;
+  const lockedCorner = new Set<number>();
+  const isLocked = (k: number) => {
+    if (lockedCorner.has(k)) return true;
+    const cx = k % cw, cy = (k / cw) | 0;
+    for (let dy = -1; dy <= 0; dy++)
+      for (let dx = -1; dx <= 0; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (x < 0 || y < 0 || x >= width || y >= height) continue;
+        if (locked(y * width + x)) { lockedCorner.add(k); return true; }
+      }
+    return false;
+  };
+  const sum = new Map<number, [number, number]>();
+  run.forEach((cell, k) => {
+    const x = cell % width, y = (cell / width) | 0;
+    for (let dy = 0; dy <= 1; dy++)
+      for (let dx = 0; dx <= 1; dx++) {
+        const q = (y + dy) * cw + x + dx;
+        const s = sum.get(q);
+        sum.set(q, s ? [s[0] + target[k], s[1] + 1] : [target[k], 1]);
+      }
+  });
+  const val = new Map<number, number>();
+  const dist = new Map<number, number>();
+  const queue: number[] = [];
+  for (const q of [...sum.keys()].sort((a, b) => a - b)) {
+    const [s, n] = sum.get(q)!;
+    const v = isLocked(q) ? corners[q] : Math.trunc((s + (n >> 1)) / n);
+    val.set(q, v);
+    dist.set(q, 0);
+    if (v !== corners[q]) queue.push(q);
+  }
+  const get = (q: number) => val.get(q) ?? corners[q];
+  for (let head = 0; head < queue.length; head++) {
+    const q = queue[head], d = dist.get(q)!;
+    if (d >= BANK_RADIUS) continue;
+    const cx = q % cw, cy = (q / cw) | 0, here = get(q);
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = cx + dx, ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= cw || ny >= ch) continue;
+        const n = ny * cw + nx;
+        if (sum.has(n) || isLocked(n)) continue;
+        const reach = Math.max(dx !== 0 && dy !== 0 ? Math.trunc((BANK_DM_PER_CELL * 141) / 100) : BANK_DM_PER_CELL, Math.abs(corners[q] - corners[n]));
+        const now = get(n);
+        let eased = Math.min(here + reach, Math.max(here - reach, now));
+        if (eased < floorDm && now >= floorDm) eased = floorDm;
+        if (eased === now) continue;
+        val.set(n, eased);
+        if (!dist.has(n) || dist.get(n)! > d + 1) dist.set(n, d + 1);
+        queue.push(n);
+      }
+  }
+  const moved = new Map<number, number>();
+  for (const [q, v] of val) if (v !== corners[q]) moved.set(q, v);
+  return moved;
+}
+
+/** Dollars of earthworks: full price under the path, a tenth for its banks. As PathGrade.Cost. */
+export function earthCost(c: City, run: number[], moved: Map<number, number>): number {
+  const cw = c.width + 1, own = new Set<number>();
+  for (const i of run) {
+    const x = i % c.width, y = (i / c.width) | 0;
+    own.add(y * cw + x); own.add(y * cw + x + 1); own.add((y + 1) * cw + x); own.add((y + 1) * cw + x + 1);
+  }
+  let path = 0, banks = 0;
+  for (const [q, v] of moved) {
+    const d = Math.abs(v - c.corners[q]);
+    if (own.has(q)) path += d; else banks += d;
+  }
+  return Math.trunc((path * COST_PER_STEP * BANK_COST_DIVISOR + banks * COST_PER_STEP + COST_PER_STEP_DM * BANK_COST_DIVISOR - 1) / (COST_PER_STEP_DM * BANK_COST_DIVISOR));
+}
+
+/** A path run's price (cells, bridges, grading) and why it can't be built, as the server works it out. */
+export interface PathPlan { cost: number; grading: number; problem: string | null; pct: number }
+
+export function planPath(c: City, profileId: string, surfaceId: string, cells: [number, number][]): PathPlan {
+  const prof = c.profiles.find((p) => p.id === profileId);
+  if (!prof) return { cost: 0, grading: 0, problem: `Unknown path type '${profileId}'`, pct: 0 };
+  const pi = c.profiles.indexOf(prof) + 1;
+  const surface = c.surfaceCode(prof, surfaceId);
+  if (surface < 0) return { cost: 0, grading: 0, problem: `A ${prof.name.toLowerCase()} can't be built in that surface`, pct: 0 };
+  const costPct = surface > 0 ? c.surfaces[surface - 1].costPct : 100;
+  const pct = gradePctOf(prof.maxGradePct ?? 12, !!prof.stairs, surface > 0 ? c.surfaces[surface - 1].maxGradePct : -1);
+  let cost = 0;
+  for (const [x, y] of cells) {
+    if (!c.inBounds(x, y)) continue;
+    const i = y * c.width + x;
+    if (c.isWater(i) && !c.isRiver(i)) continue;
+    if (c.paths[i] !== pi || (c.pathSurfaces[i] ?? 0) !== surface)
+      cost += Math.trunc((Number(prof.costPerCell) * costPct) / 100) * (c.isRiver(i) ? BRIDGE_COST_TIMES : 1);
+  }
+  if (cells.some(([x, y]) => !c.inBounds(x, y))) return { cost, grading: 0, problem: null, pct };
+  const idx = cells.map(([x, y]) => y * c.width + x);
+  // A bridge's deck clears its river by at least a step.
+  const h = idx.map((i) => (c.isRiver(i) ? (c.rivers[i] + 1) * 20 : cellDm(c, i)));
+  const fixed = idx.map((i) => !!c.paths[i]);
+  const deck = idx.map((i) => (c.isRiver(i) ? (c.rivers[i] + 1) * 20 : -(1 << 28)));
+  const floor = c.waterLevel * 20;
+  const g = grade(h, fixed, floor, maxDeltaDm(pct), deck);
+  if (!g) return { cost, grading: 0, problem: `Too steep: the paths it joins need a ${neededPct(h, fixed)}% climb; this climbs at most ${pct}%`, pct };
+  const moved = shape(c, idx, g, (i) => !!c.buildingAt[i] || c.isWater(i) || !!c.paths[i], floor);
+  const grading = earthCost(c, idx, moved);
+  return { cost: cost + grading, grading, problem: null, pct };
 }
 
 /** A building's pad: the steps of earth it moves, or null when the lot rises more than a pad can level. */

@@ -321,6 +321,25 @@ public static class Planner
     /// <summary>The cost line's grading part: " (grading $X)", or nothing on ground that needs none.</summary>
     static string Grading(long dollars) => dollars > 0 ? $" (grading {Money(dollars)})" : "";
 
+    /// <summary>
+    /// The surfaces a path type may be built in, for a picker: the id to put in <see cref="ToolState.Surface"/> ("" for
+    /// the default, which comes first) and a label with the grade it climbs (Beta 3.2).
+    /// </summary>
+    public static List<(string Id, string Label)> SurfaceChoices(CityMirror c, string profileId)
+    {
+        var prof = c.Profiles.FirstOrDefault(q => q.Id == profileId);
+        var list = new List<(string, string)>();
+        if (prof == null) return list;
+        for (int k = 0; k < prof.Surfaces.Count; k++)
+        {
+            var s = c.Surfaces.FirstOrDefault(q => q.Id == prof.Surfaces[k]);
+            if (s == null) continue;
+            string grade = prof.Stairs ? $"ramp {s.MaxGradePct}%, stairs to {prof.MaxGradePct}%" : $"climbs {Math.Min(prof.MaxGradePct, s.MaxGradePct)}%";
+            list.Add((k == 0 ? "" : s.Id, $"{s.Name} ({grade})"));
+        }
+        return list;
+    }
+
     /// <summary>" in brick" when the tool builds in a surface other than the profile's default, else "".</summary>
     static string SurfaceName(CityMirror c, ToolState t)
     {

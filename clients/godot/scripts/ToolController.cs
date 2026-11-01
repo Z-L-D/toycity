@@ -222,7 +222,16 @@ public partial class ToolController : Node
                 if (State.BlockZoning) Choice(new[] { "Leave leftovers", "Leftovers to parks", "Zone leftovers" }, (int)State.Leftover, k => State.Leftover = (Leftover)k);
                 break;
             case ToolKind.Path:
-                Dropdown(c.Profiles.Select(p => (p.Id, $"{p.Name} ({Planner.Money(p.CostPerCell)}/cell)")).ToList(), State.ProfileId, id => State.ProfileId = id);
+                Dropdown(c.Profiles.Select(p => (p.Id, $"{p.Name} ({Planner.Money(p.CostPerCell)}/cell)")).ToList(), State.ProfileId, id =>
+                {
+                    if (id == State.ProfileId) return;
+                    State.ProfileId = id;
+                    State.Surface = "";
+                    Callable.From(BuildOptions).CallDeferred();
+                });
+                // Beta 3.2: what it's paved with, and so how steep it climbs.
+                if (Planner.SurfaceChoices(c, State.ProfileId) is { Count: > 1 } surfaces)
+                    Dropdown(surfaces, State.Surface, id => State.Surface = id);
                 Choice(new[] { "Straight", "Diagonal", "Curve" }, PathMode, SetPathMode, tips: new[] { "Straight roads", "Smooth diagonals at any angle (C)", "Curved roads (C)" });
                 break;
             case ToolKind.Utility:
