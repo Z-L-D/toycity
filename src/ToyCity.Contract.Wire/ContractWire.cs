@@ -31,6 +31,7 @@ public static class ContractWire
         {
             Tick = c.Tick, Day = c.Day, Month = c.Month, Year = c.Year, NewMonth = c.NewMonth,
             Operator = (W.OperatorLevel)(int)c.Operator, OwnerName = c.OwnerName ?? "",
+            ClockMinute = c.ClockMinute, ClockMinutesPerTick = c.ClockMinutesPerTick, NewTurn = c.NewTurn, Turn = c.Turn,
         };
         foreach (var l in c.Lots)
         {
@@ -76,6 +77,9 @@ public static class ContractWire
         {
             Tick = m.Tick, Day = m.Day, Month = m.Month, Year = m.Year, NewMonth = m.NewMonth,
             Operator = (C.OperatorLevel)(int)m.Operator, OwnerName = m.OwnerName.Length == 0 ? null : m.OwnerName,
+            // A city from before the day clock sends none of it: every tick is a turn, as it was.
+            ClockMinute = m.ClockMinute, ClockMinutesPerTick = m.ClockMinutesPerTick == 0 ? 48 : m.ClockMinutesPerTick,
+            NewTurn = m.NewTurn || m.ClockMinutesPerTick == 0, Turn = m.ClockMinutesPerTick == 0 ? m.Tick : m.Turn,
         };
         foreach (var l in m.Lots)
             c.Lots.Add(new C.LeasedLot(l.LeaseId, l.BuildingId, l.Kind, l.X, l.Y, l.W, l.H, l.AccessCell, l.DistrictId, FromWire(l.Terms),

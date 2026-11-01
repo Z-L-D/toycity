@@ -49,13 +49,21 @@ public sealed class HostConfig
     /// <summary>Where players reach this server's /ws (ws://host:port/ws), for redirects from tile hosts. Optional.</summary>
     public string PublicAddress { get; set; } = "";
 
-    /// <summary>Milliseconds a day takes at the fastest speed. 833 by default (a year in five minutes); scripted runs go faster.</summary>
-    public int FastDayMs { get; set; } = 833;
     /// <summary>
-    /// The shortest a day may be while a player is running an emergency scene (part 11): normal speed by default, so a
-    /// scene played at full speed doesn't hold its units for days of game time.
+    /// Milliseconds a calendar day takes at the fastest speed, in place of the day clock's (Beta 3.2: ten minutes a
+    /// clock day, so 1,667 at a year a day). Unset by default; scripted runs set it to go faster, 0 for flat out.
     /// </summary>
-    public int SceneDayMs { get; set; } = 3_333;
+    public int? FastDayMs { get; set; }
+    /// <summary>
+    /// The shortest a calendar day may be while a player is running an emergency scene (part 11). Unset by default:
+    /// the day clock runs at speed 1 then, so a scene played at full speed doesn't hold its units for hours of clock.
+    /// </summary>
+    public int? SceneDayMs { get; set; }
+    /// <summary>
+    /// The calendar's pace for a new region (Beta 3.2, C3), in calendar days per clock day: 30, 60, 120, 360 or 720.
+    /// A year a clock day by default, so speed 1 grows a city as fast as it always did.
+    /// </summary>
+    public int Pace { get; set; } = 360;
 
     [JsonIgnore] public bool Dedicated { get; set; }
     [JsonIgnore] public string? Path { get; set; }

@@ -176,7 +176,9 @@ public sealed partial class Region : IDisposable
         if (CantFound(col, row) is { } why) throw new InvalidOperationException(why);
         var t = TileAt(col, row)!;
         if (computer is { } style) mayor = World.ComputerName(style, t.Seed);
-        var w = World.CreateTile(Content, t.Seed, TileSize, name, TileCorners(col, row), Tick, TileRivers(col, row), TileGeology(col, row));
+        // The region's clocks, so the new city reads the same hour as its neighbours.
+        var clocks = Tiles.Select(o => o.City).FirstOrDefault(c => c != null)?.Clocks;
+        var w = World.CreateTile(Content, t.Seed, TileSize, name, TileCorners(col, row), Tick, TileRivers(col, row), TileGeology(col, row), clocks);
         // The seat changes hands by a logged action, so a replay of the tile puts the same mayor in it.
         if (mayor != w.MayorSeat.Owner && mayor.Length > 0) w.Enqueue(new RenameOwnerAction(w.MayorSeat.Owner, mayor));
         if (starter && StarterTown.FindSite(w) is { } site)
@@ -191,7 +193,7 @@ public sealed partial class Region : IDisposable
     public World ReplayTile(RegionTile t, long untilTick)
     {
         var w = t.City ?? throw new InvalidOperationException("nothing to replay on open land");
-        var fresh = World.CreateTile(Content, t.Seed, TileSize, w.Name, TileCorners(t.Col, t.Row), w.FoundedTick, TileRivers(t.Col, t.Row), TileGeology(t.Col, t.Row));
+        var fresh = World.CreateTile(Content, t.Seed, TileSize, w.Name, TileCorners(t.Col, t.Row), w.FoundedTick, TileRivers(t.Col, t.Row), TileGeology(t.Col, t.Row), w.FoundedClocks);
         return World.Replay(fresh, w.Log, untilTick);
     }
 

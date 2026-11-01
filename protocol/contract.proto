@@ -118,6 +118,10 @@ message CityToGame {
   repeated Franchise franchises = 18;  // v1.3: franchises and exclusive rights in force
   repeated FreightLot freight = 19;    // v1.3: goods at the game's freight depots today
   repeated BorderCrossing crossings = 20;  // v1.4: roads into neighbouring cities
+  int64 clock_minute = 21;            // v1.5: the day clock, minutes since it started (Monday 08:00 is 480)
+  int32 clock_minutes_per_tick = 22;  // v1.5: how far the day clock moves each tick
+  bool new_turn = 23;                 // v1.5: a 48-minute turn of the day clock began this tick
+  int64 turn = 24;                    // v1.5: turns of the day clock since it started
 }
 
 // v1.3: a district's transit franchise out to tender. your_bid is 0 until the game bids.

@@ -170,6 +170,7 @@ public sealed partial class World : IDisposable
             var input = new CityToGame
             {
                 Tick = Tick, Day = Day, Month = Month, Year = Year, NewMonth = newMonth,
+                ClockMinute = ClockMinute, ClockMinutesPerTick = ClockMinutesPerTick, NewTurn = NewTurn, Turn = Turn,
                 Operator = OperatorLevel.Manual,
             };
             FillSeat(hg, input);

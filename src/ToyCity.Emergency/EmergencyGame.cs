@@ -17,9 +17,24 @@ public sealed class EmergencyGame : ISideGame
 {
     public const string Id = "emergency";
     public const int StartingCash = 20_000, WagePerCrew = 450, StationStaff = 2;
+    /// <summary>
+    /// The service's life runs on the city's day clock (contract v1.5), a turn of 48 minutes at a time, whatever pace
+    /// the calendar keeps: a call nobody answers is lost after three turns (2 h 24 min), and a unit taken off the road
+    /// stays off for thirty (a clock day). Money and seasons still go by the calendar's months.
+    /// </summary>
     public const int SuspendedDays = 30, FailAfterDays = 3;
-    /// <summary>A scene nobody has run for a day is finished by the crews, so a player can't hold units for long by walking away.</summary>
+    /// <summary>A scene nobody has run for a turn of the clock is finished by the crews, so a player can't hold units for long by walking away.</summary>
     public const int SceneIdleDays = 1;
+    public const int TurnMinutes = 48;
+    /// <summary>A count of turns as a span of the day clock: "48 minutes", "2 h 24 min", "a day".</summary>
+    public static string Span(int turns)
+    {
+        int minutes = turns * TurnMinutes;
+        if (minutes == 24 * 60) return "a day";
+        if (minutes < 60) return $"{minutes} minutes";
+        return minutes % 60 == 0 ? $"{minutes / 60} hours" : $"{minutes / 60} h {minutes % 60:00} min";
+    }
+    static readonly string[] Weekdays = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
     public const int GearPrice = 1_500, GearUpkeep = 40;
     /// <summary>What each crooked way brings in: a month's racket in a district, and each call looked away from.</summary>
     public const int RacketPerMonth = 1_500, LookAwayBribe = 400, OvertimePerFire = 500;
@@ -133,7 +148,8 @@ public sealed class EmergencyGame : ISideGame
 
     void Log(string text)
     {
-        _log.Add($"{Months[(_month + 11) % 12]} {_day}: {text}");
+        // By the day clock, which is the one a dispatcher lives by.
+        _log.Add($"{Weekdays[(int)(_clock / (24 * 60) % 7)]} {_clock % (24 * 60) / 60:00}:{_clock % 60:00}: {text}");
         if (_log.Count > 40) _log.RemoveAt(0);
     }
 
@@ -145,7 +161,11 @@ public sealed class EmergencyGame : ISideGame
 
     public void Tick(CityToGame input, ICityQueries city, GameToCity output)
     {
-        _tick = input.Tick;
+        // Life-paced things count turns of the day clock: units back, scenes left, calls waiting.
+        if (_rebase) Rebase(input.Turn);
+        _tick = input.Turn;
+        _clock = input.ClockMinute;
+        bool turn = input.NewTurn;
         _day = input.Day;
         _month = input.Month;
         _year = input.Year;
@@ -159,22 +179,26 @@ public sealed class EmergencyGame : ISideGame
         if (!_crookedOk && Crooked) EndCrooked($"Crooked services were switched off: {_crookedWhy}");
 
         Stations();
-        ReturnUnits();
+        if (turn) ReturnUnits();
         if (!Playing) foreach (var s in _scenes.ToList()) { s.FinishByCrews(); EndScene(s); }
-        foreach (var s in _scenes.Where(s => _tick - s.Touched > SceneIdleDays).ToList())
+        foreach (var s in _scenes.Where(s => turn && _tick - s.Touched > SceneIdleDays).ToList())
         {
-            Log($"Nobody ran the scene of call {s.CallId} for {SceneIdleDays} days: the crews finished it.");
+            Log($"Nobody ran the scene of call {s.CallId} for {Span(SceneIdleDays)}: the crews finished it.");
             s.FinishByCrews();
             EndScene(s);
         }
         if (_operator != OperatorLevel.Stasis)
         {
+            // Calls are heard as they come in; crews roll, arrive and give up a turn at a time.
             HearIncidents(input, city);
-            Settle(city);
-            Age();
-            Dispatch(city);
+            if (turn)
+            {
+                Settle(city);
+                Age();
+                Dispatch(city);
+            }
         }
-        if (_strike) _respect = Math.Clamp(_respect - 2, -100, 100);
+        if (_strike && turn) _respect = Math.Clamp(_respect - 2, -100, 100);
         if (input.NewMonth) CloseMonth(input, output);
         if (_operator is OperatorLevel.Caretaker or OperatorLevel.Autopilot) PlayItself(input);
         Publish(output);
@@ -431,7 +455,7 @@ public sealed class EmergencyGame : ISideGame
         foreach (var old in done.Take(Math.Max(0, done.Count - 12))) _calls.Remove(old);
     }
 
-    /// <summary>A call nobody answers gets worse, and after a few days it is lost.</summary>
+    /// <summary>A call nobody answers gets worse, and after a few turns of the clock it is lost.</summary>
     void Age()
     {
         foreach (var c in _calls.Where(c => c.Status is "waiting").ToList())
@@ -439,7 +463,7 @@ public sealed class EmergencyGame : ISideGame
             c.WaitedDays++;
             if (c.WaitedDays == 2 && c.Severity < 3) c.Severity++;
             if (c.WaitedDays < FailAfterDays) continue;
-            Finish(c, Good(c.Kind, false), $"{c.Text}: nobody came. {_name} let the call go unanswered for {c.WaitedDays} days.", 0);
+            Finish(c, Good(c.Kind, false), $"{c.Text}: nobody came. {_name} let the call go unanswered for {Span(c.WaitedDays)}.", 0);
             _respect = Math.Clamp(_respect - 5, -100, 100);
         }
     }
@@ -458,7 +482,7 @@ public sealed class EmergencyGame : ISideGame
             u.State = "suspended";
             u.Until = _tick + SuspendedDays;
             u.CallId = 0;
-            text.Add($"{UnitName(u.Id)} drove into someone at the scene. It is off the road for {SuspendedDays} days while that is looked into, and people are angry.");
+            text.Add($"{UnitName(u.Id)} drove into someone at the scene. It is off the road for {Span(SuspendedDays)} while that is looked into, and people are angry.");
         }
         if (card.FriendlyFire > 0) text.Add($"{_name} officers hit their own at the scene.");
         if (card.UnauthorizedForce > 0) text.Add($"{_name} is under investigation for force at the scene.");
@@ -517,7 +541,7 @@ public sealed class EmergencyGame : ISideGame
             _cash += Spec(spare.Kind).Resale;
             Log($"Sold {Spec(spare.Kind).Name} {spare.Number} to pay the bills.");
         }
-        if (_operator != OperatorLevel.Autopilot || !(input.NewMonth || _tick % 30 == 1)) return;
+        if (_operator != OperatorLevel.Autopilot || !(input.NewMonth || input.NewTurn && _tick % 30 == 1)) return;
         foreach (var kind in new[] { "fire-station", "police-station", "clinic" })
             if (!_lots.Any(l => l.Kind == kind || kind == "clinic" && l.Kind == "hospital") && _open.FirstOrDefault(o => o.Kind == kind || kind == "clinic" && o.Kind == "hospital") is { } o)
                 _wanted.Add(o.BuildingId);
@@ -542,7 +566,7 @@ public sealed class EmergencyGame : ISideGame
         foreach (var lot in _lots)
             output.JobsByLease[lot.LeaseId] = _units.Where(u => u.LeaseId == lot.LeaseId).Sum(u => u.Crew) + StationStaff;
         int avg = _results.Count == 0 ? 50 : (int)_results.Average();
-        // Response times count: each kind of call graded A to F over the last thirty days.
+        // Response times count: each kind of call graded A to F over the last thirty turns (a day of the clock).
         int grades = Ratings().Where(r => r.Grade.Length > 0).Sum(r => r.Grade switch { "A" => 3, "B" => 1, "C" => 0, "D" => -2, _ => -4 });
         _quality = Math.Clamp(avg + _respect / 5 + grades, 0, 100);
         if (_scandals.Count > 0 && _responses.Count > 0)
@@ -562,7 +586,7 @@ public sealed class EmergencyGame : ISideGame
             : _units.Count == 0 ? $"{_name}: no units" : $"{_name}: {_units.Count} units, {open} open call{(open == 1 ? "" : "s")}";
     }
 
-    /// <summary>Response ratings over the last thirty days: the average minutes to each kind of call, graded.</summary>
+    /// <summary>Response ratings over the last thirty turns of the clock (a clock day): the average minutes to each kind of call, graded.</summary>
     List<W.ResponseRating> Ratings() => new[] { "fire", "crime", "injury" }.Select(kind =>
     {
         var times = _responseTimes.Where(r => r.Kind == kind && r.Tick >= _tick - 30).Select(r => r.Minutes).ToList();
@@ -683,7 +707,7 @@ public sealed class EmergencyGame : ISideGame
                 _settings.DriversWatchOut = c.DriversWatchOut;
                 if (c.Shifts is >= 1 and <= 3 && c.Shifts != _shifts)
                 {
-                    Log(c.Shifts == 3 ? "Crews are on duty around the clock again." : $"Crews now work {c.Shifts} shift{(c.Shifts == 1 ? "" : "s")}: units are off some days.");
+                    Log(c.Shifts == 3 ? "Crews are on duty around the clock again." : $"Crews now work {c.Shifts} shift{(c.Shifts == 1 ? "" : "s")}: units are off some hours.");
                     _shifts = c.Shifts;
                 }
                 var name = c.Name.Trim();
@@ -872,6 +896,26 @@ public sealed class EmergencyGame : ISideGame
         w.Write(_crookedOk); w.Write(_crookedWhy); w.Write(_slowWalk); w.Write(_racket); w.Write(_lookAway); w.Write(_exposed);
         w.Write(_overtime); w.Write(_strike);
         w.Write(_scandals.Count); foreach (var t in _scandals) w.Write(t);
+        // Beta 3.2: the counts above are turns of the day clock, not calendar days.
+        w.Write(DayClock);
+        w.Write(_clock);
+    }
+
+    const int DayClock = 0x42320002;
+    /// <summary>Loaded from before the day clock: its counts are calendar days, moved onto turns at the next tick.</summary>
+    bool _rebase;
+    long _clock = 8 * 60;
+
+    /// <summary>Moves what an older save counted in calendar days onto the day clock's turns, keeping each span.</summary>
+    void Rebase(long turn)
+    {
+        _rebase = false;
+        long shift = turn - _tick;
+        foreach (var u in _units) if (u.Until != 0) u.Until += shift;
+        foreach (var c in _calls) if (c.Rolled != 0) c.Rolled += shift;
+        foreach (var s in _scenes) s.Touched += shift;
+        for (int i = 0; i < _responseTimes.Count; i++) _responseTimes[i] = (_responseTimes[i].Tick + shift, _responseTimes[i].Kind, _responseTimes[i].Minutes);
+        _tick = turn;
     }
 
     const int BetaThree = 0x42330001;
@@ -921,7 +965,7 @@ public sealed class EmergencyGame : ISideGame
         int no = r.ReadInt32();
         for (int i = 0; i < no; i++)
             _open.Add(new OpenLot(r.ReadInt32(), r.ReadString(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), r.ReadInt32(), ReadTerms(r)));
-        if (r.BaseStream.Position >= r.BaseStream.Length || r.ReadInt32() != BetaThree) return;
+        if (r.BaseStream.Position >= r.BaseStream.Length || r.ReadInt32() != BetaThree) { _rebase = true; return; }
         _numbers[3] = r.ReadInt32(); _short[3] = r.ReadInt32(); _shifts = r.ReadInt32();
         foreach (var u in _units) u.Gear = r.ReadInt32();
         foreach (var c in _calls) c.District = r.ReadInt32();
@@ -931,6 +975,8 @@ public sealed class EmergencyGame : ISideGame
         _crookedOk = r.ReadBoolean(); _crookedWhy = r.ReadString(); _slowWalk = r.ReadInt32(); _racket = r.ReadInt32(); _lookAway = r.ReadInt32(); _exposed = r.ReadInt32();
         _overtime = r.ReadBoolean(); _strike = r.ReadBoolean();
         int nsc = r.ReadInt32(); for (int i = 0; i < nsc; i++) _scandals.Add(r.ReadString());
+        _rebase = r.BaseStream.Position >= r.BaseStream.Length || r.ReadInt32() != DayClock;
+        if (!_rebase) _clock = r.ReadInt64();
     }
 
     static void WriteTerms(BinaryWriter w, LeaseTerms t)
