@@ -77,6 +77,30 @@ function roadLook(p: { id: string; widthM: number; cars: boolean; bikes: boolean
     centre: p.oneWay ? 'dashed' : median > 0 ? 'none' : p.speedKmh <= 30 ? 'none' : 'yellow' };
 }
 
+const SURFACE_COLOURS: Record<string, string> = { dirt: '#8a7457', gravel: '#a29a8c', limestone: '#c3bba9', brick: '#8c4f3d', asphalt: '#47474b', concrete: '#a9a69e' };
+/**
+ * The look of a path in the surface it was built in (Beta 3.2), as RoadLook.For(profile, surface): unsealed roads
+ * lose sidewalks and paint, brick keeps its sidewalks but no paint, concrete is painted like asphalt.
+ */
+function surfaceLook(look: Look, p: { cars: boolean; rail?: boolean; bikes: boolean; pedestrians: boolean }, surface: string | undefined): Look {
+  if (!surface || p.rail) return look;
+  const colour = surface === 'asphalt' && !p.cars && p.bikes && !p.pedestrians ? look.surface : SURFACE_COLOURS[surface] ?? look.surface;
+  if (!p.cars) return { ...look, surface: colour };
+  if (surface === 'dirt' || surface === 'gravel' || surface === 'limestone')
+    return { ...look, surface: colour, sidewalks: false, median: 0, edges: false, centre: 'none', carriageway: Math.min(look.carriageway, 8) };
+  if (surface === 'brick') return { ...look, surface: colour, edges: false, centre: look.centre === 'barrier' ? 'barrier' : 'none' };
+  return { ...look, surface: colour };
+}
+
+/** The steepest a path cell climbs (rise over run) along the way it runs, from the ground's corners. As RoadLook.Slope. */
+function cellSlope(c: City, i: number, alongNs: boolean, alongEw: boolean): number {
+  const cw = c.width + 1, x = i % c.width, y = (i / c.width) | 0, k = y * cw + x;
+  const nw = c.corners[k], ne = c.corners[k + 1], sw = c.corners[k + cw], se = c.corners[k + cw + 1];
+  const ns = Math.abs(nw + ne - (sw + se)) / 2, ew = Math.abs(nw + sw - (ne + se)) / 2;
+  const rise = alongNs && !alongEw ? ns : alongEw && !alongNs ? ew : Math.max(ns, ew);
+  return rise / 160;
+}
+
 /** Smooth value noise, 0..1, varying over about one unit. */
 function noise(x: number, y: number): number {
   const ix = Math.floor(x), iy = Math.floor(y), u = x - ix, v = y - iy;
@@ -827,7 +851,8 @@ export class Renderer {
         const i = y * c.width + x;
         const p = c.profileAt(i);
         if (!p || c.underStrip.has(i)) continue;
-        const look = roadLook(p);
+        const surf = c.pathSurfaces[i] ? c.surfaces[c.pathSurfaces[i] - 1] : undefined;
+        const look = surfaceLook(roadLook(p), p, surf?.id);
         const w = Math.max(s * 0.3, Math.min(s, ((look.sidewalks ? 16 : p.widthM) / 16) * s));
         const half = w / 2;
         const cx = px(x) + s / 2;
@@ -849,6 +874,17 @@ export class Renderer {
           if (north) ctx.fillRect(cx - h2, py(y), width, s / 2);
         };
         band(w, look.sidewalks && s >= 6 ? CONCRETE : look.surface);
+        // Beta 3.2: a footpath steeper than its surface holds a ramp is stairs; its treads are drawn across it.
+        if (p.stairs && s >= 8 && cellSlope(c, i, north || south, east || west) * 100 > (surf?.maxGradePct ?? 25)) {
+          const ns = (north || south) && !(east || west);
+          const treads = Math.max(3, Math.min(12, Math.round(cellSlope(c, i, north || south, east || west) * 8)));
+          ctx.fillStyle = 'rgba(0,0,0,0.35)';
+          for (let k = 1; k < treads; k++) {
+            const o = (k / treads - 0.5) * s;
+            if (ns) ctx.fillRect(cx - half, cy + o, w, Math.max(1, s / 24));
+            else ctx.fillRect(cx + o, cy - half, Math.max(1, s / 24), w);
+          }
+        }
         if (look.sidewalks && s >= 6) band(Math.max(s * 0.3, (look.carriageway / 16) * s), look.surface);
         if (look.median > 0 && s >= 8) band(Math.max(1, (look.median / 16) * s), look.tram ? '#6d6458' : '#5b7a3c');
         if (s >= 10 && look.centre !== 'none' && !p.rail) {
@@ -916,7 +952,9 @@ export class Renderer {
         pts.forEach(([x, y], k) => (k ? ctx.lineTo(px(x), py(y)) : ctx.moveTo(px(x), py(y))));
       };
       const w = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
-      const look = roadLook(p);
+      const first = st.cells?.[0];
+      const surf = first !== undefined && c.pathSurfaces[first] ? c.surfaces[c.pathSurfaces[first] - 1] : undefined;
+      const look = surfaceLook(roadLook(p), p, surf?.id);
       trace();
       if (look.sidewalks) {
         ctx.strokeStyle = CONCRETE;
