@@ -110,6 +110,8 @@ export class City {
   paths = new Uint16Array(0);
   /** Each cell's path surface: index into `surfaces` + 1, 0 for none (Beta 3.2). */
   pathSurfaces = new Uint8Array(0);
+  /** The road's level in dm on a bridge or in a tunnel, 0 on the ground (Beta 3.2). */
+  pathDecks = new Uint16Array(0);
   surfaces: Surface[] = [];
   powerLines = new Uint8Array(0);
   waterPipes = new Uint8Array(0);
@@ -152,6 +154,9 @@ export class City {
     for (let i = 0; i < n; i++) this.paths[i] = pb[2 * i] | (pb[2 * i + 1] << 8);
     const sb = f.pathSurfaces as Uint8Array | undefined;
     this.pathSurfaces = sb?.length === n ? new Uint8Array(sb) : new Uint8Array(n);
+    const db = f.pathDecks as Uint8Array | undefined;
+    this.pathDecks = new Uint16Array(n);
+    if (db?.length === 2 * n) for (let i = 0; i < n; i++) this.pathDecks[i] = db[2 * i] | (db[2 * i + 1] << 8);
     this.powerLines = new Uint8Array(f.powerLines);
     this.waterPipes = new Uint8Array(f.waterPipes);
     this.profiles = f.catalog.profiles;
@@ -183,6 +188,7 @@ export class City {
       this.zones[i] = c.zone;
       this.paths[i] = c.path;
       this.pathSurfaces[i] = c.surface ?? 0;
+      this.pathDecks[i] = c.deck ?? 0;
       this.powerLines[i] = c.powerLine ? 1 : 0;
       this.waterPipes[i] = c.waterPipe ? 1 : 0;
     }
@@ -374,6 +380,11 @@ export class City {
   profileAt(i: number): Profile | undefined {
     const p = this.paths[i];
     return p ? this.profiles[p - 1] : undefined;
+  }
+
+  /** A path cell that runs in a tunnel under the ground. */
+  isTunnel(i: number): boolean {
+    return !!this.paths[i] && !!this.pathDecks[i] && !this.isRiver(i);
   }
 
   /** The surface code (index + 1) a profile is built in when asked for `id`, as the server picks it; -1 if not allowed. */
@@ -595,36 +606,63 @@ export function earthCost(c: City, run: number[], moved: Map<number, number>): n
 }
 
 /** A path run's price (cells, bridges, grading) and why it can't be built, as the server works it out. */
-export interface PathPlan { cost: number; grading: number; problem: string | null; pct: number }
+export interface PathPlan { cost: number; grading: number; problem: string | null; pct: number; deepestCutDm: number; tunnelCells: number }
 
-export function planPath(c: City, profileId: string, surfaceId: string, cells: [number, number][]): PathPlan {
+/** As PathGrade: a path 8 m under the ground can be a tunnel, at eight times the price. */
+export const TUNNEL_MIN_DM = 80, TUNNEL_COST_TIMES = 8;
+
+/** Which cells of a graded run are tunnel: 8 m or more deep, in runs of two or more. As PathGrade.TunnelCells. */
+export function tunnelCells(ground: number[], graded: number[], fixed: boolean[]): boolean[] {
+  const n = graded.length;
+  const deep = graded.map((g, k) => !fixed[k] && ground[k] - g >= TUNNEL_MIN_DM);
+  return deep.map((d, k) => d && ((k > 0 && deep[k - 1]) || (k + 1 < n && deep[k + 1])));
+}
+
+export function planPath(c: City, profileId: string, surfaceId: string, cells: [number, number][], tunnel = false): PathPlan {
+  const none = { deepestCutDm: 0, tunnelCells: 0 };
   const prof = c.profiles.find((p) => p.id === profileId);
-  if (!prof) return { cost: 0, grading: 0, problem: `Unknown path type '${profileId}'`, pct: 0 };
+  if (!prof) return { cost: 0, grading: 0, problem: `Unknown path type '${profileId}'`, pct: 0, ...none };
   const pi = c.profiles.indexOf(prof) + 1;
   const surface = c.surfaceCode(prof, surfaceId);
-  if (surface < 0) return { cost: 0, grading: 0, problem: `A ${prof.name.toLowerCase()} can't be built in that surface`, pct: 0 };
+  if (surface < 0) return { cost: 0, grading: 0, problem: `A ${prof.name.toLowerCase()} can't be built in that surface`, pct: 0, ...none };
   const costPct = surface > 0 ? c.surfaces[surface - 1].costPct : 100;
   const pct = gradePctOf(prof.maxGradePct ?? 12, !!prof.stairs, surface > 0 ? c.surfaces[surface - 1].maxGradePct : -1);
-  let cost = 0;
-  for (const [x, y] of cells) {
-    if (!c.inBounds(x, y)) continue;
-    const i = y * c.width + x;
-    if (c.isWater(i) && !c.isRiver(i)) continue;
-    if (c.paths[i] !== pi || (c.pathSurfaces[i] ?? 0) !== surface)
-      cost += Math.trunc((Number(prof.costPerCell) * costPct) / 100) * (c.isRiver(i) ? BRIDGE_COST_TIMES : 1);
+  const each = Math.trunc((Number(prof.costPerCell) * costPct) / 100);
+  if (cells.some(([x, y]) => !c.inBounds(x, y))) {
+    let rough = 0;
+    for (const [x, y] of cells) if (c.inBounds(x, y) && c.paths[y * c.width + x] !== pi) rough += each * (c.isRiver(y * c.width + x) ? BRIDGE_COST_TIMES : 1);
+    return { cost: rough, grading: 0, problem: null, pct, ...none };
   }
-  if (cells.some(([x, y]) => !c.inBounds(x, y))) return { cost, grading: 0, problem: null, pct };
   const idx = cells.map(([x, y]) => y * c.width + x);
-  // A bridge's deck clears its river by at least a step.
-  const h = idx.map((i) => (c.isRiver(i) ? (c.rivers[i] + 1) * 20 : cellDm(c, i)));
+  // A bridge's deck clears its river by at least a step; a path already there keeps its level.
+  const level = (i: number) => (c.pathDecks[i] ? c.pathDecks[i] : cellDm(c, i));
+  const h = idx.map((i) => (c.paths[i] ? level(i) : c.isRiver(i) ? (c.rivers[i] + 1) * 20 : cellDm(c, i)));
   const fixed = idx.map((i) => !!c.paths[i]);
   const deck = idx.map((i) => (c.isRiver(i) ? (c.rivers[i] + 1) * 20 : -(1 << 28)));
   const floor = c.waterLevel * 20;
   const g = grade(h, fixed, floor, maxDeltaDm(pct), deck);
-  if (!g) return { cost, grading: 0, problem: `Too steep: the paths it joins need a ${neededPct(h, fixed)}% climb; this climbs at most ${pct}%`, pct };
-  const moved = shape(c, idx, g, (i) => !!c.buildingAt[i] || c.isWater(i) || !!c.paths[i], floor);
-  const grading = earthCost(c, idx, moved);
-  return { cost: cost + grading, grading, problem: null, pct };
+  if (!g) return { cost: 0, grading: 0, problem: `Too steep: the paths it joins need a ${neededPct(h, fixed)}% climb; this climbs at most ${pct}%`, pct, ...none };
+  const under = tunnel ? tunnelCells(h, g, fixed) : g.map(() => false);
+  let cost = 0, deepest = 0;
+  const openIdx: number[] = [], openG: number[] = [];
+  idx.forEach((i, k) => {
+    if (!under[k]) {
+      openIdx.push(i); openG.push(g[k]);
+      if (!fixed[k]) deepest = Math.max(deepest, h[k] - g[k]);
+    }
+    if (c.paths[i] === pi && (c.pathSurfaces[i] ?? 0) === surface) return;
+    cost += each * (under[k] ? TUNNEL_COST_TIMES : c.isRiver(i) ? BRIDGE_COST_TIMES : 1);
+  });
+  const moved = shape(c, openIdx, openG, (i) => !!c.buildingAt[i] || c.isWater(i) || !!c.paths[i], floor);
+  const grading = earthCost(c, openIdx, moved);
+  return { cost: cost + grading, grading, problem: null, pct, deepestCutDm: deepest, tunnelCells: under.filter(Boolean).length };
+}
+
+/** What the cost line says about depth: a deep cut and that a tunnel is on offer, or the cells in tunnel. */
+export function depthNote(p: PathPlan, tunnel: boolean): string {
+  if (p.tunnelCells > 0) return `, ${p.tunnelCells} cells in tunnel`;
+  if (!tunnel && p.deepestCutDm >= TUNNEL_MIN_DM) return `, cuts ${Math.trunc(p.deepestCutDm / 10)} m deep (or tunnel under it)`;
+  return '';
 }
 
 /** A building's pad: the steps of earth it moves, or null when the lot rises more than a pad can level. */

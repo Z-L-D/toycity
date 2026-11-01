@@ -138,6 +138,41 @@ public class GradingTests
     }
 
     [Fact]
+    public void ARoadCanTunnelUnderAHillInsteadOfCuttingThroughIt()
+    {
+        var (w, x, y) = Fixture.FlatSite();
+        w.Funds = 10_000_000;
+        // A ridge 40 m high and 12 cells wide across the way: the land either side of it dug down.
+        for (int k = 0; k < 20; k++)
+        {
+            w.Enqueue(new TerraformAction(new CellRect(x, y, x + 9, y + 30), TerraformMode.Lower));
+            w.Enqueue(new TerraformAction(new CellRect(x + 22, y, x + 31, y + 30), TerraformMode.Lower));
+        }
+        w.Step();
+        var cut = new PlacePathAction(x + 2, y + 15, x + 29, y + 15, "road");
+        var bore = cut with { Tunnel = true };
+        Assert.Null(w.ValidatePath(cut, out long cutCost, out _, out _));
+        Assert.Null(w.ValidatePath(bore, out long boreCost, out _, out _));
+        Assert.NotEqual(cutCost, boreCost);
+        var top = w.Corner[(y + 15) * (w.Width + 1) + x + 16];
+        w.Enqueue(bore);
+        w.Step();
+        Assert.DoesNotContain(w.Notices, n => n.Severity == "warning");
+        // Under the middle of the ridge the road has its own floor, well under the ground, which is left alone.
+        int mid = w.Idx(x + 16, y + 15);
+        Assert.True(w.PathDeck[mid] > 0);
+        Assert.True(CellDm(w, x + 16, y + 15) - w.PathDeck[mid] >= PathGrade.TunnelMinDm);
+        Assert.Equal(top, w.Corner[(y + 15) * (w.Width + 1) + x + 16]);
+        // Out on the flat it's on the ground.
+        Assert.Equal(0, w.PathDeck[w.Idx(x + 3, y + 15)]);
+        // It saves and bulldozes. (Funds were set by hand, so this one doesn't replay.)
+        Assert.Equal(w.PathDeck, World.FromSnapshot(Fixture.Content, w.Snapshot()).PathDeck);
+        w.Enqueue(new BulldozeAction(new CellRect(x + 16, y + 15, x + 16, y + 15)));
+        w.Step();
+        Assert.Equal(0, w.PathDeck[mid]);
+    }
+
+    [Fact]
     public void ABuildingLevelsItsPadUpToThreeStepsOfRise()
     {
         var (w, x, y, flat) = Cliff();

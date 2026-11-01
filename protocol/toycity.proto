@@ -327,6 +327,7 @@ message PlacePath {
   int32 cy = 8;
   bool diagonal = 9;  // a straight line at any angle, snapped to the grid
   string surface = 10; // a surface id the profile allows (Beta 3.2); empty for its default
+  bool tunnel = 11;     // under a hill where it runs 8 m or more deep, rather than a cut (Beta 3.2)
 }
 
 enum Leftover {
@@ -930,6 +931,7 @@ message FullState {
   bytes corners = 14;       // the ground: uint16 little-endian per grid corner, (width + 1) * (height + 1), in decimetres
   bytes rivers = 15;        // each cell's river surface in steps, 0 for none
   bytes path_surfaces = 16; // each cell's path surface: index into Catalog.surfaces + 1, 0 for none
+  bytes path_decks = 17;    // uint16 little-endian per cell: the road's level in dm on a bridge or in a tunnel, 0 on the ground
 }
 
 // An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
@@ -954,6 +956,7 @@ message CellUpdate {
   bool power_line = 5;
   bool water_pipe = 6;
   int32 surface = 7;  // path surface: index into Catalog.surfaces + 1, 0 for none
+  int32 deck = 8;     // the road's level in dm on a bridge or in a tunnel, 0 on the ground
 }
 
 message TickDelta {

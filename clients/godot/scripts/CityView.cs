@@ -55,6 +55,14 @@ public partial class CityView : Node3D
     public float Ground(int i) => _city.Heights[i] * ClassicView.HeightStep;
     /// <summary>The ground's surface at a point (in cells), as drawn.</summary>
     public float Surface(float x, float y) => TerrainShape.Surface(_city, x, y) * ClassicView.HeightStep;
+    /// <summary>Where traffic runs: a bridge's deck or a tunnel's floor where the road has one (Beta 3.2), else the ground.</summary>
+    public float RoadSurface(float x, float y)
+    {
+        int cx = (int)MathF.Floor(x), cy = (int)MathF.Floor(y);
+        if (_city.InBounds(cx, cy) && _city.PathDecks.Length == _city.Width * _city.Height && _city.PathDecks[_city.Idx(cx, cy)] is var d and > 0)
+            return d / 20f * ClassicView.HeightStep;
+        return Surface(x, y);
+    }
     /// <summary>The highest thing on a cell: its building's roof, else the ground (or the water's surface).</summary>
     public float Top(int x, int y) => _top[_city.Idx(x, y)];
 

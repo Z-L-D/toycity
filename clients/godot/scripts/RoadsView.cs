@@ -97,8 +97,14 @@ public partial class RoadsView : Node3D
             {
                 int i = _city.Idx(x, y);
                 if (_city.Paths[i] == 0 || RoadShape.UnderStrip(_city, i)) continue;
-                // A path over a river is a bridge: its deck a step over the water, as the server grades it.
-                _deck = _city.IsRiver(i) ? (_city.Rivers[i] + 1) * ClassicView.HeightStep : null;
+                // A tunnel is under the ground (the underground view shows it); where it meets the open air, a portal.
+                if (_city.IsTunnel(i))
+                {
+                    Portals(x, y);
+                    continue;
+                }
+                // A path over a river is a bridge: its deck where the server graded it, at least a step over the water.
+                _deck = _city.IsRiver(i) ? (_city.PathDecks[i] > 0 ? _city.PathDecks[i] / 20f : _city.Rivers[i] + 1) * ClassicView.HeightStep : null;
                 var look = RoadLook.For(_city.ProfileAt(i), _city.SurfaceAt(i));
                 int arms = RoadLook.Arms(_city, i);
                 // Beta 3.2: a footpath steeper than its surface holds a ramp is built as stairs.
@@ -230,6 +236,37 @@ public partial class RoadsView : Node3D
                 for (float t = -hw + 0.03f; t < hw - 0.03f; t += 0.05f)
                     Arm(centre, a, hw + 0.02f, hw + 0.12f, t, t + 0.025f, LiftPaint, White, false);
             }
+    }
+
+    /// <summary>
+    /// A tunnel cell's portals (Beta 3.2): on each side where the path comes out onto open ground, a concrete headwall
+    /// across the cut with the dark mouth of the bore in it, standing from the road up to the ground above.
+    /// </summary>
+    void Portals(int x, int y)
+    {
+        int i = _city.Idx(x, y);
+        float floor = _city.PathDecks[i] / 20f * ClassicView.HeightStep;
+        var look = RoadLook.For(_city.ProfileAt(i), _city.SurfaceAt(i));
+        float hw = Math.Max(look.Sidewalks ? 0.45f : look.Width / 2 + 0.05f, 0.12f);
+        var concrete = new Color(0.66f, 0.65f, 0.61f);
+        var mouth = new Color(0.05f, 0.05f, 0.06f);
+        for (int a = 0; a < 4; a++)
+        {
+            int nx = x + (int)Dir[a].X, ny = y + (int)Dir[a].Y;
+            if (!_city.InBounds(nx, ny)) continue;
+            int j = _city.Idx(nx, ny);
+            if (_city.Paths[j] == 0 || _city.IsTunnel(j)) continue;
+            // The face stands on the cell's edge toward the open road.
+            var centre = new Vector2(x + 0.5f, y + 0.5f) + Dir[a] * 0.5f;
+            var v = new Vector2(-Dir[a].Y, Dir[a].X);
+            float top = Math.Max(_view.Surface(centre.X, centre.Y), floor + 0.25f);
+            float clear = 0.0035f * 16 * 5.5f;  // 5.5 m of headroom
+            var l = centre - v * (hw + 0.08f);
+            var r = centre + v * (hw + 0.08f);
+            Wall(l, r, floor, top, concrete);
+            // The bore: a dark opening the road's width, a little in front of the face.
+            Wall(centre - v * hw + Dir[a] * 0.004f, centre + v * hw + Dir[a] * 0.004f, floor + LiftDeck, floor + clear, mouth);
+        }
     }
 
     static Color Colour(Paving p) => p switch

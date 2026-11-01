@@ -851,6 +851,18 @@ export class Renderer {
         const i = y * c.width + x;
         const p = c.profileAt(i);
         if (!p || c.underStrip.has(i)) continue;
+        // Beta 3.2: a tunnel runs under the ground; from above it's a dashed outline over the hill.
+        if (c.isTunnel(i)) {
+          if (s >= 4) {
+            ctx.strokeStyle = 'rgba(30,30,34,0.7)';
+            ctx.lineWidth = Math.max(1, s / 16);
+            ctx.setLineDash([Math.max(2, s / 6), Math.max(2, s / 6)]);
+            const tw = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
+            ctx.strokeRect(px(x) + (s - tw) / 2, py(y) + (s - tw) / 2, tw, tw);
+            ctx.setLineDash([]);
+          }
+          continue;
+        }
         const surf = c.pathSurfaces[i] ? c.surfaces[c.pathSurfaces[i] - 1] : undefined;
         const look = surfaceLook(roadLook(p), p, surf?.id);
         const w = Math.max(s * 0.3, Math.min(s, ((look.sidewalks ? 16 : p.widthM) / 16) * s));

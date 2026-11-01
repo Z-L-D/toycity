@@ -55,7 +55,7 @@ public partial class AgentsView : Node3D
 
     public float Height(float x, float y)
     {
-        return _view.Surface(x, y) + 0.15f;
+        return _view.RoadSurface(x, y) + 0.15f;
     }
 
     public override void _Process(double delta)

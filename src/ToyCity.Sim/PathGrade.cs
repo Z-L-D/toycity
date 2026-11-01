@@ -31,6 +31,35 @@ internal static class PathGrade
     public static int GradePct(int profileMaxPct, bool stairs, int surfaceMaxPct) =>
         stairs || surfaceMaxPct < 0 ? profileMaxPct : Math.Min(profileMaxPct, surfaceMaxPct);
 
+    /// <summary>A path this far under the ground (dm) can be a tunnel instead of a cut: 8 m.</summary>
+    public const int TunnelMinDm = 80;
+    /// <summary>A tunnel cell costs this many times its path on the ground.</summary>
+    public const int TunnelCostTimes = 8;
+
+    /// <summary>
+    /// Which cells of a graded run are tunnel when the player asks for one: those at least <see cref="TunnelMinDm"/>
+    /// under the ground, in runs of two or more (a single deep cell is cut). Cells already holding a path aren't.
+    /// </summary>
+    public static bool[] TunnelCells(IReadOnlyList<int> ground, IReadOnlyList<int> graded, IReadOnlyList<bool> fixedCell)
+    {
+        int n = graded.Count;
+        var deep = new bool[n];
+        for (int k = 0; k < n; k++) deep[k] = !fixedCell[k] && ground[k] - graded[k] >= TunnelMinDm;
+        var t = new bool[n];
+        for (int k = 0; k < n; k++)
+            t[k] = deep[k] && ((k > 0 && deep[k - 1]) || (k + 1 < n && deep[k + 1]));
+        return t;
+    }
+
+    /// <summary>The deepest cut (dm) a graded run makes below its ground, outside tunnel cells.</summary>
+    public static int DeepestCut(IReadOnlyList<int> ground, IReadOnlyList<int> graded, IReadOnlyList<bool> fixedCell, bool[]? tunnel)
+    {
+        int deepest = 0;
+        for (int k = 0; k < graded.Count; k++)
+            if (!fixedCell[k] && (tunnel == null || !tunnel[k])) deepest = Math.Max(deepest, ground[k] - graded[k]);
+        return deepest;
+    }
+
     /// <summary>The most a path of this grade climbs across one cell, in dm.</summary>
     public static int MaxDeltaDm(int gradePct) => Math.Max(1, (gradePct * CellDm + 50) / 100);
 

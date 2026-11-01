@@ -232,6 +232,8 @@ public partial class ToolController : Node
                 // Beta 3.2: what it's paved with, and so how steep it climbs.
                 if (Planner.SurfaceChoices(c, State.ProfileId) is { Count: > 1 } surfaces)
                     Dropdown(surfaces, State.Surface, id => State.Surface = id);
+                Choice(new[] { "Cut through", "Tunnel (O)" }, State.Tunnel ? 1 : 0, k => State.Tunnel = k == 1,
+                    tips: new[] { "Grade through hills, however deep the cut", "Go under a hill where the road would run 8 m or more deep" });
                 Choice(new[] { "Straight", "Diagonal", "Curve" }, PathMode, SetPathMode, tips: new[] { "Straight roads", "Smooth diagonals at any angle (C)", "Curved roads (C)" });
                 break;
             case ToolKind.Utility:
@@ -343,7 +345,7 @@ public partial class ToolController : Node
                 ? new[] { ("Drag", "set the two ends"), ("C", "straight roads"), ("Esc", "cancel") }
                 : new[] { ("Move", "bend the curve"), ("Click", "build it"), ("Esc", "start again") },
             ToolKind.Path when State.Diagonal => new[] { ("Drag", "draw a road at any angle"), ("C", "curved roads"), ("Esc", "cancel") },
-            ToolKind.Path => new[] { ("Drag", "draw a straight road"), ("Alt", "free: follow the cursor"), ("Alt+Shift", "vertical leg first"), ("C", "curved roads"), ("Esc", "cancel") },
+            ToolKind.Path => new[] { ("Drag", "draw a straight road"), ("Alt", "free: follow the cursor"), ("Alt+Shift", "vertical leg first"), ("C", "curved roads"), ("O", State.Tunnel ? "cut through hills" : "tunnel under hills"), ("Esc", "cancel") },
             ToolKind.Zone when State.BlockZoning => new[] { ("Click", $"zone a whole block, {density} density"), ("G", "paint areas"), ("V", "cycle density"), ("Z", "next zone"), ("Esc", "cancel") },
             ToolKind.Zone => new[] { ("Drag", $"paint {density} density zone"), ("G", "zone whole blocks"), ("V", "cycle density"), ("Z", "next zone"), ("Esc", "cancel") },
             ToolKind.Dezone => new[] { ("Drag", "remove zoning"), ("Esc", "cancel") },
@@ -398,6 +400,7 @@ public partial class ToolController : Node
             else if (k.Keycode == Key.V && State.Kind == ToolKind.Zone) { State.Density = (Density)(((int)State.Density + 1) % 3); BuildOptions(); }
             else if (k.Keycode == Key.G && State.Kind == ToolKind.Zone) { State.BlockZoning = !State.BlockZoning; BuildOptions(); }
             else if (k.Keycode == Key.C && State.Kind == ToolKind.Path) { SetPathMode((PathMode + 1) % 3); BuildOptions(); }
+            else if (k.Keycode == Key.O && State.Kind == ToolKind.Path) { State.Tunnel = !State.Tunnel; BuildOptions(); }
             else if (k.Keycode == Key.U && State.Kind == ToolKind.Bulldoze) { State.Underground = !State.Underground; BuildOptions(); }
             else return;
             GetViewport().SetInputAsHandled();

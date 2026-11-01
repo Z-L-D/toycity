@@ -16,6 +16,8 @@ public sealed class ToolState
     public string ProfileId = "road";
     /// <summary>The surface to build paths in, by id; "" for the profile's default (Beta 3.2).</summary>
     public string Surface = "";
+    /// <summary>Paths go under a hill in a tunnel where they'd run 8 m or more deep, rather than cutting through (Beta 3.2).</summary>
+    public bool Tunnel;
     public bool Curve;                    // paths: set two ends, then bend
     public bool Diagonal;                 // paths: a straight line at any angle, drawn smooth
     public (int X0, int Y0, int X1, int Y1)? CurveEnds;
@@ -197,6 +199,7 @@ public static class Planner
         }
         string? steep = null;
         long grading = 0;
+        var depth = new PathPlan();
         if (path)
             foreach (var (x0, y0, x1, y1) in legs)
             {
@@ -204,13 +207,14 @@ public static class Planner
                 cost += plan.Cost;
                 grading += plan.Grading;
                 steep ??= plan.Problem;
+                depth = depth with { DeepestCutDm = Math.Max(depth.DeepestCutDm, plan.DeepestCutDm), TunnelCells = depth.TunnelCells + plan.TunnelCells };
             }
         ok &= steep == null;
         var actions = legs.Select(l => path
-            ? new PAction { Path = new PlacePath { X0 = l.Item1, Y0 = l.Item2, X1 = l.Item3, Y1 = l.Item4, ProfileId = t.ProfileId, Surface = t.Surface } }
+            ? new PAction { Path = new PlacePath { X0 = l.Item1, Y0 = l.Item2, X1 = l.Item3, Y1 = l.Item4, ProfileId = t.ProfileId, Surface = t.Surface, Tunnel = t.Tunnel } }
             : new PAction { Utility = new PlaceUtility { X0 = l.Item1, Y0 = l.Item2, X1 = l.Item3, Y1 = l.Item4, Kind = t.Utility } }).ToList();
         string what = path ? ProfileName(c, t.ProfileId) : t.Utility == UtilityKind.UtilityPowerLine ? "Power line" : "Water pipe";
-        return new Preview(tinted, ok, steep ?? $"{what}{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(grading)}", actions, $"{what} from {s.X},{s.Y} to {end.X},{end.Y}");
+        return new Preview(tinted, ok, steep ?? $"{what}{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(grading)}{(path ? Depth(depth, t.Tunnel) : "")}", actions, $"{what} from {s.X},{s.Y} to {end.X},{end.Y}");
     }
 
     static Preview Curve(CityMirror c, ToolState t, (int X0, int Y0, int X1, int Y1) e, Pointer p)
@@ -230,8 +234,8 @@ public static class Planner
         var plan = PlanPath(c, t, cells);
         cost += plan.Cost;
         ok &= plan.Problem == null;
-        var action = new PAction { Path = new PlacePath { X0 = e.X0, Y0 = e.Y0, X1 = e.X1, Y1 = e.Y1, ProfileId = t.ProfileId, Curved = true, Cx = p.X, Cy = p.Y, Surface = t.Surface } };
-        return new Preview(tinted, ok, plan.Problem ?? $"Curve{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(plan.Grading)}", new() { action }, $"Curved {ProfileName(c, t.ProfileId)} from {e.X0},{e.Y0} to {e.X1},{e.Y1}");
+        var action = new PAction { Path = new PlacePath { X0 = e.X0, Y0 = e.Y0, X1 = e.X1, Y1 = e.Y1, ProfileId = t.ProfileId, Curved = true, Cx = p.X, Cy = p.Y, Surface = t.Surface, Tunnel = t.Tunnel } };
+        return new Preview(tinted, ok, plan.Problem ?? $"Curve{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(plan.Grading)}{Depth(plan, t.Tunnel)}", new() { action }, $"Curved {ProfileName(c, t.ProfileId)} from {e.X0},{e.Y0} to {e.X1},{e.Y1}");
     }
 
     /// <summary>The cells of a straight line at any angle: the same integer steps as World.LineCells.</summary>
@@ -257,7 +261,16 @@ public static class Planner
     }
 
     /// <summary>What a path run costs (its cells, bridges and grading), and why it can't be built, as the server works it out.</summary>
-    public readonly record struct PathPlan(long Cost, long Grading, string? Problem, int GradePct);
+    public readonly record struct PathPlan(long Cost, long Grading, string? Problem, int GradePct, int DeepestCutDm = 0, int TunnelCells = 0);
+
+    /// <summary>
+    /// What the cost line adds about depth (Beta 3.2): a deep cut names how deep and that a tunnel is on offer; a
+    /// tunnel says how many cells run under the hill.
+    /// </summary>
+    public static string Depth(PathPlan p, bool tunnel) =>
+        p.TunnelCells > 0 ? $", {p.TunnelCells} cells in tunnel"
+        : !tunnel && p.DeepestCutDm >= ToyCity.Sim.PathGrade.TunnelMinDm ? $", cuts {p.DeepestCutDm / 10} m deep (or tunnel under it)"
+        : "";
 
     /// <summary>
     /// A path run of the tool's profile and surface along these cells: what it costs and whether it can be graded,
@@ -272,19 +285,16 @@ public static class Planner
         if (surface < 0) return new PathPlan(0, 0, $"A {prof.Name.ToLowerInvariant()} can't be built in that surface", 0);
         int costPct = surface > 0 ? c.Surfaces[surface - 1].CostPct : 100;
         int pct = c.GradePct(prof, surface);
-        long cost = 0;
-        foreach (var (x, y) in cells)
+        long each = prof.CostPerCell * costPct / 100;
+        if (cells.Any(q => !c.InBounds(q.X, q.Y)))
         {
-            if (!c.InBounds(x, y)) continue;
-            int i = c.Idx(x, y);
-            if (c.IsWater(i) && !c.IsRiver(i)) continue;
-            if (c.Paths[i] != pi || (c.PathSurfaces.Length > i ? c.PathSurfaces[i] : 0) != surface)
-                cost += prof.CostPerCell * costPct / 100 * (c.IsRiver(i) ? BridgeCostTimes : 1);
+            long rough = cells.Where(q => c.InBounds(q.X, q.Y) && c.Paths[c.Idx(q.X, q.Y)] != pi).Sum(q => each * (c.IsRiver(c.Idx(q.X, q.Y)) ? BridgeCostTimes : 1));
+            return new PathPlan(rough, 0, null, pct);
         }
-        if (cells.Any(q => !c.InBounds(q.X, q.Y))) return new PathPlan(cost, 0, null, pct);
         var idx = cells.Select(q => c.Idx(q.X, q.Y)).ToList();
-        // A bridge's deck stands a step over the river and is fixed, as the server grades it.
-        var h = idx.Select(i => c.IsRiver(i) ? (c.Rivers[i] + 1) * 20 : ToyCity.Sim.PathGrade.CellDmOf(c.Corners, c.Width, i)).ToList();
+        // A bridge's deck clears its river by at least a step; a path already there keeps its level, as the server grades it.
+        int Level(int i) => c.PathDecks.Length > i && c.PathDecks[i] > 0 ? c.PathDecks[i] : ToyCity.Sim.PathGrade.CellDmOf(c.Corners, c.Width, i);
+        var h = idx.Select(i => c.Paths[i] != 0 ? Level(i) : c.IsRiver(i) ? (c.Rivers[i] + 1) * 20 : ToyCity.Sim.PathGrade.CellDmOf(c.Corners, c.Width, i)).ToList();
         var fix = idx.Select(i => c.Paths[i] != 0).ToList();
         var deck = idx.Select(i => c.IsRiver(i) ? (c.Rivers[i] + 1) * 20 : int.MinValue).ToList();
         int floor = c.WaterLevel * 20;
@@ -292,12 +302,23 @@ public static class Planner
         if (g == null)
         {
             var (need, _) = ToyCity.Sim.PathGrade.Needed(h, fix);
-            return new PathPlan(cost, 0, $"Too steep: the paths it joins need a {need}% climb; this climbs at most {pct}%", pct);
+            return new PathPlan(0, 0, $"Too steep: the paths it joins need a {need}% climb; this climbs at most {pct}%", pct);
+        }
+        var under = t.Tunnel ? ToyCity.Sim.PathGrade.TunnelCells(h, g, fix) : new bool[g.Length];
+        long cost = 0;
+        var openIdx = new List<int>();
+        var openG = new List<int>();
+        for (int k = 0; k < idx.Count; k++)
+        {
+            int i = idx[k];
+            if (!under[k]) { openIdx.Add(i); openG.Add(g[k]); }
+            if (c.Paths[i] == pi && (c.PathSurfaces.Length > i ? c.PathSurfaces[i] : 0) == surface) continue;
+            cost += each * (under[k] ? ToyCity.Sim.PathGrade.TunnelCostTimes : c.IsRiver(i) ? BridgeCostTimes : 1);
         }
         bool Locked(int i) => c.BuildingAt[i] != 0 || c.IsWater(i) || c.Paths[i] != 0;
-        var moved = ToyCity.Sim.PathGrade.Shape(c.Corners, c.Width, c.Height, idx, g, Locked, floor);
-        long grading = ToyCity.Sim.PathGrade.Cost(c.Corners, c.Width, idx, moved);
-        return new PathPlan(cost + grading, grading, null, pct);
+        var moved = ToyCity.Sim.PathGrade.Shape(c.Corners, c.Width, c.Height, openIdx, openG, Locked, floor);
+        long grading = ToyCity.Sim.PathGrade.Cost(c.Corners, c.Width, openIdx, moved);
+        return new PathPlan(cost + grading, grading, null, pct, ToyCity.Sim.PathGrade.DeepestCut(h, g, fix, under), under.Count(u => u));
     }
 
     /// <summary>A building's pad: the steps of earth it moves, or null when the lot rises more than a pad can level.</summary>
@@ -366,8 +387,8 @@ public static class Planner
         var plan = PlanPath(c, t, cells);
         cost += plan.Cost;
         ok &= plan.Problem == null;
-        var action = new PAction { Path = new PlacePath { X0 = s.X, Y0 = s.Y, X1 = ex, Y1 = ey, ProfileId = t.ProfileId, Diagonal = true, Surface = t.Surface } };
-        return new Preview(tinted, ok, plan.Problem ?? $"Diagonal{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(plan.Grading)}", new() { action }, $"Diagonal {ProfileName(c, t.ProfileId)} from {s.X},{s.Y} to {ex},{ey}");
+        var action = new PAction { Path = new PlacePath { X0 = s.X, Y0 = s.Y, X1 = ex, Y1 = ey, ProfileId = t.ProfileId, Diagonal = true, Surface = t.Surface, Tunnel = t.Tunnel } };
+        return new Preview(tinted, ok, plan.Problem ?? $"Diagonal{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(plan.Grading)}{Depth(plan, t.Tunnel)}", new() { action }, $"Diagonal {ProfileName(c, t.ProfileId)} from {s.X},{s.Y} to {ex},{ey}");
     }
 
     static Rect RectOf((int X, int Y) a, (int X, int Y) b) => new() { X0 = a.X, Y0 = a.Y, X1 = b.X, Y1 = b.Y };

@@ -120,17 +120,22 @@ public sealed partial class World
             int i = Idx(x, y);
             if (IsWater(i) && !IsRiver(i)) return "Paths can't cross the sea or a lake; a river they can bridge.";
             if (BuildingAt[i] != 0) return $"A building is in the way at {x},{y}. Bulldoze it first.";
-            // A bridge costs five times the road.
-            if (Path[i] != profile + 1 || PathSurface[i] != surface)
-                cost += (long)Content.Profiles[profile].CostPerCell * costPct / 100 * (IsRiver(i) ? BridgeCostTimes : 1);
         }
         // The ground is graded to the steepest the path's type and surface allow, between the paths it meets.
-        works = PlanPath(cells, profile, surface, out int bad, out int need);
+        works = PlanPath(cells, profile, surface, a.Tunnel, out int bad, out int need);
         if (works == null)
         {
             (badX, badY) = cells[bad];
             return $"Too steep at {badX},{badY}: the paths it joins would need a {need}% climb, and a {Content.Profiles[profile].Name.ToLowerInvariant()}" +
                    $"{(surface > 0 ? " in " + Content.Surfaces[surface - 1].Name.ToLowerInvariant() : "")} climbs at most {Content.GradePct(profile, surface)}%.{SteeperSuggestion(profile, need)}";
+        }
+        // The path itself: a bridge costs five times the road on the ground, a tunnel eight.
+        for (int k = 0; k < cells.Count; k++)
+        {
+            int i = Idx(cells[k].X, cells[k].Y);
+            if (Path[i] == profile + 1 && PathSurface[i] == surface) continue;
+            long each = (long)Content.Profiles[profile].CostPerCell * costPct / 100;
+            cost += each * (works.Tunnel[k] ? PathGrade.TunnelCostTimes : IsRiver(i) ? BridgeCostTimes : 1);
         }
         cost += works.Cost;
         badX = badY = -1;
@@ -179,9 +184,12 @@ public sealed partial class World
         ForgetBusRoutes();
         var cells = PathCellsOf(a);
         ApplyPathWorks(works!);
-        foreach (var (x, y) in cells)
+        for (int k = 0; k < cells.Count; k++)
         {
+            var (x, y) = cells[k];
             int i = Idx(x, y);
+            // A bridge or tunnel keeps the road's own level; a path on the ground follows the ground.
+            if (Path[i] == 0) PathDeck[i] = (ushort)(works!.Tunnel[k] || IsRiver(i) ? Math.Clamp(works.Target[k], 1, MaxCornerDm) : 0);
             Path[i] = code;
             PathSurface[i] = surface;
             ZoneCode[i] = 0;
@@ -356,6 +364,7 @@ public sealed partial class World
             if (a.Underground) { WaterPipe[i] = 0; continue; }
             Path[i] = 0;
             PathSurface[i] = 0;
+            PathDeck[i] = 0;
             PowerLine[i] = 0;
             TravelCost[i] = 0;
             Traffic[i] = 0;

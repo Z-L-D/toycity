@@ -94,6 +94,11 @@ public sealed partial class World
     public readonly ushort[] Path;       // profile index + 1, 0 = none
     /// <summary>What each path cell is paved with: the surface index + 1 (Beta 3.2), 0 for none.</summary>
     public readonly byte[] PathSurface;
+    /// <summary>
+    /// The road's own level where it isn't on the ground, in dm (Beta 3.2): a bridge's deck, or the floor of a tunnel
+    /// under a hill. 0 for a path on the ground.
+    /// </summary>
+    public readonly ushort[] PathDeck;
     public readonly byte[] PowerLine;
     public readonly byte[] WaterPipe;
     public readonly int[] BuildingAt;    // building id + 1, 0 = none
@@ -160,6 +165,7 @@ public sealed partial class World
         ZoneCode = new byte[N];
         Path = new ushort[N];
         PathSurface = new byte[N];
+        PathDeck = new ushort[N];
         PowerLine = new byte[N];
         WaterPipe = new byte[N];
         BuildingAt = new int[N];
@@ -420,6 +426,7 @@ public sealed partial class World
             WriteRegionState(w);
             WriteStrips(w);
             w.Write(PathSurface);
+            WriteU16(w, PathDeck);
         }
         return ms.ToArray();
     }
@@ -516,10 +523,15 @@ public sealed partial class World
         }
         if (version >= 7) w.ReadStrips(r);
         // Format 9 added path surfaces; an older save's paths are in their type's default.
-        if (version >= 9) ReadBytes(r, w.PathSurface);
+        if (version >= 9) { ReadBytes(r, w.PathSurface); ReadU16(r, w.PathDeck); }
         else
             for (int i = 0; i < w.N; i++)
-                if (w.Path[i] != 0) w.PathSurface[i] = (byte)Math.Max(0, content.SurfaceCode(w.Path[i] - 1, null));
+            {
+                if (w.Path[i] == 0) continue;
+                w.PathSurface[i] = (byte)Math.Max(0, content.SurfaceCode(w.Path[i] - 1, null));
+                // A bridge stood a step over its river.
+                if (w.IsRiver(i)) w.PathDeck[i] = (ushort)((w.River[i] + 1) * StepDm);
+            }
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
