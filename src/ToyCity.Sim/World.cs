@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 8;
+    public const int FormatVersion = 9;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -92,6 +92,8 @@ public sealed partial class World
     public readonly byte[] Height;
     public readonly byte[] ZoneCode;     // zone * 3 + density, 0 = none
     public readonly ushort[] Path;       // profile index + 1, 0 = none
+    /// <summary>What each path cell is paved with: the surface index + 1 (Beta 3.2), 0 for none.</summary>
+    public readonly byte[] PathSurface;
     public readonly byte[] PowerLine;
     public readonly byte[] WaterPipe;
     public readonly int[] BuildingAt;    // building id + 1, 0 = none
@@ -157,6 +159,7 @@ public sealed partial class World
         River = new byte[width * height];
         ZoneCode = new byte[N];
         Path = new ushort[N];
+        PathSurface = new byte[N];
         PowerLine = new byte[N];
         WaterPipe = new byte[N];
         BuildingAt = new int[N];
@@ -416,6 +419,7 @@ public sealed partial class World
             WriteDeals(w);
             WriteRegionState(w);
             WriteStrips(w);
+            w.Write(PathSurface);
         }
         return ms.ToArray();
     }
@@ -511,6 +515,11 @@ public sealed partial class World
             w.ReadRegionState(r);
         }
         if (version >= 7) w.ReadStrips(r);
+        // Format 9 added path surfaces; an older save's paths are in their type's default.
+        if (version >= 9) ReadBytes(r, w.PathSurface);
+        else
+            for (int i = 0; i < w.N; i++)
+                if (w.Path[i] != 0) w.PathSurface[i] = (byte)Math.Max(0, content.SurfaceCode(w.Path[i] - 1, null));
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

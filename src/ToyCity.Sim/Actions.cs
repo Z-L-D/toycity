@@ -28,7 +28,8 @@ public abstract record SimAction
 /// the control cell (CX,CY), snapped to the grid; or, when <c>Diagonal</c>, a straight line at any angle, snapped to
 /// the grid. Arcs and diagonals are remembered as the line drawn (<see cref="RoadStrip"/>), so clients draw them smooth.
 /// </summary>
-public sealed record PlacePathAction(int X0, int Y0, int X1, int Y1, string ProfileId, bool Curved = false, int CX = 0, int CY = 0, bool Diagonal = false) : SimAction;
+/// <summary>Lays a path; <c>Surface</c> is a surface id the profile allows, or "" for its default (Beta 3.2).</summary>
+public sealed record PlacePathAction(int X0, int Y0, int X1, int Y1, string ProfileId, bool Curved = false, int CX = 0, int CY = 0, bool Diagonal = false, string Surface = "") : SimAction;
 public sealed record PaintZoneAction(CellRect Area, Zone Zone, Level Density) : SimAction;
 
 /// <summary>What block zoning does with cells too deep in the block for any lot to reach a road.</summary>

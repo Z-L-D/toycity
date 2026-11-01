@@ -9,4 +9,8 @@
     <ProjectReference Include="../ToyCity.Transport.Wire/ToyCity.Transport.Wire.csproj" />
     <ProjectReference Include="../ToyCity.Emergency.Wire/ToyCity.Emergency.Wire.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Path grading is shared word for word with the sim, so previews price exactly what the server builds. -->
+    <Compile Include="../ToyCity.Sim/PathGrade.cs" Link="Shared/PathGrade.cs" />
+  </ItemGroup>
 </Project>

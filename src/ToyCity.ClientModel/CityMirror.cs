@@ -20,6 +20,9 @@ public sealed class CityMirror
     public float CornerSteps(int x, int y) => Corners[CornerIdx(Math.Clamp(x, 0, Width), Math.Clamp(y, 0, Height))] / 20f;
     public byte[] Zones = Array.Empty<byte>();
     public ushort[] Paths = Array.Empty<ushort>();
+    /// <summary>Each cell's path surface: index into <see cref="Surfaces"/> + 1, 0 for none (Beta 3.2).</summary>
+    public byte[] PathSurfaces = Array.Empty<byte>();
+    public List<SurfaceInfo> Surfaces = new();
     public byte[] PowerLines = Array.Empty<byte>();
     public byte[] WaterPipes = Array.Empty<byte>();
     /// <summary>Building id + 1 per cell, 0 when empty. Roadside stops don't take a cell.</summary>
@@ -138,10 +141,12 @@ public sealed class CityMirror
         var pb = f.Paths.Span;
         Paths = new ushort[n];
         for (int i = 0; i < n; i++) Paths[i] = (ushort)(pb[2 * i] | (pb[2 * i + 1] << 8));
+        PathSurfaces = f.PathSurfaces.Length == n ? f.PathSurfaces.ToByteArray() : new byte[n];
         PowerLines = f.PowerLines.ToByteArray();
         WaterPipes = f.WaterPipes.ToByteArray();
         Profiles = f.Catalog.Profiles.ToList();
         Types = f.Catalog.BuildingTypes.ToList();
+        Surfaces = f.Catalog.Surfaces.ToList();
         TypeById.Clear();
         foreach (var t in Types) TypeById[t.Id] = t;
         if (f.Catalog.LotDepth.Count == 3) LotDepth = f.Catalog.LotDepth.ToArray();
@@ -187,7 +192,9 @@ public sealed class CityMirror
             if (Paths[i] != c.Path) roads = true;
             Heights[i] = (byte)c.Height;
             Zones[i] = (byte)c.Zone;
+            if (PathSurfaces[i] != c.Surface) roads = true;
             Paths[i] = (ushort)c.Path;
+            PathSurfaces[i] = (byte)c.Surface;
             PowerLines[i] = (byte)(c.PowerLine ? 1 : 0);
             WaterPipes[i] = (byte)(c.WaterPipe ? 1 : 0);
             _dirtyCells.Add(i);
@@ -260,6 +267,21 @@ public sealed class CityMirror
 
     public BuildingState? BuildingAtCell(int x, int y) =>
         InBounds(x, y) && BuildingAt[Idx(x, y)] is var id and > 0 && Buildings.TryGetValue(id - 1, out var b) ? b : null;
+
+    public SurfaceInfo? SurfaceAt(int i) => PathSurfaces.Length > i && PathSurfaces[i] is var s and > 0 && s <= Surfaces.Count ? Surfaces[s - 1] : null;
+
+    /// <summary>The surface code (index + 1) a profile is built in when asked for <paramref name="surface"/>, as the server picks it; -1 if not allowed.</summary>
+    public int SurfaceCode(PathProfileInfo p, string? surface)
+    {
+        if (p.Surfaces.Count == 0) return string.IsNullOrEmpty(surface) ? 0 : -1;
+        string id = string.IsNullOrEmpty(surface) ? p.Surfaces[0] : surface;
+        if (!p.Surfaces.Contains(id)) return -1;
+        return Surfaces.FindIndex(s => s.Id == id) + 1;
+    }
+
+    /// <summary>The steepest a profile in a surface code climbs, in percent: as the server's ContentDb.GradePct.</summary>
+    public int GradePct(PathProfileInfo p, int surfaceCode) =>
+        ToyCity.Sim.PathGrade.GradePct(p.MaxGradePct, p.Stairs, surfaceCode > 0 && surfaceCode <= Surfaces.Count ? Surfaces[surfaceCode - 1].MaxGradePct : -1);
 
     public PathProfileInfo? ProfileAt(int i) => Paths[i] is var p and > 0 && p <= Profiles.Count ? Profiles[p - 1] : null;
 

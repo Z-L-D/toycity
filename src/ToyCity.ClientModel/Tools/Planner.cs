@@ -14,6 +14,8 @@ public sealed class ToolState
     public bool BlockZoning;              // zone whole blocks with a click instead of painting areas
     public Leftover Leftover = Leftover.Leave;
     public string ProfileId = "road";
+    /// <summary>The surface to build paths in, by id; "" for the profile's default (Beta 3.2).</summary>
+    public string Surface = "";
     public bool Curve;                    // paths: set two ends, then bend
     public bool Diagonal;                 // paths: a straight line at any angle, drawn smooth
     public (int X0, int Y0, int X1, int Y1)? CurveEnds;
@@ -186,24 +188,29 @@ public static class Planner
             else
             {
                 int i = c.Idx(x, y);
-                if (path) { if (c.BuildingAt[i] != 0) good = false; if (c.Paths[i] != pi) cost += (prof?.CostPerCell ?? 0) * (c.IsRiver(i) ? BridgeCostTimes : 1); }
+                if (path) { if (c.BuildingAt[i] != 0) good = false; }
                 else if (t.Utility == UtilityKind.UtilityPowerLine) { if (c.BuildingAt[i] == 0 && c.PowerLines[i] == 0) cost += PowerLinePerCell; }
                 else if (c.WaterPipes[i] == 0) cost += WaterPipePerCell;
             }
             ok &= good;
             tinted.Add((x, y, !good ? Tint.Bad : path ? Tint.Road : t.Utility == UtilityKind.UtilityPowerLine ? Tint.Power : Tint.Water));
         }
-        int? grade = 0;
+        string? steep = null;
+        long grading = 0;
         if (path)
             foreach (var (x0, y0, x1, y1) in legs)
-                grade = GradeSteps(c, LCells(x0, y0, x1, y1)) is { } g && grade is { } sofar ? sofar + g : null;
-        ok &= grade != null;
-        cost += (grade ?? 0) * (long)GradeCostPerStep;
+            {
+                var plan = PlanPath(c, t, LCells(x0, y0, x1, y1));
+                cost += plan.Cost;
+                grading += plan.Grading;
+                steep ??= plan.Problem;
+            }
+        ok &= steep == null;
         var actions = legs.Select(l => path
-            ? new PAction { Path = new PlacePath { X0 = l.Item1, Y0 = l.Item2, X1 = l.Item3, Y1 = l.Item4, ProfileId = t.ProfileId } }
+            ? new PAction { Path = new PlacePath { X0 = l.Item1, Y0 = l.Item2, X1 = l.Item3, Y1 = l.Item4, ProfileId = t.ProfileId, Surface = t.Surface } }
             : new PAction { Utility = new PlaceUtility { X0 = l.Item1, Y0 = l.Item2, X1 = l.Item3, Y1 = l.Item4, Kind = t.Utility } }).ToList();
         string what = path ? ProfileName(c, t.ProfileId) : t.Utility == UtilityKind.UtilityPowerLine ? "Power line" : "Water pipe";
-        return new Preview(tinted, ok, grade == null ? "Too steep to grade between the roads it joins" : $"{what}, {cells.Count} cells: {Money(cost)}{Grading(grade)}", actions, $"{what} from {s.X},{s.Y} to {end.X},{end.Y}");
+        return new Preview(tinted, ok, steep ?? $"{what}{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(grading)}", actions, $"{what} from {s.X},{s.Y} to {end.X},{end.Y}");
     }
 
     static Preview Curve(CityMirror c, ToolState t, (int X0, int Y0, int X1, int Y1) e, Pointer p)
@@ -217,15 +224,14 @@ public static class Planner
         foreach (var (x, y) in cells)
         {
             bool good = c.InBounds(x, y) && (!c.IsWater(c.Idx(x, y)) || c.IsRiver(c.Idx(x, y))) && c.BuildingAt[c.Idx(x, y)] == 0;
-            if (good && c.Paths[c.Idx(x, y)] != pi) cost += (prof?.CostPerCell ?? 0) * (c.IsRiver(c.Idx(x, y)) ? BridgeCostTimes : 1);
             ok &= good;
             tinted.Add((x, y, good ? Tint.Road : Tint.Bad));
         }
-        var grade = GradeSteps(c, cells);
-        ok &= grade != null;
-        cost += (grade ?? 0) * (long)GradeCostPerStep;
-        var action = new PAction { Path = new PlacePath { X0 = e.X0, Y0 = e.Y0, X1 = e.X1, Y1 = e.Y1, ProfileId = t.ProfileId, Curved = true, Cx = p.X, Cy = p.Y } };
-        return new Preview(tinted, ok, grade == null ? "Too steep to grade between the roads it joins" : $"Curve, {cells.Count} cells: {Money(cost)}{Grading(grade)}", new() { action }, $"Curved {ProfileName(c, t.ProfileId)} from {e.X0},{e.Y0} to {e.X1},{e.Y1}");
+        var plan = PlanPath(c, t, cells);
+        cost += plan.Cost;
+        ok &= plan.Problem == null;
+        var action = new PAction { Path = new PlacePath { X0 = e.X0, Y0 = e.Y0, X1 = e.X1, Y1 = e.Y1, ProfileId = t.ProfileId, Curved = true, Cx = p.X, Cy = p.Y, Surface = t.Surface } };
+        return new Preview(tinted, ok, plan.Problem ?? $"Curve{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(plan.Grading)}", new() { action }, $"Curved {ProfileName(c, t.ProfileId)} from {e.X0},{e.Y0} to {e.X1},{e.Y1}");
     }
 
     /// <summary>The cells of a straight line at any angle: the same integer steps as World.LineCells.</summary>
@@ -250,72 +256,48 @@ public static class Planner
         return cells;
     }
 
-    /// <summary>The heights a run of cells is graded to: the same steps as World.Grade. Null when it can't be.</summary>
-    public static int[]? Grade(IReadOnlyList<int> h, IReadOnlyList<bool> fixedCell, int floor)
-    {
-        int n = h.Count;
-        const int Inf = 1 << 20;
-        var under = new int[n];
-        var over = new int[n];
-        var lo = new int[n];
-        var hi = new int[n];
-        for (int k = 0; k < n; k++)
-        {
-            under[k] = k > 0 ? Math.Min(h[k], under[k - 1] + 1) : h[k];
-            over[k] = k > 0 ? Math.Max(h[k], over[k - 1] - 1) : h[k];
-            lo[k] = Math.Max(fixedCell[k] ? h[k] : -Inf, k > 0 ? lo[k - 1] - 1 : -Inf);
-            hi[k] = Math.Min(fixedCell[k] ? h[k] : Inf, k > 0 ? hi[k - 1] + 1 : Inf);
-        }
-        for (int k = n - 2; k >= 0; k--)
-        {
-            under[k] = Math.Min(under[k], under[k + 1] + 1);
-            over[k] = Math.Max(over[k], over[k + 1] - 1);
-            lo[k] = Math.Max(lo[k], lo[k + 1] - 1);
-            hi[k] = Math.Min(hi[k], hi[k + 1] + 1);
-        }
-        var g = new int[n];
-        for (int k = 0; k < n; k++)
-        {
-            int low = Math.Max(lo[k], floor);
-            if (low > hi[k]) return null;
-            g[k] = Math.Clamp((under[k] + over[k]) >> 1, low, hi[k]);
-        }
-        return g;
-    }
+    /// <summary>What a path run costs (its cells, bridges and grading), and why it can't be built, as the server works it out.</summary>
+    public readonly record struct PathPlan(long Cost, long Grading, string? Problem, int GradePct);
 
     /// <summary>
-    /// The cut and fill for a path along these cells, in steps of earth moved (the road and its banks), as the
-    /// server works it out; null when it's too steep to grade. Cells off the map or under water count for nothing.
+    /// A path run of the tool's profile and surface along these cells: what it costs and whether it can be graded,
+    /// with the same <c>PathGrade</c> the server uses (Beta 3.2). Cells off the map or under water count for nothing.
     /// </summary>
-    public static int? GradeSteps(CityMirror c, List<(int X, int Y)> cells)
+    public static PathPlan PlanPath(CityMirror c, ToolState t, List<(int X, int Y)> cells)
     {
-        if (cells.Any(q => !c.InBounds(q.X, q.Y))) return 0;
+        var prof = c.Profiles.FirstOrDefault(q => q.Id == t.ProfileId);
+        if (prof == null) return new PathPlan(0, 0, $"Unknown path type '{t.ProfileId}'", 0);
+        int pi = c.Profiles.ToList().IndexOf(prof) + 1;
+        int surface = c.SurfaceCode(prof, t.Surface);
+        if (surface < 0) return new PathPlan(0, 0, $"A {prof.Name.ToLowerInvariant()} can't be built in that surface", 0);
+        int costPct = surface > 0 ? c.Surfaces[surface - 1].CostPct : 100;
+        int pct = c.GradePct(prof, surface);
+        long cost = 0;
+        foreach (var (x, y) in cells)
+        {
+            if (!c.InBounds(x, y)) continue;
+            int i = c.Idx(x, y);
+            if (c.IsWater(i) && !c.IsRiver(i)) continue;
+            if (c.Paths[i] != pi || (c.PathSurfaces.Length > i ? c.PathSurfaces[i] : 0) != surface)
+                cost += prof.CostPerCell * costPct / 100 * (c.IsRiver(i) ? BridgeCostTimes : 1);
+        }
+        if (cells.Any(q => !c.InBounds(q.X, q.Y))) return new PathPlan(cost, 0, null, pct);
         var idx = cells.Select(q => c.Idx(q.X, q.Y)).ToList();
         // A bridge's deck stands a step over the river and is fixed, as the server grades it.
-        var h = idx.Select(i => c.IsRiver(i) ? c.Rivers[i] + 1 : (int)c.Heights[i]).ToList();
-        var g = Grade(h, idx.Select(i => c.Paths[i] != 0 || c.IsRiver(i)).ToList(), c.WaterLevel);
-        if (g == null) return null;
-        var road = idx.ToHashSet();
-        var banks = new Dictionary<int, int>();
-        int steps = 0;
-        int[] dx = { 1, -1, 0, 0 }, dy = { 0, 0, 1, -1 };
-        for (int k = 0; k < idx.Count; k++)
+        var h = idx.Select(i => c.IsRiver(i) ? (c.Rivers[i] + 1) * 20 : ToyCity.Sim.PathGrade.CellDmOf(c.Corners, c.Width, i)).ToList();
+        var fix = idx.Select(i => c.Paths[i] != 0).ToList();
+        var deck = idx.Select(i => c.IsRiver(i) ? (c.Rivers[i] + 1) * 20 : int.MinValue).ToList();
+        int floor = c.WaterLevel * 20;
+        var g = ToyCity.Sim.PathGrade.Grade(h, fix, floor, ToyCity.Sim.PathGrade.MaxDeltaDm(pct), deck);
+        if (g == null)
         {
-            if (g[k] == h[k]) continue;
-            steps += Math.Abs(g[k] - h[k]);
-            for (int d = 0; d < 4; d++)
-            {
-                int nx = cells[k].X + dx[d], ny = cells[k].Y + dy[d];
-                if (!c.InBounds(nx, ny)) continue;
-                int j = c.Idx(nx, ny);
-                if (road.Contains(j) || c.Paths[j] != 0 || c.BuildingAt[j] != 0 || c.IsWater(j)) continue;
-                int now = banks.TryGetValue(j, out var b) ? b : c.Heights[j];
-                int eased = Math.Clamp(now, Math.Max(g[k] - 1, c.WaterLevel), g[k] + 1);
-                if (eased != now) banks[j] = eased;
-            }
+            var (need, _) = ToyCity.Sim.PathGrade.Needed(h, fix);
+            return new PathPlan(cost, 0, $"Too steep: the paths it joins need a {need}% climb; this climbs at most {pct}%", pct);
         }
-        foreach (var (j, eh) in banks) steps += Math.Abs(eh - c.Heights[j]);
-        return steps;
+        bool Locked(int i) => c.BuildingAt[i] != 0 || c.IsWater(i) || c.Paths[i] != 0;
+        var moved = ToyCity.Sim.PathGrade.Shape(c.Corners, c.Width, c.Height, idx, g, Locked, floor);
+        long grading = ToyCity.Sim.PathGrade.Cost(c.Corners, c.Width, idx, moved);
+        return new PathPlan(cost + grading, grading, null, pct);
     }
 
     /// <summary>A building's pad: the steps of earth it moves, or null when the lot rises more than a pad can level.</summary>
@@ -337,7 +319,15 @@ public static class Planner
     }
 
     /// <summary>The cost line's grading part: " (grading $X)", or nothing on ground that needs none.</summary>
-    static string Grading(int? steps) => steps is > 0 ? $" (grading {Money(steps.Value * (long)GradeCostPerStep)})" : "";
+    static string Grading(long dollars) => dollars > 0 ? $" (grading {Money(dollars)})" : "";
+
+    /// <summary>" in brick" when the tool builds in a surface other than the profile's default, else "".</summary>
+    static string SurfaceName(CityMirror c, ToolState t)
+    {
+        if (string.IsNullOrEmpty(t.Surface)) return "";
+        var s = c.Surfaces.FirstOrDefault(q => q.Id == t.Surface);
+        return s == null ? "" : $" in {s.Name.ToLowerInvariant()}";
+    }
 
     static Preview Diagonal(CityMirror c, ToolState t, (int X, int Y) s, Pointer p)
     {
@@ -351,15 +341,14 @@ public static class Planner
         foreach (var (x, y) in cells)
         {
             bool good = c.InBounds(x, y) && (!c.IsWater(c.Idx(x, y)) || c.IsRiver(c.Idx(x, y))) && c.BuildingAt[c.Idx(x, y)] == 0;
-            if (good && c.Paths[c.Idx(x, y)] != pi) cost += (prof?.CostPerCell ?? 0) * (c.IsRiver(c.Idx(x, y)) ? BridgeCostTimes : 1);
             ok &= good;
             tinted.Add((x, y, good ? Tint.Road : Tint.Bad));
         }
-        var grade = GradeSteps(c, cells);
-        ok &= grade != null;
-        cost += (grade ?? 0) * (long)GradeCostPerStep;
-        var action = new PAction { Path = new PlacePath { X0 = s.X, Y0 = s.Y, X1 = ex, Y1 = ey, ProfileId = t.ProfileId, Diagonal = true } };
-        return new Preview(tinted, ok, grade == null ? "Too steep to grade between the roads it joins" : $"Diagonal, {cells.Count} cells: {Money(cost)}{Grading(grade)}", new() { action }, $"Diagonal {ProfileName(c, t.ProfileId)} from {s.X},{s.Y} to {ex},{ey}");
+        var plan = PlanPath(c, t, cells);
+        cost += plan.Cost;
+        ok &= plan.Problem == null;
+        var action = new PAction { Path = new PlacePath { X0 = s.X, Y0 = s.Y, X1 = ex, Y1 = ey, ProfileId = t.ProfileId, Diagonal = true, Surface = t.Surface } };
+        return new Preview(tinted, ok, plan.Problem ?? $"Diagonal{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(plan.Grading)}", new() { action }, $"Diagonal {ProfileName(c, t.ProfileId)} from {s.X},{s.Y} to {ex},{ey}");
     }
 
     static Rect RectOf((int X, int Y) a, (int X, int Y) b) => new() { X0 = a.X, Y0 = a.Y, X1 = b.X, Y1 = b.Y };

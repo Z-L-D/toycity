@@ -97,17 +97,22 @@ public sealed partial class World
         return true;
     }
 
-    /// <summary>Checks a path run without changing anything. Returns null when valid, else the reason.</summary>
     /// <summary>A path over a river is a bridge, and costs this many times the path.</summary>
     public const int BridgeCostTimes = 5;
 
-    public string? ValidatePath(PlacePathAction a, out long cost, out int badX, out int badY)
+    /// <summary>Checks a path run without changing anything. Returns null when valid, else the reason.</summary>
+    public string? ValidatePath(PlacePathAction a, out long cost, out int badX, out int badY) => ValidatePath(a, out cost, out badX, out badY, out _);
+
+    string? ValidatePath(PlacePathAction a, out long cost, out int badX, out int badY, out PathWorks? works)
     {
-        cost = 0; badX = -1; badY = -1;
+        cost = 0; badX = -1; badY = -1; works = null;
         int profile = Content.ProfileIndex(a.ProfileId);
         if (profile < 0) return $"Unknown path type '{a.ProfileId}'.";
+        int surface = Content.SurfaceCode(profile, a.Surface);
+        if (surface < 0) return $"A {Content.Profiles[profile].Name.ToLowerInvariant()} can't be built in '{a.Surface}'.";
         var cells = PathCellsOf(a);
         if (cells.Count > MaxPathRun) return $"That run is too long: at most {MaxPathRun} cells at a time.";
+        int costPct = surface > 0 ? Content.Surfaces[surface - 1].CostPct : 100;
         foreach (var (x, y) in cells)
         {
             badX = x; badY = y;
@@ -116,38 +121,71 @@ public sealed partial class World
             if (IsWater(i) && !IsRiver(i)) return "Paths can't cross the sea or a lake; a river they can bridge.";
             if (BuildingAt[i] != 0) return $"A building is in the way at {x},{y}. Bulldoze it first.";
             // A bridge costs five times the road.
-            if (Path[i] != profile + 1) cost += Content.Profiles[profile].CostPerCell * (IsRiver(i) ? BridgeCostTimes : 1);
+            if (Path[i] != profile + 1 || PathSurface[i] != surface)
+                cost += (long)Content.Profiles[profile].CostPerCell * costPct / 100 * (IsRiver(i) ? BridgeCostTimes : 1);
         }
-        // The ground is graded to at most a step a cell, between the roads it meets.
-        var works = Earthworks(cells, out int bad);
+        // The ground is graded to the steepest the path's type and surface allow, between the paths it meets.
+        works = PlanPath(cells, profile, surface, out int bad, out int need);
         if (works == null)
         {
             (badX, badY) = cells[bad];
-            return $"Too steep at {badX},{badY}: the roads it joins are too far apart in height to grade between.";
+            return $"Too steep at {badX},{badY}: the paths it joins would need a {need}% climb, and a {Content.Profiles[profile].Name.ToLowerInvariant()}" +
+                   $"{(surface > 0 ? " in " + Content.Surfaces[surface - 1].Name.ToLowerInvariant() : "")} climbs at most {Content.GradePct(profile, surface)}%.{SteeperSuggestion(profile, need)}";
         }
-        cost += EarthworksCost(works, GradeCostPerStep);
+        cost += works.Cost;
         badX = badY = -1;
         return null;
     }
 
-    /// <summary>The cut and fill a path would need, as the cells it changes and their new heights.</summary>
-    public List<(int I, int H)> PathEarthworks(PlacePathAction a) => Earthworks(PathCellsOf(a), out _) ?? new();
+    /// <summary>" Try a ..." naming a path type and surface that climbs <paramref name="pct"/>, or "" when none does.</summary>
+    string SteeperSuggestion(int profile, int pct)
+    {
+        var p = Content.Profiles[profile];
+        // The same type in a surface that holds the grade first, then a type that carries the same traffic.
+        foreach (var sid in p.Surfaces)
+        {
+            int s = Content.SurfaceIndex(sid) + 1;
+            if (Content.GradePct(profile, s) >= pct) return $" Try it in {Content.Surfaces[s - 1].Name.ToLowerInvariant()}.";
+        }
+        for (int k = 0; k < Content.Profiles.Count; k++)
+        {
+            var q = Content.Profiles[k];
+            if (q.Rail != p.Rail || (p.Cars && !q.Cars)) continue;
+            foreach (var sid in q.Surfaces.DefaultIfEmpty(""))
+            {
+                int s = sid == "" ? 0 : Content.SurfaceIndex(sid) + 1;
+                if (Content.GradePct(k, s) >= pct) return $" Try a {q.Name.ToLowerInvariant()}{(s > 0 && sid != q.Surfaces[0] ? " in " + Content.Surfaces[s - 1].Name.ToLowerInvariant() : "")}.";
+            }
+        }
+        return "";
+    }
+
+    /// <summary>The time to cross a path cell at free flow, by its type and surface.</summary>
+    public int PathCellTime(int i)
+    {
+        if (Path[i] == 0) return 0;
+        int t = Content.Profiles[Path[i] - 1].CellTime;
+        return PathSurface[i] > 0 ? Math.Max(1, t * 100 / Content.Surfaces[PathSurface[i] - 1].SpeedPct) : t;
+    }
 
     void ApplyPath(PlacePathAction a)
     {
-        var err = ValidatePath(a, out long cost, out int bx, out int by);
+        var err = ValidatePath(a, out long cost, out int bx, out int by, out var works);
         if (err != null) { Reject(err, bx, by); return; }
         if (!Spend(cost, a.X0, a.Y0)) return;
-        ushort code = (ushort)(Content.ProfileIndex(a.ProfileId) + 1);
+        int profile = Content.ProfileIndex(a.ProfileId);
+        ushort code = (ushort)(profile + 1);
+        byte surface = (byte)Content.SurfaceCode(profile, a.Surface);
         ForgetBusRoutes();
         var cells = PathCellsOf(a);
-        ApplyEarthworks(Earthworks(cells, out _)!);
+        ApplyPathWorks(works!);
         foreach (var (x, y) in cells)
         {
             int i = Idx(x, y);
             Path[i] = code;
+            PathSurface[i] = surface;
             ZoneCode[i] = 0;
-            TravelCost[i] = Content.Profiles[code - 1].CellTime;
+            TravelCost[i] = PathCellTime(i);
         }
         CheckStrips();
         AddStrip(a, code, cells);
@@ -317,6 +355,7 @@ public sealed partial class World
             int i = Idx(x, y);
             if (a.Underground) { WaterPipe[i] = 0; continue; }
             Path[i] = 0;
+            PathSurface[i] = 0;
             PowerLine[i] = 0;
             TravelCost[i] = 0;
             Traffic[i] = 0;
