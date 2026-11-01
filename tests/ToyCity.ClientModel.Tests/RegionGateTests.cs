@@ -215,6 +215,8 @@ public class RegionGateTests
             Console.WriteLine($"GATE {seen}");
             string RowGaps(Mayor m, int y) => string.Concat(Enumerable.Range(0, m.City.Width).Select(x => m.RoadAt(x, y) ? '=' : m.City.IsWater(m.City.Idx(x, y)) ? '~' : '.'));
             Console.WriteLine($"GATE DIAG May pop {may.City.Stats.Population}; Tess pop {tess.City.Stats.Population}");
+            int Lots(Mayor m, int x0, int y0, int x1, int y1) => Enumerable.Range(y0, y1 - y0 + 1).Sum(yy => Enumerable.Range(x0, x1 - x0 + 1).Count(xx => m.City.BuildingAt[m.City.Idx(xx, yy)] != 0));
+            Console.WriteLine($"GATE DIAG built cells by the border road: Toyville {Lots(may, 3, row + 1, 20, row + 3)} of 54, Westbrook {Lots(tess, tess.City.Width - 21, row - 3, tess.City.Width - 4, row - 1)} of 54");
             Console.WriteLine($"GATE DIAG May row {RowGaps(may, row)}");
             Console.WriteLine($"GATE DIAG Tess row {RowGaps(tess, row)}");
             Assert.True(may.Region.Stopped == "", seen);
