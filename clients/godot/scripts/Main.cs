@@ -65,6 +65,7 @@ public partial class Main : Node
             if (args[i] == "--gate" && i + 1 < args.Length) _gateFile = args[++i];
             if (args[i] == "--together" && i + 1 < args.Length) _togetherFile = args[++i];
             if (args[i] == "--mountains" && i + 1 < args.Length) _mountainFile = args[++i];
+            if (args[i] == "--hills" && i + 1 < args.Length) { _mountainFile = args[++i]; _hills = true; }
             if (args[i] == "--graphics" && i + 1 < args.Length) _graphicsPreset = args[++i];
             if (args[i] == "--user" && i + 1 < args.Length) user = args[++i];
             if (args[i] == "--password" && i + 1 < args.Length) password = args[++i];

@@ -27,9 +27,13 @@ public partial class Main
 
     bool Scripted => _bench != null || _gateFile != null || _togetherFile != null || _mountainFile != null;
 
+    /// <summary>The Beta 3.2 gate's hill run (--hills FILE) rather than the mountains: the same measuring, its own steps.</summary>
+    bool _hills;
+    string Tag => _hills ? "HILLS" : "MOUNTAIN";
+
     void Mountains(double delta)
     {
-        _mountainSteps ??= MountainSteps().GetEnumerator();
+        _mountainSteps ??= (_hills ? HillSteps() : MountainSteps()).GetEnumerator();
         _mountainClock += delta;
         if (_mountainView != null) MountainTimes(_mountainView).Add(delta * 1000);
         try
@@ -125,7 +129,7 @@ public partial class Main
             {
                 DirAccess.MakeDirRecursiveAbsolute(_shots);
                 string file = string.Concat(name.Select(ch => char.IsLetterOrDigit(ch) ? ch : '-'));
-                GetViewport().GetTexture().GetImage().SavePng($"{_shots}/mountain-{_mountainShot++:00}-{file}.png");
+                GetViewport().GetTexture().GetImage().SavePng($"{_shots}/{Tag.ToLowerInvariant()}-{_mountainShot++:00}-{file}.png");
             }
             _mountainView = null;
             return true;
@@ -153,7 +157,7 @@ public partial class Main
         _mountainSteps = null;
         var json = new StringBuilder();
         var table = new StringBuilder("| View | Frames | Avg ms | p95 ms | Worst ms | fps | Triangles | Draw calls |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n");
-        json.Append($"{{\"passed\":{(failure == null ? "true" : "false")},\"failure\":{Quote(failure?.Message ?? "")},\"seed\":{MountainSeed},");
+        json.Append($"{{\"passed\":{(failure == null ? "true" : "false")},\"failure\":{Quote(failure?.Message ?? "")},\"seed\":{(_hills ? HillSeed : MountainSeed)},");
         json.Append($"\"renderer\":{Quote($"{RenderingServer.GetVideoAdapterName()} / {RenderingServer.GetCurrentRenderingDriverName()}")},\"graphics\":\"{_graphics.PresetName}\",\"seconds\":{_mountainClock:F0},\"views\":[");
         bool first = true;
         foreach (var name in _mountainOrder)
@@ -170,10 +174,10 @@ public partial class Main
         json.Append(string.Join(",", _mountainChecks.Select(k => $"{{\"check\":{Quote(k.Check)},\"ok\":{(k.Ok ? "true" : "false")},\"seen\":{Quote(k.Seen)}}}")));
         json.Append("]}");
         using (var file = global::Godot.FileAccess.Open(_mountainFile, global::Godot.FileAccess.ModeFlags.Write)) file.StoreString(json.ToString());
-        foreach (var (check, ok, seen) in _mountainChecks) GD.Print($"MOUNTAIN {(ok ? "ok" : "FAILED")}  {check}: {seen}");
-        foreach (var line in table.ToString().TrimEnd().Split('\n')) GD.Print($"MOUNTAIN {line}");
-        if (failure != null) GD.PrintErr($"MOUNTAIN FAILED: {failure.Message}");
-        else GD.Print($"MOUNTAIN OK, wrote {_mountainFile}");
+        foreach (var (check, ok, seen) in _mountainChecks) GD.Print($"{Tag} {(ok ? "ok" : "FAILED")}  {check}: {seen}");
+        foreach (var line in table.ToString().TrimEnd().Split('\n')) GD.Print($"{Tag} {line}");
+        if (failure != null) GD.PrintErr($"{Tag} FAILED: {failure.Message}");
+        else GD.Print($"{Tag} OK, wrote {_mountainFile}");
         GetTree().Quit(failure == null ? 0 : 1);
     }
 }
