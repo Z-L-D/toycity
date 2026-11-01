@@ -105,13 +105,27 @@ public class RegionGateTests
             if (y < City.Height - 1) yield return i + w;
         }
 
+        /// <summary>What the road a plan lays would cost, leg by leg, as the server prices it (grading and rock too).</summary>
+        public long Price((int Fx, int Fy, int Ox) plan, int side, int y)
+        {
+            var (fx, fy, ox) = plan;
+            int edge = side == 1 ? City.Width - 1 : 0;
+            var t = new Tools.ToolState { Kind = Tools.ToolKind.Path, ProfileId = "road" };
+            long Leg(int x0, int y0, int x1, int y1) => Tools.Planner.PlanPath(City, t, Tools.Planner.LineCells(x0, y0, x1, y1)) is { Problem: null } p ? p.Cost : long.MaxValue / 8;
+            // A straight run from the street prices exactly; with a turn, each leg is graded against the one before,
+            // which can cost as much again as it priced alone, so a turn counts double.
+            if (fy == y) return Leg(fx, y, edge, y);
+            long legs = Leg(fx, fy, ox, fy) + Leg(ox, fy, ox, y) + Leg(ox, y, edge, y);
+            return legs >= long.MaxValue / 8 ? legs : legs * 2;
+        }
+
         public bool Build((int Fx, int Fy, int Ox) plan, int side, int y)
         {
             var (fx, fy, ox) = plan;
             int edge = side == 1 ? City.Width - 1 : 0;
-            Road(fx, fy, ox, fy);
-            if (fy != y) Road(ox, fy, ox, y);
-            Road(ox, y, edge, y);
+            if (fy == y) { Road(fx, y, edge, y); ox = fx; }
+            else Road(fx, fy, ox, fy);
+            if (fy != y) { Road(ox, fy, ox, y); Road(ox, y, edge, y); }
             // Actions apply at once, paused or not: the road shows in a moment, or it was refused.
             var until = DateTime.UtcNow.AddSeconds(3);
             while (DateTime.UtcNow < until && !(RoadAt(edge, y) && RoadAt(ox, y) && RoadAt(ox, fy))) { Client.Poll(); Thread.Sleep(10); }
@@ -154,18 +168,29 @@ public class RegionGateTests
             // A road across the border, at a row both towns can reach: May's from Toyville's west side, Tess's from
             // Westbrook's east side, meeting at the edge.
             // Graded over hills a road to the border costs more than a starter town has in hand, so both mayors borrow.
-            may.Client.Connection.Act(new PAction { Loan = new TakeLoan { Amount = 150_000 } });
-            tess.Client.Connection.Act(new PAction { Loan = new TakeLoan { Amount = 150_000 } });
+            may.Client.Connection.Act(new PAction { Loan = new TakeLoan { Amount = 400_000 } });
+            tess.Client.Connection.Act(new PAction { Loan = new TakeLoan { Amount = 400_000 } });
             int row = -1;
+            // Rows through the towns first, as commuters want them; each priced first with the client's planner (the
+            // server's own grading, rock and all), so a road over the hills isn't started where the money would run out.
+            may.WaitFor(() => may.City.Stats.Funds > 300_000, "May's loan");
+            tess.WaitFor(() => tess.City.Stats.Funds > 300_000, "Tess's loan");
             var townRows = Enumerable.Range(0, may.City.Width * may.City.Height).Where(i => may.City.Paths[i] != 0).Select(i => i / may.City.Width).Distinct().OrderBy(r => r).ToList();
+            var rows = new List<(int Y, (int, int, int) Mine, (int, int, int) Hers, long Worst)>();
             foreach (int y in townRows.Concat(townRows.Select(r => r + 6)).Concat(Enumerable.Range(4, may.City.Height - 8)).Distinct())
             {
                 if (y < 4 || y > may.City.Height - 5) continue;
-                var mine = may.PlanToBorder(3, y);
-                var hers = tess.PlanToBorder(1, y);
-                if (mine == null || hers == null) continue;
-                bool built = may.Build(mine.Value, 3, y) & tess.Build(hers.Value, 1, y);
-                Console.WriteLine($"GATE row {y}: Toyville {mine}, Westbrook {hers}, built {built}; May told: {string.Join(" | ", may.Told.TakeLast(3))}; Tess told: {string.Join(" | ", tess.Told.TakeLast(3))}");
+                if (may.PlanToBorder(3, y) is not { } mine || tess.PlanToBorder(1, y) is not { } hers) continue;
+                long a = may.Price(mine, 3, y), b = tess.Price(hers, 1, y);
+                // A tenth to spare: grading can come out a little dearer than it priced.
+                if (a * 11 / 10 > may.City.Stats.Funds || b * 11 / 10 > tess.City.Stats.Funds) continue;
+                rows.Add((y, mine, hers, Math.Max(a, b)));
+            }
+            Console.WriteLine($"GATE {rows.Count} affordable rows; May has {may.City.Stats.Funds:N0}, Tess {tess.City.Stats.Funds:N0}");
+            foreach (var (y, mine, hers, worst) in rows.Take(3))
+            {
+                bool built = may.Build(mine, 3, y) & tess.Build(hers, 1, y);
+                Console.WriteLine($"GATE row {y}: Toyville {mine}, Westbrook {hers}, priced {worst:N0}, built {built}; May told: {string.Join(" | ", may.Told.TakeLast(3))}; Tess told: {string.Join(" | ", tess.Told.TakeLast(3))}");
                 if (built) { row = y; break; }
             }
             Assert.True(row >= 0, "a road joins Toyville and Westbrook across their border");
