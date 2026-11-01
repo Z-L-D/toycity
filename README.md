@@ -5,7 +5,9 @@ simulation runs as a headless, authoritative server; front ends only draw it and
 Later phases link side games (transport, emergency services, hospital, zoo, theme park, farm,
 life sim) to lots in the city for live joined play.
 
-This repository is at **Beta 3.1: realistic terrain.** A city grows from paths, zones and services, every lot can
+This repository is at **Beta 3.2, part 1: hills.** Paths climb as steeply as their type and surface allow and the
+ground is graded to fit them, with tunnels under hills and stairs on steep footpaths; the ground has soil over rock,
+and the starter town sits on a hillside. Before that, **Beta 3.1: realistic terrain.** A city grows from paths, zones and services, every lot can
 tell you why it is the way it is, cities sit side by side in regions with traffic, trade and deals across their
 borders, and a bus company and the emergency services run as side games with their own screens. The ground is an
 SC4-style heightfield of corners with mountains, rivers and floods. The Godot client in `clients/godot` is the way
@@ -13,21 +15,18 @@ to play; the web client stays as the debug and admin client.
 
 ## Screenshots
 
-From the Beta 3.1 gate run (Godot, CI runner with software rendering) and the web client. Each release adds a new
-set under [`docs/screenshots`](docs/screenshots).
+From the Beta 3.2 hill gate run (Godot, CI runner with software rendering) and the web client. Each release adds a
+new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
+[`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
 
 | | |
 | --- | --- |
-| ![Mountain City, the whole map](docs/screenshots/beta3-1/godot-classic-whole-map.jpg) | ![The peaks from afar](docs/screenshots/beta3-1/godot-peaks.jpg) |
-| Godot, classic camera: a 256-cell mountain map | Free camera: the peaks from afar |
-| ![A mountainside](docs/screenshots/beta3-1/godot-mountainside.jpg) | ![The river valley](docs/screenshots/beta3-1/godot-river-valley.jpg) |
-| A mountainside, low down | The river valley and the starter town |
-| ![The town from the hills](docs/screenshots/beta3-1/godot-town-from-hills.jpg) | ![A street close up](docs/screenshots/beta3-1/godot-street.jpg) |
-| The town from above the hills | A street close up |
-| ![The web client's mountain map](docs/screenshots/beta3-1/web-mountain-map.jpg) | ![The web client's dispatch screen](docs/screenshots/beta3-1/web-dispatch-calls.jpg) |
-| Web client: the same ground in the same colours | Web client: dispatch on its own screen |
-| ![A scene](docs/screenshots/beta3-1/web-dispatch-scene.jpg) | ![A report card](docs/screenshots/beta3-1/web-dispatch-report.jpg) |
-| Dispatch: a scene | Dispatch: its report card |
+| ![The hillside town](docs/screenshots/beta3-2/godot-town-from-hills.jpg) | ![A road tunnelling under a hill](docs/screenshots/beta3-2/godot-tunnel.jpg) |
+| Godot, free camera: the starter town on its hillside | A road tunnelling under a hill, rock bands in the slopes |
+| ![A street on the slope](docs/screenshots/beta3-2/godot-street-on-slope.jpg) | ![The town, classic camera](docs/screenshots/beta3-2/godot-town-classic.jpg) |
+| A street climbing the slope | Classic camera: the town's streets graded into the hill |
+| ![The web client's hill map](docs/screenshots/beta3-2/web-whole-map.jpg) | ![The web client's tunnel](docs/screenshots/beta3-2/web-tunnel.jpg) |
+| Web client: soil, four rocks and snow, the same ground as Godot | Web client: the tunnel drawn dashed under the hill |
 
 ## Roadmap
 
@@ -41,6 +40,7 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 2 | Multiplayer, consent, de-linking, emergency services alpha, transport beta | Done |
 | Beta 3 | Regions, cross-border play, federated hosting, emergency services beta | Done |
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
+| Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); the clock, road weather, underground view, lighting, growing regions | In progress |
 | Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | Next |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
@@ -50,6 +50,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-01 | **Beta 3.2, part 1: hills** (PR #13) | Path grades by type and surface, every path graded into the ground, tunnels and stairs, made ground with retaining walls, soil over four kinds of rock with cuts that follow the material, a starter town on a hillside. [Gate](docs/GATE-BETA3-2.md) |
 | 2026-10-31 | **Beta 3.1** (PR #12) | Corner heightfield, mountain generator, Godot terrain shader, realistic roads, rivers, bridges and floods, computer mayors build to their neighbours, bus lines across borders, web dispatch screen. [Gate](docs/GATE-BETA3-1.md) |
 | 2026-10-31 | **Beta 3: Regions** (PR #11) | Regions on one clock, border connections, commuters and freight across borders, neighbour deals, computer mayors, federated hosting, emergency services beta. [Gate](docs/GATE-BETA3.md) |
 | 2026-10-30 | **Beta 2: Together** (PR #7, #8) | Accounts and dedicated servers, seats, consent, council, dispute ladder, de-linking, emergency services alpha, trams, trains, freight, smooth shapes. [Gate](docs/GATE-BETA2.md) |
