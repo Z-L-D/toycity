@@ -119,17 +119,26 @@ public class RegionGateTests
             return legs >= long.MaxValue / 8 ? legs : legs * 2;
         }
 
+        /// <summary>
+        /// Lays a plan's legs one at a time, each after the one before has shown: a leg is graded against what's
+        /// already there (a cut into rock stands nearly sheer, and the next leg may not climb out of it), so each is
+        /// checked whole. False at the first leg refused.
+        /// </summary>
         public bool Build((int Fx, int Fy, int Ox) plan, int side, int y)
         {
             var (fx, fy, ox) = plan;
             int edge = side == 1 ? City.Width - 1 : 0;
-            if (fy == y) { Road(fx, y, edge, y); ox = fx; }
-            else Road(fx, fy, ox, fy);
-            if (fy != y) { Road(ox, fy, ox, y); Road(ox, y, edge, y); }
-            // Actions apply at once, paused or not: the road shows in a moment, or it was refused.
-            var until = DateTime.UtcNow.AddSeconds(3);
-            while (DateTime.UtcNow < until && !(RoadAt(edge, y) && RoadAt(ox, y) && RoadAt(ox, fy))) { Client.Poll(); Thread.Sleep(10); }
-            return RoadAt(edge, y) && RoadAt(ox, y) && RoadAt(ox, fy);
+            var legs = fy == y ? new[] { (fx, y, edge, y) } : new[] { (fx, fy, ox, fy), (ox, fy, ox, y), (ox, y, edge, y) };
+            foreach (var (x0, y0, x1, y1) in legs)
+            {
+                Road(x0, y0, x1, y1);
+                var cells = Tools.Planner.LineCells(x0, y0, x1, y1);
+                // Actions apply at once, paused or not: the road shows in a moment, or it was refused.
+                var until = DateTime.UtcNow.AddSeconds(3);
+                while (DateTime.UtcNow < until && !cells.All(q => RoadAt(q.X, q.Y))) { Client.Poll(); Thread.Sleep(10); }
+                if (!cells.All(q => RoadAt(q.X, q.Y))) return false;
+            }
+            return true;
         }
 
         public void Dispose() => Client.Dispose();
@@ -176,22 +185,28 @@ public class RegionGateTests
             may.WaitFor(() => may.City.Stats.Funds > 300_000, "May's loan");
             tess.WaitFor(() => tess.City.Stats.Funds > 300_000, "Tess's loan");
             var townRows = Enumerable.Range(0, may.City.Width * may.City.Height).Where(i => may.City.Paths[i] != 0).Select(i => i / may.City.Width).Distinct().OrderBy(r => r).ToList();
-            var rows = new List<(int Y, (int, int, int) Mine, (int, int, int) Hers, long Worst)>();
-            foreach (int y in townRows.Concat(townRows.Select(r => r + 6)).Concat(Enumerable.Range(4, may.City.Height - 8)).Distinct())
+            // Each attempt plans afresh: a refused one leaves stubs that later plans go around.
+            var tried = new HashSet<int>();
+            int affordable = 0;
+            for (int attempt = 0; attempt < 6 && row < 0; attempt++)
             {
-                if (y < 4 || y > may.City.Height - 5) continue;
-                if (may.PlanToBorder(3, y) is not { } mine || tess.PlanToBorder(1, y) is not { } hers) continue;
-                long a = may.Price(mine, 3, y), b = tess.Price(hers, 1, y);
-                // A tenth to spare: grading can come out a little dearer than it priced.
-                if (a * 11 / 10 > may.City.Stats.Funds || b * 11 / 10 > tess.City.Stats.Funds) continue;
-                rows.Add((y, mine, hers, Math.Max(a, b)));
-            }
-            Console.WriteLine($"GATE {rows.Count} affordable rows; May has {may.City.Stats.Funds:N0}, Tess {tess.City.Stats.Funds:N0}");
-            foreach (var (y, mine, hers, worst) in rows.Take(3))
-            {
-                bool built = may.Build(mine, 3, y) & tess.Build(hers, 1, y);
-                Console.WriteLine($"GATE row {y}: Toyville {mine}, Westbrook {hers}, priced {worst:N0}, built {built}; May told: {string.Join(" | ", may.Told.TakeLast(3))}; Tess told: {string.Join(" | ", tess.Told.TakeLast(3))}");
-                if (built) { row = y; break; }
+                (int Y, (int, int, int) Mine, (int, int, int) Hers, long Worst)? pick = null;
+                affordable = 0;
+                foreach (int y in townRows.Concat(townRows.Select(r => r + 6)).Concat(Enumerable.Range(4, may.City.Height - 8)).Distinct())
+                {
+                    if (y < 4 || y > may.City.Height - 5 || tried.Contains(y)) continue;
+                    if (may.PlanToBorder(3, y) is not { } mine || tess.PlanToBorder(1, y) is not { } hers) continue;
+                    long a = may.Price(mine, 3, y), b = tess.Price(hers, 1, y);
+                    // A tenth to spare: grading can come out a little dearer than it priced.
+                    if (a * 11 / 10 > may.City.Stats.Funds || b * 11 / 10 > tess.City.Stats.Funds) continue;
+                    affordable++;
+                    pick ??= (y, mine, hers, Math.Max(a, b));
+                }
+                if (pick is not { } p) break;
+                tried.Add(p.Y);
+                bool built = may.Build(p.Mine, 3, p.Y) && tess.Build(p.Hers, 1, p.Y);
+                Console.WriteLine($"GATE row {p.Y} ({affordable} affordable rows; May has {may.City.Stats.Funds:N0}, Tess {tess.City.Stats.Funds:N0}): Toyville {p.Mine}, Westbrook {p.Hers}, priced {p.Worst:N0}, built {built}; May told: {string.Join(" | ", may.Told.TakeLast(3))}; Tess told: {string.Join(" | ", tess.Told.TakeLast(3))}");
+                if (built) row = p.Y;
             }
             Assert.True(row >= 0, "a road joins Toyville and Westbrook across their border");
             Console.WriteLine($"GATE border road on row {row}");
