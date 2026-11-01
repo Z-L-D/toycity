@@ -178,6 +178,9 @@ public static class Mapping
         s.TransitBoardings = w.TransitBoardings;
         if (w.Weather != WeatherKind.Clear) s.Weather = $"{World.WeatherIcon(w.Weather)} {World.WeatherName(w.Weather, w.WeatherStrength)}";
         s.FloodStage = w.FloodStage;
+        s.ClockMinute = w.ClockMinute;
+        s.Pace = w.Pace;
+        s.ClockMinutesPerTick = w.ClockMinutesPerTick;
         foreach (var d in w.Disasters)
             s.Disasters.Add(new P.Disaster { Id = d.Id, Kind = (P.DisasterKind)(int)d.Kind, X = d.X, Y = d.Y, DaysLeft = d.DaysLeft, Destroyed = d.Destroyed, Damaged = d.Damaged });
         foreach (var (label, amount) in w.LastBudget) s.Budget.Add(new P.BudgetLine { Label = label, Amount = amount });
@@ -529,6 +532,7 @@ public static class Mapping
                 NeighbourEdgeAction ne => new P.ActionRecord { Tick = l.Tick, By = ne.By, Neighbour = Edge(ne) },
                 WeatherAction wa => new P.ActionRecord { Tick = l.Tick, By = wa.By, Weather = new P.RegionWeather { Kind = (P.WeatherKind)(int)wa.Kind, Strength = wa.Strength } },
                 FloodAction fa => new P.ActionRecord { Tick = l.Tick, By = fa.By, Flood = new P.RegionFlood { Stage = fa.Stage } },
+                SetPaceAction pa => new P.ActionRecord { Tick = l.Tick, By = pa.By, Pace = new P.RegionPace { DaysPerClockDay = pa.DaysPerClockDay } },
                 CityDealAction cd => new P.ActionRecord
                 {
                     Tick = l.Tick, By = cd.By,
@@ -557,6 +561,7 @@ public static class Mapping
                 : r.Neighbour != null ? Edge(r.Neighbour)
                 : r.Weather is { } wr ? new WeatherAction((WeatherKind)(int)wr.Kind, wr.Strength)
                 : r.Flood is { } fr ? new FloodAction(fr.Stage)
+                : r.Pace is { } pr ? new SetPaceAction(pr.DaysPerClockDay)
                 : r.Deal is { } d ? new CityDealAction(d.Id, (DealKind)(int)d.Kind, d.Selling, d.Side, d.Other, d.Amount, d.Price, d.End, d.Why)
                 : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())
                 : r.Action == null ? null : ToSim(r.Action);

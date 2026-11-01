@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 10;
+    public const int FormatVersion = 11;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -219,11 +219,12 @@ public sealed partial class World
     /// Founds a city on a region tile: the ground is the region's, cut out for this tile, and the calendar starts on
     /// the region's day so every tile shares one clock.
     /// </summary>
-    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick, byte[]? rivers = null, (ushort[] Bedrock, byte[] Rock)? geology = null)
+    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick, byte[]? rivers = null, (ushort[] Bedrock, byte[] Rock)? geology = null, (long Minute, int Pace)? clock = null)
     {
         if (size is not (64 or 128 or 256)) throw new ArgumentOutOfRangeException(nameof(size), "size must be 64, 128 or 256");
         if (corners.Length != (size + 1) * (size + 1)) throw new ArgumentException("corners must cover the tile", nameof(corners));
         var w = new World(content, size, size, seed, name) { Tick = tick, FoundedTick = tick };
+        if (clock is { } k) w.SetClock(k.Minute, k.Pace);
         w.Funds = content.StartingFunds;
         corners.CopyTo(w.Corner, 0);
         rivers?.CopyTo(w.River, 0);
@@ -298,12 +299,15 @@ public sealed partial class World
         OneOffs = 0;
         BudgetRan = false;
         ApplyPending();
+        // After the day's actions, so a change of pace counts from this step.
+        BeginClockStep();
         RunCouncil();
         RunDisputes();
         RunTenders();
         bool stasis = InStasis;
         if (stasis) HoldPrompts();
-        else RunDisasters();
+        // Fires and storms play out on the day clock, a turn at a time.
+        else if (NewTurn) RunDisasters();
 
         if (Day == 1 && Age > 0) RunMonthly();
         RunUtilities();
@@ -318,10 +322,13 @@ public sealed partial class World
         RunCommutes();
         RunFloods();
         UpdateStats();
-        if (!stasis) RaiseCityIncidents();
+        // The city's own calls come on the day clock too, so a dispatcher hears them at one rate an hour whatever the
+        // calendar's pace.
+        if (!stasis && NewTurn) RaiseCityIncidents();
         RunSideGames();
         AccrueDeals();
         Tick++;
+        EndClockStep();
     }
 
     public void Run(int days)
@@ -441,6 +448,7 @@ public sealed partial class World
             w.Write(Made);
             WriteU16(w, Bedrock);
             w.Write(Rock);
+            WriteClock(w);
         }
         return ms.ToArray();
     }
@@ -549,6 +557,16 @@ public sealed partial class World
         // Format 10 added the ground's layers; an older save gets them from its ground as it stands.
         if (version >= 10) { ReadU16(r, w.Bedrock); ReadBytes(r, w.Rock); }
         else w.GenerateGeology();
+        // Format 11 added the day clock. An older city takes up a year a clock day, its clock where the region's
+        // calendar puts it, so tiles of one region read the same hour.
+        if (version >= 11) w.ReadClock(r);
+        else
+        {
+            w.SetClock(ClockStartMinute + w.FoundedTick * (MinutesPerClockDay / OldSavePace), OldSavePace);
+            (w.FoundedClockMinute, w.FoundedPace) = (w.ClockMinute, w.Pace);
+            w.SetClock(ClockStartMinute + w.Tick * (MinutesPerClockDay / OldSavePace), OldSavePace);
+            w.RememberFromThisTurn();
+        }
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

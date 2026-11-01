@@ -87,6 +87,7 @@ public sealed partial class RegionHost
             long tick = _region.Tick;
             var starts = WithAll(() =>
             {
+                KeepPace();
                 _region.BeginDay();
                 var list = new List<(TileLink, P.LeaderMessage)>();
                 foreach (var l in _links)

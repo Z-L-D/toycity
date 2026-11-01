@@ -56,6 +56,8 @@ public sealed partial class World
                 return null;  // always about the sender and one other player
             case SetHostRulesAction:
                 return "Only the server sets its host's rules.";
+            case SetPaceAction:
+                return "The calendar's pace is set for the whole region, with the clock's pace control.";
             case RenameOwnerAction:
                 return "Only the server hands a player's seats to another.";
             case ForkAction:

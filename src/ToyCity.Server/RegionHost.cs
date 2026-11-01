@@ -31,7 +31,10 @@ public sealed partial class RegionHost : IDisposable
     string _regionSig = "";
 
     /// <summary>Milliseconds per tick (one day) at speeds 1, 2 and 3: a game year takes an hour, twenty minutes or five.</summary>
-    static readonly int[] TickMs = { 0, 10_000, 3_333, 833 };
+    /// <summary>How long a day of the day clock lasts at each speed (Beta 3.2, C2): an hour, half an hour, ten minutes.</summary>
+    public static readonly int[] ClockDayMs = { 0, 3_600_000, 1_800_000, 600_000 };
+    /// <summary>The region's calendar pace: calendar days per clock day. Every city here keeps it.</summary>
+    volatile int _pace;
 
     /// <summary>How long a mayor who isn't an admin may hold the whole region paused.</summary>
     public const int MayorPauseSeconds = 120;
@@ -67,6 +70,7 @@ public sealed partial class RegionHost : IDisposable
         _accounts = accounts ?? (_host.Dedicated ? new AccountStore(Path.Combine(saveDir, "accounts.json")) : null);
         Directory.CreateDirectory(saveDir);
         _region = StartingRegion(content);
+        _pace = World.IsPace(_host.Pace) ? _host.Pace : 360;
         _cities = new SimHost?[_region.Tiles.Length];
         InitLinks();
         lock (_gate) OpenCities();
@@ -86,6 +90,36 @@ public sealed partial class RegionHost : IDisposable
 
     /// <summary>The region's speed, 0 (paused) to 3.</summary>
     public int Speed => _speed;
+    /// <summary>The region's calendar pace, in calendar days per clock day.</summary>
+    public int Pace => _pace;
+
+    /// <summary>How long a calendar day lasts in real time at a speed and pace: a clock day's share.</summary>
+    public static int DayMs(int speed, int pace) => speed <= 0 ? 0 : ClockDayMs[Math.Min(speed, 3)] / Math.Max(1, pace);
+
+    /// <summary>
+    /// Every city here keeps the region's pace: one that differs (just founded, or arrived from elsewhere) is told, by
+    /// a logged action, so its replays keep the same hours. Caller holds the gates.
+    /// </summary>
+    void KeepPace()
+    {
+        foreach (var t in _region.Tiles)
+            if (t.City is { } w && w.Pace != _pace) { w.Enqueue(new SetPaceAction(_pace)); w.ApplyPending(); }
+    }
+
+    /// <summary>
+    /// A player sets the calendar's pace for the region: an admin, or the mayor when every city here is theirs (a
+    /// region shares one calendar, so one mayor can't speed it up for the others). Returns why not, or null.
+    /// </summary>
+    string? SetPace(Client c, int pace)
+    {
+        if (!World.IsPace(pace)) return "That isn't one of the calendar's paces.";
+        var mayors = _region.Tiles.Where(t => t.City != null).Select(t => t.Mayor).Distinct().ToList();
+        if (!c.Admin && !(mayors.Count == 1 && mayors[0] == c.Player))
+            return "The region shares one calendar: only this server's admins can change its pace while other mayors play here.";
+        _pace = pace;
+        KeepPace();
+        return null;
+    }
 
     public bool Online(string player)
     {
@@ -158,9 +192,10 @@ public sealed partial class RegionHost : IDisposable
             if (speed == 0) { Thread.Sleep(50); next = sw.ElapsedMilliseconds; continue; }
             long now = sw.ElapsedMilliseconds;
             if (now < next) { Thread.Sleep((int)Math.Min(20, next - now)); continue; }
-            int dayMs = speed == 3 ? Math.Max(0, _host.FastDayMs) : TickMs[speed];
-            // A player at an emergency scene slows the clock to normal speed.
-            if (_sceneOpen) dayMs = Math.Max(dayMs, _host.SceneDayMs);
+            // The day clock sets the pace: a clock day an hour at speed 1, shared by the calendar's days at its pace.
+            int dayMs = speed == 3 && _host.FastDayMs is int fast ? Math.Max(0, fast) : DayMs(speed, _pace);
+            // A player at an emergency scene slows the day clock to speed 1.
+            if (_sceneOpen) dayMs = Math.Max(dayMs, _host.SceneDayMs ?? DayMs(1, _pace));
             next = Math.Max(next + dayMs, now - 1000);
 
             var outbox = StepDay(() =>
@@ -264,6 +299,7 @@ public sealed partial class RegionHost : IDisposable
                  ?? Enumerable.Empty<string>(),
             _pictures);
         s.SpeedSetBy = _speedBy;
+        s.Pace = _pace;
         s.Waiting = _waiting;
         s.Stopped = _stopped;
         s.LedgerMonths = _ledgerMonths;
@@ -449,6 +485,16 @@ public sealed partial class RegionHost : IDisposable
             case P.ClientMessage.BodyOneofCase.Save when !c.Admin && msg.Save.Name.Length > 0:
                 reply = SimHost.Error(msg.Seq, "Only this server's admins can save, load, or start a new city or region.");
                 break;
+            case P.ClientMessage.BodyOneofCase.Pace:
+                broadcast = WithAll(() =>
+                {
+                    if (SetPace(c, msg.Pace.DaysPerClockDay) is { } why) { reply = SimHost.Error(msg.Seq, why); return null; }
+                    var list = new List<(Client, P.ServerMessage)>();
+                    foreach (var city in Cities) list.AddRange(city.Deltas());
+                    list.AddRange(RegionIfChanged(force: true));
+                    return list;
+                });
+                break;
             case P.ClientMessage.BodyOneofCase.Speed:
                 broadcast = WithAll(() =>
                 {
@@ -505,7 +551,7 @@ public sealed partial class RegionHost : IDisposable
                 var r = Region.Create(_content, string.IsNullOrWhiteSpace(n.Name) ? "New Region" : n.Name.Trim(), seed, cols, rows, size);
                 // Someone has to be somewhere: the middle tile always has a city, a starter town if asked for.
                 r.Found(cols / 2, rows / 2, string.IsNullOrWhiteSpace(n.CityName) ? "New City" : n.CityName.Trim()[..Math.Min(40, n.CityName.Trim().Length)], c.Player, n.StarterTown);
-                broadcast = WithAll(() => Replace(r, c.Player));
+                broadcast = WithAll(() => { _pace = World.IsPace(_host.Pace) ? _host.Pace : 360; return Replace(r, c.Player); });
                 break;
             }
             case P.ClientMessage.BodyOneofCase.FoundCity:
@@ -525,6 +571,7 @@ public sealed partial class RegionHost : IDisposable
                         return null;
                     }
                     _region.Found(f.Col, f.Row, name, c.Player, f.StarterTown, computer);
+                    KeepPace();
                     _pictures.Clear();
                     OpenCities();
                     string by = computer is { } st ? $"{World.ComputerName(st, _region.TileAt(f.Col, f.Row)!.Seed)}, a {World.Temperament(st)} computer mayor," : c.Player;
@@ -666,6 +713,10 @@ public sealed partial class RegionHost : IDisposable
         foreach (var city in Cities) foreach (var (cl, _, _) in moving.Where(x => x.cl.Host == city).ToList()) city.Leave(cl);
         _region = next;
         _cities = new SimHost?[next.Tiles.Length];
+        // A loaded region keeps the pace it was saved at; a new one (all of it founded today) takes the host's.
+        var first = next.Tiles.Select(t => t.City).FirstOrDefault(w => w != null);
+        if (first != null && first.Age > 0) _pace = first.Pace;
+        KeepPace();
         // Tile hosts of the old region let go; they join the new one if it has their tile.
         foreach (var l in _links)
             if (l != null) { l.Dead = true; _ = l.Socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "the region changed", CancellationToken.None).ContinueWith(_ => { }); }

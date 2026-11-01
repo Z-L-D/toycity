@@ -5,9 +5,12 @@ simulation runs as a headless, authoritative server; front ends only draw it and
 Later phases link side games (transport, emergency services, hospital, zoo, theme park, farm,
 life sim) to lots in the city for live joined play.
 
-This repository is at **Beta 3.2, part 1: hills.** Paths climb as steeply as their type and surface allow and the
-ground is graded to fit them, with tunnels under hills and stairs on steep footpaths; the ground has soil over rock,
-and the starter town sits on a hillside. Before that, **Beta 3.1: realistic terrain.** A city grows from paths, zones and services, every lot can
+This repository is at **Beta 3.2, part 2: the clock.** The game keeps two clocks: a day clock for the hours
+(commuters, emergency calls, the sun), where a day lasts an hour at speed 1, half an hour at 2 and ten minutes at 3,
+and a calendar for the months (growth, building, money, seasons) whose pace the mayor sets, from a month to two years
+in each clock day. **Part 1: hills** made paths climb as steeply as their type and surface allow, with the ground
+graded to fit them, tunnels under hills, stairs on steep footpaths, soil over rock, and a starter town on a hillside.
+Before that, **Beta 3.1: realistic terrain.** A city grows from paths, zones and services, every lot can
 tell you why it is the way it is, cities sit side by side in regions with traffic, trade and deals across their
 borders, and a bus company and the emergency services run as side games with their own screens. The ground is an
 SC4-style heightfield of corners with mountains, rivers and floods. The Godot client in `clients/godot` is the way
@@ -15,9 +18,20 @@ to play; the web client stays as the debug and admin client.
 
 ## Screenshots
 
-From the Beta 3.2 hill gate run (Godot, CI runner with software rendering) and the web client. Each release adds a
+From the Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release adds a
 new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
+
+Part 2, the clock ([`docs/screenshots/beta3-2-clock`](docs/screenshots/beta3-2-clock)):
+
+| | |
+| --- | --- |
+| ![The web client's top bar with both clocks](docs/screenshots/beta3-2-clock/web-clock-city.jpg) | ![The dispatch screen on the day clock](docs/screenshots/beta3-2-clock/web-dispatch-clock.jpg) |
+| Web client: "Mon 09:12 · January, year 1", the calendar at a month a clock day | The dispatch screen reads the day clock; its calls wait in hours and minutes |
+| ![The Godot client with the clock and pace menu](docs/screenshots/beta3-2-clock/godot-clock-city.jpg) | ![The Godot dispatch board on the day clock](docs/screenshots/beta3-2-clock/godot-dispatch-clock.jpg) |
+| Godot client (CI together run): "Mon 12:02 · May, year 1" with the pace menu at two years a day | Godot dispatch board: "Response, last clock day", a response of 21 min |
+
+Part 1, hills ([`docs/screenshots/beta3-2`](docs/screenshots/beta3-2)):
 
 | | |
 | --- | --- |
@@ -40,16 +54,18 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 2 | Multiplayer, consent, de-linking, emergency services alpha, transport beta | Done |
 | Beta 3 | Regions, cross-border play, federated hosting, emergency services beta | Done |
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
-| Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); the clock, road weather, underground view, lighting, growing regions | In progress |
+| Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); road weather, underground view, lighting, growing regions | In progress |
 | Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | Next |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
+| 1.x | Holidays and seasonal events across the city and every side game, on the shared calendar | |
 | 2.x | Farm, then life sim | |
 
 ## Releases
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-01 | **Beta 3.2, part 2: the clock** (PR #14) | Two clocks: a day clock for the hours (calls, crews, fires, storms go by it in 48-minute turns) and a calendar for growth and money, at a pace the mayor picks from a month to two years a clock day; side games and every city in a region share both. [Gate](docs/GATE-BETA3-2-CLOCK.md) |
 | 2026-11-01 | **Beta 3.2, part 1: hills** (PR #13) | Path grades by type and surface, every path graded into the ground, tunnels and stairs, made ground with retaining walls, soil over four kinds of rock with cuts that follow the material, a starter town on a hillside. [Gate](docs/GATE-BETA3-2.md) |
 | 2026-10-31 | **Beta 3.1** (PR #12) | Corner heightfield, mountain generator, Godot terrain shader, realistic roads, rivers, bridges and floods, computer mayors build to their neighbours, bus lines across borders, web dispatch screen. [Gate](docs/GATE-BETA3-1.md) |
 | 2026-10-31 | **Beta 3: Regions** (PR #11) | Regions on one clock, border connections, commuters and freight across borders, neighbour deals, computer mayors, federated hosting, emergency services beta. [Gate](docs/GATE-BETA3.md) |

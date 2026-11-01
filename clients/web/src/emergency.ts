@@ -3,6 +3,7 @@
 // scene fills the middle with a top-down picture of it, where the player moves crews, draws paths and gives orders;
 // when it ends its report card comes up over it. Nothing here aims or drives carefully for the player: the switches
 // in Settings decide how much the crews do alone.
+import { span } from './clock';
 import { decodeEmergencyView, encodeEmergencyCommand, type Connection, type Msg } from './net';
 
 export interface EmergencyHost {
@@ -12,7 +13,7 @@ export interface EmergencyHost {
   /** The city's cells across, for naming its 32-cell districts. */
   cityWidth?(): number;
   /** The city's date and speed, for the service's top bar. */
-  clock?(): { month: number; day: number; year: number; speed: number };
+  clock?(): { month: number; day: number; year: number; speed: number; text?: string };
   /** The service's screen came up (true) or went (false): the city's tools and panel go or come back. */
   onModeChange?(on: boolean): void;
   /** Marks the service's calls on the city map while its screen is up, or clears them (null). */
@@ -217,7 +218,8 @@ export class Emergency {
   private renderTop() {
     const v = this.view;
     const c = this.host.clock?.();
-    $('#em-date').textContent = c?.month ? `${MONTHS[c.month - 1]} ${c.day}, ${c.year}` : '…';
+    // A dispatcher lives by the day clock; the calendar's month is there for the seasons.
+    $('#em-date').textContent = c?.text ?? (c?.month ? `${MONTHS[c.month - 1]} ${c.day}, ${c.year}` : '…');
     document.querySelectorAll<HTMLButtonElement>('#em-speed button').forEach((b) => b.classList.toggle('active', Number(b.dataset.speed) === c?.speed));
     $('#em-conn').className = $('#conn').className;
     if (!v) { $('#em-name').textContent = 'No emergency services'; $('#em-stats').innerHTML = ''; $('#em-seat').innerHTML = ''; return; }
@@ -383,7 +385,7 @@ export class Emergency {
       }
       if (this.mine && c.status === 'rolling' && v.style === 2) act = `<button class="mini" data-em="take:${c.id}">Take scene</button>`;
       if (c.status === 'scene') act = `<button class="mini" data-em="watch:${c.sceneId}">${this.mine ? 'Run scene' : 'Watch'}</button>`;
-      const status = c.status === 'done' ? `done: ${c.outcome}` : c.status === 'waiting' && c.waitedDays ? `waiting ${c.waitedDays}d` : c.status;
+      const status = c.status === 'done' ? `done: ${c.outcome}` : c.status === 'waiting' && c.waitedDays ? `waiting ${span(c.waitedDays)}` : c.status;
       return `<div class="em-call ${c.status}">
         <div>${KIND_ICON[c.kind] ?? '•'} <b>${esc(c.text)}</b> <span class="muted">sev ${c.severity} · ${status}${c.minutes ? ` · ${c.minutes} min` : ''}</span>
           <a href="#" data-em="go:${c.id}">map</a></div>
@@ -407,7 +409,7 @@ export class Emergency {
       const kind = s.kind === 'fire-station' ? 0 : s.kind === 'police-station' ? 1 : 2;
       const units = (v.units as Msg[]).filter((u) => u.stationLeaseId === s.leaseId);
       return `<div class="em-station"><b>${esc(s.name)}</b>
-        ${units.map((u) => `<div>${UNIT_ICON[u.kind]} ${esc(u.name)} <span class="muted">${u.crew} crew · ${u.state}${u.backInDays ? ` (${u.backInDays}d)` : ''}</span>
+        ${units.map((u) => `<div>${UNIT_ICON[u.kind]} ${esc(u.name)} <span class="muted">${u.crew} crew · ${u.state}${u.backInDays ? ` (back in ${span(u.backInDays)})` : ''}</span>
           ${this.mine && u.state === 'ready' ? `<button class="mini" data-em="sell:${u.id}">Sell</button>` : ''}
           ${GEAR.filter((g) => g[1] === u.kind).map(([item, , name, does]) => (u.gear as string[]).includes(item)
             ? `<div class="small">✓ ${name} <span class="muted">${does}</span></div>`
@@ -429,11 +431,11 @@ export class Emergency {
     </div>`).join('');
   }
 
-  /** Response-time grades over the last thirty days, by kind of call: they count toward the service's rating. */
+  /** Response-time grades over the last day of the clock (thirty turns), by kind of call: they count toward the service's rating. */
   private renderRatings(): string {
     const r = (this.view!.ratings as Msg[]).filter((x) => x.calls > 0);
-    if (!r.length) return `<p class="muted small">Response ratings: no calls answered in the last 30 days.</p>`;
-    return `<div class="em-ratings"><b>Response, last 30 days</b> ${r.map((x) =>
+    if (!r.length) return `<p class="muted small">Response ratings: no calls answered in the last day of the clock.</p>`;
+    return `<div class="em-ratings"><b>Response, last clock day</b> ${r.map((x) =>
       `<span>${esc(x.kind)} <b class="grade grade-${x.grade}">${x.grade}</b> <span class="muted">${x.minutes} min · ${x.calls}</span></span>`).join(' ')}</div>`;
   }
 
