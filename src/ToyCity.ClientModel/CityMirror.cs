@@ -26,6 +26,12 @@ public sealed class CityMirror
     public ushort[] PathDecks = Array.Empty<ushort>();
     /// <summary>1 where earthworks reshaped the land (Beta 3.2): drawn as grassed banks, not rock.</summary>
     public byte[] Made = Array.Empty<byte>();
+    /// <summary>The top of the rock at each grid corner, in dm (G1): the ground above it is soil.</summary>
+    public ushort[] Bedrock = Array.Empty<ushort>();
+    /// <summary>The rock under each cell: 1 shale, 2 sandstone, 3 limestone, 4 granite (0 unknown).</summary>
+    public byte[] Rock = Array.Empty<byte>();
+    /// <summary>Soil depth at a corner, in dm.</summary>
+    public int SoilDm(int corner) => Bedrock.Length > corner ? Corners[corner] - Bedrock[corner] : 1000;
     /// <summary>A path cell that runs in a tunnel under the ground (Beta 3.2).</summary>
     public bool IsTunnel(int i) => PathDecks.Length > i && PathDecks[i] > 0 && Paths[i] != 0 && !IsRiver(i);
     public List<SurfaceInfo> Surfaces = new();
@@ -150,6 +156,11 @@ public sealed class CityMirror
         PathSurfaces = f.PathSurfaces.Length == n ? f.PathSurfaces.ToByteArray() : new byte[n];
         Made = f.MadeGround.Length == n ? f.MadeGround.ToByteArray() : new byte[n];
         PathDecks = new ushort[n];
+        Rock = f.Rock.Length == n ? f.Rock.ToByteArray() : new byte[n];
+        Bedrock = new ushort[Corners.Length];
+        var bb = f.Bedrock.Span;
+        // A server from before layers: soil all the way down (bedrock at 0).
+        if (bb.Length == 2 * Corners.Length) for (int i = 0; i < Bedrock.Length; i++) Bedrock[i] = (ushort)(bb[2 * i] | (bb[2 * i + 1] << 8));
         var db = f.PathDecks.Span;
         if (db.Length == 2 * n) for (int i = 0; i < n; i++) PathDecks[i] = (ushort)(db[2 * i] | (db[2 * i + 1] << 8));
         PowerLines = f.PowerLines.ToByteArray();
@@ -189,6 +200,7 @@ public sealed class CityMirror
         foreach (var c in d.Corners)
         {
             Corners[c.Index] = (ushort)c.Dm;
+            if (Bedrock.Length > c.Index) Bedrock[c.Index] = (ushort)Math.Min(c.BedrockDm, c.Dm);
             // The cells around a moved corner are drawn again.
             int cx = c.Index % (Width + 1), cy = c.Index / (Width + 1);
             for (int dy = -1; dy <= 0; dy++)

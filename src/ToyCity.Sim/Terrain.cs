@@ -74,6 +74,7 @@ public sealed partial class World
                 if (!done.Add(cy * cw + cx)) continue;
                 int was = Corner[cy * cw + cx];
                 Corner[cy * cw + cx] = (ushort)CornerFromCells(cx, cy);
+                KeepBedrockUnder(cy * cw + cx);
                 if (made && was != Corner[cy * cw + cx]) MarkMade(cx, cy);
             }
         }
@@ -111,7 +112,7 @@ public sealed partial class World
         int cw = Width + 1;
         for (int cy = y; cy <= y + h; cy++)
         for (int cx = x; cx <= x + w; cx++)
-            if (cx <= Width && cy <= HeightCells) Corner[cy * cw + cx] = (ushort)CornerFromCells(cx, cy);
+            if (cx <= Width && cy <= HeightCells) { Corner[cy * cw + cx] = (ushort)CornerFromCells(cx, cy); KeepBedrockUnder(cy * cw + cx); }
     }
 
     /// <summary>Every lot's ground flat to its edges: for ground made from cells, which averages across them.</summary>
@@ -128,6 +129,7 @@ public sealed partial class World
         g.Corners.CopyTo(Corner, 0);
         g.Rivers.CopyTo(River, 0);
         DeriveHeights(0, 0, Width - 1, HeightCells - 1);
+        GenerateGeology();
     }
 
     /// <summary>

@@ -316,8 +316,8 @@ public static class Planner
             cost += each * (under[k] ? ToyCity.Sim.PathGrade.TunnelCostTimes : c.IsRiver(i) ? BridgeCostTimes : 1);
         }
         bool Locked(int i) => c.BuildingAt[i] != 0 || c.IsWater(i) || c.Paths[i] != 0;
-        var moved = ToyCity.Sim.PathGrade.Shape(c.Corners, c.Width, c.Height, openIdx, openG, Locked, floor);
-        long grading = ToyCity.Sim.PathGrade.Cost(c.Corners, c.Width, openIdx, moved);
+        var moved = ToyCity.Sim.PathGrade.Shape(c.Corners, c.Width, c.Height, openIdx, openG, Locked, floor, c.Bedrock, c.Rock);
+        long grading = ToyCity.Sim.PathGrade.Cost(c.Corners, c.Width, openIdx, moved, c.Bedrock, c.Rock);
         return new PathPlan(cost + grading, grading, null, pct, ToyCity.Sim.PathGrade.DeepestCut(h, g, fix, under), under.Count(u => u));
     }
 

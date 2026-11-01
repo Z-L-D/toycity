@@ -210,7 +210,7 @@ public static class Mapping
         var f = new P.FullState
         {
             Width = w.Width, Height = w.HeightCells, WaterLevel = w.WaterLevel,
-            Heights = ByteString.CopyFrom(w.Height), Corners = ByteString.CopyFrom(CornerBytes(w)), Rivers = ByteString.CopyFrom(w.River), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)), PathSurfaces = ByteString.CopyFrom(w.PathSurface), PathDecks = ByteString.CopyFrom(U16Bytes(w.PathDeck)), MadeGround = ByteString.CopyFrom(w.Made),
+            Heights = ByteString.CopyFrom(w.Height), Corners = ByteString.CopyFrom(CornerBytes(w)), Rivers = ByteString.CopyFrom(w.River), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)), PathSurfaces = ByteString.CopyFrom(w.PathSurface), PathDecks = ByteString.CopyFrom(U16Bytes(w.PathDeck)), MadeGround = ByteString.CopyFrom(w.Made), Bedrock = ByteString.CopyFrom(U16Bytes(w.Bedrock)), Rock = ByteString.CopyFrom(w.Rock),
             PowerLines = ByteString.CopyFrom(w.PowerLine), WaterPipes = ByteString.CopyFrom(w.WaterPipe),
             Stats = Stats(w, speed), Catalog = Catalog(w.Content), Seed = w.Seed,
         };
@@ -580,7 +580,7 @@ public sealed class DeltaTracker
     byte[] _heights = Array.Empty<byte>(), _zones = Array.Empty<byte>(), _lines = Array.Empty<byte>(), _pipes = Array.Empty<byte>(), _surfaces = Array.Empty<byte>();
     ushort[] _decks = Array.Empty<ushort>();
     byte[] _made = Array.Empty<byte>();
-    ushort[] _paths = Array.Empty<ushort>(), _corners = Array.Empty<ushort>();
+    ushort[] _paths = Array.Empty<ushort>(), _corners = Array.Empty<ushort>(), _bedrock = Array.Empty<ushort>();
     int _strips;
     readonly Dictionary<int, P.BuildingState> _buildings = new();
 
@@ -596,6 +596,7 @@ public sealed class DeltaTracker
         _made = (byte[])w.Made.Clone();
         _paths = (ushort[])w.Path.Clone();
         _corners = (ushort[])w.Corner.Clone();
+        _bedrock = (ushort[])w.Bedrock.Clone();
         _strips = w.StripsVersion;
         _buildings.Clear();
         foreach (var b in w.Buildings) if (b != null) _buildings[b.Id] = Mapping.Building(w, b);
@@ -619,9 +620,10 @@ public sealed class DeltaTracker
         }
         for (int i = 0; i < w.Corner.Length; i++)
         {
-            if (_corners[i] == w.Corner[i]) continue;
+            if (_corners[i] == w.Corner[i] && _bedrock[i] == w.Bedrock[i]) continue;
             _corners[i] = w.Corner[i];
-            d.Corners.Add(new P.CornerUpdate { Index = i, Dm = w.Corner[i] });
+            _bedrock[i] = w.Bedrock[i];
+            d.Corners.Add(new P.CornerUpdate { Index = i, Dm = w.Corner[i], BedrockDm = w.Bedrock[i] });
         }
         var alive = new HashSet<int>();
         foreach (var b in w.Buildings)

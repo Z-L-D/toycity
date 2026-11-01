@@ -27,7 +27,7 @@ const DISASTER_NAMES = ['Fire', 'Tornado', 'Earthquake', 'Clockwork Colossus'];
 const DISASTER_SETTINGS = ['Off', 'Rare', 'Normal'];
 
 const DENSITY_NAMES = ['Low', 'Medium', 'High'];
-const TERRAFORM_NAMES = ['Raise', 'Lower', 'Level', 'Smooth'];
+const TERRAFORM_NAMES = ['Raise', 'Lower', 'Level', 'Smooth', 'Even slope'];
 /** The cost line's grading part, or nothing on ground that needs none. */
 const grading = (dollars: number) => (dollars > 0 ? ` (grading ${money(dollars)})` : '');
 const ZONE_COST = 5;

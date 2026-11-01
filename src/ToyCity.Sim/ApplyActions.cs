@@ -490,6 +490,7 @@ public sealed partial class World
         foreach (var (c, h) in moves)
         {
             Corner[c] = (ushort)h;
+            KeepBedrockUnder(c);
             // Levelled and sloped ground is earthworks (Beta 3.2): it's drawn as grassed banks, not rock.
             if (a.Mode is TerraformMode.Level or TerraformMode.Slope) MarkMade(c % cw, c / cw);
         }

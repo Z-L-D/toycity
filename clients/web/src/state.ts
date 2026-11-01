@@ -114,6 +114,10 @@ export class City {
   pathDecks = new Uint16Array(0);
   /** 1 where earthworks reshaped the land: drawn as grassed banks, not rock. */
   made = new Uint8Array(0);
+  /** The top of the rock at each grid corner, in dm; the ground above it is soil. */
+  bedrock = new Uint16Array(0);
+  /** The rock under each cell: 1 shale, 2 sandstone, 3 limestone, 4 granite. */
+  rock = new Uint8Array(0);
   surfaces: Surface[] = [];
   powerLines = new Uint8Array(0);
   waterPipes = new Uint8Array(0);
@@ -158,6 +162,11 @@ export class City {
     this.pathSurfaces = sb?.length === n ? new Uint8Array(sb) : new Uint8Array(n);
     const mb = f.madeGround as Uint8Array | undefined;
     this.made = mb?.length === n ? new Uint8Array(mb) : new Uint8Array(n);
+    const rb = f.rock as Uint8Array | undefined;
+    this.rock = rb?.length === n ? new Uint8Array(rb) : new Uint8Array(n);
+    const bb = f.bedrock as Uint8Array | undefined;
+    this.bedrock = new Uint16Array(this.corners.length);
+    if (bb?.length === 2 * this.corners.length) for (let k = 0; k < this.bedrock.length; k++) this.bedrock[k] = bb[2 * k] | (bb[2 * k + 1] << 8);
     const db = f.pathDecks as Uint8Array | undefined;
     this.pathDecks = new Uint16Array(n);
     if (db?.length === 2 * n) for (let i = 0; i < n; i++) this.pathDecks[i] = db[2 * i] | (db[2 * i + 1] << 8);
@@ -206,7 +215,9 @@ export class City {
     if (d.stats) this.stats = d.stats;
     if (d.stripsChanged) this.setStrips(d.strips ?? []);
     for (const u of (d.corners ?? []) as Msg[]) {
-      if (u.index >= this.corners.length || this.corners[u.index] === u.dm) continue;
+      if (u.index >= this.corners.length) continue;
+      this.bedrock[u.index] = Math.min(u.bedrockDm ?? 0, u.dm ?? 0);
+      if (this.corners[u.index] === u.dm) continue;
       this.corners[u.index] = u.dm;
       terrain = true;
       // The four cells around the corner.
@@ -581,9 +592,13 @@ export function shape(c: City, run: number[], target: number[], locked: (i: numb
         if (nx < 0 || ny < 0 || nx >= cw || ny >= ch) continue;
         const n = ny * cw + nx;
         if (sum.has(n) || isLocked(n)) continue;
-        const reach = Math.max(dx !== 0 && dy !== 0 ? Math.trunc((BANK_DM_PER_CELL * 141) / 100) : BANK_DM_PER_CELL, Math.abs(corners[q] - corners[n]));
+        const diag = dx !== 0 && dy !== 0;
+        const soil = diag ? Math.trunc((BANK_DM_PER_CELL * 141) / 100) : BANK_DM_PER_CELL, natural = Math.abs(corners[q] - corners[n]);
         const now = get(n);
-        let eased = Math.min(here + reach, Math.max(here - reach, now));
+        // A fill slopes like soil; a cut stands at its material's angle.
+        const below = here - Math.max(soil, natural);
+        const above = Math.max(here + natural, cutTop(here, c.bedrock[n] ?? 0, soil, rockReach(c, nx, ny, diag)));
+        let eased = Math.min(above, Math.max(below, now));
         if (eased < floorDm && now >= floorDm) eased = floorDm;
         if (eased === now) continue;
         val.set(n, eased);
@@ -596,7 +611,29 @@ export function shape(c: City, run: number[], target: number[], locked: (i: numb
   return moved;
 }
 
-/** Dollars of earthworks: full price under the path, a tenth for its banks. As PathGrade.Cost. */
+/** Rocks under the ground, as PathGrade.RockKinds: name, how steep a cut stands (dm a cell), times soil's cost. */
+export const ROCK_KINDS: [string, number, number][] = [
+  ['soil', BANK_DM_PER_CELL, 1], ['shale', 300, 2], ['sandstone', 600, 2], ['limestone', 900, 2], ['granite', 1600, 3],
+];
+
+function rockKindAt(c: City, cx: number, cy: number): number {
+  const k = c.rock[Math.min(cy, c.height - 1) * c.width + Math.min(cx, c.width - 1)] ?? 0;
+  return k < ROCK_KINDS.length ? k : 0;
+}
+
+function rockReach(c: City, cx: number, cy: number, diag: boolean): number {
+  const r = ROCK_KINDS[rockKindAt(c, cx, cy)][1];
+  return diag ? Math.trunc((r * 141) / 100) : r;
+}
+
+/** As PathGrade.CutTop: sheer at the rock's angle to the top of the rock, then soil's for the rest of the cell. */
+export function cutTop(here: number, bed: number, soilReach: number, rockReachDm: number): number {
+  if (here >= bed || rockReachDm <= soilReach) return here + soilReach;
+  if (here + rockReachDm <= bed) return here + rockReachDm;
+  return bed + Math.trunc((soilReach * (here + rockReachDm - bed)) / rockReachDm);
+}
+
+/** Dollars of earthworks: full price under the path, a tenth for its banks, rock at its kind's times. As PathGrade.Cost. */
 export function earthCost(c: City, run: number[], moved: Map<number, number>): number {
   const cw = c.width + 1, own = new Set<number>();
   for (const i of run) {
@@ -605,7 +642,9 @@ export function earthCost(c: City, run: number[], moved: Map<number, number>): n
   }
   let path = 0, banks = 0;
   for (const [q, v] of moved) {
-    const d = Math.abs(v - c.corners[q]);
+    let d = Math.abs(v - c.corners[q]);
+    const from = c.corners[q], bed = c.bedrock[q] ?? 0;
+    if (v < from) d += Math.max(0, Math.min(from, bed) - v) * (ROCK_KINDS[rockKindAt(c, q % cw, (q / cw) | 0)][2] - 1);
     if (own.has(q)) path += d; else banks += d;
   }
   return Math.trunc((path * COST_PER_STEP * BANK_COST_DIVISOR + banks * COST_PER_STEP + COST_PER_STEP_DM * BANK_COST_DIVISOR - 1) / (COST_PER_STEP_DM * BANK_COST_DIVISOR));

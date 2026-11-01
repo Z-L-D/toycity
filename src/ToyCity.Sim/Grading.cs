@@ -59,8 +59,8 @@ public sealed partial class World
         var openG = new List<int>();
         for (int k = 0; k < idx.Count; k++)
             if (!under[k]) { openIdx.Add(idx[k]); openG.Add(g[k]); }
-        var moved = PathGrade.Shape(Corner, Width, HeightCells, openIdx, openG, GradeLocked, WaterLevel * StepDm);
-        return new PathWorks(g, under, moved, PathGrade.Cost(Corner, Width, openIdx, moved), pct, Content.StairsAbovePct(profile, surfaceCode),
+        var moved = PathGrade.Shape(Corner, Width, HeightCells, openIdx, openG, GradeLocked, WaterLevel * StepDm, Bedrock, Rock);
+        return new PathWorks(g, under, moved, PathGrade.Cost(Corner, Width, openIdx, moved, Bedrock, Rock), pct, Content.StairsAbovePct(profile, surfaceCode),
             PathGrade.DeepestCut(h, g, fix, under));
     }
 
@@ -74,6 +74,7 @@ public sealed partial class World
         foreach (var (c, v) in works.Corners)
         {
             Corner[c] = (ushort)Math.Clamp(v, 0, MaxCornerDm);
+            KeepBedrockUnder(c);
             int cx = c % cw, cy = c / cw;
             MarkMade(cx, cy);
             for (int dy = -1; dy <= 0; dy++)

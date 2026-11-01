@@ -934,6 +934,8 @@ message FullState {
   bytes path_surfaces = 16; // each cell's path surface: index into Catalog.surfaces + 1, 0 for none
   bytes path_decks = 17;    // uint16 little-endian per cell: the road's level in dm on a bridge or in a tunnel, 0 on the ground
   bytes made_ground = 18;   // one byte per cell: 1 where earthworks (road banks, pads) reshaped the land
+  bytes bedrock = 19;       // uint16 little-endian per grid corner: the top of the rock in dm; the ground above it is soil
+  bytes rock = 20;          // one byte per cell: the rock under it, 1 shale, 2 sandstone, 3 limestone, 4 granite
 }
 
 // An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
@@ -977,6 +979,7 @@ message TickDelta {
 message CornerUpdate {
   int32 index = 1;
   uint32 dm = 2;  // height in decimetres
+  uint32 bedrock_dm = 3; // the top of the rock under it, in decimetres
 }
 
 message Requirement {

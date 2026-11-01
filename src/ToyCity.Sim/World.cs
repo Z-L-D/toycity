@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 9;
+    public const int FormatVersion = 10;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -172,6 +172,8 @@ public sealed partial class World
         PathSurface = new byte[N];
         PathDeck = new ushort[N];
         Made = new byte[N];
+        Bedrock = new ushort[(width + 1) * (height + 1)];
+        Rock = new byte[N];
         PowerLine = new byte[N];
         WaterPipe = new byte[N];
         BuildingAt = new int[N];
@@ -217,7 +219,7 @@ public sealed partial class World
     /// Founds a city on a region tile: the ground is the region's, cut out for this tile, and the calendar starts on
     /// the region's day so every tile shares one clock.
     /// </summary>
-    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick, byte[]? rivers = null)
+    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick, byte[]? rivers = null, (ushort[] Bedrock, byte[] Rock)? geology = null)
     {
         if (size is not (64 or 128 or 256)) throw new ArgumentOutOfRangeException(nameof(size), "size must be 64, 128 or 256");
         if (corners.Length != (size + 1) * (size + 1)) throw new ArgumentException("corners must cover the tile", nameof(corners));
@@ -226,6 +228,9 @@ public sealed partial class World
         corners.CopyTo(w.Corner, 0);
         rivers?.CopyTo(w.River, 0);
         w.DeriveHeights(0, 0, size - 1, size - 1);
+        // The region's layers, cut out with its ground so they meet at the borders; without them, this tile's own.
+        if (geology is { } g) { g.Bedrock.CopyTo(w.Bedrock, 0); g.Rock.CopyTo(w.Rock, 0); }
+        else w.GenerateGeology();
         w.RecomputeWaterDistance();
         w.RunMonthly();
         w.RunUtilities();
@@ -434,6 +439,8 @@ public sealed partial class World
             w.Write(PathSurface);
             WriteU16(w, PathDeck);
             w.Write(Made);
+            WriteU16(w, Bedrock);
+            w.Write(Rock);
         }
         return ms.ToArray();
     }
@@ -539,6 +546,9 @@ public sealed partial class World
                 // A bridge stood a step over its river.
                 if (w.IsRiver(i)) w.PathDeck[i] = (ushort)((w.River[i] + 1) * StepDm);
             }
+        // Format 10 added the ground's layers; an older save gets them from its ground as it stands.
+        if (version >= 10) { ReadU16(r, w.Bedrock); ReadBytes(r, w.Rock); }
+        else w.GenerateGeology();
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

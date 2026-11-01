@@ -146,6 +146,12 @@ public sealed partial class World
         int i = Idx(x, y);
         f.Add(("Cell", $"{x}, {y}"));
         f.Add(("Elevation", $"{Height[i]} (water level {WaterLevel})"));
+        // The ground's layers (Beta 3.2): the soil at the cell's middle, and the rock under it.
+        {
+            int soil = CellSoilDm(i);
+            string rock = PathGrade.RockKinds[Math.Min((int)Rock[i], PathGrade.RockKinds.Length - 1)].Name;
+            f.Add(("Ground", soil <= 2 ? $"bare {rock}" : $"{soil / 10.0:0.#} m of soil over {rock}"));
+        }
         if (ZoneCode[i] != 0) f.Add(("Zone", $"{ZoneName(ZoneOf(ZoneCode[i]))}, {DensityOf(ZoneCode[i]).ToString().ToLowerInvariant()} density"));
         if (ProfileAt(i) is { } p)
         {

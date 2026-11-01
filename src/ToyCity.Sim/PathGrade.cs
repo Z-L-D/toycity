@@ -8,7 +8,8 @@ namespace ToyCity.Sim;
 /// (its grade, as a share of the 16 m cell), cut and fill roughly balancing. Cells already holding a path, and
 /// bridges, keep their height. Then the ground is reshaped: every corner a new path cell touches goes to the average
 /// of the heights of the path cells around it, so the path is a smooth ramp, and the open ground beside it is eased
-/// so no bank is steeper than soil stands (<see cref="BankDmPerCell"/>). Lots, water, rivers and other paths are
+/// so no bank is steeper than its material stands: soil at <see cref="BankDmPerCell"/>, a cut into rock at the rock's
+/// angle (<see cref="RockKinds"/>). Lots, water, rivers and other paths are
 /// never moved.
 /// </para>
 /// </summary>
@@ -138,7 +139,7 @@ internal static class PathGrade
     /// the path's cells, <paramref name="target"/> their graded heights; <paramref name="locked"/> says which cells'
     /// corners must stay where they are (lots, water, rivers, paths already there).
     /// </summary>
-    public static Dictionary<int, int> Shape(ushort[] corners, int width, int height, IReadOnlyList<int> run, IReadOnlyList<int> target, Func<int, bool> locked, int floorDm)
+    public static Dictionary<int, int> Shape(ushort[] corners, int width, int height, IReadOnlyList<int> run, IReadOnlyList<int> target, Func<int, bool> locked, int floorDm, ushort[]? bedrock = null, byte[]? rock = null)
     {
         int cw = width + 1, ch = height + 1;
         var lockedCorner = new HashSet<int>();
@@ -203,8 +204,14 @@ internal static class PathGrade
                 if (sum.ContainsKey(n) || IsLocked(n)) continue;
                 // A bank stands no steeper than soil does, unless the ground there was already steeper: a cut
                 // eases what it steepens, and leaves a natural slope as it was.
-                int reach = Math.Max(dx != 0 && dy != 0 ? BankDmPerCell * 141 / 100 : BankDmPerCell, Math.Abs(corners[c] - corners[n]));
-                int now = Get(n), eased = Math.Clamp(now, here - reach, here + reach);
+                bool diag = dx != 0 && dy != 0;
+                int soil = diag ? BankDmPerCell * 141 / 100 : BankDmPerCell, natural = Math.Abs(corners[c] - corners[n]);
+                int now = Get(n);
+                // A fill is earth tipped in, so it slopes like soil; a cut stands at its material's angle.
+                int below = here - Math.Max(soil, natural);
+                int above = bedrock == null ? here + Math.Max(soil, natural)
+                    : Math.Max(here + natural, CutTop(here, bedrock[n], soil, RockReach(rock, width, height, nx, ny, diag)));
+                int eased = Math.Clamp(now, below, above);
                 // A bank never digs below the waterline where the ground stood above it.
                 if (eased < floorDm && now >= floorDm) eased = floorDm;
                 if (eased == now) continue;
@@ -219,6 +226,42 @@ internal static class PathGrade
         return moved;
     }
 
+    /// <summary>
+    /// Rocks under the ground (index = <c>World.Rock</c>): how steep a cut in it stands, in dm across a cell, and how
+    /// many times soil's cost it is to dig. Index 0 is no rock: soil all the way.
+    /// </summary>
+    public static readonly (string Name, int CutDm, int CostTimes)[] RockKinds =
+    {
+        ("soil", BankDmPerCell, 1),
+        ("shale", 300, 2),        // about 62 degrees: it flakes
+        ("sandstone", 600, 2),    // about 75
+        ("limestone", 900, 2),    // about 80
+        ("granite", 1600, 3),     // about 84: nearly sheer
+    };
+
+    /// <summary>How far a cut in the rock at a corner rises across a cell (or diagonal), in dm.</summary>
+    static int RockReach(byte[]? rock, int width, int height, int cx, int cy, bool diag)
+    {
+        int k = rock == null ? 0 : rock[Math.Min(cy, height - 1) * width + Math.Min(cx, width - 1)];
+        int r = RockKinds[k < RockKinds.Length ? k : 0].CutDm;
+        return diag ? r * 141 / 100 : r;
+    }
+
+    /// <summary>
+    /// The highest a cut face may reach one cell out from <paramref name="here"/>: sheer at the rock's angle up to the
+    /// top of the rock, then soil's angle for whatever of the cell is left.
+    /// </summary>
+    public static int CutTop(int here, int bed, int soilReach, int rockReach)
+    {
+        if (here >= bed || rockReach <= soilReach) return here + soilReach;
+        if (here + rockReach <= bed) return here + rockReach;
+        // Through the rock part of the way, then soil over it.
+        return bed + (int)((long)soilReach * (here + rockReach - bed) / rockReach);
+    }
+
+    /// <summary>The share (dm) of a corner's cut from <paramref name="from"/> to <paramref name="to"/> that's rock.</summary>
+    public static int RockDm(int from, int to, int bed) => to >= from ? 0 : Math.Max(0, Math.Min(from, bed) - to);
+
     /// <summary>Banks beside the path cost this share of the path's own earthworks: they're shaped, not engineered.</summary>
     public const int BankCostDivisor = 10;
 
@@ -226,9 +269,9 @@ internal static class PathGrade
     /// What the earthworks cost, in dollars: <see cref="CostPerStep"/> for each 2 m a corner under the path moves, and
     /// a tenth of that for the banks beside it.
     /// </summary>
-    public static long Cost(ushort[] corners, int width, IReadOnlyList<int> run, Dictionary<int, int> moved)
+    public static long Cost(ushort[] corners, int width, IReadOnlyList<int> run, Dictionary<int, int> moved, ushort[]? bedrock = null, byte[]? rock = null)
     {
-        int cw = width + 1;
+        int cw = width + 1, height = corners.Length / cw - 1;
         var own = new HashSet<int>();
         foreach (int i in run)
         {
@@ -238,7 +281,14 @@ internal static class PathGrade
         long path = 0, banks = 0;
         foreach (var (c, v) in moved)
         {
-            int d = Math.Abs(v - corners[c]);
+            long d = Math.Abs(v - corners[c]);
+            // Rock costs its kind's times soil's to dig.
+            if (bedrock != null)
+            {
+                int cx = c % cw, cy = c / cw, k = rock == null ? 0 : rock[Math.Min(cy, height - 1) * width + Math.Min(cx, width - 1)];
+                int r = RockDm(corners[c], v, bedrock[c]);
+                d += (long)r * (RockKinds[k < RockKinds.Length ? k : 0].CostTimes - 1);
+            }
             if (own.Contains(c)) path += d; else banks += d;
         }
         return (path * CostPerStep * BankCostDivisor + banks * CostPerStep + CostPerStepDm * BankCostDivisor - 1) / (CostPerStepDm * BankCostDivisor);

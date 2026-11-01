@@ -269,14 +269,15 @@ public partial class CityView : Node3D
         if (_cellImage == null || _cellImage.GetWidth() != w || _cellImage.GetHeight() != h)
         {
             _cellImage = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
-            _madeImage = Image.CreateEmpty(w, h, false, Image.Format.R8);
+            _madeImage = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
             cells = null;
         }
         void Paint(int i)
         {
             _cellImage.SetPixel(i % w, i / w, Palette.Mark(_city, i));
-            // Beta 3.2: earthworks are grassed banks, never rock.
-            _madeImage!.SetPixel(i % w, i / w, new Color(_city.Made.Length > i ? _city.Made[i] : 0, 0, 0));
+            // Beta 3.2: the ground's layers. Red: earthworks, grassed banks. Green: how deep the soil is (a cut into
+            // the rock shows it). Blue: which rock.
+            _madeImage!.SetPixel(i % w, i / w, new Color(_city.Made.Length > i ? _city.Made[i] : 0, SoilShare(i), _city.Rock.Length > i ? _city.Rock[i] / 4f : 0, 1));
         }
         if (cells == null) for (int i = 0; i < _city.N; i++) Paint(i);
         else foreach (int i in cells) Paint(i);
@@ -285,8 +286,17 @@ public partial class CityView : Node3D
         _ground!.SetShaderParameter("cells", _cellTexture);
         if (_madeTexture == null || cells == null) _madeTexture = ImageTexture.CreateFromImage(_madeImage!);
         else _madeTexture.Update(_madeImage!);
-        _ground.SetShaderParameter("made_ground", _madeTexture);
+        _ground.SetShaderParameter("ground_layers", _madeTexture);
         _ground.SetShaderParameter("map_size", new Vector2(w, h));
+    }
+
+    /// <summary>The thinnest soil at a cell's corners, as a share of deep soil (8 m): 0 is bare rock.</summary>
+    float SoilShare(int i)
+    {
+        if (_city.Bedrock.Length == 0) return 1;
+        int cw = _city.Width + 1, x = i % _city.Width, y = i / _city.Width, c = y * cw + x;
+        int soil = Math.Min(Math.Min(_city.SoilDm(c), _city.SoilDm(c + 1)), Math.Min(_city.SoilDm(c + cw), _city.SoilDm(c + cw + 1)));
+        return Math.Clamp(soil / 80f, 0, 1);
     }
 
     /// <summary>The corner heights as a texture, for the water to know how deep it is.</summary>
