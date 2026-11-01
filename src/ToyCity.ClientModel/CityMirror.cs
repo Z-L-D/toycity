@@ -196,9 +196,13 @@ public sealed class CityMirror
 
     public void ApplyDelta(TickDelta d)
     {
+        // A delta can reach a new connection before its full state (the tick was on its way as the player joined):
+        // the full state that follows holds all of it.
+        if (!Loaded) return;
         bool terrain = d.Corners.Count > 0, roads = false;
         foreach (var c in d.Corners)
         {
+            if (c.Index < 0 || c.Index >= Corners.Length) continue;
             Corners[c.Index] = (ushort)c.Dm;
             if (Bedrock.Length > c.Index) Bedrock[c.Index] = (ushort)Math.Min(c.BedrockDm, c.Dm);
             // The cells around a moved corner are drawn again.
