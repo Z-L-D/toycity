@@ -133,6 +133,7 @@ public static class Mapping
                 Unique = t.Unique, Income = t.Income, Attraction = t.Attraction,
                 Transit = t.Transit == TransitKind.None ? "" : t.Transit.ToString().ToLowerInvariant(), Capacity = t.Capacity, Catchment = t.Catchment,
                 Roadside = t.Roadside, LotKind = t.LotKind, Maintenance = t.Maintenance, LeaseRent = t.LeaseRent, BuildDays = t.BuildDays,
+                WaterOut = t.WaterOut, SewageCap = t.SewageCap,
                 Upgrades =
                 {
                     t.Upgrades.Select(u => new P.UpgradeInfo
@@ -172,6 +173,7 @@ public static class Mapping
             Debt = w.Debt, Speed = speed, PowerCapacityKw = w.PowerCapacity, PowerDemandKw = w.PowerDemand,
             WaterCapacity = w.WaterCapacity, WaterDemand = w.WaterDemand, GarbageCapacity = w.GarbageCapacity,
             GarbageProduced = w.GarbageProduced, CityName = w.Name,
+            SewageCapacity = w.SewageCapacity, SewageProduced = w.SewageProduced, SewageUntreated = w.SewageUntreated,
         };
         s.Demand.AddRange(w.Demand);
         s.DemandRaw.AddRange(w.DemandRaw);

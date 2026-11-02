@@ -43,6 +43,7 @@ public sealed partial class World
             if (t.WaterPollution > 0) Spread(WaterPollution, b.X, b.Y, b.W, b.H, t.WaterPollution, 1 + t.WaterPollution / 12, false);
             if (t.Noise > 0) Spread(Noise, b.X, b.Y, b.W, b.H, t.Noise, 2, false);
         }
+        SpreadSewage();
         for (int i = 0; i < N; i++)
         {
             var p = ProfileAt(i);
@@ -141,6 +142,7 @@ public sealed partial class World
                 Add("Noise", -Noise[i] / 4);
                 Add("Traffic", -traffic / 6);
                 Add("Uncollected garbage", -GarbagePenalty);
+                Add("Raw sewage", -SewagePenalty);
                 Add("Run-down area", -Blight[i] / 5);
                 Add("Ordinances", (int)Mod(ModKey.DesirabilityR));
                 if (BuildingAtCell(i) is { } home && home.CommuteMinutes > 20) Add("Long commute", -(home.CommuteMinutes - 20) / 2);
@@ -153,6 +155,7 @@ public sealed partial class World
                 Add("Police", Coverage[(int)Service.Police][i] / 10);
                 Add("Pollution", -Pollution[i] / 3);
                 Add("Uncollected garbage", -GarbagePenalty / 2);
+                Add("Raw sewage", -SewagePenalty / 2);
                 Add("Run-down area", -Blight[i] / 8);
                 Add("Ordinances", (int)Mod(ModKey.DesirabilityC));
                 break;

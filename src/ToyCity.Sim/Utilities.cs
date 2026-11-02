@@ -48,6 +48,7 @@ public sealed partial class World
         RebuildAccess();
         RunPower();
         RunWater();
+        RunSewage();
         RunGarbage();
     }
 

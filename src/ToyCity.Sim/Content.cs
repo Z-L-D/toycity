@@ -125,6 +125,8 @@ public sealed class BuildingType
     public int PowerOutKw { get; set; }
     public int WaterOut { get; set; }
     public int GarbageCap { get; set; }
+    /// <summary>Sewage a treatment plant takes, in the same units a day as water (Beta 3.2).</summary>
+    public int SewageCap { get; set; }
     public int Radius { get; set; }
     public int Pollution { get; set; }
     public int WaterPollution { get; set; }
@@ -286,6 +288,7 @@ public sealed partial class ContentDb
         public int PowerOutKw { get; set; }
         public int WaterOut { get; set; }
         public int GarbageCap { get; set; }
+        public int SewageCap { get; set; }
         public int Radius { get; set; }
         public int Pollution { get; set; }
         public int WaterPollution { get; set; }
@@ -425,7 +428,7 @@ public sealed partial class ContentDb
             {
                 Id = c.Id, Name = c.Name, Category = ParseCategory(c.Category), W = c.W, H = c.H, Cost = c.Cost,
                 Maintenance = c.Maintenance, Jobs = c.Jobs, PowerKw = c.PowerKw, WaterUse = c.WaterUse, Garbage = c.Garbage,
-                PowerOutKw = c.PowerOutKw, WaterOut = c.WaterOut, GarbageCap = c.GarbageCap, Radius = c.Radius,
+                PowerOutKw = c.PowerOutKw, WaterOut = c.WaterOut, GarbageCap = c.GarbageCap, SewageCap = c.SewageCap, Radius = c.Radius,
                 Pollution = c.Pollution, WaterPollution = c.WaterPollution, Noise = c.Noise, Attraction = c.Attraction, BuildDays = 1, Color = c.Color,
                 Income = c.Income, Unique = c.Unique, UnlockText = c.UnlockText,
                 Transit = c.Transit switch { "" => TransitKind.None, "bus" => TransitKind.Bus, "tram" => TransitKind.Tram, "rail" => TransitKind.Rail, _ => throw new InvalidDataException($"{c.Id}: bad transit '{c.Transit}'") },
@@ -504,6 +507,7 @@ public sealed partial class ContentDb
             In(t.Id, "radius", t.Radius, 0, 128);
             In(t.Id, "powerOutKw", t.PowerOutKw, 0, 10_000_000);
             In(t.Id, "waterOut", t.WaterOut, 0, 10_000_000);
+            In(t.Id, "sewageCap", t.SewageCap, 0, 10_000_000);
         }
     }
 

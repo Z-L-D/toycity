@@ -36,14 +36,17 @@ public static class MapLayer
         return px;
     }
 
-    /// <summary>The underground view: the ground dimmed and the water pipes picked out in blue.</summary>
-    public static byte[] Pipes(CityMirror c)
+    /// <summary>
+    /// The underground view's ground (Beta 3.2): the streets overhead as faint pale cells over the soil, so the
+    /// player knows where they are; the pipes and tunnels are drawn in 3D beneath it.
+    /// </summary>
+    public static byte[] Underground(CityMirror c)
     {
         var px = new byte[c.Width * c.Height * 4];
         for (int i = 0; i < c.Width * c.Height; i++)
         {
-            bool pipe = c.WaterPipes[i] != 0;
-            (px[i * 4], px[i * 4 + 1], px[i * 4 + 2], px[i * 4 + 3]) = pipe ? ((byte)70, (byte)170, (byte)255, (byte)235) : ((byte)40, (byte)36, (byte)32, (byte)170);
+            if (c.Paths[i] == 0 || c.IsTunnel(i) || c.IsRiver(i)) continue;
+            (px[i * 4], px[i * 4 + 1], px[i * 4 + 2], px[i * 4 + 3]) = ((byte)205, (byte)195, (byte)175, (byte)70);
         }
         return px;
     }

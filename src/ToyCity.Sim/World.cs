@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 12;
+    public const int FormatVersion = 13;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -179,6 +179,7 @@ public sealed partial class World
         BuildingAt = new int[N];
         Powered = new byte[N];
         Watered = new byte[N];
+        Sewered = new byte[N];
         LandValue = new byte[N];
         DesR = new short[N];
         DesC = new short[N];
@@ -452,6 +453,8 @@ public sealed partial class World
             w.Write(Rock);
             WriteClock(w);
             WriteRoadWeather(w);
+            // Format 13: the sewers' reach and totals from the last tick.
+            w.Write(Sewered); w.Write(SewageCapacity); w.Write(SewageProduced); w.Write(SewageUntreated);
         }
         return ms.ToArray();
     }
@@ -573,6 +576,14 @@ public sealed partial class World
         // Format 12 added weather on the roads; an older city starts with dry roads and its crews at full budget.
         if (version >= 12) w.ReadRoadWeather(r);
         w.RebuildAccess();
+        // Format 13 added sewers. Every pipe already laid has one beside it; an older city measures them as it stands.
+        if (version >= 13)
+        {
+            ReadBytes(r, w.Sewered);
+            w.SewageCapacity = r.ReadInt64(); w.SewageProduced = r.ReadInt64(); w.SewageUntreated = r.ReadInt64();
+        }
+        else { w._sewageNotified = true; w.RunSewage(); }
+        w._sewageNotified = w.SewageUntreated > 0;
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
         var demand = (int[])w.Demand.Clone();

@@ -862,6 +862,8 @@ message BuildingTypeInfo {
   int64 lease_rent = 22;   // standard lease rent a month
   repeated UpgradeInfo upgrades = 23;
   int32 build_days = 24;   // days from groundbreaking to opening
+  int32 water_out = 25;    // a pump's water a day
+  int32 sewage_cap = 26;   // a treatment plant's sewage a day (Beta 3.2)
 }
 
 // An upgrade a type offers: what it becomes, what it costs and what the building must earn first.
@@ -946,6 +948,10 @@ message CityStats {
   int32 pace = 30;                    // calendar days per clock day
   int32 clock_minutes_per_tick = 31;
   RoadWeather roads = 32;             // Beta 3.2, part 4: the weather on the roads
+  // Beta 3.2, underground: sewage a day the plants can treat, the city makes, and leaves raw past its septic tanks.
+  int64 sewage_capacity = 33;
+  int64 sewage_produced = 34;
+  int64 sewage_untreated = 35;
 }
 
 // The state of the roads (Beta 3.2, part 4). Percentages are 0..100. Tiers are 0 highways, 1 roads, 2 streets and

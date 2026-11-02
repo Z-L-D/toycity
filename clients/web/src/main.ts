@@ -359,7 +359,7 @@ function buildToolbar() {
     ${btn('De-zone', 'D', { kind: 'dezone' })}
     <h4>Utilities</h4>
     ${btn('Power line', 'P', { kind: 'utility', utility: 0 }, '#ffd84a')}
-    ${btn('Water pipe', 'W', { kind: 'utility', utility: 1 }, '#5ec8ff')}
+    ${btn('Water and sewer pipe', 'W', { kind: 'utility', utility: 1 }, '#5ec8ff')}
     <h4>Civic</h4>
     ${btn('Place building', 'E', { kind: 'building' })}
     <select id="sel-building" title="Building">${civic}</select>
@@ -664,7 +664,7 @@ function commit(start: { x: number; y: number }, end: { x: number; y: number }) 
         : [[start.x, start.y, end.x, end.y]];
       for (const [x0, y0, x1, y1] of legs) {
         if (tool.kind === 'path') act({ path: { x0, y0, x1, y1, profileId, surface: surfaceId, tunnel } }, `${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${x0},${y0} to ${x1},${y1}`);
-        else act({ utility: { x0, y0, x1, y1, kind: tool.utility } }, `${tool.utility ? 'Water pipe' : 'Power line'} from ${x0},${y0} to ${x1},${y1}`);
+        else act({ utility: { x0, y0, x1, y1, kind: tool.utility } }, `${tool.utility ? 'Water and sewer pipe' : 'Power line'} from ${x0},${y0} to ${x1},${y1}`);
       }
       break;
     }
@@ -1010,6 +1010,7 @@ function renderBudget() {
       ${util('Power (kW)', s.powerDemandKw, s.powerCapacityKw)}
       ${util('Water', s.waterDemand, s.waterCapacity)}
       ${util('Garbage', s.garbageProduced, s.garbageCapacity)}
+      <tr><td>Sewage</td><td class="num ${Number(s.sewageUntreated ?? 0) > 0 ? 'neg' : ''}">${Number(s.sewageProduced ?? 0).toLocaleString('en-US')} / ${Number(s.sewageCapacity ?? 0).toLocaleString('en-US')}${Number(s.sewageUntreated ?? 0) > 0 ? ` · ${Number(s.sewageUntreated).toLocaleString('en-US')} raw` : ''}</td></tr>
       <tr><td>Jobs filled</td><td class="num">${s.workers.toLocaleString('en-US')} / ${s.jobs.toLocaleString('en-US')}</td></tr>
     </table>
     <h4>Road crews</h4>
@@ -1039,6 +1040,19 @@ function requestOverlay() {
   conn.send({ overlay: { kind: activeOverlay } });
 }
 
+/** The underground view's key and the city's sewage (Beta 3.2), as the Godot client's panel says it. */
+function sewageText(): string {
+  const st = city.stats;
+  const n = (v: unknown) => Number(v ?? 0);
+  const fmt = (v: unknown) => n(v).toLocaleString('en-US');
+  const made = n(st.sewageProduced), cap = n(st.sewageCapacity), raw = n(st.sewageUntreated);
+  const sewage = made === 0 ? 'No sewage yet.'
+    : raw > 0 ? `Sewage ${fmt(made)} a day, ${fmt(cap)} treated by plants, ${fmt(raw)} left raw.`
+    : cap === 0 ? `Sewage ${fmt(made)} a day, on septic tanks.`
+    : `Sewage ${fmt(made)} a day, all treated (plants take ${fmt(cap)}).`;
+  return `Water mains blue, sewers brown beside them, road tunnels grey. ${sewage}`;
+}
+
 function renderLayers(low?: string, high?: string) {
   const o = OVERLAYS.find((x) => x.kind === activeOverlay);
   const ramp: Record<string, string> = {
@@ -1061,7 +1075,8 @@ function renderLayers(low?: string, high?: string) {
     <h4>Bus company</h4>
     <button id="btn-routes" class="${renderer.showRoutes ? 'active' : ''}">${renderer.showRoutes ? 'Showing bus routes' : 'Show bus routes'}</button>
     <h4>Underground</h4>
-    <button id="btn-under" class="${renderer.underground ? 'active' : ''}">${renderer.underground ? 'Showing pipes' : 'Show water pipes'} (U)</button>`;
+    <button id="btn-under" class="${renderer.underground ? 'active' : ''}">${renderer.underground ? 'Back above ground' : 'Underground view'} (U)</button>
+    ${renderer.underground ? `<p class="muted">${esc(sewageText())}</p>` : ''}`;
   document.querySelectorAll<HTMLButtonElement>('#tab-layers button[data-overlay]').forEach((b) =>
     b.addEventListener('click', () => {
       activeOverlay = Number(b.dataset.overlay);

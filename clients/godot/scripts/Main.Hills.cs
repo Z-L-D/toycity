@@ -73,5 +73,39 @@ public partial class Main
             yield return MountainMeasure($"free, {s.What}");
         }
         _camera.ToggleFree();
+
+        // Underground (Beta 3.2): a sewage plant beside the town's pipes, then the view under the ground.
+        var plantType = c.TypeById["sewage-plant"];
+        int plantAt = -1;
+        foreach (var (px, py) in ClientModel.Underground.PlantSites(c, plantType.Width, plantType.Height, tx, ty).Take(8))
+        {
+            _client.Connection.Act(new Protocol.V0.Action { Building = new Protocol.V0.PlaceBuilding { X = px, Y = py, TypeId = plantType.Id } });
+            int at = c.Idx(px, py);
+            int frames = 0;
+            yield return new GateWait("the sewage plant placed", () => c.BuildingAt[at] != 0 || ++frames > 120, 30);
+            if (c.BuildingAt[at] != 0) { plantAt = at; break; }
+        }
+        MountainCheck("sewage plant beside the pipes", plantAt >= 0, plantAt < 0 ? "no site took it" : $"at {plantAt % c.Width},{plantAt / c.Width}");
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 2 } });
+        yield return new GateWait("the plant treating sewage", () => c.Stats.SewageCapacity > 0, 120);
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } });
+        MountainCheck("sewers to the plant", c.Stats.SewageCapacity > 0 && c.Stats.SewageUntreated == 0, ClientModel.Underground.Legend(c.Stats));
+
+        _panels!.Model.ShowUnderground = true;
+        int shown = 0;
+        yield return new GateWait("the underground drawn", () => ++shown > 10 && _underground!.Drawn.Water > 0, 30);
+        var d = _underground!.Drawn;
+        MountainCheck("underground view", d.Water > 0 && d.Sewer == d.Water && d.Tunnel > 0 && d.Works >= 2 && _view!.Underground,
+            $"{d.Water:N0} lengths of water main and {d.Sewer:N0} of sewer, {d.Tunnel} of road tunnel, {d.Works} pumps and plants; buildings hidden");
+        _camera.CentreOn(tx, ty);
+        v.Zoom = 3;
+        yield return MountainMeasure("classic, underground");
+        _camera.ToggleFree();
+        var tunnelCells = ClientModel.Tools.Planner.LineCells(tunnel.Path.X0, tunnel.Path.Y0, tunnel.Path.X1, tunnel.Path.Y1).Where(q => c.IsTunnel(c.Idx(q.X, q.Y))).ToList();
+        var mid = tunnelCells[tunnelCells.Count / 2];
+        Look(mid.X + 0.5f, mid.Y + 0.5f, 22, 38, 30);
+        yield return MountainMeasure("free, the tunnel and pipes underground");
+        _camera.ToggleFree();
+        _panels.Model.ShowUnderground = false;
     }
 }

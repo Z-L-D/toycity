@@ -102,9 +102,11 @@ public sealed partial class World
         {
             $"Pumps need power and a pipe touching them. Every cell within {PipeReach} cells of a pipe in that network is served. Medium and high density need water; low density does not.",
             "Water pollution at a pump cuts its output, so keep pumps away from industry.",
+            $"Every pipe carries a water main and a sewer side by side. What a building uses it sends down the sewer to a treatment plant beside the pipes. A small town's septic tanks take {SepticCapacity:N0} units a day; past that, raw sewage fouls the water near the buildings that made it and lowers desirability by a point per 150 units, up to 20.",
         }, new()
         {
             ("Capacity", $"{WaterCapacity:N0} a day"), ("Demand", $"{WaterDemand:N0} a day"), ("Used", Pct(WaterDemand, WaterCapacity)),
+            ("Sewage", $"{SewageProduced:N0} a day"), ("Treated", $"{Math.Min(SewageProduced, SewageCapacity):N0} a day"), ("Raw", $"{SewageUntreated:N0} a day"),
         }, "water-pump", "pollution");
 
         Add("garbage", "Garbage", "Rules", new()

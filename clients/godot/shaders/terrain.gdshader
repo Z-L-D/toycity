@@ -13,6 +13,8 @@ uniform sampler2D overlay : filter_nearest, repeat_disable;
 // Per cell: r earthworks, g soil depth (0 bare rock, 1 eight metres or more), b rock kind / 4.
 uniform sampler2D ground_layers : filter_linear, repeat_disable;
 uniform bool use_overlay = false;
+// The underground view (Beta 3.2): the ground as a cutaway, dark soil over the rock, with what's under it drawn on top.
+uniform bool underground = false;
 uniform vec2 map_size = vec2(128.0);
 uniform vec2 selected = vec2(-1.0);
 uniform vec4 flash_rect = vec4(-1.0);  // x0, y0, x1, y1 in cells, inclusive
@@ -104,6 +106,10 @@ void fragment() {
 	if (COLOR.a > 0.5) {
 		vec4 mark = texture(cells, (c + 0.5) / map_size);
 		base = mix(base, to_linear(mark.rgb, srgb) * (0.94 + 0.12 * fine), mark.a);
+	}
+	if (underground) {
+		vec3 soil_cut = mix(vec3(0.30, 0.22, 0.15), vec3(0.22, 0.20, 0.19), bare) * (0.85 + 0.25 * mid + 0.1 * fine);
+		base = mix(base * 0.35, to_linear(soil_cut, srgb), 0.8);
 	}
 	if (use_overlay) {
 		vec4 o = texture(overlay, (c + 0.5) / map_size);

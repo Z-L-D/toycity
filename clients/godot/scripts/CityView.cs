@@ -21,6 +21,8 @@ public partial class CityView : Node3D
     MeshInstance3D[] _chunks = System.Array.Empty<MeshInstance3D>();
     MeshInstance3D? _water;
     MultiMeshInstance3D? _blocks;  // roadside stops, and buildings of a type the catalog doesn't know
+    // Every building's batch hangs from here, so the underground view (Beta 3.2) can hide them all at once.
+    readonly Node3D _buildings = new() { Name = "Buildings" };
     readonly BuildingModels _models = new();
     // One batch per model and 32-cell region of the map, so the camera skips regions off screen.
     readonly Dictionary<(string, int, int, int), MultiMeshInstance3D> _batches = new();
@@ -76,7 +78,8 @@ public partial class CityView : Node3D
             Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, Mesh = new BoxMesh { Size = Vector3.One } },
             MaterialOverride = new StandardMaterial3D { VertexColorUseAsAlbedo = true, VertexColorIsSrgb = true, Roughness = 0.9f },
         };
-        AddChild(_blocks);
+        AddChild(_buildings);
+        _buildings.AddChild(_blocks);
         _voxelMaterial = new ShaderMaterial { Shader = GD.Load<Shader>("res://shaders/building.gdshader") };
         _cursor = new MeshInstance3D
         {
@@ -134,6 +137,21 @@ public partial class CityView : Node3D
 
     public int ShapesMade => _models.ShapesMade;
     public int ShapesRead => _models.ShapesRead;
+
+    /// <summary>
+    /// The underground view (Beta 3.2): the buildings hidden and the ground drawn as a cutaway of soil, so what's
+    /// under it shows through.
+    /// </summary>
+    public bool Underground
+    {
+        get => !_buildings.Visible;
+        set
+        {
+            if (value == !_buildings.Visible) return;
+            _buildings.Visible = !value;
+            _ground!.SetShaderParameter("underground", value);
+        }
+    }
 
     /// <summary>A map layer over the ground, one pixel per cell, or null for none.</summary>
     public void SetOverlay(Image? image)
@@ -387,7 +405,7 @@ public partial class CityView : Node3D
                     Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, UseCustomData = true, Mesh = MeshOf(model, key.Item4) },
                     MaterialOverride = _voxelMaterial,
                 };
-                AddChild(mmi);
+                _buildings.AddChild(mmi);
                 _batches[key] = mmi;
             }
             _members[key] = list;

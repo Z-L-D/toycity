@@ -630,6 +630,28 @@
       "waterPollution": 0
     },
     {
+      "id": "sewage-plant",
+      "name": "Sewage Treatment Plant",
+      "category": "water",
+      "w": 3,
+      "h": 3,
+      "cost": 5000,
+      "maintenance": 180,
+      "jobs": 10,
+      "powerKw": 300,
+      "sewageCap": 8000,
+      "noise": 6,
+      "radius": 0,
+      "color": "#6e6a4e",
+      "waterUse": 0,
+      "garbage": 0,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 6,
+      "waterPollution": 0
+    },
+    {
       "id": "landfill",
       "name": "Landfill",
       "category": "garbage",

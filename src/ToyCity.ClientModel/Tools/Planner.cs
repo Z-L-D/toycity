@@ -213,7 +213,7 @@ public static class Planner
         var actions = legs.Select(l => path
             ? new PAction { Path = new PlacePath { X0 = l.Item1, Y0 = l.Item2, X1 = l.Item3, Y1 = l.Item4, ProfileId = t.ProfileId, Surface = t.Surface, Tunnel = t.Tunnel } }
             : new PAction { Utility = new PlaceUtility { X0 = l.Item1, Y0 = l.Item2, X1 = l.Item3, Y1 = l.Item4, Kind = t.Utility } }).ToList();
-        string what = path ? ProfileName(c, t.ProfileId) : t.Utility == UtilityKind.UtilityPowerLine ? "Power line" : "Water pipe";
+        string what = path ? ProfileName(c, t.ProfileId) : t.Utility == UtilityKind.UtilityPowerLine ? "Power line" : "Water and sewer pipe";
         return new Preview(tinted, ok, steep ?? $"{what}{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(grading)}{(path ? Depth(depth, t.Tunnel) : "")}", actions, $"{what} from {s.X},{s.Y} to {end.X},{end.Y}");
     }
 

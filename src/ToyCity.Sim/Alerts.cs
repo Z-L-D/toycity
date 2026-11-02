@@ -63,6 +63,13 @@ public sealed partial class World
             Add("water-short", "warning", $"Water shortage: {WaterDemand:N0} wanted, {WaterCapacity:N0} pumped. Add a pump.", at, 1, "water");
         }
 
+        if (SewageUntreated > 0)
+        {
+            var plant = Buildings.FirstOrDefault(b => b != null && TypeOf(b).SewageCap > 0);
+            int at = plant != null ? Idx(plant.X, plant.Y) : firstZoned;
+            Add("sewage", "warning", $"Raw sewage: {SewageUntreated:N0} units a day more than the plants and septic tanks take. It fouls the water and lowers desirability by {SewagePenalty}.", at, 1, "water");
+        }
+
         if (GarbageProduced > GarbageCapacity)
         {
             var dump = Buildings.FirstOrDefault(b => b != null && TypeOf(b).GarbageCap > 0);

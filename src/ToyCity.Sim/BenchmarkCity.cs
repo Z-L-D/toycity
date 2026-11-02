@@ -40,7 +40,10 @@ public static class BenchmarkCity
             for (int y = 0; y + 1 < height; y += 5)
             {
                 int y1 = Math.Min(y + 5, height - 1);
-                if (AllDry(x, y, x, y1)) w.Enqueue(new PlacePathAction(x, y, x, y1, "road"));
+                if (!AllDry(x, y, x, y1)) continue;
+                w.Enqueue(new PlacePathAction(x, y, x, y1, "road"));
+                // Every tenth street north to south has pipes too, joining the mains into one network with its sewers.
+                if (x % 10 == 0) w.Enqueue(new PlaceUtilityAction(x, y, x, y1, UtilityKind.WaterPipe));
             }
         int blocks = 0;
         for (int by = 1; by + 4 <= height; by += 5)
@@ -60,6 +63,8 @@ public static class BenchmarkCity
                     w.Enqueue(new PlaceBuildingAction(bx + 2, by + 2, "water-pump"));
                     continue;
                 }
+                // Sewage plants beside the pipes under the street to the north, as many blocks as the pumps.
+                if (pick is 3 or 9 or 15) { w.Enqueue(new PlaceBuildingAction(bx, by, "sewage-plant")); continue; }
                 // Plants everywhere, so the parts of the map that water cuts off have their own: cleaner gas toward the middle.
                 if (pick is 0 or 12) { w.Enqueue(new PlaceBuildingAction(bx, by, dist > 0.6f ? "coal-plant" : "gas-plant")); continue; }
                 if (dist > 0.75f && pick == 18) { w.Enqueue(new PlaceBuildingAction(bx, by, "landfill")); continue; }

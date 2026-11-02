@@ -28,6 +28,10 @@ public partial class Main : Node
     FreeCamera? _free;
     AgentsView? _agents;
     StreetLabels? _streets;
+    RoadsView? _roads;
+    StripsView? _strips;
+    UndergroundView? _underground;
+    int _underBuildings = -1;
     int _overlayVersion = -1;
     bool _under;
     bool _company;  // open in the bus company's view (--company)
@@ -177,8 +181,9 @@ public partial class Main : Node
         AddChild(_streets);
         AddChild(new BorderView(_client.City, _view));
         AddChild(new RiversView(_client.City, _view));
-        AddChild(new RoadsView(_client.City, _view));
-        AddChild(new StripsView(_client.City, _view));
+        AddChild(_roads = new RoadsView(_client.City, _view));
+        AddChild(_strips = new StripsView(_client.City, _view));
+        AddChild(_underground = new UndergroundView(_client.City, _view));
         var buses = _buses = new BusLinesView(_client.City, pm, _view);
         AddChild(buses);
         _free = new FreeCamera
@@ -295,7 +300,7 @@ public partial class Main : Node
             Image? image = null;
             // The company's view dims the city and marks its lots; otherwise the pipes, or the panel's layer.
             if (companyMap >= 0) image = Image.CreateFromData(c.Width, c.Height, false, Image.Format.Rgba8, pm.Company.MapPixels());
-            else if (under) image = Image.CreateFromData(c.Width, c.Height, false, Image.Format.Rgba8, MapLayer.Pipes(c));
+            else if (under) image = Image.CreateFromData(c.Width, c.Height, false, Image.Format.Rgba8, MapLayer.Underground(c));
             else if (pm.Overlay is { } o && pm.ActiveOverlay != 0 && o.Values.Length == c.Width * c.Height)
             {
                 string scheme = PanelModel.OverlayKinds.First(k => k.Kind == pm.ActiveOverlay).Scheme;
@@ -303,6 +308,14 @@ public partial class Main : Node
             }
             _view.SetOverlay(image);
         }
+        // The underground view (Beta 3.2): the buildings, roads and traffic go, the ground turns to a cutaway, and the
+        // mains, sewers and tunnels show beneath it.
+        _view.Underground = under;
+        _roads!.Visible = _strips!.Visible = !under;
+        _agents!.Visible = !under && _graphics.CityLife;
+        bool built = c.Buildings.Count != _underBuildings;
+        _underBuildings = c.Buildings.Count;
+        _underground!.Show(under, cellsChanged || built);
         _streets!.Refresh(GetProcessDeltaTime());
         _streets.Visible = _camera!.IsFree ? _free!.Distance < 40 || _free.Riding >= 0 : _camera.View.Zoom >= 3;
         _streets.Visible &= _graphics.StreetLabels;

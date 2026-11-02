@@ -95,6 +95,10 @@ export interface BuildingType {
   maintenance: number;
   leaseRent: number;
   upgrades: { toTypeId: string; cost: number; riders: number; population: number; nearZone: number; text: string }[];
+  /** A pump's water a day. */
+  waterOut?: number;
+  /** A treatment plant's sewage a day. */
+  sewageCap?: number;
 }
 
 /** Kerb directions by side: north, east, south, west. */

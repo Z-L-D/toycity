@@ -861,27 +861,73 @@ export class Renderer {
         if (water[y * c.width + x]) ctx.fillRect(px(x), py(y), s + 0.5, s + 0.5);
   }
 
+  /**
+   * Each tunnel as one dashed outline around its whole length, bends and all (Zac, Beta 3.2 part 4): the walls of
+   * the tunnel's cells, joined where they line up so the dashes run on unbroken, and left open where it meets the
+   * next tunnel cell.
+   */
+  private drawTunnelOutlines(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number, colour = 'rgba(24,24,28,0.9)') {
+    const c = this.city;
+    const ctx = this.ctx;
+    const s = this.scale;
+    // Walls in cell units: horizontal ones keyed by their y, vertical ones by their x.
+    const hWalls = new Map<number, [number, number][]>();
+    const vWalls = new Map<number, [number, number][]>();
+    const add = (m: Map<number, [number, number][]>, k: number, a: number, b: number) => {
+      const key = Math.round(k * 1000) / 1000;
+      let list = m.get(key);
+      if (!list) m.set(key, (list = []));
+      list.push([Math.min(a, b), Math.max(a, b)]);
+    };
+    const tunnel = (x: number, y: number) => x >= 0 && y >= 0 && x < c.width && y < c.height && c.isTunnel(y * c.width + x);
+    for (let y = Math.max(0, y0 - 1); y <= Math.min(c.height - 1, y1 + 1); y++)
+      for (let x = Math.max(0, x0 - 1); x <= Math.min(c.width - 1, x1 + 1); x++) {
+        const i = y * c.width + x;
+        if (!c.isTunnel(i)) continue;
+        const p = c.profileAt(i)!;
+        const h = Math.max(0.15, Math.min(0.5, p.widthM / 32));
+        const cx = x + 0.5, cy = y + 0.5;
+        const n = tunnel(x, y - 1), so = tunnel(x, y + 1), w = tunnel(x - 1, y), e = tunnel(x + 1, y);
+        // The middle square's sides, where no tunnel joins; the arms' walls, where one does.
+        if (!n) add(hWalls, cy - h, cx - h, cx + h); else { add(vWalls, cx - h, y, cy - h); add(vWalls, cx + h, y, cy - h); }
+        if (!so) add(hWalls, cy + h, cx - h, cx + h); else { add(vWalls, cx - h, cy + h, y + 1); add(vWalls, cx + h, cy + h, y + 1); }
+        if (!w) add(vWalls, cx - h, cy - h, cy + h); else { add(hWalls, cy - h, x, cx - h); add(hWalls, cy + h, x, cx - h); }
+        if (!e) add(vWalls, cx + h, cy - h, cy + h); else { add(hWalls, cy - h, cx + h, x + 1); add(hWalls, cy + h, cx + h, x + 1); }
+      }
+    if (hWalls.size === 0 && vWalls.size === 0) return;
+    const merged = (list: [number, number][]) => {
+      list.sort((a, b) => a[0] - b[0]);
+      const out: [number, number][] = [];
+      for (const [a, b] of list) {
+        const last = out[out.length - 1];
+        if (last && a <= last[1] + 1e-6) last[1] = Math.max(last[1], b);
+        else out.push([a, b]);
+      }
+      return out;
+    };
+    const sx = px, sy = py;  // linear, so a fraction of a cell lands where it should
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = Math.max(1.5, s / 10);
+    ctx.setLineDash([Math.max(2, s / 6), Math.max(2, s / 6)]);
+    ctx.beginPath();
+    for (const [y, list] of hWalls) for (const [a, b] of merged(list)) { ctx.moveTo(sx(a), sy(y)); ctx.lineTo(sx(b), sy(y)); }
+    for (const [x, list] of vWalls) for (const [a, b] of merged(list)) { ctx.moveTo(sx(x), sy(a)); ctx.lineTo(sx(x), sy(b)); }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
   private drawPaths(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {
     const c = this.city;
     const ctx = this.ctx;
     const s = this.scale;
+    if (s >= 4) this.drawTunnelOutlines(x0, y0, x1, y1, px, py);
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         const i = y * c.width + x;
         const p = c.profileAt(i);
         if (!p || c.underStrip.has(i)) continue;
-        // Beta 3.2: a tunnel runs under the ground; from above it's a dashed outline over the hill.
-        if (c.isTunnel(i)) {
-          if (s >= 4) {
-            ctx.strokeStyle = 'rgba(30,30,34,0.7)';
-            ctx.lineWidth = Math.max(1, s / 16);
-            ctx.setLineDash([Math.max(2, s / 6), Math.max(2, s / 6)]);
-            const tw = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
-            ctx.strokeRect(px(x) + (s - tw) / 2, py(y) + (s - tw) / 2, tw, tw);
-            ctx.setLineDash([]);
-          }
-          continue;
-        }
+        // Beta 3.2: a tunnel runs under the ground; from above, one dashed outline around its whole length (below).
+        if (c.isTunnel(i)) continue;
         const surf = c.pathSurfaces[i] ? c.surfaces[c.pathSurfaces[i] - 1] : undefined;
         const look = surfaceLook(roadLook(p), p, surf?.id);
         const w = Math.max(s * 0.3, Math.min(s, ((look.sidewalks ? 16 : p.widthM) / 16) * s));
@@ -1089,34 +1135,93 @@ export class Renderer {
     ctx.stroke();
   }
 
+  /**
+   * The underground view (Beta 3.2): the ground as a cutaway of soil, the streets above as faint lines, the tunnels
+   * as the roads they are, and every pipe as its two mains side by side, the water (blue) and the sewer (brown).
+   * Pumps and sewage plants stand out; other buildings are faint outlines.
+   */
   private drawPipes(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {
     const c = this.city;
     const ctx = this.ctx;
     const s = this.scale;
-    // Faint building outlines so the player can see what the pipes serve.
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1;
-    for (const b of c.buildings.values()) {
-      if (b.x > x1 || b.y > y1 || b.x + b.width < x0 || b.y + b.height < y0) continue;
-      ctx.strokeRect(px(b.x) + 1, py(b.y) + 1, b.width * s - 2, b.height * s - 2);
-    }
-    ctx.strokeStyle = '#5ec8ff';
-    ctx.lineWidth = Math.max(2, s / 4);
-    ctx.lineCap = 'round';
+    ctx.fillStyle = 'rgba(74,52,34,0.55)';
+    ctx.fillRect(px(x0), py(y0), (x1 - x0 + 1) * s, (y1 - y0 + 1) * s);
+    // The streets overhead, faintly, so the player knows where they are.
+    ctx.strokeStyle = 'rgba(230,220,200,0.18)';
+    ctx.lineWidth = Math.max(1, s / 8);
     ctx.beginPath();
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         const i = y * c.width + x;
-        if (!c.waterPipes[i]) continue;
-        const cx = px(x) + s / 2;
-        const cy = py(y) + s / 2;
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(cx, cy);
-        if (x + 1 < c.width && c.waterPipes[i + 1]) { ctx.moveTo(cx, cy); ctx.lineTo(cx + s, cy); }
-        if (y + 1 < c.height && c.waterPipes[i + c.width]) { ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + s); }
+        if (!c.paths[i] || c.isTunnel(i)) continue;
+        const cx = px(x) + s / 2, cy = py(y) + s / 2;
+        if (x + 1 < c.width && c.paths[i + 1] && !c.isTunnel(i + 1)) { ctx.moveTo(cx, cy); ctx.lineTo(cx + s, cy); }
+        if (y + 1 < c.height && c.paths[i + c.width] && !c.isTunnel(i + c.width)) { ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + s); }
       }
     ctx.stroke();
-    ctx.lineCap = 'butt';
+    // Tunnels, drawn solid down here.
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const i = y * c.width + x;
+        if (!c.isTunnel(i)) continue;
+        const p = c.profileAt(i)!;
+        const tw = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
+        const cx = px(x) + s / 2, cy = py(y) + s / 2;
+        ctx.fillStyle = '#4c5056';
+        ctx.fillRect(cx - tw / 2, cy - tw / 2, tw, tw);
+        const join = (j: number) => c.isTunnel(j);
+        if (x + 1 < c.width && join(i + 1)) ctx.fillRect(cx, cy - tw / 2, s, tw);
+        if (y + 1 < c.height && join(i + c.width)) ctx.fillRect(cx - tw / 2, cy, tw, s);
+      }
+    if (s >= 4) this.drawTunnelOutlines(x0, y0, x1, y1, px, py, 'rgba(230,230,235,0.75)');
+    // Faint building outlines so the player can see what the pipes serve; the pumps and plants in their colours.
+    ctx.lineWidth = 1;
+    for (const b of c.buildings.values()) {
+      if (b.x > x1 || b.y > y1 || b.x + b.width < x0 || b.y + b.height < y0) continue;
+      const t = c.typeById.get(b.typeId);
+      const pump = (t?.waterOut ?? 0) > 0, plant = (t?.sewageCap ?? 0) > 0;
+      if (pump || plant) {
+        ctx.fillStyle = pump ? 'rgba(94,200,255,0.45)' : 'rgba(176,136,80,0.6)';
+        ctx.fillRect(px(b.x) + 1, py(b.y) + 1, b.width * s - 2, b.height * s - 2);
+      }
+      ctx.strokeStyle = pump ? '#5ec8ff' : plant ? '#d0a060' : 'rgba(255,255,255,0.25)';
+      ctx.strokeRect(px(b.x) + 1, py(b.y) + 1, b.width * s - 2, b.height * s - 2);
+    }
+    // The two mains: water a little to one side of the cell's middle, the sewer to the other (and deeper, so wider).
+    const main = (colour: string, width: number, off: number) => {
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = width;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let y = y0; y <= y1; y++)
+        for (let x = x0; x <= x1; x++) {
+          const i = y * c.width + x;
+          if (!c.waterPipes[i]) continue;
+          const cx = px(x) + s / 2 + off, cy = py(y) + s / 2 + off;
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx, cy);
+          if (x + 1 < c.width && c.waterPipes[i + 1]) { ctx.moveTo(cx, cy); ctx.lineTo(cx + s, cy); }
+          if (y + 1 < c.height && c.waterPipes[i + c.width]) { ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + s); }
+        }
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+    };
+    const off = s >= 6 ? s * 0.16 : 0;
+    main('#9a7444', Math.max(2, s / 4), off);
+    main('#5ec8ff', Math.max(1.5, s / 6), -off);
+    // A key in the corner.
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(16,18,22,0.75)';
+    // Below the news ticker, which runs along the top.
+    const k = 48;
+    ctx.fillRect(8, k, 150, 50);
+    ctx.fillStyle = '#5ec8ff'; ctx.fillRect(16, k + 10, 18, 4);
+    ctx.fillStyle = '#9a7444'; ctx.fillRect(16, k + 24, 18, 5);
+    ctx.fillStyle = '#4c5056'; ctx.fillRect(16, k + 37, 18, 6);
+    ctx.fillStyle = '#e8e8ec';
+    ctx.fillText('Water main', 42, k + 15);
+    ctx.fillText('Sewer', 42, k + 29);
+    ctx.fillText('Road tunnel', 42, k + 43);
   }
 
   private drawBuildings(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {

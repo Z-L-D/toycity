@@ -553,6 +553,7 @@ public sealed partial class PanelModel
             ("Power (kW)", util(s.PowerDemandKw, s.PowerCapacityKw)),
             ("Water", util(s.WaterDemand, s.WaterCapacity)),
             ("Garbage", util(s.GarbageProduced, s.GarbageCapacity)),
+            ("Sewage", Col(s.SewageUntreated > 0 ? Neg : "#d8dee8", $"{Num(s.SewageProduced)} / {Num(s.SewageCapacity)}" + (s.SewageUntreated > 0 ? $" · {Num(s.SewageUntreated)} raw" : ""))),
             ("Jobs filled", $"{Num(s.Workers)} / {Num(s.Jobs)}"),
         }));
         sb.Append(H4("Road crews"));
@@ -599,7 +600,8 @@ public sealed partial class PanelModel
         sb.Append(H4("Bus company"));
         sb.Append(Link("routes", ShowRoutes ? "Showing bus routes" : "Show bus routes")).Append('\n');
         sb.Append(H4("Underground"));
-        sb.Append(Link("under", ShowUnderground ? "Showing pipes (U)" : "Show water pipes (U)")).Append('\n');
+        sb.Append(Link("under", ShowUnderground ? "Back above ground (U)" : "Underground view (U)")).Append('\n');
+        if (ShowUnderground) sb.Append(Small(Dim(ToyCity.ClientModel.Underground.Legend(_city.Stats)))).Append('\n');
         return sb.ToString();
     }
 

@@ -81,6 +81,9 @@ public sealed partial class World
         string summary = t.Category switch
         {
             Category.Power => $"Makes {t.PowerOutKw * FundingFactor(b.Funding) / 100:N0} kW. City grid: {PowerDemand:N0} of {PowerCapacity:N0} kW used.",
+            Category.Water when t.SewageCap > 0 => b.Powered
+                ? $"Treats up to {t.SewageCap * FundingFactor(b.Funding) / 100:N0} units of sewage a day from the pipes beside it. City: {SewageProduced:N0} made, {SewageCapacity:N0} treated, {SewageUntreated:N0} left raw."
+                : "Not treating: a sewage plant needs power.",
             Category.Water => b.Powered ? $"Pumps {PumpOutput(b):N0} units a day (water pollution here cuts output). City: {WaterDemand:N0} of {WaterCapacity:N0} used."
                 : "Not pumping: a pump needs power.",
             Category.Garbage => HasFrontage(b) ? $"Takes {t.GarbageCap * FundingFactor(b.Funding) / 100:N0} units a day. City makes {GarbageProduced:N0}, can handle {GarbageCapacity:N0}."
