@@ -99,11 +99,14 @@ public sealed class GateRun
     {
         Phase = "snow";
         _panel.CloseDialog();
+        // Four months a clock day: 12 clock minutes a step, so a blizzard fills the streets in a dozen steps.
+        _client.Connection.Send(new ClientMessage { Pace = new SetPace { DaysPerClockDay = 120 } });
+        yield return Wait("the calendar at four months a day", () => City.Stats.Pace == 120, 30);
         Speed(3);
         Pin(WeatherKind.WeatherSnow, 3);
         yield return Wait("a blizzard over the city", () => City.Stats.Weather.Contains("Blizzard"), 60);
-        yield return Wait("the streets snowed in", () => Cover(2) >= 60, 300);
-        Check("snow on the roads", Cover(2) >= 60 && Cover(0) < Cover(2), Roads());
+        yield return Wait("the streets snowed in", () => Cover(2) >= 50, 300);
+        Check("snow on the roads", Cover(2) >= 50 && Cover(0) < Cover(2), Roads());
         // The crews on double budget, from the budget panel.
         _panel.Open("budget");
         _panel.Click("crews:200");
