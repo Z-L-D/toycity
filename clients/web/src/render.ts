@@ -1,3 +1,4 @@
+import { type MapLight, litShare } from './daylight';
 import { City, lCells, SIDE_DX, SIDE_DY, stripPoints } from './state';
 import type { Building, BuildingType } from './state';
 import type { Msg } from './net';
@@ -234,6 +235,10 @@ export class Renderer {
   busLines: { color: string; cells: number[]; buses: number; running: boolean }[] = [];
   /** In the city view the routes show only when the Layers tab asks for them. */
   showRoutes = false;
+  /** Day and night on the map (Beta 3.2, Part 6): the light now, or null for plain daylight. */
+  light: MapLight | null = null;
+  /** An hour to show the light at instead of the clock's (for pictures and checks); null follows the clock. */
+  pinHour: number | null = null;
   /**
    * Set while the bus company's own view is up: the city is dimmed and the company's lots stand out, with the
    * walking reach of its stops when asked for.
@@ -434,6 +439,7 @@ export class Renderer {
       if (this.calls) this.drawCalls(px, py, r.width, r.height);
       if (this.company || this.showRoutes) this.drawBusLines(px, py);
       if (!this.company) this.drawAgents(px, py, x0, y0, x1, y1);
+      if (this.light && !this.company) this.drawLight(this.light, x0, y0, x1, y1, px, py);
     }
 
     if (this.overlay) {
@@ -465,6 +471,52 @@ export class Renderer {
       ctx.strokeRect(px(this.selected.x) + 1, py(this.selected.y) + 1, s - 2, s - 2);
     }
     ctx.restore();
+  }
+
+  /**
+   * Day and night (Beta 3.2, Part 6): a warm wash at golden hour, grey under heavy weather, and a dark blue one at
+   * night with the windows lit (as many as the building's people) and a pool of street light every other road cell.
+   */
+  private drawLight(l: MapLight, x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {
+    const c = this.city, ctx = this.ctx, s = this.scale;
+    const left = px(x0), top = py(y0), w = (x1 - x0 + 1) * s, h = (y1 - y0 + 1) * s;
+    if (l.golden > 0.02) { ctx.fillStyle = `rgba(255,150,70,${(0.16 * l.golden).toFixed(3)})`; ctx.fillRect(left, top, w, h); }
+    if (l.overcast > 0.02) { ctx.fillStyle = `rgba(90,96,105,${(0.18 * l.overcast).toFixed(3)})`; ctx.fillRect(left, top, w, h); }
+    if (l.night < 0.02) return;
+    ctx.fillStyle = `rgba(8,14,38,${(0.62 * l.night).toFixed(3)})`;
+    ctx.fillRect(left, top, w, h);
+    if (s < 5) return;
+    ctx.globalAlpha = Math.min(1, l.night * 1.2);
+    // Street lights: a warm pool on every other road cell.
+    const r = s * 0.42;
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        if ((x + y) % 2 !== 0 || !c.paths[y * c.width + x]) continue;
+        const cx = px(x) + s / 2, cy = py(y) + s / 2;
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, 'rgba(255,200,120,0.55)');
+        g.addColorStop(1, 'rgba(255,200,120,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+      }
+    // Lit windows: a grid of panes over each building, some of them lit.
+    const pane = Math.max(1.5, s / 6), step = Math.max(3, s / 3);
+    for (const b of c.buildings.values()) {
+      if (b.x + b.width < x0 || b.x > x1 + 1 || b.y + b.height < y0 || b.y > y1 + 1) continue;
+      const lit = litShare(b);
+      if (lit <= 0) continue;
+      const bx = px(b.x), by = py(b.y), bw = b.width * s, bh = b.height * s;
+      let k = 0;
+      for (let wy = by + step / 2; wy < by + bh - pane; wy += step)
+        for (let wx = bx + step / 2; wx < bx + bw - pane; wx += step) {
+          k++;
+          const hsh = Math.abs(Math.sin(b.id * 12.9898 + k * 78.233) * 43758.5453) % 1;
+          if (hsh >= lit) continue;
+          ctx.fillStyle = hsh < lit * 0.2 ? 'rgba(200,220,255,0.9)' : 'rgba(255,214,130,0.95)';
+          ctx.fillRect(wx, wy, pane, pane);
+        }
+    }
+    ctx.globalAlpha = 1;
   }
 
   /**

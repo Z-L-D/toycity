@@ -1,6 +1,8 @@
 // The water: a flat sheet at the waterline, as SimCity 4's, coloured by how deep it is over the ground beneath
 // (read from the corner heights): clear and green over the shallows, deep blue far out, with foam where it laps the
-// shore. Slow crossing ripples move its surface so the sun glints on it.
+// shore. Slow crossing ripples move its surface so the sun glints on it. Beta 3.2, 6.5 (after the Sea of Thieves
+// talk): the sky's colour reflects off it at a glancing angle, and the light shines through the crests of the
+// ripples, glowing green-blue in the sun. The project's globals `sky_colour`, `sun_colour` and `night` drive both.
 shader_type spatial;
 render_mode blend_mix, cull_disabled, depth_draw_opaque;
 
@@ -9,6 +11,10 @@ uniform vec2 map_size = vec2(128.0);
 uniform float height_step = 0.125;
 
 varying vec3 world_pos;
+
+global uniform vec4 sky_colour;
+global uniform vec4 sun_colour;
+global uniform float night;
 
 float hash(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -53,6 +59,11 @@ void fragment() {
 	float e = 0.05, h0 = waves(p, t), hx = waves(p + vec2(e, 0.0), t), hz = waves(p + vec2(0.0, e), t);
 	vec3 n = normalize(vec3(-(hx - h0) / e * 0.06, 1.0, -(hz - h0) / e * 0.06));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);
+	// The sky at a glancing angle (Fresnel), and light through the crests, by day.
+	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
+	float crest = smoothstep(0.55, 0.9, h0) * (1.0 - foam);
+	vec3 through = vec3(0.10, 0.62, 0.52) * sun_colour.rgb * crest * smoothstep(0.5, 6.0, depth) * (1.0 - night);
+	EMISSION = to_linear(sky_colour.rgb, srgb) * fresnel * 0.35 + to_linear(through, srgb) * 0.35;
 	ROUGHNESS = 0.06;
 	METALLIC = 0.0;
 	SPECULAR = 0.7;

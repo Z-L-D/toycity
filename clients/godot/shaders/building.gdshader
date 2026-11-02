@@ -2,12 +2,16 @@
 //   r  height in cells above which nothing is drawn: a building going up layer by layer, or crumbling down
 //   g  wear, 0 new to 1 falling apart: grime in the corners of the voxels
 //   b  graffiti, 0 to 1: tags on the lower walls
-//   a  flags: 1 burning, 2 abandoned, 4 crumbling
+//   a  flags: 1 burning, 2 abandoned, 4 crumbling, in the whole part; the share of windows lit at night times 0.9
+//      in the fraction (Beta 3.2, 6.4)
+// The project's global `night` (0 day to 1 full dark) turns the lit windows on.
 shader_type spatial;
 render_mode cull_back;
 
 varying vec3 local;
 varying vec4 life;
+
+global uniform float night;
 
 const float VOXEL = 1.0 / 32.0;
 
@@ -30,7 +34,8 @@ void vertex() {
 }
 
 void fragment() {
-	int flags = int(life.a + 0.5);
+	int flags = int(floor(life.a + 0.001));
+	float lit = clamp(fract(life.a + 0.001) / 0.9, 0.0, 1.0);
 	bool burning = (flags & 1) != 0, abandoned = (flags & 2) != 0, crumbling = (flags & 4) != 0;
 	// The voxel this fragment belongs to, nudged inside the face so each voxel gets one random number.
 	vec3 n = (INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz;
@@ -57,6 +62,21 @@ void fragment() {
 	if (crumbling) c = mix(c, vec3(0.6, 0.57, 0.5), 0.5);
 	ALBEDO = c;
 	ROUGHNESS = 0.95;
+	// Night (6.4): windows in rows a storey apart on the walls, some of them lit, warm or cool by the room.
+	if (night > 0.01 && wall && lit > 0.0 && !burning) {
+		vec3 along = abs(n.x) > 0.5 ? vec3(0.0, cell.y, cell.z) : vec3(cell.x, cell.y, 0.0);
+		float h = abs(n.x) > 0.5 ? cell.z : cell.x;
+		bool pane = mod(cell.y, 6.0) >= 2.0 && mod(cell.y, 6.0) < 4.0 && mod(h, 4.0) >= 1.0 && cell.y >= 2.0;
+		if (pane) {
+			vec3 window = floor(along / vec3(4.0, 6.0, 4.0));
+			float w = hash(window + n * 3.0);
+			if (w < lit) {
+				vec3 lamp = mix(vec3(1.0, 0.72, 0.38), vec3(0.85, 0.9, 1.0), step(0.8, hash(window + 11.0)));
+				EMISSION = lamp * (1.2 + 0.8 * hash(window + 5.0)) * night;
+				ALBEDO = c * (1.0 - 0.6 * night);
+			} else ALBEDO = c * (1.0 - 0.5 * night);
+		}
+	}
 	if (burning) {
 		// Charred walls, and flames licking the upper floors.
 		ALBEDO = c * 0.35;

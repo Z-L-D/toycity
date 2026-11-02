@@ -18,6 +18,12 @@ public enum Smoothing { Off, Near, Wide }
 /// </summary>
 public enum ShapeDetail { Low, Medium, High }
 
+/// <summary>
+/// Light beyond the sun and its shadows (Beta 3.2, 6.3): none; contact shadows where things meet (ambient
+/// occlusion); those and light bounced off the ground and walls; and on top, light bounced through the whole scene.
+/// </summary>
+public enum LightQuality { Simple, Occlusion, Bounce, Full }
+
 /// <summary>Edge smoothing for the 3D view: none, FXAA (cheap, a little soft), or 2× or 4× MSAA.</summary>
 public enum AntiAliasing { Off, Fxaa, Msaa2, Msaa4 }
 
@@ -45,6 +51,11 @@ public sealed record GraphicsSettings
     public bool StreetLabels { get; init; } = true;
     /// <summary>Commuters moving about and the buses running their lines.</summary>
     public bool CityLife { get; init; } = true;
+    public LightQuality Lighting { get; init; } = LightQuality.Occlusion;
+    /// <summary>The miniature look, the foreground and distance blurred, while a cell is picked with the query tool (6.5).</summary>
+    public bool TiltShift { get; init; } = true;
+    /// <summary>The light follows the day clock (0), or is pinned to one of <see cref="Daylight.Pins"/>.</summary>
+    public int TimeOfDay { get; init; }
 
     public static readonly int[] RenderScales = { 50, 60, 75, 85, 100 };
     public static readonly int[] DetailDistances = { 40, 80, 120, 200 };
@@ -54,16 +65,18 @@ public sealed record GraphicsSettings
     {
         RenderScale = 75, Shadows = ShadowQuality.Off, Detail = BuildingDetail.Low, Smoothing = Smoothing.Off,
         AntiAliasing = AntiAliasing.Off, DetailDistance = 40, ShapeDetail = ShapeDetail.Low, FullTerrain = false,
+        Lighting = LightQuality.Simple, TiltShift = false,
     };
     public static readonly GraphicsSettings Medium = new()
     {
         RenderScale = 100, Shadows = ShadowQuality.Low, Detail = BuildingDetail.Medium, Smoothing = Smoothing.Off,
-        AntiAliasing = AntiAliasing.Fxaa, DetailDistance = 80, ShapeDetail = ShapeDetail.Low,
+        AntiAliasing = AntiAliasing.Fxaa, DetailDistance = 80, ShapeDetail = ShapeDetail.Low, Lighting = LightQuality.Simple,
     };
     public static readonly GraphicsSettings High = new();
     public static readonly GraphicsSettings Ultra = new()
     {
         Smoothing = Smoothing.Wide, AntiAliasing = AntiAliasing.Msaa4, DetailDistance = 200, ShapeDetail = ShapeDetail.High,
+        Lighting = LightQuality.Full,
     };
 
     public static readonly (string Name, GraphicsSettings Settings)[] Presets =
@@ -72,19 +85,19 @@ public sealed record GraphicsSettings
     public static GraphicsSettings? Preset(string name) =>
         Presets.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)).Settings;
 
-    /// <summary>The preset these settings match, or "Custom". The frame cap, v-sync, labels and city life aren't part of a preset.</summary>
+    /// <summary>The preset these settings match, or "Custom". The frame cap, v-sync, labels, city life and time of day aren't part of a preset.</summary>
     public string PresetName
     {
         get
         {
             foreach (var (name, p) in Presets)
-                if (p with { VSync = VSync, MaxFps = MaxFps, StreetLabels = StreetLabels, CityLife = CityLife } == this) return name;
+                if (p with { VSync = VSync, MaxFps = MaxFps, StreetLabels = StreetLabels, CityLife = CityLife, TimeOfDay = TimeOfDay } == this) return name;
             return "Custom";
         }
     }
 
-    /// <summary>A preset's options, keeping this player's frame cap, v-sync, labels and city life.</summary>
-    public GraphicsSettings WithPreset(GraphicsSettings p) => p with { VSync = VSync, MaxFps = MaxFps, StreetLabels = StreetLabels, CityLife = CityLife };
+    /// <summary>A preset's options, keeping this player's frame cap, v-sync, labels, city life and time of day.</summary>
+    public GraphicsSettings WithPreset(GraphicsSettings p) => p with { VSync = VSync, MaxFps = MaxFps, StreetLabels = StreetLabels, CityLife = CityLife, TimeOfDay = TimeOfDay };
 
     /// <summary>
     /// The preset to start with on a machine with this graphics adapter: Medium for integrated graphics (Intel's,
@@ -146,6 +159,12 @@ public sealed record GraphicsSettings
             new[] { "Low", "Medium", "High" }, s => (int)s.ShapeDetail, (s, i) => s with { ShapeDetail = (ShapeDetail)i }),
         new("Distant terrain", "How finely the ground far from the camera is drawn. Coarse uses a quarter of the triangles there; nearby ground is always full.",
             new[] { "Coarse", "Full" }, s => s.FullTerrain ? 1 : 0, (s, i) => s with { FullTerrain = i == 1 }),
+        new("Lighting", "Light beyond the sun: contact shadows where things meet the ground, then light bounced off the ground and walls, then through the whole scene. Each costs more.",
+            new[] { "Sun only", "Contact shadows", "Bounce light", "Full" }, s => (int)s.Lighting, (s, i) => s with { Lighting = (LightQuality)i }),
+        new("Tilt-shift", "The miniature look while you query a cell: the foreground and the distance blur.",
+            new[] { "Off", "On" }, s => s.TiltShift ? 1 : 0, (s, i) => s with { TiltShift = i == 1 }),
+        new("Time of day", "The light follows the day clock, from dawn to night, or stays at the hour you pick.",
+            Daylight.Pins.Select(p => p.Name).ToArray(), s => s.TimeOfDay, (s, i) => s with { TimeOfDay = i }),
         new("Anti-aliasing", "Smooths jagged edges. FXAA is cheap and a little soft; MSAA is sharper and costs more.",
             new[] { "Off", "FXAA", "MSAA 2×", "MSAA 4×" }, s => (int)s.AntiAliasing, (s, i) => s with { AntiAliasing = (AntiAliasing)i }),
         new("Detail distance", "How far the free camera draws buildings in detail before switching to their far models.",
@@ -182,6 +201,9 @@ public sealed record GraphicsSettings
         Line("max_fps", MaxFps);
         Line("street_labels", StreetLabels);
         Line("city_life", CityLife);
+        Line("lighting", Lighting);
+        Line("tilt_shift", TiltShift);
+        Line("time_of_day", TimeOfDay);
         return sb.ToString();
     }
 
@@ -211,6 +233,9 @@ public sealed record GraphicsSettings
                 "max_fps" => s with { MaxFps = Math.Clamp(I(s.MaxFps), 0, 1000) },
                 "street_labels" => s with { StreetLabels = B(s.StreetLabels) },
                 "city_life" => s with { CityLife = B(s.CityLife) },
+                "lighting" => s with { Lighting = E(s.Lighting) },
+                "tilt_shift" => s with { TiltShift = B(s.TiltShift) },
+                "time_of_day" => s with { TimeOfDay = Math.Clamp(I(s.TimeOfDay), 0, Daylight.Pins.Length - 1) },
                 _ => s,
             };
         }

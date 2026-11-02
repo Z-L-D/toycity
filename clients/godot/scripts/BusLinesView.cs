@@ -37,10 +37,15 @@ public partial class BusLinesView : Node3D
         _buses = new MultiMeshInstance3D
         {
             Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, Mesh = new BoxMesh { Size = new Vector3(0.5f, 0.35f, 0.5f) } },
-            MaterialOverride = new StandardMaterial3D { VertexColorUseAsAlbedo = true },
+            MaterialOverride = _busMaterial,
         };
         AddChild(_buses);
     }
+
+    readonly StandardMaterial3D _busMaterial = new() { VertexColorUseAsAlbedo = true, EmissionEnabled = true, Emission = new Color(1f, 0.85f, 0.55f), EmissionEnergyMultiplier = 0 };
+
+    /// <summary>At night the buses show their lights (Beta 3.2, 6.4).</summary>
+    public void SetNight(float night) => _busMaterial.EmissionEnergyMultiplier = 0.9f * night;
 
     Vector3 At(int cell, float lift)
     {

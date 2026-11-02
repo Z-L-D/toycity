@@ -23,3 +23,18 @@ window/size/viewport_height=900
 [dotnet]
 
 project/assembly_name="ToyCity.Godot"
+
+[shader_globals]
+
+night={
+"type": "float",
+"value": 0.0
+}
+sky_colour={
+"type": "color",
+"value": Color(0.48, 0.66, 0.88, 1)
+}
+sun_colour={
+"type": "color",
+"value": Color(1, 0.97, 0.92, 1)
+}

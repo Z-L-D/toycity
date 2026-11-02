@@ -446,7 +446,7 @@ public partial class CityView : Node3D
 
     /// <summary>A building's life as the shader reads it (see building.gdshader).</summary>
     static Color Custom(Life life, float height) =>
-        new(life.Standing >= 1 && !life.Flags.HasFlag(LifeFlags.Crumbling) ? 99f : height * life.Standing, life.Wear, life.Graffiti, (float)(int)life.Flags);
+        new(life.Standing >= 1 && !life.Flags.HasFlag(LifeFlags.Crumbling) ? 99f : height * life.Standing, life.Wear, life.Graffiti, (int)life.Flags + life.Lit * 0.9f);
 
     /// <summary>
     /// Moves building life on a frame: buildings just removed start crumbling, and while anything rises or

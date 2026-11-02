@@ -9,8 +9,8 @@ public class GraphicsSettingsTests
     {
         foreach (var (name, p) in GraphicsSettings.Presets) Assert.Equal(name, p.PresetName);
         Assert.Equal("Custom", (GraphicsSettings.High with { Shadows = ShadowQuality.Off }).PresetName);
-        // A preset ignores the player's own frame cap, v-sync, labels and city life.
-        Assert.Equal("Low", (GraphicsSettings.Low with { MaxFps = 30, VSync = false, StreetLabels = false, CityLife = false }).PresetName);
+        // A preset ignores the player's own frame cap, v-sync, labels, city life and time of day.
+        Assert.Equal("Low", (GraphicsSettings.Low with { MaxFps = 30, VSync = false, StreetLabels = false, CityLife = false, TimeOfDay = 3 }).PresetName);
         var order = new[] { GraphicsSettings.Low, GraphicsSettings.Medium, GraphicsSettings.High, GraphicsSettings.Ultra };
         for (int k = 1; k < order.Length; k++)
         {
@@ -19,17 +19,19 @@ public class GraphicsSettingsTests
             Assert.True(order[k].Detail >= order[k - 1].Detail);
             Assert.True(order[k].Smoothing >= order[k - 1].Smoothing);
             Assert.True(order[k].DetailDistance >= order[k - 1].DetailDistance);
+            Assert.True(order[k].Lighting >= order[k - 1].Lighting);
         }
     }
 
     [Fact]
     public void ApplyingAPresetKeepsThePlayersOwnChoices()
     {
-        var mine = GraphicsSettings.Ultra with { MaxFps = 60, StreetLabels = false };
+        var mine = GraphicsSettings.Ultra with { MaxFps = 60, StreetLabels = false, TimeOfDay = 2 };
         var low = mine.WithPreset(GraphicsSettings.Low);
         Assert.Equal("Low", low.PresetName);
         Assert.Equal(60, low.MaxFps);
         Assert.False(low.StreetLabels);
+        Assert.Equal(2, low.TimeOfDay);
     }
 
     [Fact]
