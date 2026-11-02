@@ -1012,6 +1012,10 @@ function renderBudget() {
       ${util('Garbage', s.garbageProduced, s.garbageCapacity)}
       <tr><td>Jobs filled</td><td class="num">${s.workers.toLocaleString('en-US')} / ${s.jobs.toLocaleString('en-US')}</td></tr>
     </table>
+    <h4>Road crews</h4>
+    <div class="slider"><span>Budget</span><input type="range" min="0" max="200" step="10" value="${s.roads?.crewsPct ?? 100}" id="road-crews"><span>${s.roads?.crewsPct ?? 100}%</span></div>
+    ${s.roads?.text ? `<p>${esc(s.roads.text)}</p>` : ''}
+    <p class="muted">Crews plough snow and salt ice on the highways first, then roads, then streets, and keep the drains on the bigger roads clear. Less budget, and the streets wait.</p>
     <h4>Loans</h4>
     <div class="row" style="display:flex;gap:6px"><button data-loan="10000">Borrow $10,000</button><button data-loan="50000">Borrow $50,000</button></div>
     <p class="muted">Loans are repaid over about 10 years with 6% yearly interest.</p>`;
@@ -1022,6 +1026,9 @@ function renderBudget() {
       conn.action({ tax: { zone: Math.floor(k / 3) + 1, wealth: k % 3, percentTenths: Number(inp.value) } });
     });
   });
+  const crews = $<HTMLInputElement>('#road-crews');
+  crews.addEventListener('input', () => (crews.nextElementSibling!.textContent = `${crews.value}%`));
+  crews.addEventListener('change', () => conn.action({ roadCrews: { percent: Number(crews.value) } }));
   document.querySelectorAll<HTMLButtonElement>('#tab-budget button[data-loan]').forEach((b) =>
     b.addEventListener('click', () => conn.action({ loan: { amount: Number(b.dataset.loan) } })),
   );
@@ -1047,6 +1054,7 @@ function renderLayers(low?: string, high?: string) {
       ${OVERLAYS.map((x) => `<button data-overlay="${x.kind}" class="${x.kind === activeOverlay ? 'active' : ''}">${x.name}</button>`).join('')}
     </div>
     ${o ? `<div class="legend"><span>${esc(low ?? 'low')}</span><span class="ramp" style="background:${ramp[o.scheme]}"></span><span>${esc(high ?? 'high')}</span></div>` : ''}
+    ${activeOverlay === 9 && city.stats.roads?.text ? `<p class="warn">${esc(city.stats.roads.text)} · road crews ${city.stats.roads.crewsPct ?? 0}%${city.stats.roads.stayHomePct ? ` · ${city.stats.roads.stayHomePct}% stay home` : ''}</p>` : ''}
     <h4>Commuters</h4>
     <button id="btn-agents" class="${renderer.showAgents ? 'active' : ''}">${renderer.showAgents ? 'Showing commuters' : 'Show commuters'} (M)</button>
     ${roster ? `<p class="muted">${roster.full.toLocaleString('en-US')} people followed daily (${(roster.trips as Msg[]).length.toLocaleString('en-US')} drawn), ${roster.light.toLocaleString('en-US')} checked monthly, of ${roster.citizens.toLocaleString('en-US')}. This machine's limits: ${roster.fullTier.toLocaleString('en-US')} and ${roster.lightTier.toLocaleString('en-US')} (${esc(roster.machine)}). Yellow drive, blue ride transit; the map runs the morning and evening rush on a loop.</p>` : ''}

@@ -65,6 +65,7 @@ public sealed partial class World
             case EndPactAction a: ApplyEndPact(a); break;
             case UpgradeBuildingAction a: ApplyUpgrade(a); break;
             case SetPaceAction a: ApplyPace(a); break;
+            case SetRoadCrewsAction a: ApplyRoadCrews(a); break;
             case SetDisasterSettingAction a:
                 DisasterSetting = a.Setting;
                 Notices.Add(new SimNotice(a.Setting switch { DisasterSetting.Off => "Disasters off: only the ones you start will happen.", DisasterSetting.Rare => "Disasters set to rare.", _ => "Disasters set to normal." }, "info"));

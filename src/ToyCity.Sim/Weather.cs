@@ -1,6 +1,6 @@
 namespace ToyCity.Sim;
 
-public enum WeatherKind : byte { Clear = 0, Rain = 1, Snow = 2, Heat = 3, Wind = 4 }
+public enum WeatherKind : byte { Clear = 0, Rain = 1, Snow = 2, Heat = 3, Wind = 4, Ice = 5 }
 
 /// <summary>
 /// The region tells a city today's weather over it, when it changes. Logged, so a city's log replays it alone.
@@ -21,38 +21,40 @@ public sealed partial class World
         WeatherKind.Snow => s >= 3 ? "Blizzard" : s == 2 ? "Heavy snow" : "Snow",
         WeatherKind.Heat => s >= 3 ? "Heatwave" : s == 2 ? "Hot spell" : "Warm",
         WeatherKind.Wind => s >= 3 ? "Gale" : s == 2 ? "Strong wind" : "Breezy",
+        WeatherKind.Ice => s >= 3 ? "Ice storm" : s == 2 ? "Freezing rain" : "Freezing drizzle",
         _ => "",
     };
 
     public static string WeatherIcon(WeatherKind k) => k switch
     {
-        WeatherKind.Rain => "🌧", WeatherKind.Snow => "🌨", WeatherKind.Heat => "🔥", WeatherKind.Wind => "💨", _ => "",
+        WeatherKind.Rain => "🌧", WeatherKind.Snow => "🌨", WeatherKind.Heat => "🔥", WeatherKind.Wind => "💨", WeatherKind.Ice => "🧊", _ => "",
     };
 
     int W(WeatherKind k) => Weather == k ? WeatherStrength : 0;
 
     /// <summary>Percent on power use: air conditioning in heat, heating in snow.</summary>
-    int WeatherPowerPct => 100 + 10 * W(WeatherKind.Heat) + 8 * W(WeatherKind.Snow);
+    int WeatherPowerPct => 100 + 10 * W(WeatherKind.Heat) + 8 * W(WeatherKind.Snow) + 8 * W(WeatherKind.Ice);
     /// <summary>Percent on water use: gardens and pools in heat, less in rain.</summary>
     int WeatherWaterPct => 100 + 15 * W(WeatherKind.Heat) - 10 * W(WeatherKind.Rain);
     /// <summary>Percent on how readily fire spreads: heat and wind fan it, rain and snow damp it.</summary>
-    int WeatherFirePct => Math.Max(10, 100 + 25 * W(WeatherKind.Heat) + 25 * W(WeatherKind.Wind) - 25 * W(WeatherKind.Rain) - 30 * W(WeatherKind.Snow));
+    int WeatherFirePct => Math.Max(10, 100 + 25 * W(WeatherKind.Heat) + 25 * W(WeatherKind.Wind) - 25 * W(WeatherKind.Rain) - 30 * W(WeatherKind.Snow) - 25 * W(WeatherKind.Ice));
     /// <summary>Percent on visitors: fine weather brings them, rain and snow keep them home.</summary>
-    int WeatherTourismPct => 100 + 5 * W(WeatherKind.Heat) - 12 * W(WeatherKind.Rain) - 8 * W(WeatherKind.Snow);
+    int WeatherTourismPct => 100 + 5 * W(WeatherKind.Heat) - 12 * W(WeatherKind.Rain) - 8 * W(WeatherKind.Snow) - 12 * W(WeatherKind.Ice);
 
     void ApplyWeather(WeatherAction a)
     {
         var (was, wasS) = (Weather, WeatherStrength);
         Weather = a.Kind;
         WeatherStrength = a.Kind == WeatherKind.Clear ? 0 : Math.Clamp(a.Strength, 1, 3);
-        // News when something severe rolls in.
-        if (WeatherStrength >= 3 && (was != Weather || wasS < 3))
+        // News when something severe rolls in; freezing rain makes the news at any strength past a drizzle.
+        if ((WeatherStrength >= 3 || Weather == WeatherKind.Ice && WeatherStrength >= 2) && (was != Weather || wasS < 3))
         {
             string text = Weather switch
             {
                 WeatherKind.Heat => $"Heatwave over {Name}: power and water use are up, and fires catch more easily.",
-                WeatherKind.Snow => $"Blizzard over {Name}: heating pushes power use up, and visitors stay away.",
-                WeatherKind.Rain => $"Storms over {Name}: visitors stay away, but the fire risk is low.",
+                WeatherKind.Snow => $"Blizzard over {Name}: heating pushes power use up, visitors stay away, and the streets wait for the ploughs.",
+                WeatherKind.Rain => $"Storms over {Name}: visitors stay away, dirt roads turn to mud, but the fire risk is low.",
+                WeatherKind.Ice => $"{WeatherName(Weather, WeatherStrength)} over {Name}: the roads ice over and crashes are up. Road crews salt the highways first.",
                 _ => $"A gale over {Name}: fires spread fast while it blows.",
             };
             Notices.Add(new SimNotice(text, "warning"));
@@ -94,9 +96,11 @@ public sealed partial class Region
             int days = 8 + (int)(r >> 12 & 15) + (int)(r >> 16 & 7);
             if (tick < start || tick >= start + days) continue;
             int month = (int)(start / World.DaysPerMonth % 12);  // 0 = January
-            bool winter = month is 11 or 0 or 1, summer = month is 5 or 6 or 7;
+            bool winter = month is 11 or 0 or 1, summer = month is 5 or 6 or 7, shoulder = month is 2 or 10;
             int roll = (int)(r >> 20 & 0xFF) % 100;
-            var kind = winter ? (roll < 55 ? WeatherKind.Snow : roll < 80 ? WeatherKind.Wind : WeatherKind.Rain)
+            // Freezing rain comes in winter, and now and then as winter comes or goes.
+            var kind = winter ? (roll < 45 ? WeatherKind.Snow : roll < 62 ? WeatherKind.Ice : roll < 82 ? WeatherKind.Wind : WeatherKind.Rain)
+                : shoulder ? (roll < 15 ? WeatherKind.Snow : roll < 25 ? WeatherKind.Ice : roll < 75 ? WeatherKind.Rain : WeatherKind.Wind)
                 : summer ? (roll < 50 ? WeatherKind.Heat : roll < 75 ? WeatherKind.Rain : WeatherKind.Wind)
                 : roll < 60 ? WeatherKind.Rain : WeatherKind.Wind;
             int sroll = (int)(r >> 28 & 0xFF) % 100;
@@ -112,9 +116,16 @@ public sealed partial class Region
         return list;
     }
 
+    /// <summary>
+    /// A sky the host has pinned over the whole region in place of its fronts (an admin's weather control, for showing
+    /// or testing weather), or null. Not saved: it lasts while the host runs.
+    /// </summary>
+    public (WeatherKind Kind, int Strength)? PinnedWeather { get; set; }
+
     /// <summary>The weather over a tile on a day: the strongest front over its middle, else clear.</summary>
     public (WeatherKind Kind, int Strength) WeatherAt(RegionTile t, long tick)
     {
+        if (PinnedWeather is { } pin) return pin;
         long cx = (long)t.Col * TileSize + TileSize / 2, cy = (long)t.Row * TileSize + TileSize / 2;
         var best = (WeatherKind.Clear, 0);
         foreach (var f in Fronts(tick))
@@ -127,13 +138,14 @@ public sealed partial class Region
     }
 
     /// <summary>Tells each city today's weather when it changed. A lone city has no region sky.</summary>
-    void SendWeather()
+    public void SendWeather()
     {
-        if (Tiles.Length < 2) return;
+        // A lone city has no region sky of its own, only one its host pins; let go, it clears.
+        bool lone = Tiles.Length < 2 && PinnedWeather == null;
         foreach (var t in Tiles)
         {
             if (t.City is not { } w) continue;
-            var (k, s) = WeatherAt(t, Tick);
+            var (k, s) = lone ? (WeatherKind.Clear, 0) : WeatherAt(t, Tick);
             if (k != w.Weather || s != w.WeatherStrength) w.Enqueue(new WeatherAction(k, s));
         }
     }

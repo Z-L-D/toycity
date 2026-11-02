@@ -5,7 +5,10 @@ simulation runs as a headless, authoritative server; front ends only draw it and
 Later phases link side games (transport, emergency services, hospital, zoo, theme park, farm,
 life sim) to lots in the city for live joined play.
 
-This repository is at **Beta 3.2, part 2: the clock.** The game keeps two clocks: a day clock for the hours
+This repository is at **Beta 3.2, part 3: weather on the roads.** Showers fall in hours of the day clock, roads
+get wet, dirt turns to mud, and snow and freezing rain lie on each road until the sun or the road crews clear them,
+highways first, as far as the crews' budget goes. Each surface carries less in bad weather, so commutes, buses and
+emergency crews slow down, and ice brings crashes. **Part 2: the clock** gave the game two clocks: a day clock for the hours
 (commuters, emergency calls, the sun), where a day lasts an hour at speed 1, half an hour at 2 and ten minutes at 3,
 and a calendar for the months (growth, building, money, seasons) whose pace the mayor sets, from a month to two years
 in each clock day. **Part 1: hills** made paths climb as steeply as their type and surface allow, with the ground
@@ -21,6 +24,15 @@ to play; the web client stays as the debug and admin client.
 From the Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release adds a
 new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
+
+Part 3, weather on the roads ([`docs/screenshots/beta3-2-roads`](docs/screenshots/beta3-2-roads)):
+
+| | |
+| --- | --- |
+| ![Snow on every road in a blizzard](docs/screenshots/beta3-2-roads/web-snow.jpg) | ![Roads ploughed, snow banked at the kerbs](docs/screenshots/beta3-2-roads/web-ploughed.jpg) |
+| Web client: a blizzard with the road crews stood down, snow on every road | The crews on double budget: the roads cleared, the snow banked along the kerbs |
+| ![The traffic layer in a storm](docs/screenshots/beta3-2-roads/web-rain-traffic.jpg) | |
+| Storms: the traffic layer says what the roads are carrying | |
 
 Part 2, the clock ([`docs/screenshots/beta3-2-clock`](docs/screenshots/beta3-2-clock)):
 
@@ -54,7 +66,7 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 2 | Multiplayer, consent, de-linking, emergency services alpha, transport beta | Done |
 | Beta 3 | Regions, cross-border play, federated hosting, emergency services beta | Done |
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
-| Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); road weather, underground view, lighting, growing regions | In progress |
+| Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view, lighting, growing regions | In progress |
 | Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | Next |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
@@ -65,6 +77,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-02 | **Beta 3.2, part 3: weather on the roads** (PR #15) | Freezing rain, showers in hours of the day clock, wet roads, mud on dirt, snow and ice by road tier, a road crews budget that clears highways first, drains on the bigger roads, more crashes in snow and ice, all drawn in both clients. [Gate](docs/GATE-BETA3-2-ROADS.md) |
 | 2026-11-01 | **Beta 3.2, part 2: the clock** (PR #14) | Two clocks: a day clock for the hours (calls, crews, fires, storms go by it in 48-minute turns) and a calendar for growth and money, at a pace the mayor picks from a month to two years a clock day; side games and every city in a region share both. [Gate](docs/GATE-BETA3-2-CLOCK.md) |
 | 2026-11-01 | **Beta 3.2, part 1: hills** (PR #13) | Path grades by type and surface, every path graded into the ground, tunnels and stairs, made ground with retaining walls, soil over four kinds of rock with cuts that follow the material, a starter town on a hillside. [Gate](docs/GATE-BETA3-2.md) |
 | 2026-10-31 | **Beta 3.1** (PR #12) | Corner heightfield, mountain generator, Godot terrain shader, realistic roads, rivers, bridges and floods, computer mayors build to their neighbours, bus lines across borders, web dispatch screen. [Gate](docs/GATE-BETA3-1.md) |

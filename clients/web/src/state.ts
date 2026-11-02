@@ -48,6 +48,9 @@ export interface Profile {
   maxGradePct: number;
   stairs: boolean;
   surfaces: string[];
+  /** Beta 3.2, part 4: road crews clear 0 highways, then 1 roads, then 2 streets; -1 untouched (rail). */
+  winterTier?: number;
+  drained?: boolean;
 }
 
 /** What a path may be paved with (Beta 3.2). */
@@ -58,6 +61,12 @@ export interface Surface {
   costPct: number;
   speedPct: number;
   color: string;
+  /** Beta 3.2, part 4: share of its traffic carried wet, in storms, under snow and ice; and whether it turns to mud. */
+  rainPct?: number;
+  stormPct?: number;
+  snowPct?: number;
+  icePct?: number;
+  muddy?: boolean;
 }
 
 export interface BuildingType {

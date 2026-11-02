@@ -35,7 +35,15 @@ message ClientMessage {
     DealRequest deal = 21;
     MayorRequest mayor = 22;
     SetPace pace = 23;
+    PinWeather pin_weather = 24;
   }
+}
+
+// Pins the sky over the whole region (Beta 3.2, part 4): an admin's, or the sole mayor's, weather control, for showing
+// or testing weather. WEATHER_CLEAR with strength 0 lets the region's own fronts back. Not saved.
+message PinWeather {
+  WeatherKind kind = 1;
+  int32 strength = 2;  // 1 light .. 3 severe
 }
 
 message Hello {
@@ -94,7 +102,14 @@ message Action {
     AnswerOffer answer_offer = 30;
     Delink delink = 31;
     OpenTender open_tender = 32;
+    SetRoadCrews road_crews = 33;
   }
+}
+
+// The road crews' budget (Beta 3.2, part 4): 0..200% of their usual, clearing snow and salting ice highways first,
+// then roads, then streets, and keeping drains clear.
+message SetRoadCrews {
+  int32 percent = 1;
 }
 
 enum OfferKind {
@@ -802,6 +817,8 @@ message PathProfileInfo {
   int32 max_grade_pct = 15;   // the steepest its type climbs (Beta 3.2)
   bool stairs = 16;           // a footpath that turns to stairs past its surface's grade
   repeated string surfaces = 17;  // surface ids it may be built in; the first is the default
+  int32 winter_tier = 18;         // road crews clear 0 highways, then 1 roads, then 2 streets; -1 untouched (rail)
+  bool drained = 19;              // sheds rain and shallow floodwater while the crews are funded
 }
 
 // What a path may be paved with (Beta 3.2).
@@ -812,6 +829,12 @@ message SurfaceInfo {
   int32 cost_pct = 4;
   int32 speed_pct = 5;
   string color = 6;
+  // Percent of its traffic it carries wet, in heavy rain, under full snow and under ice (Beta 3.2, part 4).
+  int32 rain_pct = 7;
+  int32 storm_pct = 8;
+  int32 snow_pct = 9;
+  int32 ice_pct = 10;
+  bool muddy = 11;
 }
 
 message BuildingTypeInfo {
@@ -922,6 +945,23 @@ message CityStats {
   int64 clock_minute = 29;
   int32 pace = 30;                    // calendar days per clock day
   int32 clock_minutes_per_tick = 31;
+  RoadWeather roads = 32;             // Beta 3.2, part 4: the weather on the roads
+}
+
+// The state of the roads (Beta 3.2, part 4). Percentages are 0..100. Tiers are 0 highways, 1 roads, 2 streets and
+// paths, as in PathProfileInfo.winter_tier. A client works out each cell's look and share from these, its profile and
+// its surface (see the ClientModel's RoadConditions).
+message RoadWeather {
+  bool falling = 1;               // rain, snow or freezing rain is falling this hour of the day clock
+  int32 wet = 2;                  // how wet the roads are
+  int32 mud = 3;                  // how muddy dirt roads are
+  repeated int32 cover = 4;       // snow or ice on each tier
+  repeated bool ice = 5;          // whether that tier's cover is ice
+  repeated int32 banked = 6;      // snow the crews pushed to the kerbs of each tier
+  int32 crews_pct = 7;            // the road crews' budget, 0..200
+  string text = 8;                // "Snow on the streets, wet roads"; empty on a dry day
+  int32 stay_home_pct = 9;        // commuters staying home
+  string weather_kind = 10;       // "rain", "snow", "ice", "heat", "wind" or "" for clear
 }
 
 message BudgetLine {
@@ -1550,6 +1590,7 @@ enum WeatherKind {
   WEATHER_SNOW = 2;
   WEATHER_HEAT = 3;
   WEATHER_WIND = 4;
+  WEATHER_ICE = 5;  // freezing rain
 }
 
 message RegionWeather {

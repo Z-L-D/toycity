@@ -82,6 +82,54 @@ public sealed class GateRun
         Check("two clocks", City.Stats.ClockMinutesPerTick == 2, $"{new GameClock().Text(City.Stats, DateTime.UtcNow)}, the clock moving {City.Stats.ClockMinutesPerTick} min a calendar day");
     }
 
+    void Pin(WeatherKind kind, int strength) =>
+        _client.Connection.Send(new ClientMessage { PinWeather = new PinWeather { Kind = kind, Strength = strength } });
+
+    int Cover(int tier) => City.Stats.Roads is { } r && r.Cover.Count > tier ? r.Cover[tier] : 0;
+
+    string Roads() => City.Stats.Roads is { } r
+        ? $"{(r.Text.Length > 0 ? r.Text : "dry")}; crews {r.CrewsPct}%, cover {string.Join(" / ", r.Cover)} (highways / roads / streets), wet {r.Wet}%"
+        : "no road weather";
+
+    /// <summary>
+    /// Weather on the roads (Beta 3.2, part 4), after the loop: the sky pinned to a blizzard until the roads are
+    /// snowed in, the crews' budget raised from the Budget panel, then freezing rain, then storms, then let go.
+    /// </summary>
+    public IEnumerable<GateWait> Weather()
+    {
+        Phase = "snow";
+        _panel.CloseDialog();
+        // Four months a clock day: 12 clock minutes a step, so a blizzard fills the streets in a dozen steps.
+        _client.Connection.Send(new ClientMessage { Pace = new SetPace { DaysPerClockDay = 120 } });
+        yield return Wait("the calendar at four months a day", () => City.Stats.Pace == 120, 30);
+        Speed(3);
+        Pin(WeatherKind.WeatherSnow, 3);
+        yield return Wait("a blizzard over the city", () => City.Stats.Weather.Contains("Blizzard"), 60);
+        // The benchmark city is built of roads alone, one tier: the snow beats the crews on it all the same.
+        yield return Wait("the roads snowed in", () => Enumerable.Range(0, 3).Max(Cover) >= 50, 300);
+        Check("snow on the roads", Enumerable.Range(0, 3).Max(Cover) >= 50, Roads());
+        // The crews on double budget, from the budget panel.
+        _panel.Open("budget");
+        _panel.Click("crews:200");
+        yield return Wait("the crews on double budget", () => City.Stats.Roads?.CrewsPct == 200, 30);
+        Check("road crews' budget", City.Stats.Roads!.CrewsPct == 200, Roads());
+
+        Phase = "ice";
+        Pin(WeatherKind.WeatherIce, 2);
+        yield return Wait("freezing rain", () => City.Stats.Roads is { WeatherKind: "ice" } r && r.Ice.Count == 3 && r.Ice.Any(i => i), 300);
+        Check("ice on the roads", City.Stats.Roads!.Ice.Any(i => i), Roads());
+
+        Phase = "rain";
+        Pin(WeatherKind.WeatherRain, 3);
+        yield return Wait("storms on wet roads", () => City.Stats.Roads is { WeatherKind: "rain", Falling: true, Wet: > 50 }, 300);
+        Check("rain on the roads", City.Stats.Roads is { WeatherKind: "rain", Wet: > 50 }, Roads());
+
+        Phase = "clear";
+        Pin(WeatherKind.WeatherClear, 0);
+        yield return Wait("the sky let go", () => City.Stats.Weather.Length == 0, 60);
+        Speed(0);
+    }
+
     /// <summary>The Alpha 3 loop on the city <see cref="Found"/> made.</summary>
     public IEnumerable<GateWait> Play()
     {

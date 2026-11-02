@@ -65,6 +65,38 @@ public class ClockClientTests
     }
 
     [Fact]
+    public void AnAdminPinsTheSkyAndTheRoadsFollow()
+    {
+        // Beta 3.2, part 4: weather on the roads, through a real server and the client's panels.
+        using var server = new ServerProcess("""{ "name": "Sky", "join": "open", "admins": ["Ada"] }""");
+        using var ada = new Player(server.Ws, "Ada");
+        ada.Client.Connection.Send(new ClientMessage { Pace = new SetPace { DaysPerClockDay = 30 } });
+        ada.Client.Connection.Send(new ClientMessage { Speed = new SetSpeed { Speed = 3 } });
+        ada.Client.Connection.Send(new ClientMessage { PinWeather = new PinWeather { Kind = WeatherKind.WeatherSnow, Strength = 3 } });
+        ada.WaitFor(() => ada.Client.City.Stats.Weather.Contains("Blizzard"), "the blizzard");
+        Assert.Empty(ada.Errors);
+        // The crews' budget, from the budget panel.
+        ada.Panels.Open("budget");
+        Assert.Contains("Road crews", ada.Panels.Render());
+        ada.Panels.Click("crews:150");
+        ada.WaitFor(() => ada.Client.City.Stats.Roads?.CrewsPct == 150, "the crews on 150%");
+        ada.WaitFor(() => ada.Client.City.Stats.Roads is { } r && r.Cover.Count == 3 && r.Cover.Any(c => c > 0), "snow on the roads", 90);
+        var roads = ada.Client.City.Stats.Roads!;
+        Assert.Contains("snow", roads.Text.ToLowerInvariant());
+        Assert.Contains("road crews 150%", RoadConditions.Legend(ada.Client.City.Stats));
+        // A road cell reads its snow.
+        int cell = Enumerable.Range(0, ada.Client.City.Paths.Length).First(i => ada.Client.City.ProfileAt(i) is { WinterTier: >= 0 } p && roads.Cover[p.WinterTier] > 0);
+        Assert.True(RoadConditions.At(ada.Client.City, cell).Snow > 0);
+
+        using var bo = new Player(server.Ws, "Bo");
+        bo.Client.Connection.Send(new ClientMessage { PinWeather = new PinWeather { Kind = WeatherKind.WeatherClear } });
+        bo.WaitFor(() => bo.Errors.Count > 0, "the refusal");
+        Assert.Contains("shares one sky", bo.Errors[0]);
+        ada.Client.Connection.Send(new ClientMessage { PinWeather = new PinWeather { Kind = WeatherKind.WeatherClear } });
+        ada.WaitFor(() => ada.Client.City.Stats.Weather.Length == 0, "the sky let go");
+    }
+
+    [Fact]
     public void TheHandsRunOnBetweenTicksButNotPastTheNext()
     {
         var clock = new GameClock();

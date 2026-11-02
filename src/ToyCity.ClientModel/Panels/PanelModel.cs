@@ -445,6 +445,9 @@ public sealed partial class PanelModel
                 Send(new PAction { Funding = new SetFunding { BuildingId = I(1), Percent = Math.Clamp(I(2), 0, 200) } });
                 Requery();
                 return;
+            case "crews":
+                Send(new PAction { RoadCrews = new SetRoadCrews { Percent = Math.Clamp(I(1), 0, 200) } });
+                return;
             case "tax":
                 Send(new PAction { Tax = new SetTax { Zone = (ZoneKind)(I(1) / 3 + 1), Wealth = (Wealth)(I(1) % 3), PercentTenths = Math.Clamp(I(2), 0, 200) } });
                 return;

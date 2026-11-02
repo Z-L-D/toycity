@@ -121,6 +121,23 @@ public sealed partial class RegionHost : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// A player pins the region's sky, or lets its fronts back: as with the pace, an admin or the mayor of every city
+    /// here. Each city hears the weather at once, by a logged action. Returns why not, or null.
+    /// </summary>
+    string? PinWeather(Client c, P.PinWeather pin)
+    {
+        var kind = (WeatherKind)(int)pin.Kind;
+        if (!Enum.IsDefined(kind) || pin.Strength is < 0 or > 3) return "That isn't weather.";
+        var mayors = _region.Tiles.Where(t => t.City != null).Select(t => t.Mayor).Distinct().ToList();
+        if (!c.Admin && !(mayors.Count == 1 && mayors[0] == c.Player))
+            return "The region shares one sky: only this server's admins can change it while other mayors play here.";
+        _region.PinnedWeather = kind == WeatherKind.Clear && pin.Strength == 0 ? null : (kind, kind == WeatherKind.Clear ? 0 : Math.Max(1, pin.Strength));
+        _region.SendWeather();
+        foreach (var t in _region.Tiles) t.City?.ApplyPending();
+        return null;
+    }
+
     public bool Online(string player)
     {
         lock (_online) if (_online.TryGetValue(player, out int n) && n > 0) return true;
@@ -489,6 +506,16 @@ public sealed partial class RegionHost : IDisposable
                 broadcast = WithAll(() =>
                 {
                     if (SetPace(c, msg.Pace.DaysPerClockDay) is { } why) { reply = SimHost.Error(msg.Seq, why); return null; }
+                    var list = new List<(Client, P.ServerMessage)>();
+                    foreach (var city in Cities) list.AddRange(city.Deltas());
+                    list.AddRange(RegionIfChanged(force: true));
+                    return list;
+                });
+                break;
+            case P.ClientMessage.BodyOneofCase.PinWeather:
+                broadcast = WithAll(() =>
+                {
+                    if (PinWeather(c, msg.PinWeather) is { } why) { reply = SimHost.Error(msg.Seq, why); return null; }
                     var list = new List<(Client, P.ServerMessage)>();
                     foreach (var city in Cities) list.AddRange(city.Deltas());
                     list.AddRange(RegionIfChanged(force: true));

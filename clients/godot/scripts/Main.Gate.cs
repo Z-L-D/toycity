@@ -89,6 +89,17 @@ public partial class Main
         int frames = 0;
         yield return new GateWait("the report drawn", () => ++frames > 5, 30);
         Shot("report");
+
+        // Weather on the roads (Beta 3.2, part 4), close in on the line's street.
+        foreach (var w in _gate.Weather())
+        {
+            if (_gate.Phase != seen)
+            {
+                seen = _gate.Phase;
+                Watch(seen);
+            }
+            yield return w;
+        }
     }
 
     /// <summary>Where the camera goes for each part of the loop.</summary>
@@ -119,6 +130,20 @@ public partial class Main
                 break;
             case "taking back":
                 Shot("autopilot ride-along");
+                break;
+            case "snow":
+                if (_camera!.IsFree) _camera.ToggleFree();
+                _camera.CentreOn(fx, fy);
+                _camera.View.Zoom = 3;
+                break;
+            case "ice":
+                Shot("snow, crews on the highways first");
+                break;
+            case "rain":
+                Shot("freezing rain");
+                break;
+            case "clear":
+                Shot("rain");
                 break;
         }
     }
