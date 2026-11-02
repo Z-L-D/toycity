@@ -5,7 +5,9 @@ simulation runs as a headless, authoritative server; front ends only draw it and
 Later phases link side games (transport, emergency services, hospital, zoo, theme park, farm,
 life sim) to lots in the city for live joined play.
 
-This repository is at **Beta 3.2, part 4: underground.** Every pipe carries a water main and a sewer side by side,
+This repository is at **Beta 3.2, part 5: subways.** Subway tunnels run under anything, laid with the utility tool,
+and subway stations stand over them or beside them. The city can run its own subway, or the bus company can lease the
+stations and a subway yard and run Metro lines. **Part 4: underground** made every pipe carry a water main and a sewer side by side,
 laid with one tool, and sewage treatment plants beside the pipes treat what reaches them. A small town gets by on its
 septic tanks; past that, raw sewage fouls the water and puts people off. The underground view (U) turns the ground
 to a cutaway and shows the mains, the sewers and the road tunnels beneath it, and a tunnel seen from above is one
@@ -28,6 +30,15 @@ to play; the web client stays as the debug and admin client.
 From the Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release adds a
 new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
+
+Part 5, subways ([`docs/screenshots/beta3-2-subways`](docs/screenshots/beta3-2-subways)):
+
+| | |
+| --- | --- |
+| ![Godot underground view with the subway](docs/screenshots/beta3-2-subways/godot-subway-classic.jpg) | ![Godot free camera over the subway](docs/screenshots/beta3-2-subways/godot-subway-free.jpg) |
+| Godot (CI hill run): the subway in red under the town, deepest of all, with its two stations reaching down to it | Free camera: the subway under the town's mains and sewers, the stations at its east end |
+| ![Subway stations among the houses](docs/screenshots/beta3-2-subways/web-subway-above.jpg) | ![The subway in the web underground view](docs/screenshots/beta3-2-subways/web-subway-underground.jpg) |
+| Web client: two subway stations (🚇) in the hill town, the tunnel out of sight beneath them | Underground: the subway (red) under the town, the stations over it |
 
 Part 4, underground ([`docs/screenshots/beta3-2-underground`](docs/screenshots/beta3-2-underground)):
 
@@ -81,7 +92,7 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 2 | Multiplayer, consent, de-linking, emergency services alpha, transport beta | Done |
 | Beta 3 | Regions, cross-border play, federated hosting, emergency services beta | Done |
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
-| Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways, lighting, growing regions | In progress |
+| Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); lighting, growing regions | In progress |
 | Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | Next |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
@@ -92,6 +103,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-02 | **Beta 3.2, part 5: subways** (PR #17) | Subway tunnels laid under anything at $150 a cell, subway stations over or beside them, a subway yard, Metro lines run by the bus company, subways drawn red in both clients' underground views. [Gate](docs/GATE-BETA3-2-SUBWAYS.md) |
 | 2026-11-02 | **Beta 3.2, part 4: underground** (PR #16) | One pipe tool lays a water main and a sewer together, sewage treatment plants, raw sewage past a small town's septic tanks fouls the water and lowers desirability, an underground view in both clients with mains, sewers and tunnels under a cutaway ground, tunnels outlined once from above. [Gate](docs/GATE-BETA3-2-UNDERGROUND.md) |
 | 2026-11-02 | **Beta 3.2, part 3: weather on the roads** (PR #15) | Freezing rain, showers in hours of the day clock, wet roads, mud on dirt, snow and ice by road tier, a road crews budget that clears highways first, drains on the bigger roads, more crashes in snow and ice, all drawn in both clients. [Gate](docs/GATE-BETA3-2-ROADS.md) |
 | 2026-11-01 | **Beta 3.2, part 2: the clock** (PR #14) | Two clocks: a day clock for the hours (calls, crews, fires, storms go by it in 48-minute turns) and a calendar for growth and money, at a pace the mayor picks from a month to two years a clock day; side games and every city in a region share both. [Gate](docs/GATE-BETA3-2-CLOCK.md) |
@@ -138,14 +150,14 @@ server, add `?server=ws://host:port/ws` to the URL.
 | Key | Tool |
 | --- | --- |
 | Q | Query: click anything to see why it is the way it is |
-| B | Bulldoze (in underground view it removes pipes, their water mains and sewers together) |
+| B | Bulldoze (in underground view it removes pipes, their water mains and sewers together, and subway tunnels) |
 | R | Build path (pick one of the 15 path types in the toolbar) |
 | Z / X / C | Zone residential / commercial / industrial; V cycles density |
 | D | De-zone |
-| P / W | Power line / water and sewer pipe |
+| P / W / J | Power line / water and sewer pipe / subway tunnel |
 | E | Place a civic building (pick it in the toolbar) |
 | T | Terraform (raise, lower, level) |
-| U | Underground view: water mains, sewers and road tunnels under a cutaway ground |
+| U | Underground view: water mains, sewers, road tunnels and subways under a cutaway ground |
 | Space, 1–3 | Pause, speeds |
 | Shift while dragging | Draw the vertical leg first |
 | Wheel, right-drag, arrows | Zoom and pan |
