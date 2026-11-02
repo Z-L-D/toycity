@@ -56,17 +56,18 @@ whole region at once, so the river generator had to change. It is the last part 
 
 ## Results
 
-Run locally on the PR's head; CI's run is noted below once it is in.
+CI run 41518932258 on the PR's head was green on every job. Its region gate printed the same lines as a local run,
+since the ground is made the same way every time; only the timings differ.
 
 - Tests: 254 in the sim (5 new) and 103 in the client model (2 new), all passing.
 - The region gate:
 
   ```
   GATE seed 1: one 128-cell tile at 3,3; a river leaves it on side 0
-  GATE added tile 3,2 (N) in 230 ms
-  GATE added tile 4,3 (E) in 223 ms
-  GATE added tile 3,4 (S) in 212 ms
-  GATE added tile 2,3 (W) in 203 ms
+  GATE added tile 3,2 (N) in 162 ms
+  GATE added tile 4,3 (E) in 151 ms
+  GATE added tile 3,4 (S) in 162 ms
+  GATE added tile 2,3 (W) in 161 ms
   GATE seam N: all 129 corners meet; neighbouring cells across it differ by 0.15 steps on average
   GATE seam E: all 129 corners meet; neighbouring cells across it differ by 0.16 steps on average
   GATE seam S: all 129 corners meet; neighbouring cells across it differ by 0.05 steps on average
@@ -76,7 +77,7 @@ Run locally on the PR's head; CI's run is noted below once it is in.
   GATE saved and loaded: 5 tiles, 2 cities, still growing
   ```
 
-- Adding a 128-cell tile takes about a fifth of a second on the server, so the "working…" note shows only briefly.
+- Adding a 128-cell tile takes about a sixth of a second on the CI runner, so the "working…" note shows only briefly.
 - Screenshots are in [`docs/screenshots/beta3-2-regions`](screenshots/beta3-2-regions):
   - The web ones were taken with Playwright against a local server: the region from one tile to six, with a second
     city.
