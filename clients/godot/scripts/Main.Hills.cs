@@ -129,5 +129,32 @@ public partial class Main
         yield return MountainMeasure("free, the subway under the town");
         _camera.ToggleFree();
         _panels.Model.ShowUnderground = false;
+
+        // Light (Beta 3.2, Part 6): the town grown a little, then at golden hour and at night.
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Pace = new Protocol.V0.SetPace { DaysPerClockDay = 720 } });
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 3 } });
+        yield return new GateWait("the town grown", () => c.Stats.Population >= 150, 240);
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } });
+        int lit = c.Buildings.Values.Count(b => ClientModel.BuildingLife.LitShare(b) > 0);
+        foreach (var (pin, check) in new[] { ("Golden hour", "golden hour"), ("Night", "night") })
+        {
+            _graphics = _graphics with { TimeOfDay = ClientModel.Daylight.Pin(pin) };
+            ApplyGraphics();
+            int frames = 0;
+            yield return new GateWait($"the light at {check}", () => ++frames > 5, 10);
+            var l = LightNow;
+            bool ok = pin == "Night" ? l.Night > 0.95f && lit > 0 : l.Sun.Warmth > 0.4f && l.Night < 0.1f && l.Elevation is > 0 and < 12;
+            MountainCheck(check, ok, $"sun {l.Elevation:0}° up at {l.Azimuth:0}°, light ({l.Sun.R:0.00}, {l.Sun.G:0.00}, {l.Sun.B:0.00}) × {l.SunEnergy:0.00}, night {l.Night:0.00}"
+                + (pin == "Night" ? $"; {lit} of {c.Buildings.Count} buildings with lit windows" : ""));
+            _camera.CentreOn(tx, ty);
+            v.Zoom = 3;
+            yield return MountainMeasure($"classic, {check}");
+            _camera.ToggleFree();
+            Look(tx, ty, 34, 18, 210);
+            yield return MountainMeasure($"free, {check}");
+            _camera.ToggleFree();
+        }
+        _graphics = _graphics with { TimeOfDay = ClientModel.Daylight.Pin("Noon") };
+        ApplyGraphics();
     }
 }

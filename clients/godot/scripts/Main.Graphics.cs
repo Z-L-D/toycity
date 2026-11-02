@@ -24,6 +24,9 @@ public partial class Main
         else if (global::Godot.FileAccess.FileExists(GraphicsFile))
             _graphics = GraphicsSettings.Load(global::Godot.FileAccess.GetFileAsString(GraphicsFile), suggested);
         else _graphics = suggested;
+        // Measured and pictured runs light the city at a fixed noon, so their frame times and shots compare across
+        // runs; the hill run tries the other hours itself.
+        if (Scripted || _shots != null) _graphics = _graphics with { TimeOfDay = ToyCity.ClientModel.Daylight.Pin("Noon") };
         _graphicsPanel = new GraphicsPanel(_graphics);
         _graphicsPanel.Changed += g =>
         {
@@ -61,6 +64,7 @@ public partial class Main
         if (g.CityLife) _agents!.Visible = true;
         var (start, budget) = g.Shapes;
         _view!.SetShapes(g.FullTerrain, start, budget);
+        ApplyLighting();
     }
 
     /// <summary>The buildings' models for the camera as it is now, from the settings.</summary>

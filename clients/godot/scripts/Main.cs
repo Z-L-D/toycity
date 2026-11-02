@@ -97,18 +97,8 @@ public partial class Main : Node
         }
         _client.Connection.StatusChanged += open => SetStatus(open ? "" : $"Connecting to {server}…");
 
-        AddChild(new WorldEnvironment
-        {
-            Environment = new global::Godot.Environment
-            {
-                BackgroundMode = global::Godot.Environment.BGMode.Color,
-                BackgroundColor = new Color(0.55f, 0.70f, 0.85f),
-                AmbientLightSource = global::Godot.Environment.AmbientSource.Color,
-                AmbientLightColor = new Color(0.75f, 0.78f, 0.85f),
-                AmbientLightEnergy = 0.55f,
-            },
-        });
-        // Afternoon sun from the south-west, fixed to the map so shading turns with the camera as in SC4.
+        // The sky, the shade and the sun, moved through the day by UpdateLight (Main.Lighting.cs).
+        AddChild(new WorldEnvironment { Environment = MakeEnvironment() });
         AddChild(_sun = new DirectionalLight3D { RotationDegrees = new Vector3(-50, -150, 0), LightEnergy = 1.1f, ShadowEnabled = true,
             DirectionalShadowMode = DirectionalLight3D.ShadowMode.Orthogonal });
 
@@ -269,6 +259,7 @@ public partial class Main : Node
             _hover!.Text = cell is { } h && _tools!.Enabled ? Describe(c, h.X, h.Y) : "";
             _map!.Marker = _camera.IsFree ? new System.Numerics.Vector2(_free!.Target.X, _free.Target.Z) : _camera.View.Target;
             UpdateDetail();
+            UpdateLight();
         }
         if (_gateFile != null)
         {

@@ -1,4 +1,5 @@
 import { GameClock, paceName } from './clock';
+import { mapLight } from './daylight';
 import './style.css';
 import { Connection, type Msg } from './net';
 import { City, curveCells, depthNote, lCells, lineCells as diagonalCells, planPath, padSteps, PAD_COST_PER_STEP, SIDE_DX, SIDE_DY, type BuildingType } from './state';
@@ -1083,6 +1084,8 @@ function renderLayers(low?: string, high?: string) {
     ${roster ? `<p class="muted">${roster.full.toLocaleString('en-US')} people followed daily (${(roster.trips as Msg[]).length.toLocaleString('en-US')} drawn), ${roster.light.toLocaleString('en-US')} checked monthly, of ${roster.citizens.toLocaleString('en-US')}. This machine's limits: ${roster.fullTier.toLocaleString('en-US')} and ${roster.lightTier.toLocaleString('en-US')} (${esc(roster.machine)}). Yellow drive, blue ride transit; the map runs the morning and evening rush on a loop.</p>` : ''}
     <h4>Bus company</h4>
     <button id="btn-routes" class="${renderer.showRoutes ? 'active' : ''}">${renderer.showRoutes ? 'Showing bus routes' : 'Show bus routes'}</button>
+    <h4>Light</h4>
+    <button id="btn-daynight" class="${dayNight ? 'active' : ''}">${dayNight ? 'Day and night (follows the clock)' : 'Always daylight'}</button>
     <h4>Underground</h4>
     <button id="btn-under" class="${renderer.underground ? 'active' : ''}">${renderer.underground ? 'Back above ground' : 'Underground view'} (U)</button>
     ${renderer.underground ? `<p class="muted">${esc(sewageText())}</p>` : ''}`;
@@ -1096,6 +1099,7 @@ function renderLayers(low?: string, high?: string) {
     }),
   );
   $('#btn-under').addEventListener('click', () => { renderer.underground = !renderer.underground; renderLayers(); updateHints(); dirty = true; });
+  $('#btn-daynight').addEventListener('click', () => { dayNight = !dayNight; renderLayers(); dirty = true; });
   $('#btn-agents').addEventListener('click', () => { renderer.showAgents = !renderer.showAgents; renderLayers(); dirty = true; });
   $('#btn-routes').addEventListener('click', () => { renderer.showRoutes = !renderer.showRoutes; renderLayers(); dirty = true; });
 }
@@ -1319,8 +1323,19 @@ $('#btn-load').addEventListener('click', () => {
 // Frame loop
 // ---------------------------------------------------------------------------
 
+/** Day and night on the map (Beta 3.2, Part 6); off shows the city in plain daylight. */
+let dayNight = true;
+
 function frame(now: number) {
   updateFollow(now);
+  if (city.loaded) {
+    const l = dayNight ? mapLight(city.stats, renderer.pinHour != null ? renderer.pinHour * 60 : gameClock.minuteNow(city.stats, now)) : null;
+    const was = renderer.light;
+    if (!l !== !was || (l && was && (Math.abs(l.night - was.night) > 0.01 || Math.abs(l.golden - was.golden) > 0.01 || l.overcast !== was.overcast))) {
+      renderer.light = l;
+      dirty = true;
+    }
+  }
   // Disasters animate: flames flicker, the tornado spins, the Colossus clanks.
   if (dirty || renderer.preview || renderer.animating) {
     renderer.draw();

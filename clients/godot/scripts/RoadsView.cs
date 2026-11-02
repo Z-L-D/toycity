@@ -33,10 +33,7 @@ public partial class RoadsView : Node3D
 
     readonly CityMirror _city;
     readonly CityView _view;
-    readonly StandardMaterial3D _material = new()
-    {
-        VertexColorUseAsAlbedo = true, Roughness = 0.92f, CullMode = BaseMaterial3D.CullModeEnum.Disabled,
-    };
+    readonly ShaderMaterial _material = new() { Shader = GD.Load<Shader>("res://shaders/road.gdshader") };
     MeshInstance3D?[] _chunks = Array.Empty<MeshInstance3D?>();
     ulong[] _sums = Array.Empty<ulong>();
     int _cols, _rows, _builtFor = -1;
@@ -57,9 +54,7 @@ public partial class RoadsView : Node3D
         if (!_city.Loaded) return;
         // Wet roads shine and darken, all at once: the material, not the mesh.
         float wet = (_city.Stats.Roads?.Wet ?? 0) / 100f;
-        _material.Roughness = Mathf.Lerp(0.92f, 0.28f, wet);
-        _material.AlbedoColor = new Color(1, 1, 1).Lerp(new Color(0.74f, 0.75f, 0.78f), wet);
-        _material.MetallicSpecular = Mathf.Lerp(0.5f, 0.9f, wet);
+        _material.SetShaderParameter("wet", wet);
         int weatherKey = WeatherKey();
         if (_city.RoadVersion == _builtFor && weatherKey == _weatherKey) return;
         _builtFor = _city.RoadVersion;

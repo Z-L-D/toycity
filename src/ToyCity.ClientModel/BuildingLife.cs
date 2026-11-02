@@ -3,7 +3,8 @@ using ToyCity.Protocol.V0;
 namespace ToyCity.ClientModel;
 
 /// <summary>How a building looks at this moment: how much of it stands, how worn it is, and what's happening to it.</summary>
-public readonly record struct Life(float Standing, float Wear, float Graffiti, LifeFlags Flags);
+/// <param name="Lit">The share of its windows lit at night, 0 to 1 (Beta 3.2, 6.4).</param>
+public readonly record struct Life(float Standing, float Wear, float Graffiti, LifeFlags Flags, float Lit = 0);
 
 [Flags]
 public enum LifeFlags { None = 0, Burning = 1, Abandoned = 2, Crumbling = 4 }
@@ -82,7 +83,19 @@ public sealed class BuildingLife
         if (b.Abandoned || b.Look is BuildingLook.LookAbandoned or BuildingLook.LookDerelict) flags |= LifeFlags.Abandoned;
         float wear = Math.Clamp(1f - b.Condition / 100f, 0, 1);
         if (b.Look == BuildingLook.LookDerelict) wear = Math.Max(wear, 0.9f);
-        return new Life(standing, wear, Math.Clamp(b.Graffiti / 3f, 0, 1), flags);
+        return new Life(standing, wear, Math.Clamp(b.Graffiti / 3f, 0, 1), flags, flags == LifeFlags.None && standing >= 1 ? LitShare(b) : 0);
+    }
+
+    /// <summary>
+    /// The share of a building's windows lit at night (6.4): homes by how full they are, workplaces by how many of
+    /// their jobs are filled (fewer, as most go home), services when they have power; none without power.
+    /// </summary>
+    public static float LitShare(BuildingState b)
+    {
+        if (!b.Powered || b.Abandoned || b.ConstructionDaysLeft > 0) return 0;
+        if (b.Residents > 0) return Math.Clamp(0.3f + b.Residents / 400f, 0.3f, 0.65f);
+        if (b.Jobs > 0) return 0.12f + 0.3f * Math.Clamp(b.Workers / (float)b.Jobs, 0, 1);
+        return b.Zone == Protocol.V0.ZoneKind.ZoneNone ? 0.45f : 0;
     }
 
     public Life OfCrumbling(BuildingState b, float left) => Of(b) with { Standing = left, Flags = Of(b).Flags | LifeFlags.Crumbling };
