@@ -5,7 +5,11 @@ simulation runs as a headless, authoritative server; front ends only draw it and
 Later phases link side games (transport, emergency services, hospital, zoo, theme park, farm,
 life sim) to lots in the city for live joined play.
 
-This repository is at **Beta 3.2, part 5: subways.** Subway tunnels run under anything, laid with the utility tool,
+This repository is at **Beta 3.2, part 6: light and shadow.** The sun follows the day clock along its path for the
+month, from dawn through golden hour to night, and rain and snow grey the day and thicken the haze. At night the
+windows light up by how many people are inside, the streets get pools of lamplight and the buses show their lights.
+Contact shadows and bounce light come with the better graphics presets, the view tilt-shifts while you query a cell,
+and the time of day can be pinned. The web map tints for golden hour and night. **Part 5: subways** made subway tunnels run under anything, laid with the utility tool,
 and subway stations stand over them or beside them. The city can run its own subway, or the bus company can lease the
 stations and a subway yard and run Metro lines. **Part 4: underground** made every pipe carry a water main and a sewer side by side,
 laid with one tool, and sewage treatment plants beside the pipes treat what reaches them. A small town gets by on its
@@ -30,6 +34,17 @@ to play; the web client stays as the debug and admin client.
 From the Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release adds a
 new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
+
+Part 6, light and shadow ([`docs/screenshots/beta3-2-light`](docs/screenshots/beta3-2-light)):
+
+| | |
+| --- | --- |
+| ![Godot, the hill town at golden hour](docs/screenshots/beta3-2-light/godot-golden-free.jpg) | ![Godot, the hill town at night](docs/screenshots/beta3-2-light/godot-night-free.jpg) |
+| Godot (CI hill run): golden hour, the low sun warm on the walls and the hills, haze in the distance | Night: lit windows by how many people are inside, a pool of street light on every other road cell |
+| ![Godot classic camera at golden hour](docs/screenshots/beta3-2-light/godot-golden-classic.jpg) | ![Godot classic camera at night](docs/screenshots/beta3-2-light/godot-night-classic.jpg) |
+| The classic camera at golden hour, long shadows across the streets | The same at night |
+| ![Web client at golden hour](docs/screenshots/beta3-2-light/web-golden.jpg) | ![Web client at night](docs/screenshots/beta3-2-light/web-night.jpg) |
+| Web client: a warm wash at golden hour | Night: a dark blue wash, lit windows and street lights |
 
 Part 5, subways ([`docs/screenshots/beta3-2-subways`](docs/screenshots/beta3-2-subways)):
 
@@ -92,7 +107,7 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 2 | Multiplayer, consent, de-linking, emergency services alpha, transport beta | Done |
 | Beta 3 | Regions, cross-border play, federated hosting, emergency services beta | Done |
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
-| Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); lighting, growing regions | In progress |
+| Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); light and shadow through the day and night (done); growing regions | In progress |
 | Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | Next |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
@@ -103,6 +118,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-02 | **Beta 3.2, part 6: light and shadow** (PR #18) | The sun follows the day clock and the month, golden hour and night, haze and grey skies by the weather, lit windows, street lights and bus lights at night, sky reflections on the water, contact shadows and bounce light by preset, tilt-shift while querying, a time-of-day pin, and day and night on the web map. [Gate](docs/GATE-BETA3-2-LIGHT.md) |
 | 2026-11-02 | **Beta 3.2, part 5: subways** (PR #17) | Subway tunnels laid under anything at $150 a cell, subway stations over or beside them, a subway yard, Metro lines run by the bus company, subways drawn red in both clients' underground views. [Gate](docs/GATE-BETA3-2-SUBWAYS.md) |
 | 2026-11-02 | **Beta 3.2, part 4: underground** (PR #16) | One pipe tool lays a water main and a sewer together, sewage treatment plants, raw sewage past a small town's septic tanks fouls the water and lowers desirability, an underground view in both clients with mains, sewers and tunnels under a cutaway ground, tunnels outlined once from above. [Gate](docs/GATE-BETA3-2-UNDERGROUND.md) |
 | 2026-11-02 | **Beta 3.2, part 3: weather on the roads** (PR #15) | Freezing rain, showers in hours of the day clock, wet roads, mud on dirt, snow and ice by road tier, a road crews budget that clears highways first, drains on the bigger roads, more crashes in snow and ice, all drawn in both clients. [Gate](docs/GATE-BETA3-2-ROADS.md) |
