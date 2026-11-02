@@ -18,6 +18,9 @@ public partial class PanelView : CanvasLayer
     static readonly string[] MonthNames = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
     Label? _name, _date, _funds, _pop;
+    OptionButton? _pace;
+    /// <summary>Both clocks, the hands running on between ticks (Beta 3.2).</summary>
+    readonly GameClock _clock = new();
     Button? _approval, _alerts, _seat, _dispatch, _company;
     /// <summary>The scene in the 3D city, commanded while the dispatch screen shows it.</summary>
     public SceneWorld? Scene3D { get; set; }
@@ -161,6 +164,20 @@ public partial class PanelView : CanvasLayer
         return list;
     }
 
+    /// <summary>
+    /// The calendar's pace (Beta 3.2): how many calendar days pass in a day of the clock. Growth, building and money go
+    /// by the calendar; commuters, calls and the sun by the clock.
+    /// </summary>
+    OptionButton PaceMenu(Container parent)
+    {
+        var o = UiTheme.Small(new OptionButton { FocusMode = Control.FocusModeEnum.None }, 8, 2, 11);
+        foreach (int pace in GameClock.Paces) o.AddItem(GameClock.PaceName(pace), pace);
+        o.TooltipText = "The calendar's pace: how many calendar days pass in one day of the clock.\nGrowth, building and money go by the calendar; commuters, calls and the sun by the clock.";
+        o.ItemSelected += k => _client.Connection.Send(new ClientMessage { Pace = new SetPace { DaysPerClockDay = o.GetItemId((int)k) } });
+        parent.AddChild(o);
+        return o;
+    }
+
     /// <summary>A bar across the top, one per screen: the city's, the bus company's, the emergency services'.</summary>
     HBoxContainer TopRow(VBoxContainer bars, bool visible)
     {
@@ -208,6 +225,7 @@ public partial class PanelView : CanvasLayer
         _approval.Flat = true;
         _approval.TooltipText = "Mayor approval: click for what people think";
         _speeds = Speeds(row);
+        _pace = PaceMenu(row);
         _rci = new DemandBars(_client.City) { CustomMinimumSize = new Vector2(56, 34), TooltipText = "Demand: bars up mean the city wants more of that zone", SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
         _rci.GuiInput += e => { if (e is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }) Model.Open("demand"); };
         row.AddChild(_rci);
@@ -491,7 +509,11 @@ public partial class PanelView : CanvasLayer
     {
         var s = c.Stats;
         _name!.Text = s.CityName;
-        _date!.Text = $"{MonthNames[Math.Clamp(s.Month - 1, 0, 11)]} {s.Day}, {s.Year}" + (s.Weather.Length > 0 ? $" · {s.Weather}" : "");
+        string clock = _clock.Text(s, DateTime.UtcNow);
+        _date!.Text = clock + (s.Weather.Length > 0 ? $" · {s.Weather}" : "");
+        _date.TooltipText = $"Day {s.Day} of {MonthNames[Math.Clamp(s.Month - 1, 0, 11)]}, {s.Year}. The calendar runs at {GameClock.PaceName(s.Pace == 0 ? 30 : s.Pace).ToLowerInvariant()} of the clock.";
+        int paceAt = Array.IndexOf(GameClock.Paces, s.Pace == 0 ? 30 : s.Pace);
+        if (paceAt >= 0 && _pace!.Selected != paceAt) _pace.Select(paceAt);
         _funds!.Text = Bb.Money(s.Funds);
         _funds.AddThemeColorOverride("font_color", s.Funds < 0 ? UiTheme.Bad : UiTheme.Text);
         _name.AddThemeColorOverride("font_color", UiTheme.Text);
@@ -521,7 +543,8 @@ public partial class PanelView : CanvasLayer
         var s = c.Stats;
         _emName!.Text = $"🚒 {em.View?.Name ?? "Emergency services"}";
         _emText!.Text = em.TopStats;
-        _emDate!.Text = $"{MonthNames[Math.Clamp(s.Month - 1, 0, 11)]} {s.Day}, {s.Year}";
+        // A dispatcher lives by the day clock; the calendar's month is there for the seasons.
+        _emDate!.Text = _clock.Text(s, DateTime.UtcNow);
         _emSeat!.Visible = em.SeatButton != null;
         if (em.SeatButton is { } sb) _emSeat.Text = sb.Text;
         _emPending!.Visible = em.Pending != null;
@@ -562,7 +585,7 @@ public partial class PanelView : CanvasLayer
     {
         var s = c.Stats;
         _coText!.Text = $"🚌 {Model.Company.TopText}";
-        _coDate!.Text = $"{MonthNames[Math.Clamp(s.Month - 1, 0, 11)]} {s.Day}, {s.Year}";
+        _coDate!.Text = _clock.Text(s, DateTime.UtcNow);
         var v = Model.Company.View;
         _coSeat!.Text = v == null ? "" : Model.Company.Mine ? "You run it · hand to the computer" : $"The computer runs it ({v.Operator}) · run it yourself";
         // While a change waits on the city's next day, it says so in place of the button.

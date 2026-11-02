@@ -294,6 +294,6 @@ public class EmergencyClientTests : IClassFixture<ServerFixture>
         Assert.True(sent[^1].Crooked.On);
         Assert.Equal("strike", sent[^1].Crooked.Kind);
         em.Click("em-tab:reports");
-        Assert.Contains("Response, last 30 days", em.Render());
+        Assert.Contains("Response, last clock day", em.Render());
     }
 }

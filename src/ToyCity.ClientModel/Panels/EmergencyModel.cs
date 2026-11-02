@@ -300,7 +300,7 @@ public sealed class EmergencyModel
         foreach (var c in v.Calls.OrderBy(c => c.Status == "done").ThenByDescending(c => c.Id))
         {
             string icon = c.Kind switch { "fire" => "🔥", "crime" => "🚨", _ => "🩹" };
-            string status = c.Status == "done" ? $"done: {c.Outcome}" : c.Status == "waiting" && c.WaitedDays > 0 ? $"waiting {c.WaitedDays}d" : c.Status;
+            string status = c.Status == "done" ? $"done: {c.Outcome}" : c.Status == "waiting" && c.WaitedDays > 0 ? $"waiting {GameClock.Span(c.WaitedDays)}" : c.Status;
             sb.Append($"{icon} [b]{Esc(c.Text)}[/b] ").Append(Dim($"sev {c.Severity} · {status}{(c.Minutes > 0 ? $" · {c.Minutes} min" : "")}")).Append(' ').Append(Link($"em-go:{c.Id}", "map")).Append('\n');
             if (c.UnitIds.Count > 0) sb.Append(Small(Dim(string.Join(", ", c.UnitIds.Select(id => Unit(id)?.Name ?? "?"))))).Append('\n');
             if (Mine && c.Status is "waiting" or "proposed")
@@ -344,7 +344,7 @@ public sealed class EmergencyModel
             sb.Append($"[b]{Esc(s.Name)}[/b]\n");
             foreach (var u in v.Units.Where(u => u.StationLeaseId == s.LeaseId))
             {
-                sb.Append($"{UnitIcon[(int)u.Kind]} {Esc(u.Name)} ").Append(Dim($"{u.Crew} crew · {u.State}{(u.BackInDays > 0 ? $" ({u.BackInDays}d)" : "")}"));
+                sb.Append($"{UnitIcon[(int)u.Kind]} {Esc(u.Name)} ").Append(Dim($"{u.Crew} crew · {u.State}{(u.BackInDays > 0 ? $" (back in {GameClock.Span(u.BackInDays)})" : "")}"));
                 if (Mine && u.State == "ready") sb.Append("  ").Append(Link($"em-sell:{u.Id}", "Sell"));
                 sb.Append('\n');
                 foreach (var g in GearList.Where(g => g.Kind == u.Kind))
@@ -361,12 +361,12 @@ public sealed class EmergencyModel
         return sb.ToString();
     }
 
-    /// <summary>Response-time grades over the last thirty days, by kind of call: they count toward the service's rating.</summary>
+    /// <summary>Response-time grades over the last day of the clock (thirty turns), by kind of call: they count toward the service's rating.</summary>
     public string RenderRatings()
     {
         var v = View!;
-        if (v.Ratings.All(r => r.Calls == 0)) return Small(Dim("Response ratings: no calls answered in the last 30 days.")) + "\n";
-        return "[b]Response, last 30 days[/b]  " + string.Join("   ", v.Ratings.Where(r => r.Calls > 0).Select(r =>
+        if (v.Ratings.All(r => r.Calls == 0)) return Small(Dim("Response ratings: no calls answered in the last day of the clock.")) + "\n";
+        return "[b]Response, last clock day[/b]  " + string.Join("   ", v.Ratings.Where(r => r.Calls > 0).Select(r =>
             $"{Esc(r.Kind)} " + Col(r.Grade is "A" or "B" ? Pos : r.Grade is "C" ? Warn : Neg, $"[b]{r.Grade}[/b]") + Dim($" {r.Minutes} min · {r.Calls}"))) + "\n";
     }
 

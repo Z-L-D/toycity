@@ -2,6 +2,7 @@
 // cash and buses, tools for leasing lots and drawing lines, and tabs for lines, lots, money, standing and the log.
 // The map stays, dimmed, with the company's lots and routes on top. It can also open in a window of its own
 // (?view=company), next to a window on the city.
+import { GameClock } from './clock';
 import { decodeTransportView, encodeTransportCommand, type Connection, type Msg } from './net';
 import type { CompanyLot, CompanyMap } from './render';
 import type { City } from './state';
@@ -39,7 +40,6 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const money = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-US');
 const fare = (c: number) => (c === 0 ? 'free' : `$${(c / 100).toFixed(2)}`);
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 // Name this client's player as "you" in the city's reasons.
 const yours = (s: string, me: string) => {
   const name = me.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -50,6 +50,8 @@ export class Transport {
   view: Msg | null = null;
   /** True while the company's view is up instead of the city's. */
   company = false;
+  /** The day clock and calendar for the company's top bar, its hands run on between ticks. */
+  private clock = new GameClock();
   private tool: CoTool = 'look';
   private tab: CoTab = 'lines';
   private showCatchment = true;
@@ -339,7 +341,7 @@ export class Transport {
   private renderTop() {
     const v = this.view;
     const s = this.host.city.stats;
-    $('#co-date').textContent = s.month ? `${MONTHS[s.month - 1]} ${s.day}, ${s.year}` : '…';
+    $('#co-date').textContent = s.month ? this.clock.text(s) : '…';
     document.querySelectorAll<HTMLButtonElement>('#co-speed button').forEach((b) => b.classList.toggle('active', Number(b.dataset.speed) === s.speed));
     $('#co-conn').className = $('#conn').className;
     if (!v) { $('#co-name').textContent = 'No bus company'; return; }

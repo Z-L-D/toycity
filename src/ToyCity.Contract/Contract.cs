@@ -16,9 +16,10 @@ public static class ContractInfo
     /// tenders (<see cref="CityToGame.Tenders"/>, <see cref="CityToGame.Franchises"/>, bids as <see cref="AuthorityAction"/>
     /// with an amount) and freight (<see cref="CityToGame.Freight"/>, <see cref="GameToCity.FreightPicked"/>,
     /// <see cref="GameToCity.FreightDropped"/>, and routes to the map edge); 4 added lines that run on into a neighbouring
-    /// city (<see cref="TransitLine.ThroughSide"/>, <see cref="CityToGame.Crossings"/>).
+    /// city (<see cref="TransitLine.ThroughSide"/>, <see cref="CityToGame.Crossings"/>); 5 added the day clock beside the
+    /// calendar (<see cref="CityToGame.ClockMinute"/>, <see cref="CityToGame.NewTurn"/> and the rest).
     /// </summary>
-    public const int Minor = 4;
+    public const int Minor = 5;
 }
 
 /// <summary>What a side game tells the city when it registers.</summary>
@@ -109,6 +110,22 @@ public sealed class CityToGame
     public int Day, Month, Year;
     /// <summary>True on the first day of a month: districts, demand and bills are refreshed then.</summary>
     public bool NewMonth;
+    /// <summary>
+    /// v1.5: the day clock, in minutes since the city's clock started (Monday, 08:00 is 480). The calendar (tick, day,
+    /// month, year, and so seasons) moves on by a day each tick; the day clock moves by <see cref="ClockMinutesPerTick"/>,
+    /// at a pace the mayor sets. Life-paced play (calls waiting, crews on the road, a scene left alone) counts in it.
+    /// </summary>
+    public long ClockMinute;
+    /// <summary>v1.5: how far the day clock moves each tick: 48 minutes at a month a clock day, 2 at two years a day.</summary>
+    public int ClockMinutesPerTick = 48;
+    /// <summary>
+    /// v1.5: true when a turn of the day clock (48 minutes) began this tick. The city raises its own calls and moves
+    /// fires and storms on turns; a side game that counts life-paced things in turns stays in step with it. At the
+    /// slowest calendar every tick is a turn; at two years a clock day one tick in 24 is.
+    /// </summary>
+    public bool NewTurn = true;
+    /// <summary>v1.5: turns of the day clock since it started (<see cref="ClockMinute"/> / 48).</summary>
+    public long Turn;
     /// <summary>How the side game's seat is played today.</summary>
     public OperatorLevel Operator;
     public string? OwnerName;

@@ -335,7 +335,9 @@ stands and the mayor gets the seat back.
 | `linkKey` | The key tile hosts must give. Empty: no tile hosts. |
 | `takeOverSeconds` | How long the region holds for a silent tile host. |
 | `publicAddress` | Where players reach the region host, for redirects. Worked out from the link if empty. |
-| `fastDayMs` | How long a day takes at full speed (833 ms). Scripted runs set it lower. |
+| `fastDayMs` | How long a calendar day takes at full speed. Unset since Beta 3.2: the day clock decides (ten minutes a clock day at full speed, shared by the calendar's days at its pace). Scripted runs set it lower. |
+| `sceneDayMs` | The shortest a calendar day may be while a player runs an emergency scene. Unset: the day clock runs at speed 1 then. |
+| `pace` | Beta 3.2: the calendar's pace for a new region, in calendar days per clock day (30, 60, 120, 360 or 720). 360 by default. |
 
 ### Limits
 

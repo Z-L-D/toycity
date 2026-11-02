@@ -243,7 +243,7 @@ public sealed partial class RegionHost
                 await SimHost.SendAsync(c, new P.ServerMessage { ReplyTo = msg.Seq, Region = state });
                 return true;
             }
-            case P.ClientMessage.BodyOneofCase.Speed or P.ClientMessage.BodyOneofCase.Save or P.ClientMessage.BodyOneofCase.Load
+            case P.ClientMessage.BodyOneofCase.Speed or P.ClientMessage.BodyOneofCase.Pace or P.ClientMessage.BodyOneofCase.Save or P.ClientMessage.BodyOneofCase.Load
                 or P.ClientMessage.BodyOneofCase.NewCity or P.ClientMessage.BodyOneofCase.NewRegion or P.ClientMessage.BodyOneofCase.FoundCity
                 or P.ClientMessage.BodyOneofCase.GoTo or P.ClientMessage.BodyOneofCase.Deal or P.ClientMessage.BodyOneofCase.Mayor:
                 if (_leader == null) { await SimHost.SendAsync(c, SimHost.Error(msg.Seq, "The region's host can't be reached just now.")); return true; }

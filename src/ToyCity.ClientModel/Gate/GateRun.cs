@@ -75,6 +75,11 @@ public sealed class GateRun
         yield return new GateWait("the benchmark city", () => City.Loaded && City.Width == 256 && City.Stats.CityName == "Gate City" && City.Buildings.Count > 3000, 180);
         Speed(0);
         Check("benchmark city founded", City.Buildings.Count > 3000, $"{City.Width} × {City.Height}, {City.Buildings.Count:N0} buildings");
+        // Two clocks (Beta 3.2). The loop's checks count calendar days, and its timings were set when a day at full
+        // speed took 833 ms: two years a clock day keeps that, the day clock moving two minutes a calendar day.
+        _client.Connection.Send(new ClientMessage { Pace = new SetPace { DaysPerClockDay = 720 } });
+        yield return new GateWait("the calendar at two years a day", () => City.Stats.Pace == 720, 30);
+        Check("two clocks", City.Stats.ClockMinutesPerTick == 2, $"{new GameClock().Text(City.Stats, DateTime.UtcNow)}, the clock moving {City.Stats.ClockMinutesPerTick} min a calendar day");
     }
 
     /// <summary>The Alpha 3 loop on the city <see cref="Found"/> made.</summary>

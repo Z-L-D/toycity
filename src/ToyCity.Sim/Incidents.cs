@@ -10,12 +10,15 @@ namespace ToyCity.Sim;
 /// </summary>
 public sealed partial class World
 {
-    /// <summary>Most crime and injury calls the city raises in a day, so a big city doesn't flood the dispatcher.</summary>
+    /// <summary>
+    /// Most crime and injury calls the city raises in a turn of the day clock (48 minutes), so a big city doesn't
+    /// flood the dispatcher.
+    /// </summary>
     public const int MaxCallsPerDay = 4;
-    /// <summary>How long the city remembers an incident it raised, for answers that come back late.</summary>
+    /// <summary>How long the city remembers an incident it raised, in turns of the day clock (two clock days).</summary>
     const int IncidentMemoryDays = 60;
 
-    /// <summary>The city's own incidents still open to an answer, by id.</summary>
+    /// <summary>The city's own incidents still open to an answer, by id, with the turn of the day clock they came in.</summary>
     readonly SortedDictionary<long, (Incident Inc, long Tick)> _openIncidents = new();
     /// <summary>Per district, 0..100: escapes heat a district up and its crime calls come faster; arrests cool it.</summary>
     int[] _crimeHeat = Array.Empty<int>();
@@ -26,7 +29,7 @@ public sealed partial class World
     {
         // The city's own emergencies, and side games' breakdowns that emergency services may answer.
         if (!(inc.Source == "city" && inc.Kind is "fire" or "crime" or "injury") && inc.Kind != "breakdown") return;
-        _openIncidents[inc.Id] = (inc, Tick);
+        _openIncidents[inc.Id] = (inc, Turn);
     }
 
     /// <summary>Incidents some side game is handling at the scene right now.</summary>
@@ -38,13 +41,13 @@ public sealed partial class World
         return false;
     }
 
-    /// <summary>Daily: crime calls where policing is thin, and crashes on busy roads.</summary>
+    /// <summary>Each turn of the day clock: crime calls where policing is thin, and crashes on busy roads.</summary>
     void RaiseCityIncidents()
     {
         if (_crimeHeat.Length != DistrictCount) Array.Resize(ref _crimeHeat, DistrictCount);
         for (int d = 0; d < _crimeHeat.Length; d++) _crimeHeat[d] = Math.Max(0, _crimeHeat[d] - 1);
         // Forget what nobody answered in time.
-        foreach (var id in _openIncidents.Where(kv => Tick - kv.Value.Tick > IncidentMemoryDays).Select(kv => kv.Key).ToList())
+        foreach (var id in _openIncidents.Where(kv => Turn - kv.Value.Tick > IncidentMemoryDays).Select(kv => kv.Key).ToList())
             _openIncidents.Remove(id);
         if (SideGames.Count == 0) return;
         int raised = 0;
@@ -169,6 +172,12 @@ public sealed partial class World
                 : CellKind.Ground;
         }
         return cells;
+    }
+
+    /// <summary>A save from before the day clock kept calendar days: what it remembered is counted from today's turn.</summary>
+    void RememberFromThisTurn()
+    {
+        foreach (var id in _openIncidents.Keys.ToList()) _openIncidents[id] = (_openIncidents[id].Inc, Turn);
     }
 
     void WriteIncidents(BinaryWriter w)

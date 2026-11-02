@@ -1,3 +1,4 @@
+import { GameClock, paceName } from './clock';
 import './style.css';
 import { Connection, type Msg } from './net';
 import { City, curveCells, depthNote, lCells, lineCells as diagonalCells, planPath, padSteps, PAD_COST_PER_STEP, SIDE_DX, SIDE_DY, type BuildingType } from './state';
@@ -220,12 +221,26 @@ const conn = new Connection({
 // Top bar
 // ---------------------------------------------------------------------------
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// Both clocks, the hands running on between ticks (Beta 3.2).
+const gameClock = new GameClock();
+
+function updateClock() {
+  const s = city.stats;
+  if (!s) return;
+  const text = gameClock.text(s) + (s.weather ? ` · ${s.weather}` : '');
+  const el = $('#date');
+  if (el.textContent !== text) el.textContent = text;
+  el.title = `Day ${s.day} of the month, ${s.year}. The calendar runs at ${paceName(s.pace || 30).toLowerCase()} of the clock.`;
+  const pace = $<HTMLSelectElement>('#pace');
+  const want = String(s.pace || 30);
+  if (pace.value !== want && document.activeElement !== pace) pace.value = want;
+}
+setInterval(updateClock, 250);
 
 function updateTopBar() {
   const s = city.stats;
   $('#city-name').textContent = s.cityName;
-  $('#date').textContent = `${MONTHS[s.month - 1]} ${s.day}, ${s.year}${s.weather ? ` · ${s.weather}` : ''}`;
+  updateClock();
   const f = $('#funds');
   f.textContent = money(s.funds);
   f.classList.toggle('neg', s.funds < 0);
@@ -256,6 +271,11 @@ function updateTopBar() {
 document.querySelectorAll<HTMLButtonElement>('#speed button').forEach((b) =>
   b.addEventListener('click', () => conn.send({ speed: { speed: Number(b.dataset.speed) } })),
 );
+$<HTMLSelectElement>('#pace').addEventListener('change', (e) => {
+  const pace = Number((e.target as HTMLSelectElement).value);
+  conn.send({ pace: { daysPerClockDay: pace } });
+  toast(`Asked for the calendar at ${paceName(pace).toLowerCase()} of the clock.`, 'info');
+});
 
 // ---------------------------------------------------------------------------
 // Toolbar
@@ -1300,7 +1320,7 @@ transport = new Transport({
 });
 emergency = new Emergency({
   conn, jumpTo, toast, cityWidth: () => city.width,
-  clock: () => ({ month: city.stats.month ?? 0, day: city.stats.day ?? 0, year: city.stats.year ?? 0, speed: city.stats.speed ?? 0 }),
+  clock: () => ({ month: city.stats.month ?? 0, day: city.stats.day ?? 0, year: city.stats.year ?? 0, speed: city.stats.speed ?? 0, text: gameClock.text(city.stats) }),
   setCalls: (calls) => { renderer.calls = calls; dirty = true; },
   onModeChange: (on) => {
     if (on && transport?.company) transport.setMode(false);

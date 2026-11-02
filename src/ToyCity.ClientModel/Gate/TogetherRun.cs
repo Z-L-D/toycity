@@ -161,6 +161,9 @@ public sealed class TogetherRun : IDisposable
         Phase = "signing in";
         yield return new GateWait("the mayor signed in", () => May.Client.Connection.Player == May.Name && May.City.Loaded && May.Panel.Civic != null, 60);
         Check("the first account is the mayor", May.Panel.Mayor?.Owner == May.Name, $"mayor: {May.Panel.Mayor?.Owner}");
+        // The run's timings were set when a day at full speed took 833 ms: two years a clock day keeps that (Beta 3.2).
+        May.Client.Connection.Send(new ClientMessage { Pace = new SetPace { DaysPerClockDay = 720 } });
+        yield return new GateWait("the calendar at two years a day", () => May.City.Stats.Pace == 720, 30);
         // The town grows while the others arrive.
         Speed(3);
         Tess = Join("Tess");

@@ -34,6 +34,7 @@ message ClientMessage {
     GoToCity go_to = 20;
     DealRequest deal = 21;
     MayorRequest mayor = 22;
+    SetPace pace = 23;
   }
 }
 
@@ -541,6 +542,7 @@ message RegionState {
   string stopped = 14;       // the region stopped: a tile's host and its check copy disagreed (a desync), or the border ledgers didn't balance
   int32 ledger_months = 15;  // months in a row this host has checked every border ledger in the region and found it balanced
   int32 cross_border = 16;   // people and tons of goods crossing borders in the region each day this month, from the ledgers
+  int32 pace = 17;           // Beta 3.2: the region's calendar pace, calendar days per day of the day clock
 }
 
 // Go to another host for that city (federated regions): address is its /ws URL.
@@ -687,6 +689,12 @@ message RegionTileState {
 
 message SetSpeed {
   int32 speed = 1;  // 0 = paused, 1..3
+}
+
+// The calendar's pace for the whole region (Beta 3.2): calendar days per day of the day clock, 30, 60, 120, 360 or
+// 720. An admin sets it, or the mayor when every city in the region is theirs.
+message SetPace {
+  int32 days_per_clock_day = 1;
 }
 
 message DemandRequest {}
@@ -908,6 +916,12 @@ message CityStats {
   int32 transit_boardings = 26;  // a day, from last month's commutes
   string weather = 27;           // today's weather over the city with its icon ("🌧 Heavy rain"); empty when clear
   int32 flood_stage = 28;        // steps the rivers stand over their usual surface: 0 none, up to 3
+  // Beta 3.2, two clocks. The calendar is tick/day/month/year; the day clock is in minutes since it started (Monday
+  // 00:00 is 0, and it starts at 08:00), moving clock_minutes_per_tick each tick. A day of the day clock lasts an hour
+  // at speed 1, half an hour at 2 and ten minutes at 3, so clients can run the hands between ticks.
+  int64 clock_minute = 29;
+  int32 pace = 30;                    // calendar days per clock day
+  int32 clock_minutes_per_tick = 31;
 }
 
 message BudgetLine {
@@ -1518,6 +1532,12 @@ message ActionRecord {
   CityDeal deal = 10;           // set instead of action: the region started or ended a deal with a neighbour
   RegionWeather weather = 11;   // set instead of action: the region's weather over the city changed
   RegionFlood flood = 12;       // set instead of action: the river's flood stage over the city changed
+  RegionPace pace = 13;         // set instead of action: the region's calendar pace changed (Beta 3.2)
+}
+
+// How many calendar days pass in one day of the day clock: 30, 60, 120, 360 or 720.
+message RegionPace {
+  int32 days_per_clock_day = 1;
 }
 
 message RegionFlood {
