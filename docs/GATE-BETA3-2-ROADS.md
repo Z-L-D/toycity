@@ -69,7 +69,24 @@ rain also raises accidents.
 
 ## Results
 
-CI_RESULTS
+CI run 41445866111 on the PR's head was green on every job.
+
+- Tests: 242 in the sim (7 new) and 93 in the client model (1 new), all passing.
+- The Godot gate ran the Alpha 3 loop as before, then the weather steps on the benchmark city (256 × 256, all of its
+  roads on the crews' second tier):
+
+  ```
+  GATE ok  snow on the roads: Snow falling, snow on the roads; crews 100%, cover 0 / 50 / 0 (highways / roads / streets), wet 0%
+  GATE ok  road crews' budget: Snow falling, snow on the roads; crews 200%, cover 0 / 50 / 0 (highways / roads / streets), wet 0%
+  GATE ok  ice on the roads: Freezing rain falling, ice on the roads; crews 200%, cover 0 / 51 / 0 (highways / roads / streets), wet 100%
+  GATE ok  rain on the roads: Rain falling, ice on the roads; crews 200%, cover 0 / 51 / 0 (highways / roads / streets), wet 100%
+  ```
+
+- The gate step took 11 min 13 s (12:42:07 to 12:53:20), its limit raised from 15 to 25 minutes. The weather
+  steps run at four months a clock day, so a blizzard snows the roads in about 15 calendar days.
+- The screenshots are web client shots in [`docs/screenshots/beta3-2-roads`](screenshots/beta3-2-roads). The Godot
+  gate's snow, ice and rain shots are in the CI contact sheet, but at zoom 3 the benchmark city's towers hide most of
+  its roads, so they aren't in the README.
 
 ## What's next
 
