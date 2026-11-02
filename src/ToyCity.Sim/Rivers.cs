@@ -48,7 +48,13 @@ public sealed partial class World
     /// <item>Its bed is a step under the surface; the banks slope down to it.</item>
     /// </list>
     /// </summary>
-    public static byte[] CarveRivers(ushort[] corners, int width, int heightCells, int waterLevel, int[]? downstream = null)
+    /// <param name="edgeOutlet">For a growing region's tile: whether water may run off the map at this edge cell (not
+    /// where it meets ground already made). Null: everywhere on the edge.</param>
+    /// <param name="inflow">For a growing region's tile: cells a river comes into from a neighbour, and how many cells'
+    /// water it brings.</param>
+    /// <param name="start">For a growing region's tile: the river's surface where it comes in, which it can't rise above.</param>
+    public static byte[] CarveRivers(ushort[] corners, int width, int heightCells, int waterLevel, int[]? downstream = null,
+        Func<int, bool>? edgeOutlet = null, int[]? inflow = null, byte[]? start = null)
     {
         int cw = width + 1, n = width * heightCells;
         var step = StepsFromCorners(corners, width, heightCells);
@@ -69,12 +75,22 @@ public sealed partial class World
         for (int i = 0; i < n; i++)
         {
             int x = i % width, y = i / width;
-            if (step[i] < waterLevel || x == 0 || y == 0 || x == width - 1 || y == heightCells - 1)
+            bool edge = x == 0 || y == 0 || x == width - 1 || y == heightCells - 1;
+            if (step[i] < waterLevel || edge && (edgeOutlet == null || edgeOutlet(i)))
             {
                 receiver[i] = -1;
                 filled[i] = dm[i];
                 queue.Enqueue(i, (dm[i], i));
             }
+        }
+        // Ground closed in on every side with no sea: it drains to its lowest cell, a lake.
+        if (queue.Count == 0)
+        {
+            int low = 0;
+            for (int i = 1; i < n; i++) if (dm[i] < dm[low]) low = i;
+            receiver[low] = -1;
+            filled[low] = dm[low];
+            queue.Enqueue(low, (dm[low], low));
         }
         ReadOnlySpan<int> dx = [0, 1, 0, -1], dy = [-1, 0, 1, 0];
         while (queue.TryDequeue(out int c, out _))
@@ -98,12 +114,12 @@ public sealed partial class World
         for (int k = order.Count - 1; k >= 0; k--)
         {
             int c = order[k];
-            acc[c] += 1;
+            acc[c] += 1 + (inflow?[c] ?? 0);
             if (receiver[c] >= 0) acc[receiver[c]] += acc[c];
         }
 
         // 3. The surface: down the river, never above the ground nor above where it came from.
-        var surface = new byte[n];
+        var surface = start != null ? (byte[])start.Clone() : new byte[n];
         for (int k = order.Count - 1; k >= 0; k--)
         {
             int c = order[k];

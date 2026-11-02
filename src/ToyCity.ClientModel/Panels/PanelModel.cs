@@ -347,7 +347,7 @@ public sealed partial class PanelModel
         Dialog = name;
         if (name == "seat" && Mayor is { } m) _seatDraft = (m.Level, m.Style, m.SpendCap);
         if (name == "load") _send(new ClientMessage { Save = new SaveRequest { Name = "" } });  // refresh the list
-        if (name == "new") { Input = "New City"; _newSize = 128; _newStarter = _newBench = false; }
+        if (name == "new") { Input = "New City"; _newSize = 128; _newStarter = _newBench = _newGrow = false; }
         if (name == "save")
         {
             var safe = new string((_city.Stats.CityName ?? "city").Where(ch => char.IsLetterOrDigit(ch) || ch is ' ' or '_' or '-').ToArray());
@@ -367,6 +367,8 @@ public sealed partial class PanelModel
     int _tenderPick;
     int _newSize = 128;
     bool _newStarter, _newBench;
+    /// <summary>Start a growing region (G4) rather than a lone city.</summary>
+    bool _newGrow;
     // The lease terms dialog: what it's for, the terms being edited, and what OK does with them.
     (string Title, string Ok, string Note, LeaseTerms Terms, Action<LeaseTerms> Done)? _terms;
     (string Text, System.Action Yes)? _confirm;
@@ -674,9 +676,17 @@ public sealed partial class PanelModel
             case "size": _newSize = I(1); Changed(); return;
             case "starter": _newStarter = !_newStarter; Changed(); return;
             case "bench": _newBench = !_newBench; Changed(); return;
+            case "grow": _newGrow = !_newGrow; Changed(); return;
             case "new-ok":
             {
                 string name = Input.Trim() is { Length: > 0 } n ? n : "New City";
+                if (_newGrow && !_newBench)
+                {
+                    _send(new ClientMessage { NewRegion = new NewRegionRequest { Name = $"{name} Region", CityName = name, TileSize = _newSize, StarterTown = _newStarter, Grows = true } });
+                    CloseDialog();
+                    StartWorking($"Making the {name} region…");
+                    return;
+                }
                 _send(new ClientMessage { NewCity = new NewCityRequest { Name = name, Size = _newSize, StarterTown = _newStarter, Benchmark = _newBench } });
                 CloseDialog();
                 StartWorking($"Building {name}…");

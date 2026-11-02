@@ -64,6 +64,7 @@ export class Region {
     if (!this.picked) this.picked = { col: body.hereCol, row: body.hereRow };
     if (this.pending.startsWith('Founding') && this.tile(this.picked.col, this.picked.row)?.founded) this.pending = '';
     if (/^(Deal|Taking over|Handing)/.test(this.pending)) this.pending = '';
+    if (this.pending.startsWith('Adding') && this.tile(this.picked.col, this.picked.row)?.wild === false) this.pending = '';
     this.host.onRegion(body);
     this.render();
   }
@@ -83,6 +84,33 @@ export class Region {
 
   private tile(col: number, row: number): Msg | undefined {
     return this.state?.tiles.find((t: Msg) => t.col === col && t.row === row);
+  }
+
+  /** A growing region's wild tile that can be added: one on a side of a tile already in the region (G4). */
+  private canGrow(t: Msg): boolean {
+    if (!t.wild) return false;
+    return [[0, -1], [1, 0], [0, 1], [-1, 0]].some(([dc, dr]) => this.tile(t.col + dc, t.row + dr)?.wild === false);
+  }
+
+  /**
+   * The tiles to show: the whole grid for a fixed region; for a growing one, the tiles in it and a ring of wild land
+   * around them, where it can grow.
+   */
+  private shown(): { c0: number; r0: number; c1: number; r1: number } {
+    const s = this.state!;
+    if (!s.grows) return { c0: 0, r0: 0, c1: s.cols - 1, r1: s.rows - 1 };
+    const inRegion = s.tiles.filter((t: Msg) => !t.wild);
+    const cs = inRegion.map((t: Msg) => t.col), rs = inRegion.map((t: Msg) => t.row);
+    return {
+      c0: Math.max(0, Math.min(...cs) - 1), r0: Math.max(0, Math.min(...rs) - 1),
+      c1: Math.min(s.cols - 1, Math.max(...cs) + 1), r1: Math.min(s.rows - 1, Math.max(...rs) + 1),
+    };
+  }
+
+  private grow(t: Msg) {
+    this.pending = 'Adding a tile to the region: making its ground…';
+    this.render();
+    this.host.conn.send({ grow: { col: t.col, row: t.row } });
   }
 
   private goTo(t: Msg) {
@@ -190,14 +218,23 @@ export class Region {
     if (!s) { $('#rg-body').innerHTML = '<p class="muted">Loading the region…</p>'; return; }
     const year = 2000 + Math.floor(s.tick / 360), month = Math.floor(s.tick / 30) % 12;
     const speedNote = s.speedSetBy ? ` · held at ${['paused', 'slow', 'normal', 'fast'][s.speed]} by ${esc(s.speedSetBy)}` : '';
-    $('#rg-title').innerHTML = `🗺 <b>${esc(s.name)}</b> <span class="muted">${MONTHS[month]} ${year} · ${s.cols} × ${s.rows} tiles${speedNote}</span>`;
+    const inRegion = s.tiles.filter((t: Msg) => !t.wild).length;
+    const size = s.grows ? `${inRegion} ${inRegion === 1 ? 'tile' : 'tiles'}, growing` : `${s.cols} × ${s.rows} tiles`;
+    $('#rg-title').innerHTML = `🗺 <b>${esc(s.name)}</b> <span class="muted">${MONTHS[month]} ${year} · ${size}${speedNote}</span>`;
     const pop = s.tiles.reduce((n: number, t: Msg) => n + t.population, 0);
     const cities = s.tiles.filter((t: Msg) => t.founded).length;
-    const cells = s.tiles.map((t: Msg) => {
+    const box = this.shown();
+    const cells = s.tiles.filter((t: Msg) => t.col >= box.c0 && t.col <= box.c1 && t.row >= box.r0 && t.row <= box.r1).map((t: Msg) => {
       const here = t.col === s.hereCol && t.row === s.hereRow;
       const picked = this.picked?.col === t.col && this.picked?.row === t.row;
+      const at = `grid-column:${t.col - box.c0 + 1};grid-row:${t.row - box.r0 + 1}`;
+      if (t.wild) {
+        const can = this.canGrow(t);
+        return `<button class="rg-tile wild${can ? ' can' : ''}${picked ? ' picked' : ''}" data-col="${t.col}" data-row="${t.row}" style="${at}"
+          title="${can ? 'Wild land: add it to the region' : 'Wild land'}">${can ? '<span class="rg-plus">＋</span>' : ''}</button>`;
+      }
       return `<button class="rg-tile${t.founded ? '' : ' open'}${here ? ' here' : ''}${picked ? ' picked' : ''}" data-col="${t.col}" data-row="${t.row}"
-        style="grid-column:${t.col + 1};grid-row:${t.row + 1}" title="${esc(t.name)}">
+        style="${at}" title="${esc(t.name)}">
         <canvas width="${PICTURE}" height="${PICTURE}"></canvas>
         ${t.weather ? `<span class="rg-weather" title="${esc(t.weather)}">${esc(t.weather.split(' ')[0])}</span>` : ''}
         <span class="rg-label">${t.computer ? '🤖 ' : ''}${esc(t.founded ? t.name : '')}${t.players.length ? ` <span class="rg-who">👤${t.players.length}</span>` : ''}</span>
@@ -223,6 +260,14 @@ export class Region {
           ${p.computer ? '<div class="actions"><button id="rg-takeover">Take over this city</button> <span class="muted">and play it yourself</span></div>'
             : p.mayor === this.host.conn.player ? `<div class="actions"><span class="muted">Hand it to a computer mayor:</span>
                 <button data-hand="growth">growth-hungry</button> <button data-hand="green">green</button> <button data-hand="careful">careful</button></div>` : ''}`;
+      } else if (p.wild) {
+        side = this.canGrow(p)
+          ? `<h3>Wild land</h3>
+            <p class="muted">Tile ${p.col + 1}, ${p.row + 1} isn't part of the region yet. Add it and its ground, rivers and rock are
+              made now, carrying on from the tiles beside it. It joins as open land: you or any other player can found a city on it.</p>
+            <p class="muted">A mayor can add the land beside their own city; an admin, any.</p>
+            <div class="actions"><button id="rg-grow" class="active">Add this tile to the region</button></div>`
+          : `<h3>Wild land</h3><p class="muted">Not part of the region yet. Land joins on a side of a tile already in it.</p>`;
       } else {
         side = `<h3>Open land</h3>
           <p class="muted">Tile ${p.col + 1}, ${p.row + 1}. Nobody has built here yet. Found a city and you'll be its mayor.</p>
@@ -239,7 +284,7 @@ export class Region {
     side += this.dealsHtml(p);
     if (this.pending) side += `<p class="rg-pending">⏳ ${esc(this.pending.replace(/^Deal: /, ''))}</p>`;
     $('#rg-body').innerHTML = `
-      <div class="rg-map" style="grid-template-columns:repeat(${s.cols}, minmax(0, 1fr));grid-template-rows:repeat(${s.rows}, auto)">${cells}</div>
+      <div class="rg-map" style="grid-template-columns:repeat(${box.c1 - box.c0 + 1}, minmax(0, 1fr));grid-template-rows:repeat(${box.r1 - box.r0 + 1}, auto)">${cells}</div>
       <aside class="rg-side">
         <p class="muted">${cities} ${cities === 1 ? 'city' : 'cities'} · ${pop.toLocaleString('en-US')} people in the region</p>
         ${side}
@@ -247,6 +292,8 @@ export class Region {
     // Pictures: RGB triples, north up.
     $('#rg-body').querySelectorAll<HTMLButtonElement>('.rg-tile').forEach((b) => {
       const t = this.tile(Number(b.dataset.col), Number(b.dataset.row))!;
+      b.addEventListener('click', () => { this.picked = { col: t.col, row: t.row }; this.counterId = 0; this.render(); });
+      if (t.wild) return;
       const ctx = b.querySelector('canvas')!.getContext('2d')!;
       const img = ctx.createImageData(PICTURE, PICTURE);
       const px = t.picture as Uint8Array;
@@ -254,7 +301,6 @@ export class Region {
         img.data[i * 4] = px[i * 3]; img.data[i * 4 + 1] = px[i * 3 + 1]; img.data[i * 4 + 2] = px[i * 3 + 2]; img.data[i * 4 + 3] = 255;
       }
       ctx.putImageData(img, 0, 0);
-      b.addEventListener('click', () => { this.picked = { col: t.col, row: t.row }; this.counterId = 0; this.render(); });
       b.addEventListener('dblclick', () => { if (t.founded && !(t.col === s.hereCol && t.row === s.hereRow)) this.goTo(t); });
     });
     if (p) {
@@ -262,6 +308,7 @@ export class Region {
       $('#rg-back')?.addEventListener('click', () => this.toggle(false));
       $('#rg-window')?.addEventListener('click', () => this.ownWindow(p));
       $('#rg-found')?.addEventListener('click', () => this.found(p));
+      $('#rg-grow')?.addEventListener('click', () => this.grow(p));
       $('#rg-offer')?.addEventListener('click', () => this.sendOffer(p));
       $('#rg-takeover')?.addEventListener('click', () => {
         this.pending = `Taking over ${p.name}…`;

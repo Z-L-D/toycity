@@ -6,7 +6,7 @@ namespace ToyCity.ClientModel.Panels;
 /// <summary>
 /// The region map's screen, with no engine types: the latest <see cref="RegionState"/>, the tile picked, what the
 /// player is waiting on, and what each link does. While <see cref="Active"/> it replaces the city's whole interface.
-/// Links: rg-open, rg-close, rg-pick:COL:ROW, rg-go, rg-found, rg-starter, rg-founder[:T], rg-window, rg-takeover, rg-hand:T; deals: rg-kind:K, rg-sell, rg-amt:±,
+/// Links: rg-open, rg-close, rg-pick:COL:ROW, rg-go, rg-found, rg-grow, rg-starter, rg-founder[:T], rg-window, rg-takeover, rg-hand:T; deals: rg-kind:K, rg-sell, rg-amt:±,
 /// rg-price:±, rg-offer, rg-accept:ID, rg-counter:ID, rg-decline:ID, rg-end:ID.
 /// </summary>
 public sealed class RegionModel
@@ -54,6 +54,27 @@ public sealed class RegionModel
     public RegionTileState? PickedTile => Picked is { } p ? TileAt(p.Col, p.Row) : null;
     public RegionTileState? Here => State is { } s ? TileAt(s.HereCol, s.HereRow) : null;
 
+    /// <summary>A growing region's wild tile that can be added: one on a side of a tile already in the region (G4).</summary>
+    public bool CanGrow(RegionTileState t) =>
+        t.Wild && new[] { (0, -1), (1, 0), (0, 1), (-1, 0) }.Any(d => TileAt(t.Col + d.Item1, t.Row + d.Item2) is { Wild: false });
+
+    /// <summary>
+    /// The tiles to show: the whole grid for a fixed region; for a growing one, the tiles in it and a ring of wild
+    /// land around them, where it can grow.
+    /// </summary>
+    public (int C0, int R0, int C1, int R1) Shown
+    {
+        get
+        {
+            if (State is not { } s) return (0, 0, -1, -1);
+            if (!s.Grows) return (0, 0, s.Cols - 1, s.Rows - 1);
+            var tiles = s.Tiles.Where(t => !t.Wild).ToList();
+            if (tiles.Count == 0) return (0, 0, s.Cols - 1, s.Rows - 1);
+            return (Math.Max(0, tiles.Min(t => t.Col) - 1), Math.Max(0, tiles.Min(t => t.Row) - 1),
+                Math.Min(s.Cols - 1, tiles.Max(t => t.Col) + 1), Math.Min(s.Rows - 1, tiles.Max(t => t.Row) + 1));
+        }
+    }
+
     /// <summary>True when this player is mayor of any city here: mayors may slow the region's one clock.</summary>
     public bool IsMayor => State?.Tiles.Any(t => t.Founded && t.Mayor == Me()) == true;
 
@@ -67,6 +88,7 @@ public sealed class RegionModel
                 Picked ??= (m.Region.HereCol, m.Region.HereRow);
                 if (Pending.StartsWith("Founding") && PickedTile?.Founded == true) Pending = "";
                 if (Pending.StartsWith("Deal:") || Pending.StartsWith("Taking over") || Pending.StartsWith("Handing")) Pending = "";
+                if (Pending.StartsWith("Adding") && PickedTile is { Wild: false }) Pending = "";
                 MapVersion++;
                 _changed();
                 break;
@@ -118,7 +140,12 @@ public sealed class RegionModel
                 _send(new ClientMessage { GoTo = new GoToCity { Col = t.Col, Row = t.Row } });
                 _changed();
                 return;
-            case "rg-found" when PickedTile is { Founded: false } t:
+            case "rg-grow" when PickedTile is { } t && CanGrow(t):
+                Pending = "Adding a tile to the region: making its ground…";
+                _send(new ClientMessage { Grow = new GrowRegion { Col = t.Col, Row = t.Row } });
+                _changed();
+                return;
+            case "rg-found" when PickedTile is { Founded: false, Wild: false } t:
             {
                 string name = string.IsNullOrWhiteSpace(NewName) ? "New City" : NewName.Trim();
                 Pending = $"Founding {name}…";
@@ -219,7 +246,9 @@ public sealed class RegionModel
     {
         if (State is not { } s) return "Region";
         string held = s.SpeedSetBy.Length > 0 ? $" · held at {SpeedNames[Math.Clamp(s.Speed, 0, 3)]} by {s.SpeedSetBy}" : "";
-        return $"{s.Name}   {Months[(int)(s.Tick / 30 % 12)]} {2000 + s.Tick / 360} · {s.Cols} × {s.Rows} tiles{held}";
+        int inRegion = s.Tiles.Count(t => !t.Wild);
+        string size = s.Grows ? $"{Plural(inRegion, "tile")}, growing" : $"{s.Cols} × {s.Rows} tiles";
+        return $"{s.Name}   {Months[(int)(s.Tick / 30 % 12)]} {2000 + s.Tick / 360} · {size}{held}";
     }
 
     /// <summary>The side of the screen: the region's totals and the picked tile, with what can be done there.</summary>
@@ -250,6 +279,18 @@ public sealed class RegionModel
                 else if (p.Mayor == Me())
                     sb.Append("\n").Append(Dim("Hand it to a computer mayor: ")).Append(Link("rg-hand:growth", "growth-hungry")).Append(" · ")
                       .Append(Link("rg-hand:green", "green")).Append(" · ").Append(Link("rg-hand:careful", "careful"));
+            }
+            else if (p.Wild)
+            {
+                sb.Append(H3("Wild land"));
+                if (CanGrow(p))
+                {
+                    sb.Append(Dim($"Tile {p.Col + 1}, {p.Row + 1} isn't part of the region yet. Add it and its ground, rivers and rock are made now, "
+                        + "carrying on from the tiles beside it. It joins as open land: you or any other player can found a city on it.")).Append("\n\n");
+                    sb.Append(Dim("A mayor can add the land beside their own city; an admin, any.")).Append("\n\n");
+                    sb.Append(Link("rg-grow", "Add this tile to the region"));
+                }
+                else sb.Append(Dim("Not part of the region yet. Land joins on a side of a tile already in it."));
             }
             else
             {

@@ -150,6 +150,25 @@ public sealed partial class World
     static ushort[] GenerateRawCorners(ulong seed, int width, int heightCells, int waterLevel)
     {
         int cw = width + 1, ch = heightCells + 1, n = cw * ch;
+        // Hills about half a city across: a region's are the same size as a lone city's, just more of them.
+        double basePeriod = Math.Min(128, Math.Max(16, Math.Min(width, heightCells) / 2));
+        var m = RawMetres(seed, cw, ch, 0, 0, 1, basePeriod);
+        Erode(m, cw, ch, seed);
+
+        // The lowest fifth of the map is under water; the rest stands on the shore and climbs from there.
+        var sorted = (double[])m.Clone();
+        Array.Sort(sorted);
+        return CornersFromMetres(m, sorted[(int)(n * 0.18)], sorted[0], waterLevel);
+    }
+
+    /// <summary>
+    /// The ground in metres, before rain wears it, on a grid <paramref name="cw"/> by <paramref name="ch"/> points
+    /// <paramref name="stride"/> cells apart, starting at (<paramref name="ox"/>, <paramref name="oy"/>) in the map's
+    /// own cells. The same seed and period give the same ground at the same place whatever the grid, so a growing
+    /// region's tiles, made one at a time, carry on from each other.
+    /// </summary>
+    internal static double[] RawMetres(ulong seed, int cw, int ch, int ox, int oy, int stride, double basePeriod)
+    {
         ulong salt = seed * 0x9E3779B97F4A7C15UL + 0x1234567UL;
         double Lattice(int o, int x, int y)
         {
@@ -175,12 +194,11 @@ public sealed partial class World
             double bottom = Dot(gx, gy + 1, rx, ry - 1) + (Dot(gx + 1, gy + 1, rx - 1, ry - 1) - Dot(gx, gy + 1, rx, ry - 1)) * tx;
             return 0.5 + (top + (bottom - top) * ty) * 0.7071;
         }
-        // Hills about half a city across: a region's are the same size as a lone city's, just more of them.
-        double basePeriod = Math.Min(128, Math.Max(16, Math.Min(width, heightCells) / 2));
-        var m = new double[n];  // metres
-        for (int y = 0; y < ch; y++)
-        for (int x = 0; x < cw; x++)
+        var m = new double[cw * ch];  // metres
+        for (int gy = 0; gy < ch; gy++)
+        for (int gx = 0; gx < cw; gx++)
         {
+            int x = ox + gx * stride, y = oy + gy * stride;
             // The ground is sampled through a slow warp, so coasts and ranges bend rather than run straight.
             double wx = x + (Noise(30, x, y, basePeriod) - 0.5) * basePeriod * 0.6, wy = y + (Noise(31, x, y, basePeriod) - 0.5) * basePeriod * 0.6;
             // Lowland: five octaves of rolling ground.
@@ -201,14 +219,18 @@ public sealed partial class World
                 ridge += r * amp; total += amp; amp *= 0.5; period /= 2;
             }
             ridge /= total;
-            m[y * cw + x] = v * 40 + mask * ridge * 420;
+            m[gy * cw + gx] = v * 40 + mask * ridge * 420;
         }
-        Erode(m, cw, ch, seed);
+        return m;
+    }
 
-        // The lowest fifth of the map is under water; the rest stands on the shore and climbs from there.
-        var sorted = (double[])m.Clone();
-        Array.Sort(sorted);
-        double shore = sorted[(int)(n * 0.18)], lowest = sorted[0];
+    /// <summary>
+    /// Ground in metres to corners in decimetres: below <paramref name="shore"/> is under water, shelving down to ten
+    /// metres at <paramref name="lowest"/>; above it the land stands on the shore and climbs from there.
+    /// </summary>
+    internal static ushort[] CornersFromMetres(double[] m, double shore, double lowest, int waterLevel)
+    {
+        int n = m.Length;
         double sea = waterLevel * StepDm / 10.0;
         var corners = new ushort[n];
         for (int i = 0; i < n; i++)
@@ -227,7 +249,7 @@ public sealed partial class World
     /// the same ground, run downhill carrying silt, cutting where they speed up and dropping it where they slow or
     /// pool. A few on each corner of the map.
     /// </summary>
-    static void Erode(double[] h, int w, int hgt, ulong seed)
+    internal static void Erode(double[] h, int w, int hgt, ulong seed)
     {
         var rng = new Rng(seed ^ 0xE20510A11UL);
         int drops = w * hgt / 2;
