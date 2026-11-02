@@ -10,7 +10,7 @@ public enum Level : byte { Low = 0, Medium = 1, High = 2 }
 public enum Category : byte { Zoned, Power, Water, Garbage, Police, Fire, Health, Education, Park, Landmark, Reward, Transit }
 
 /// <summary>Which vehicles serve a transit stop, and which ride layer of the commute search they run on.</summary>
-public enum TransitKind : byte { None = 0, Bus = 1, Tram = 2, Rail = 3 }
+public enum TransitKind : byte { None = 0, Bus = 1, Tram = 2, Rail = 3, Subway = 4 }
 
 /// <summary>A path cross-section, loaded from content/profiles.json.</summary>
 public sealed class PathProfile
@@ -431,7 +431,7 @@ public sealed partial class ContentDb
                 PowerOutKw = c.PowerOutKw, WaterOut = c.WaterOut, GarbageCap = c.GarbageCap, SewageCap = c.SewageCap, Radius = c.Radius,
                 Pollution = c.Pollution, WaterPollution = c.WaterPollution, Noise = c.Noise, Attraction = c.Attraction, BuildDays = 1, Color = c.Color,
                 Income = c.Income, Unique = c.Unique, UnlockText = c.UnlockText,
-                Transit = c.Transit switch { "" => TransitKind.None, "bus" => TransitKind.Bus, "tram" => TransitKind.Tram, "rail" => TransitKind.Rail, _ => throw new InvalidDataException($"{c.Id}: bad transit '{c.Transit}'") },
+                Transit = c.Transit switch { "" => TransitKind.None, "bus" => TransitKind.Bus, "tram" => TransitKind.Tram, "rail" => TransitKind.Rail, "subway" => TransitKind.Subway, _ => throw new InvalidDataException($"{c.Id}: bad transit '{c.Transit}'") },
                 Capacity = c.Capacity, Catchment = c.Catchment, Wait = c.Wait,
                 Roadside = c.Roadside, LotKind = c.LotKind, LeaseRent = c.LeaseRent, Upgrades = c.Upgrades,
                 Serves = c.Serves, MinAge = c.MinAge, MaxAge = c.MaxAge,

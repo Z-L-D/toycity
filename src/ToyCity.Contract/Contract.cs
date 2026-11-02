@@ -17,7 +17,8 @@ public static class ContractInfo
     /// with an amount) and freight (<see cref="CityToGame.Freight"/>, <see cref="GameToCity.FreightPicked"/>,
     /// <see cref="GameToCity.FreightDropped"/>, and routes to the map edge); 4 added lines that run on into a neighbouring
     /// city (<see cref="TransitLine.ThroughSide"/>, <see cref="CityToGame.Crossings"/>); 5 added the day clock beside the
-    /// calendar (<see cref="CityToGame.ClockMinute"/>, <see cref="CityToGame.NewTurn"/> and the rest).
+    /// calendar (<see cref="CityToGame.ClockMinute"/>, <see cref="CityToGame.NewTurn"/> and the rest); 6 added subway lines
+    /// (<see cref="TransitMode.Subway"/>), run on the city's subway tunnels between "subway-station" lots.
     /// </summary>
     public const int Minor = 5;
 }
@@ -154,14 +155,15 @@ public sealed class CityToGame
 
 /// <summary>
 /// What a line's vehicles run on: buses on streets, trams on tram strips (shared with traffic or on their own lane),
-/// trains on rail lines. Each has its own kind of stop: "bus-stop", "tram-stop" or "rail-station".
+/// trains on rail lines, and (v1.6) subway trains in the subway tunnels under the city. Each has its own kind of stop:
+/// "bus-stop", "tram-stop", "rail-station" or "subway-station".
 /// </summary>
-public enum TransitMode : byte { Bus = 0, Tram = 1, Rail = 2 }
+public enum TransitMode : byte { Bus = 0, Tram = 1, Rail = 2, Subway = 3 }
 
 public static class TransitModes
 {
-    public static string StopKind(TransitMode m) => m switch { TransitMode.Tram => "tram-stop", TransitMode.Rail => "rail-station", _ => "bus-stop" };
-    public static string DepotKind(TransitMode m) => m switch { TransitMode.Tram => "tram-depot", TransitMode.Rail => "rail-depot", _ => "bus-depot" };
+    public static string StopKind(TransitMode m) => m switch { TransitMode.Tram => "tram-stop", TransitMode.Rail => "rail-station", TransitMode.Subway => "subway-station", _ => "bus-stop" };
+    public static string DepotKind(TransitMode m) => m switch { TransitMode.Tram => "tram-depot", TransitMode.Rail => "rail-depot", TransitMode.Subway => "subway-depot", _ => "bus-depot" };
 }
 
 /// <summary>

@@ -30,6 +30,15 @@ public class TrackTests
             w.Enqueue(new PlaceBuildingAction(x + 27, road + 1, "rail-station"));
             w.Enqueue(new PlaceBuildingAction(x + 20, road - 3, "rail-depot"));
         }
+        else if (mode == TransitMode.Subway)
+        {
+            // The tunnel runs under the stations themselves.
+            w.Funds = 1_000_000;
+            w.Enqueue(new PlaceUtilityAction(x, road + 2, x + 30, road + 2, UtilityKind.Subway));
+            w.Enqueue(new PlaceBuildingAction(x + 1, road + 1, "subway-station"));
+            w.Enqueue(new PlaceBuildingAction(x + 27, road + 1, "subway-station"));
+            w.Enqueue(new PlaceBuildingAction(x + 20, road - 3, "subway-depot"));
+        }
         else
         {
             w.Enqueue(new PlacePathAction(x, road + 3, x + 30, road + 3, "tram-avenue"));
@@ -63,10 +72,11 @@ public class TrackTests
     [Theory]
     [InlineData(TransitMode.Rail)]
     [InlineData(TransitMode.Tram)]
+    [InlineData(TransitMode.Subway)]
     public void TheCompanysTrainsAndTramsCarryTheCommuters(TransitMode mode)
     {
         var (w, home) = Lab(mode);
-        int vehicles = mode == TransitMode.Rail ? 1 : 2;
+        int vehicles = mode == TransitMode.Tram ? 2 : 1;
         OpenLine(w, mode, vehicles);
         w.Run(61);
         var line = TransportTests.View(w).Lines.Single();

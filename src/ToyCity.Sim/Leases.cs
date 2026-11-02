@@ -66,7 +66,7 @@ public sealed partial class World
         "fire-station" or "police-station" => new(LeaseMode.PublicService, 0, 0, 400, 0, 3),
         "clinic" => new(LeaseMode.PublicService, 0, 0, 300, 0, 3),
         "hospital" => new(LeaseMode.PublicService, 0, 0, 800, 0, 3),
-        _ => new(LeaseMode.Business, kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "tram-stop" => 60, "rail-station" => 150, "freight-depot" => 400, _ => 40 }, 100, 0, 0, 3),
+        _ => new(LeaseMode.Business, kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "subway-depot" => 1_500, "tram-stop" => 60, "rail-station" => 150, "subway-station" => 250, "freight-depot" => 400, _ => 40 }, 100, 0, 0, 3),
     };
 
     /// <summary>Lots that run the city's transit rather than its services.</summary>

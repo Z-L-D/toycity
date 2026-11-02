@@ -93,12 +93,13 @@ public sealed partial class World
         }
 
         double pathCost = 0;
-        int lines = 0, pipes = 0;
+        int lines = 0, pipes = 0, subway = 0;
         for (int i = 0; i < N; i++)
         {
             if (Path[i] != 0) pathCost += Content.Profiles[Path[i] - 1].MaintenancePerCell * (PathSurface[i] > 0 ? Content.Surfaces[PathSurface[i] - 1].MaintenancePct : 100) / 100.0;
             lines += PowerLine[i];
             pipes += WaterPipe[i];
+            subway += Subway[i];
         }
 
         var civic = new SortedDictionary<int, long>();
@@ -125,6 +126,7 @@ public sealed partial class World
         Line("Path upkeep", -(long)Math.Round(pathCost));
         Line("Road crews", -RoadCrewCost());
         Line("Power lines and pipes", -(lines + pipes) / 10);
+        if (subway > 0) Line("Subway tunnels", -subway);
         foreach (var (label, amount) in OrdinanceMoney) Line(label, amount);
         long dealIncome = 0;
         foreach (var b in Buildings)

@@ -94,7 +94,7 @@ public sealed partial class World
                     Add("landfill-road", "warning", $"{t.Name} has no road, so no trucks come.", at, 1, "garbage");
                 if (t.Transit != TransitKind.None)
                 {
-                    string line = t.Transit switch { TransitKind.Bus => "a road", TransitKind.Tram => "a tram line", _ => "a rail line" };
+                    string line = t.Transit switch { TransitKind.Bus => "a road", TransitKind.Tram => "a tram line", TransitKind.Subway => "a subway tunnel", _ => "a rail line" };
                     if (!_stopById.ContainsKey(b.Id) && StopWorks(b))
                         Add("stop-no-line", "warning", $"{t.Name} isn't next to {line}, so nothing stops there.", at, 1, "transit");
                     else if (t.PowerKw > 0 && !b.Powered && PowerCapacity > 0) { }

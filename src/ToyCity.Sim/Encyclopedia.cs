@@ -315,7 +315,7 @@ public sealed partial class World
             if (t.Pollution > 0 && t.Category == Category.Reward) paras.Add("Pollutes the land around it.");
             if (t.Transit != TransitKind.None)
             {
-                string line = t.Transit switch { TransitKind.Bus => "a road", TransitKind.Tram => "a tram line", _ => "a rail line" };
+                string line = t.Transit switch { TransitKind.Bus => "a road", TransitKind.Tram => "a tram line", TransitKind.Subway => "a subway tunnel", _ => "a rail line" };
                 paras.Add($"A {t.Transit.ToString().ToLowerInvariant()} stop. Place it touching {line}. People within {t.Catchment} cells may ride from it, and people may ride to work within {t.Catchment} cells of it.");
                 facts.Add(("Catchment", $"{t.Catchment} cells"));
                 facts.Add(("Capacity", $"{t.Capacity:N0} people a day"));

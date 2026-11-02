@@ -12,13 +12,15 @@ public partial class UndergroundView : Node3D
 {
     readonly CityMirror _city;
     readonly CityView _view;
-    MultiMeshInstance3D? _water, _sewer, _tunnels, _pumps, _plants;
+    MultiMeshInstance3D? _water, _sewer, _tunnels, _subways, _pumps, _plants;
     bool _dirty = true;
 
     public UndergroundView(CityMirror city, CityView view) => (_city, _view) = (city, view);
 
     /// <summary>Water mains, sewers and tunnel lengths last drawn, for the gate.</summary>
     public (int Water, int Sewer, int Tunnel, int Works) Drawn { get; private set; }
+    /// <summary>Lengths of subway tunnel and subway stations last drawn, for the gate.</summary>
+    public (int Subway, int Stations) DrawnSubway { get; private set; }
 
     static float Metres(float m) => m / 2f * ClassicView.HeightStep;
 
@@ -42,6 +44,7 @@ public partial class UndergroundView : Node3D
     public override void _Ready()
     {
         // Deepest first, so what's nearer the surface draws over it.
+        _subways = Layer(new Color(0.72f, 0.30f, 0.28f, 0.95f), 0, true);
         _tunnels = Layer(new Color(0.42f, 0.44f, 0.47f, 0.95f), 1, true);
         _sewer = Layer(new Color(0.62f, 0.45f, 0.24f, 0.97f), 2, true);
         _water = Layer(new Color(0.30f, 0.72f, 1.00f, 0.97f), 3, true);
@@ -107,6 +110,20 @@ public partial class UndergroundView : Node3D
                 tunnels.Add(Segment(Deck(x, y), n == 0 ? Deck(x, y) : Deck(x + dx, y + dy), width, 0.1f));
             }
         }
+        // Subways, deepest of all (12 m down), a broad tube under whatever stands above.
+        var subways = new List<Transform3D>();
+        foreach (var r in Underground.SubwayRuns(c))
+        {
+            int n = Math.Max(Math.Abs(r.X1 - r.X0), Math.Abs(r.Y1 - r.Y0));
+            int dx = Math.Sign(r.X1 - r.X0), dy = Math.Sign(r.Y1 - r.Y0);
+            for (int k = 0; k <= n; k++)
+            {
+                int x = r.X0 + dx * k, y = r.Y0 + dy * k;
+                int nx = k < n ? x + dx : x, ny = k < n ? y + dy : y;
+                subways.Add(Segment(At(x, y, Underground.SubwayDepthM, 0), At(nx, ny, Underground.SubwayDepthM, 0), 0.42f, 0.3f));
+                if (n == 0) break;
+            }
+        }
         var pumps = new List<Transform3D>();
         var plants = new List<Transform3D>();
         foreach (var (b, plant) in Underground.Works(c))
@@ -115,12 +132,23 @@ public partial class UndergroundView : Node3D
             var t = new Transform3D(new Basis(Vector3.Right * (b.Width - 0.1f), Vector3.Up * 0.06f, Vector3.Back * (b.Height - 0.1f)), new Vector3(b.X + b.Width / 2f, g + 0.03f, b.Y + b.Height / 2f));
             (plant ? plants : pumps).Add(t);
         }
+        int stations = 0;
+        foreach (var b in c.Buildings.Values)
+        {
+            if (!c.TypeById.TryGetValue(b.TypeId, out var st) || st.Transit != "subway") continue;
+            // A station's box reaches down from the street to its platforms.
+            float g = _view.Surface(b.X + b.Width / 2f, b.Y + b.Height / 2f), d = Metres(Underground.SubwayDepthM);
+            subways.Add(new Transform3D(new Basis(Vector3.Right * (b.Width - 0.2f), Vector3.Up * d, Vector3.Back * (b.Height - 0.2f)), new Vector3(b.X + b.Width / 2f, g - d / 2, b.Y + b.Height / 2f)));
+            stations++;
+        }
         Fill(_water!, water);
         Fill(_sewer!, sewer);
         Fill(_tunnels!, tunnels);
+        Fill(_subways!, subways);
         Fill(_pumps!, pumps);
         Fill(_plants!, plants);
         Drawn = (water.Count, sewer.Count, tunnels.Count, pumps.Count + plants.Count);
+        DrawnSubway = (subways.Count - stations, stations);
     }
 
     static void Fill(MultiMeshInstance3D mmi, List<Transform3D> list)

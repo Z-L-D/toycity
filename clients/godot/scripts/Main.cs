@@ -292,7 +292,7 @@ public partial class Main : Node
         _view!.Select(pm.Selected);
         // The pipes show while the layer is on, or while the bulldozer clears pipes.
         if (_company && pm.Company.View != null) { _company = false; pm.Company.SetActive(true); }
-        bool under = pm.ShowUnderground || _tools!.State is { Kind: ToolKind.Bulldoze, Underground: true };
+        bool under = pm.ShowUnderground || _tools!.State is { Kind: ToolKind.Bulldoze, Underground: true } or { Kind: ToolKind.Utility, Utility: Protocol.V0.UtilityKind.UtilitySubway };
         int companyMap = pm.Company.Active ? pm.Company.MapVersion : -1;
         if (under != _under || pm.OverlayVersion != _overlayVersion || companyMap != _companyMap || ((under || companyMap >= 0) && cellsChanged))
         {

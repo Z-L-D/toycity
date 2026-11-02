@@ -42,11 +42,13 @@ message Bid {
   int64 amount = 2;
 }
 
-// What a line's vehicles run on: buses on streets, trams on tram strips, trains on rail lines.
+// What a line's vehicles run on: buses on streets, trams on tram strips, trains on rail lines, subway trains in the
+// subway tunnels.
 enum Mode {
   BUS = 0;
   TRAM = 1;
   RAIL = 2;
+  SUBWAY = 3;
 }
 
 // The line runs to a timetable: a vehicle every so many minutes, with the rest of its fleet kept as spares. 0 runs

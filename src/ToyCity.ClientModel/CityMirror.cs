@@ -37,6 +37,8 @@ public sealed class CityMirror
     public List<SurfaceInfo> Surfaces = new();
     public byte[] PowerLines = Array.Empty<byte>();
     public byte[] WaterPipes = Array.Empty<byte>();
+    /// <summary>1 where a subway tunnel runs under the cell (Beta 3.2).</summary>
+    public byte[] Subways = Array.Empty<byte>();
     /// <summary>Building id + 1 per cell, 0 when empty. Roadside stops don't take a cell.</summary>
     public int[] BuildingAt = Array.Empty<int>();
     public readonly Dictionary<int, BuildingState> Buildings = new();
@@ -165,6 +167,7 @@ public sealed class CityMirror
         if (db.Length == 2 * n) for (int i = 0; i < n; i++) PathDecks[i] = (ushort)(db[2 * i] | (db[2 * i + 1] << 8));
         PowerLines = f.PowerLines.ToByteArray();
         WaterPipes = f.WaterPipes.ToByteArray();
+        Subways = f.Subways.Length == f.WaterPipes.Length ? f.Subways.ToByteArray() : new byte[f.WaterPipes.Length];
         Profiles = f.Catalog.Profiles.ToList();
         Types = f.Catalog.BuildingTypes.ToList();
         Surfaces = f.Catalog.Surfaces.ToList();
@@ -227,6 +230,7 @@ public sealed class CityMirror
             Made[i] = (byte)(c.Made ? 1 : 0);
             PowerLines[i] = (byte)(c.PowerLine ? 1 : 0);
             WaterPipes[i] = (byte)(c.WaterPipe ? 1 : 0);
+            if (Subways.Length > i) Subways[i] = (byte)(c.Subway ? 1 : 0);
             _dirtyCells.Add(i);
         }
         foreach (int id in d.RemovedBuildings)

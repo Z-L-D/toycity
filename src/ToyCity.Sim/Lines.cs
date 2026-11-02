@@ -39,10 +39,10 @@ public sealed partial class World
 
     void ForgetBusRoutes() => _busRoutes.Clear();
 
-    static TransitKind KindOf(TransitMode m) => m switch { TransitMode.Tram => TransitKind.Tram, TransitMode.Rail => TransitKind.Rail, _ => TransitKind.Bus };
+    static TransitKind KindOf(TransitMode m) => m switch { TransitMode.Tram => TransitKind.Tram, TransitMode.Rail => TransitKind.Rail, TransitMode.Subway => TransitKind.Subway, _ => TransitKind.Bus };
 
     /// <summary>Whether a lot kind is a stop a company's lines call at.</summary>
-    static bool IsStopKind(string kind) => kind is "bus-stop" or "tram-stop" or "rail-station";
+    static bool IsStopKind(string kind) => kind is "bus-stop" or "tram-stop" or "rail-station" or "subway-station";
 
     /// <summary>
     /// Where a vehicle of this kind calls at a stop: a bus at the stop's street access; a tram or train at the first
@@ -52,6 +52,11 @@ public sealed partial class World
     {
         if (k == TransitKind.Bus) return b.Access;
         if (TypeOf(b).Roadside) return Carries(k, Idx(b.X, b.Y)) ? Idx(b.X, b.Y) : -1;
+        // A subway station stands over its line: the platforms are under the building, or beside it.
+        if (k == TransitKind.Subway)
+            for (int y = b.Y; y < b.Y + b.H; y++)
+            for (int x = b.X; x < b.X + b.W; x++)
+                if (Carries(k, Idx(x, y))) return Idx(x, y);
         for (int y = b.Y - 1; y <= b.Y + b.H; y++)
         for (int x = b.X - 1; x <= b.X + b.W; x++)
         {

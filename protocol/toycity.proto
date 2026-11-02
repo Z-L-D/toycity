@@ -434,7 +434,8 @@ message TakeLoan {
 
 enum UtilityKind {
   UTILITY_POWER_LINE = 0;
-  UTILITY_WATER_PIPE = 1;
+  UTILITY_WATER_PIPE = 1;  // a water main and a sewer together (Beta 3.2)
+  UTILITY_SUBWAY = 2;      // a subway tunnel (Beta 3.2)
 }
 
 message PlaceUtility {
@@ -996,6 +997,7 @@ message FullState {
   bytes made_ground = 18;   // one byte per cell: 1 where earthworks (road banks, pads) reshaped the land
   bytes bedrock = 19;       // uint16 little-endian per grid corner: the top of the rock in dm; the ground above it is soil
   bytes rock = 20;          // one byte per cell: the rock under it, 1 shale, 2 sandstone, 3 limestone, 4 granite
+  bytes subways = 21;       // one byte per cell: 1 where a subway tunnel runs under it (Beta 3.2)
 }
 
 // An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
@@ -1022,6 +1024,7 @@ message CellUpdate {
   int32 surface = 7;  // path surface: index into Catalog.surfaces + 1, 0 for none
   int32 deck = 8;     // the road's level in dm on a bridge or in a tunnel, 0 on the ground
   bool made = 9;      // earthworks reshaped the land here
+  bool subway = 10;   // a subway tunnel runs under it (Beta 3.2)
 }
 
 message TickDelta {

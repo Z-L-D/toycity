@@ -237,7 +237,7 @@ public partial class ToolController : Node
                 Choice(new[] { "Straight", "Diagonal", "Curve" }, PathMode, SetPathMode, tips: new[] { "Straight roads", "Smooth diagonals at any angle (C)", "Curved roads (C)" });
                 break;
             case ToolKind.Utility:
-                Choice(new[] { "Power line", "Water and sewer pipe" }, (int)State.Utility, k => State.Utility = (UtilityKind)k);
+                Choice(new[] { "Power line", "Water and sewer pipe", "Subway tunnel" }, (int)State.Utility, k => State.Utility = (UtilityKind)k);
                 break;
             case ToolKind.Building:
             {

@@ -9,7 +9,7 @@ namespace ToyCity.Sim;
 public sealed partial class World
 {
     /// <summary>Layers of the commute search: 0 is the street (own car, bike or feet), then one per vehicle kind.</summary>
-    public const int Layers = 4;
+    public const int Layers = 5;
     /// <summary>Walking to or from a stop: half a minute, plus half a minute a cell (deciseconds).</summary>
     public const int StopWalkBase = 300, StopWalkPerCell = 300;
     /// <summary>How far apart two stops may be for a change between them (cells).</summary>
@@ -54,8 +54,11 @@ public sealed partial class World
     readonly Dictionary<int, StopInfo> _stopById = new();
     readonly Dictionary<int, List<int>> _stopsAtState = new();
 
-    /// <summary>Whether a vehicle of this kind may drive through a path cell.</summary>
-    public bool Carries(TransitKind k, int cell) => ProfileAt(cell) is { } p && k switch
+    /// <summary>A subway train between stations: 60 km/h, its own tunnel and no traffic.</summary>
+    public static readonly int SubwayCellTime = CellTimeAt(60);
+
+    /// <summary>Whether a vehicle of this kind may drive through a cell: a path its profile allows, or a subway tunnel.</summary>
+    public bool Carries(TransitKind k, int cell) => k == TransitKind.Subway ? Subway[cell] != 0 : ProfileAt(cell) is { } p && k switch
     {
         TransitKind.Bus => p.Cars,
         TransitKind.Tram => p.Tram != "",
@@ -69,6 +72,7 @@ public sealed partial class World
     /// <summary>Time for a vehicle to cross a cell: buses crawl with the traffic, trams too unless they have a lane.</summary>
     int RideCost(TransitKind k, int cell)
     {
+        if (k == TransitKind.Subway) return SubwayCellTime;
         var p = ProfileAt(cell)!;
         return k switch
         {
@@ -120,7 +124,9 @@ public sealed partial class World
             for (int x = b.X - 1; x <= b.X + b.W; x++)
             {
                 bool corner = (x == b.X - 1 || x == b.X + b.W) && (y == b.Y - 1 || y == b.Y + b.H);
-                if (corner || !InBounds(x, y)) continue;
+                bool inside = x >= b.X && x < b.X + b.W && y >= b.Y && y < b.Y + b.H;
+                // Only a subway runs under the stop itself.
+                if (corner || !InBounds(x, y) || (inside && t.Transit != TransitKind.Subway)) continue;
                 int i = Idx(x, y);
                 if (Carries(t.Transit, i)) states.Add((int)t.Transit * N + i);
             }

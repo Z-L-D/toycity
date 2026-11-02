@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 13;
+    public const int FormatVersion = 14;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -106,6 +106,8 @@ public sealed partial class World
     public readonly byte[] Made;
     public readonly byte[] PowerLine;
     public readonly byte[] WaterPipe;
+    /// <summary>1 where a subway tunnel runs under the cell (Beta 3.2), deep under whatever stands above.</summary>
+    public readonly byte[] Subway;
     public readonly int[] BuildingAt;    // building id + 1, 0 = none
 
     // Derived cell layers, recomputed by systems (saved too, so a loaded city continues identically).
@@ -180,6 +182,7 @@ public sealed partial class World
         Powered = new byte[N];
         Watered = new byte[N];
         Sewered = new byte[N];
+        Subway = new byte[N];
         LandValue = new byte[N];
         DesR = new short[N];
         DesC = new short[N];
@@ -455,6 +458,8 @@ public sealed partial class World
             WriteRoadWeather(w);
             // Format 13: the sewers' reach and totals from the last tick.
             w.Write(Sewered); w.Write(SewageCapacity); w.Write(SewageProduced); w.Write(SewageUntreated);
+            // Format 14: the subway tunnels.
+            w.Write(Subway);
         }
         return ms.ToArray();
     }
@@ -584,6 +589,8 @@ public sealed partial class World
         }
         else { w._sewageNotified = true; w.RunSewage(); }
         w._sewageNotified = w.SewageUntreated > 0;
+        // Format 14 added subways; an older city has none.
+        if (version >= 14) { ReadBytes(r, w.Subway); w.RebuildAccess(); }
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
         var demand = (int[])w.Demand.Clone();

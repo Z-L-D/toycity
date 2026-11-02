@@ -289,6 +289,8 @@ function setTool(t: Tool) {
   tool = t;
   drag = null;
   if (t.kind !== 'path') curveEnds = null;
+  // Subway tunnels are drawn where they run, under the ground.
+  if (t.kind === 'utility' && t.utility === 2) renderer.underground = true;
   renderer.preview = null;
   buildToolbar();
   updateHints();
@@ -360,6 +362,7 @@ function buildToolbar() {
     <h4>Utilities</h4>
     ${btn('Power line', 'P', { kind: 'utility', utility: 0 }, '#ffd84a')}
     ${btn('Water and sewer pipe', 'W', { kind: 'utility', utility: 1 }, '#5ec8ff')}
+    ${btn('Subway tunnel', 'J', { kind: 'utility', utility: 2 }, '#d0605a')}
     <h4>Civic</h4>
     ${btn('Place building', 'E', { kind: 'building' })}
     <select id="sel-building" title="Building">${civic}</select>
@@ -529,7 +532,10 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
       : `${t?.name ?? ''}: ${money(t?.cost ?? 0)}`;
     if (t?.transit) {
       // A stop must touch a path its vehicles use.
+      // A subway station stands over its tunnel, or beside it.
+      const subway = t.transit === 'subway';
       const carries = (j: number) => {
+        if (subway) return !!city.subways[j];
         const p = city.profileAt(j);
         return !!p && (t.transit === 'bus' ? p.cars : t.transit === 'tram' ? !!p.tram : p.rail);
       };
@@ -537,9 +543,10 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
       for (let y = f.y - 1; y <= f.y + f.h; y++)
         for (let x = f.x - 1; x <= f.x + f.w; x++) {
           const edge = (x === f.x - 1 || x === f.x + f.w) !== (y === f.y - 1 || y === f.y + f.h);
-          if (edge && city.inBounds(x, y) && carries(y * city.width + x)) touches = true;
+          const inside = x >= f.x && x < f.x + f.w && y >= f.y && y < f.y + f.h;
+          if ((edge || (subway && inside)) && city.inBounds(x, y) && carries(y * city.width + x)) touches = true;
         }
-      text += touches ? ` · serves ${t.catchment} cells around` : ` · must touch ${t.transit === 'bus' ? 'a road' : t.transit === 'tram' ? 'a tram line' : 'a rail line'}`;
+      text += touches ? ` · serves ${t.catchment} cells around` : ` · must touch ${t.transit === 'bus' ? 'a road' : t.transit === 'tram' ? 'a tram line' : subway ? 'a subway tunnel (over it or beside it)' : 'a rail line'}`;
     }
   } else if (tool.kind === 'path' && curveEnds) {
     const cells = curveCells(curveEnds.x0, curveEnds.y0, cell.x, cell.y, curveEnds.x1, curveEnds.y1);
@@ -600,6 +607,8 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
         if (city.buildingAt[i]) ok = false;
       } else if (tool.utility === 0) {
         if (!city.buildingAt[i] && !city.powerLines[i]) cost += 5;
+      } else if (tool.utility === 2) {
+        if (!city.subways[i]) cost += 150;
       } else if (!city.waterPipes[i]) cost += 3;
     }
     let graded = 0, deepest = 0, inTunnel = 0;
@@ -617,7 +626,7 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
       }
       if (problem) ok = false;
     }
-    const color = tool.kind === 'path' ? (prof?.color ?? '#888') + 'cc' : tool.utility === 0 ? '#ffd84acc' : '#5ec8ffcc';
+    const color = tool.kind === 'path' ? (prof?.color ?? '#888') + 'cc' : tool.utility === 0 ? '#ffd84acc' : tool.utility === 2 ? '#d0605acc' : '#5ec8ffcc';
     renderer.preview = { kind: 'line', x0: drag.x, y0: drag.y, x1: cell.x, y1: cell.y, ok, color, verticalFirst: shiftHeld };
     text = problem ?? `${tool.kind === 'path' ? `${prof?.name ?? ''}${surfaceLabel()}, ` : ''}${cells.length} cells: ${money(cost)}${grading(graded)}${tool.kind === 'path' ? depthNote({ cost, grading: graded, problem, pct: 0, deepestCutDm: deepest, tunnelCells: inTunnel }, tunnel) : ''}`;
   } else if (drag) {
@@ -664,7 +673,7 @@ function commit(start: { x: number; y: number }, end: { x: number; y: number }) 
         : [[start.x, start.y, end.x, end.y]];
       for (const [x0, y0, x1, y1] of legs) {
         if (tool.kind === 'path') act({ path: { x0, y0, x1, y1, profileId, surface: surfaceId, tunnel } }, `${city.profiles.find((p) => p.id === profileId)?.name ?? profileId} from ${x0},${y0} to ${x1},${y1}`);
-        else act({ utility: { x0, y0, x1, y1, kind: tool.utility } }, `${tool.utility ? 'Water and sewer pipe' : 'Power line'} from ${x0},${y0} to ${x1},${y1}`);
+        else act({ utility: { x0, y0, x1, y1, kind: tool.utility } }, `${tool.utility === 2 ? 'Subway tunnel' : tool.utility ? 'Water and sewer pipe' : 'Power line'} from ${x0},${y0} to ${x1},${y1}`);
       }
       break;
     }
@@ -790,7 +799,7 @@ window.addEventListener('keydown', (e) => {
   }
   const keyTools: Record<string, Tool> = {
     q: { kind: 'query' }, b: { kind: 'bulldoze' }, r: { kind: 'path' }, z: { kind: 'zone', zone: 1 }, x: { kind: 'zone', zone: 2 },
-    c: { kind: 'zone', zone: 3 }, d: { kind: 'dezone' }, p: { kind: 'utility', utility: 0 }, w: { kind: 'utility', utility: 1 },
+    c: { kind: 'zone', zone: 3 }, d: { kind: 'dezone' }, p: { kind: 'utility', utility: 0 }, w: { kind: 'utility', utility: 1 }, j: { kind: 'utility', utility: 2 },
     e: { kind: 'building' }, t: { kind: 'terraform' }, k: { kind: 'disaster' },
   };
   if (keyTools[k]) setTool(keyTools[k]);
@@ -1050,7 +1059,7 @@ function sewageText(): string {
     : raw > 0 ? `Sewage ${fmt(made)} a day, ${fmt(cap)} treated by plants, ${fmt(raw)} left raw.`
     : cap === 0 ? `Sewage ${fmt(made)} a day, on septic tanks.`
     : `Sewage ${fmt(made)} a day, all treated (plants take ${fmt(cap)}).`;
-  return `Water mains blue, sewers brown beside them, road tunnels grey. ${sewage}`;
+  return `Water mains blue, sewers brown beside them, road tunnels grey, subways red. ${sewage}`;
 }
 
 function renderLayers(low?: string, high?: string) {

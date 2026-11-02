@@ -23,10 +23,10 @@ export interface TransportHost {
 type CoTool = 'look' | 'lease' | 'line' | 'signal';
 
 /** Each mode's stop and depot lot kinds, and how a lot of each kind is named on a card. */
-const STOP_KIND = ['bus-stop', 'tram-stop', 'rail-station'];
-const MODE_ICON = ['🚌', '🚋', '🚆'];
+const STOP_KIND = ['bus-stop', 'tram-stop', 'rail-station', 'subway-station'];
+const MODE_ICON = ['🚌', '🚋', '🚆', '🚇'];
 const LOT_NAME: Record<string, string> = {
-  'bus-stop': 'Stop', 'bus-depot': 'Depot', 'tram-stop': 'Tram stop', 'tram-depot': 'Tram depot', 'rail-station': 'Station', 'rail-depot': 'Rail yard', 'freight-depot': 'Freight depot',
+  'bus-stop': 'Stop', 'bus-depot': 'Depot', 'tram-stop': 'Tram stop', 'tram-depot': 'Tram depot', 'rail-station': 'Station', 'rail-depot': 'Rail yard', 'subway-station': 'Subway station', 'subway-depot': 'Subway yard', 'freight-depot': 'Freight depot',
 };
 const modeOfStop = (kind: string) => STOP_KIND.indexOf(kind);
 const isStop = (kind: string) => modeOfStop(kind) >= 0 || kind === 'freight-depot';
@@ -275,7 +275,7 @@ export class Transport {
       const freight = lot.kind === 'freight-depot';
       // The first stop picks what runs: a line is all bus stops, all tram stops, all stations, or all freight depots.
       if (d.stops.length && (freight !== d.freight || (!freight && modeOfStop(lot.kind) !== d.mode))) {
-        this.host.toast(d.freight ? 'This is a freight line: click the company’s freight depots.' : `This is a ${['bus', 'tram', 'rail'][d.mode]} line: click its own kind of stop.`, 'warning');
+        this.host.toast(d.freight ? 'This is a freight line: click the company’s freight depots.' : `This is a ${['bus', 'tram', 'rail', 'subway'][d.mode]} line: click its own kind of stop.`, 'warning');
         return;
       }
       if (!d.stops.length && !d.lineId) { d.freight = freight; d.mode = freight ? (d.mode === 2 ? 2 : 0) : modeOfStop(lot.kind); }
@@ -431,7 +431,7 @@ export class Transport {
     const draft = d ? `
       <div class="bus-line draft">
         <b>${d.lineId ? 'Editing a line' : 'New line'}${d.mode >= 0 ? ` ${icon(d)}` : ''}</b>
-        <p class="small">Click the company's stops on the map in the order the line visits them. It runs both ways. The first stop decides what runs: buses from bus stops, trams from tram stops, trains from stations, freight from freight depots.</p>
+        <p class="small">Click the company's stops on the map in the order the line visits them. It runs both ways. The first stop decides what runs: buses from bus stops, trams from tram stops, trains from stations, subway trains from subway stations, freight from freight depots.</p>
         <div class="small">${d.stops.length ? d.stops.map((s) => this.stopName(s)).join(' → ') : '<span class="muted">No stops yet.</span>'}${d.freight && d.toEdge ? ' → map edge' : ''}</div>
         ${d.freight ? `
         <div class="row-flex small" style="margin-top:4px">${d.lineId ? `<span>${word(d.mode, 2, true)}</span>` : `
@@ -489,7 +489,7 @@ export class Transport {
     const has = (kind: string) => (v.lots as Msg[]).some((l) => l.kind === kind);
     const stops = (v.lots as Msg[]).filter((l) => isStop(l.kind)).length;
     const start = !v.lines.length && !d
-      ? `<div class="co-hint">To start: lease a depot and two or more stops of the same kind with <b>Lease lots</b> (bus stops and a bus depot, tram stops and a tram depot, stations and a rail yard, or two freight depots for freight), then <b>Draw a line</b> through the stops and give it vehicles. ${has('bus-depot') || has('tram-depot') || has('rail-depot') || has('freight-depot') ? '✓' : '○'} depot · ${stops >= 2 ? '✓' : '○'} two stops${!this.mine ? ' · Run the company yourself first (top bar).' : ''}</div>` : '';
+      ? `<div class="co-hint">To start: lease a depot and two or more stops of the same kind with <b>Lease lots</b> (bus stops and a bus depot, tram stops and a tram depot, stations and a rail yard, subway stations and a subway yard, or two freight depots for freight), then <b>Draw a line</b> through the stops and give it vehicles. ${has('bus-depot') || has('tram-depot') || has('rail-depot') || has('subway-depot') || has('freight-depot') ? '✓' : '○'} depot · ${stops >= 2 ? '✓' : '○'} two stops${!this.mine ? ' · Run the company yourself first (top bar).' : ''}</div>` : '';
     return `${draft}${start}${lines || (d ? '' : '<p class="muted">No lines yet.</p>')}
       ${this.mine && !d ? '<button id="tc-new" style="margin-top:8px">✏️ New line…</button>' : ''}`;
   }

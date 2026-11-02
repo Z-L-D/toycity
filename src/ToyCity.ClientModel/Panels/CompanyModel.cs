@@ -48,15 +48,15 @@ public sealed class CompanyModel
     /// <summary>The line being drawn: its stops (lease ids) in order, and what runs on it (-1 until its first stop).</summary>
     public (int LineId, string Name, List<int> Stops, int Fare, int Mode, bool Freight, bool ToEdge, int Through)? Draft { get; private set; }
 
-    static readonly string[] StopKinds = { "bus-stop", "tram-stop", "rail-station" };
-    static readonly string[] ModeIcon = { "🚌", "🚋", "🚆" };
+    static readonly string[] StopKinds = { "bus-stop", "tram-stop", "rail-station", "subway-station" };
+    static readonly string[] ModeIcon = { "🚌", "🚋", "🚆", "🚇" };
     static int ModeOfStop(string kind) => Array.IndexOf(StopKinds, kind);
     static bool IsStop(string kind) => ModeOfStop(kind) >= 0 || kind == "freight-depot";
     static string FreightIcon(int mode) => mode == 2 ? "🚂" : "🚚";
     static string Icon(LineView l) => l.Freight ? FreightIcon((int)l.Mode) : ModeIcon[Math.Clamp((int)l.Mode, 0, 2)];
     static string LotName(string kind) => kind switch
     {
-        "bus-depot" => "Depot", "tram-stop" => "Tram stop", "tram-depot" => "Tram depot", "rail-station" => "Station", "rail-depot" => "Rail yard", "freight-depot" => "Freight depot", _ => "Stop",
+        "bus-depot" => "Depot", "tram-stop" => "Tram stop", "tram-depot" => "Tram depot", "rail-station" => "Station", "rail-depot" => "Rail yard", "subway-station" => "Subway station", "subway-depot" => "Subway yard", "freight-depot" => "Freight depot", _ => "Stop",
     };
     /// <summary>Goes up when the company's lots or lines change, so the map redraws them.</summary>
     public int MapVersion { get; private set; }
@@ -198,7 +198,7 @@ public sealed class CompanyModel
             // The first stop picks what runs: a line is all bus stops, all tram stops, all stations, or all freight depots.
             if (d.Stops.Count > 0 && (freight != d.Freight || (!freight && ModeOfStop(lot.Kind) != d.Mode)))
             {
-                Toast?.Invoke(d.Freight ? "This is a freight line: click the company's freight depots." : $"This is a {new[] { "bus", "tram", "rail" }[d.Mode]} line: click its own kind of stop.", "warning");
+                Toast?.Invoke(d.Freight ? "This is a freight line: click the company's freight depots." : $"This is a {new[] { "bus", "tram", "rail", "subway" }[d.Mode]} line: click its own kind of stop.", "warning");
                 return;
             }
             if (d.Stops.Count == 0 && d.LineId == 0) Draft = d = d with { Freight = freight, Mode = freight ? (d.Mode == 2 ? 2 : 0) : ModeOfStop(lot.Kind) };
@@ -396,7 +396,7 @@ public sealed class CompanyModel
         sb.Append(Small(Dim(Tool switch
         {
             CompanyTool.Lease => "Click a free stop, station or depot (dashed) to lease it on the city's standard terms.",
-            CompanyTool.Line => "Click the company's stops (solid yellow) in the order the line visits them. Click the last one again to take it off. The first stop decides what runs: buses, trams, trains or freight.",
+            CompanyTool.Line => "Click the company's stops (solid yellow) in the order the line visits them. Click the last one again to take it off. The first stop decides what runs: buses, trams, trains, subway trains or freight.",
             CompanyTool.Signal => $"Click a cell on one of the company's rail lines: a block signal ({Money(View?.SignalPrice ?? 250)}), click again for a path signal, again to take it down. Without signals only one train can use a line.",
             _ => "Click a stop, station or depot to see who it reaches and how it does.",
         }))).Append('\n');
@@ -469,7 +469,7 @@ public sealed class CompanyModel
         bool depot = v.Lots.Any(l => l.Kind.EndsWith("-depot", StringComparison.Ordinal));
         int stops = v.Lots.Count(l => IsStop(l.Kind));
         if (v.Lines.Count == 0 && Draft == null)
-            sb.Append(Small(Col(Warn, $"To start: lease a depot and two or more stops of the same kind with Lease lots (bus stops and a bus depot, tram stops and a tram depot, stations and a rail yard, or two freight depots for freight), then Draw a line through the stops and give it vehicles. {(depot ? "✓" : "○")} depot · {(stops >= 2 ? "✓" : "○")} two stops{(!Mine ? " · Run the company yourself first (top bar)." : "")}"))).Append('\n');
+            sb.Append(Small(Col(Warn, $"To start: lease a depot and two or more stops of the same kind with Lease lots (bus stops and a bus depot, tram stops and a tram depot, stations and a rail yard, subway stations and a subway yard, or two freight depots for freight), then Draw a line through the stops and give it vehicles. {(depot ? "✓" : "○")} depot · {(stops >= 2 ? "✓" : "○")} two stops{(!Mine ? " · Run the company yourself first (top bar)." : "")}"))).Append('\n');
         foreach (var l in v.Lines)
         {
             int m = (int)l.Mode;

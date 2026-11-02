@@ -16,7 +16,7 @@ public readonly record struct CellRect(int X0, int Y0, int X1, int Y1)
 /// </summary>
 public enum TerraformMode : byte { Raise = 0, Lower = 1, Level = 2, Smooth = 3, Slope = 4 }
 
-public enum UtilityKind : byte { PowerLine = 0, WaterPipe = 1 }
+public enum UtilityKind : byte { PowerLine = 0, WaterPipe = 1, Subway = 2 }
 
 /// <summary>
 /// Everything a player can do to the city. Actions are queued and applied at the start of the next tick. By is the
@@ -53,7 +53,7 @@ public sealed record PlaceBuildingAction(int X, int Y, string TypeId, int Side =
 
 /// <summary>Upgrades a civic building in place to one of the types its own type lists.</summary>
 public sealed record UpgradeBuildingAction(int BuildingId, string ToTypeId) : SimAction;
-/// <summary>Clears buildings, paths and power lines in the area, or only water pipes when <c>Underground</c> is set.</summary>
+/// <summary>Clears buildings, paths and power lines in the area, or only water pipes and subway tunnels when <c>Underground</c> is set.</summary>
 public sealed record BulldozeAction(CellRect Area, bool Underground = false) : SimAction;
 public sealed record TerraformAction(CellRect Area, TerraformMode Mode) : SimAction;
 public sealed record SetTaxAction(Zone Zone, Level Wealth, int PercentTenths) : SimAction;

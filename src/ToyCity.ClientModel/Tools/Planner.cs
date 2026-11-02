@@ -25,7 +25,7 @@ public sealed class ToolState
     public string BuildingTypeId = "police-station";
     public TerraformMode Terraform = TerraformMode.TerraformRaise;
     public DisasterKind Disaster = DisasterKind.DisasterFire;
-    public bool Underground;              // bulldoze clears water pipes only
+    public bool Underground;              // bulldoze clears water pipes and subway tunnels only
 }
 
 /// <summary>Where the cursor is and what it's doing: the cell, where in the cell, the drag's start, and the held keys.</summary>
@@ -60,7 +60,7 @@ public static class Planner
 {
     /// <summary>A bridge costs this many times its path, as World.BridgeCostTimes.</summary>
     public const int BridgeCostTimes = 5;
-    public const int ZoneCostPerCell = 5, PowerLinePerCell = 5, WaterPipePerCell = 3, TerraformPerCell = 25;
+    public const int ZoneCostPerCell = 5, PowerLinePerCell = 5, WaterPipePerCell = 3, SubwayPerCell = 150, TerraformPerCell = 25;
     /// <summary>As World: a road's cut and fill per step a cell, a pad's, and the most a pad levels.</summary>
     public const int GradeCostPerStep = 10, PadCostPerStep = 5, MaxPadRise = 3;
     public static readonly string[] DensityNames = { "Low", "Medium", "High" };
@@ -192,10 +192,11 @@ public static class Planner
                 int i = c.Idx(x, y);
                 if (path) { if (c.BuildingAt[i] != 0) good = false; }
                 else if (t.Utility == UtilityKind.UtilityPowerLine) { if (c.BuildingAt[i] == 0 && c.PowerLines[i] == 0) cost += PowerLinePerCell; }
+                else if (t.Utility == UtilityKind.UtilitySubway) { if (c.Subways[i] == 0) cost += SubwayPerCell; }
                 else if (c.WaterPipes[i] == 0) cost += WaterPipePerCell;
             }
             ok &= good;
-            tinted.Add((x, y, !good ? Tint.Bad : path ? Tint.Road : t.Utility == UtilityKind.UtilityPowerLine ? Tint.Power : Tint.Water));
+            tinted.Add((x, y, !good ? Tint.Bad : path ? Tint.Road : t.Utility == UtilityKind.UtilityPowerLine ? Tint.Power : t.Utility == UtilityKind.UtilitySubway ? Tint.Road : Tint.Water));
         }
         string? steep = null;
         long grading = 0;
@@ -213,7 +214,7 @@ public static class Planner
         var actions = legs.Select(l => path
             ? new PAction { Path = new PlacePath { X0 = l.Item1, Y0 = l.Item2, X1 = l.Item3, Y1 = l.Item4, ProfileId = t.ProfileId, Surface = t.Surface, Tunnel = t.Tunnel } }
             : new PAction { Utility = new PlaceUtility { X0 = l.Item1, Y0 = l.Item2, X1 = l.Item3, Y1 = l.Item4, Kind = t.Utility } }).ToList();
-        string what = path ? ProfileName(c, t.ProfileId) : t.Utility == UtilityKind.UtilityPowerLine ? "Power line" : "Water and sewer pipe";
+        string what = path ? ProfileName(c, t.ProfileId) : t.Utility == UtilityKind.UtilityPowerLine ? "Power line" : t.Utility == UtilityKind.UtilitySubway ? "Subway tunnel" : "Water and sewer pipe";
         return new Preview(tinted, ok, steep ?? $"{what}{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(grading)}{(path ? Depth(depth, t.Tunnel) : "")}", actions, $"{what} from {s.X},{s.Y} to {end.X},{end.Y}");
     }
 
@@ -467,6 +468,18 @@ public static class Planner
         return false;
     }
 
+    /// <summary>Whether a subway tunnel runs under a footprint or beside it (not at its corners), as the server asks.</summary>
+    public static bool SubwayUnder(CityMirror c, int fx, int fy, int w, int h)
+    {
+        for (int y = fy - 1; y <= fy + h; y++)
+            for (int x = fx - 1; x <= fx + w; x++)
+            {
+                bool corner = (x == fx - 1 || x == fx + w) && (y == fy - 1 || y == fy + h);
+                if (!corner && c.InBounds(x, y) && c.Subways.Length > c.Idx(x, y) && c.Subways[c.Idx(x, y)] != 0) return true;
+            }
+        return false;
+    }
+
     static Func<PathProfileInfo, bool> Carries(BuildingTypeInfo t) => t.Transit switch
     {
         "bus" => q => q.Cars,
@@ -510,7 +523,9 @@ public static class Planner
         string text = pad == null ? $"{t.Name}: the ground is too uneven for a pad"
             : pad > 0 ? $"{t.Name}: {Money(t.Cost + pad.Value * (long)PadCostPerStep)} (pad {Money(pad.Value * (long)PadCostPerStep)})"
             : $"{t.Name}: {Money(t.Cost)}";
-        if (!string.IsNullOrEmpty(t.Transit))
+        if (t.Transit == "subway")
+            text += SubwayUnder(c, fx, fy, w, h) ? $" · serves {t.Catchment} cells around" : " · must stand over or beside a subway tunnel";
+        else if (!string.IsNullOrEmpty(t.Transit))
             text += Touches(c, fx, fy, w, h, Carries(t)) ? $" · serves {t.Catchment} cells around" : $" · must touch {(t.Transit == "bus" ? "a road" : t.Transit == "tram" ? "a tram line" : "a rail line")}";
         else if (ok && !Touches(c, fx, fy, w, h, q => q.Frontage)) text += " · no road beside it";
         return new Preview(cells, ok, text, new() { new PAction { Building = new PlaceBuilding { X = fx, Y = fy, TypeId = t.Id } } }, $"{t.Name} at {fx},{fy}")

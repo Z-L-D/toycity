@@ -91,12 +91,32 @@ public partial class Main
         _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } });
         MountainCheck("sewers to the plant", c.Stats.SewageCapacity > 0 && c.Stats.SewageUntreated == 0, ClientModel.Underground.Legend(c.Stats));
 
+        // Subways (Beta 3.2): a tunnel right under the town, and a station near each end.
+        int sy = (int)ty, sx0 = Math.Max(2, (int)tx - 12), sx1 = Math.Min(c.Width - 3, (int)tx + 12);
+        _client.Connection.Act(new Protocol.V0.Action { Utility = new Protocol.V0.PlaceUtility { X0 = sx0, Y0 = sy, X1 = sx1, Y1 = sy, Kind = Protocol.V0.UtilityKind.UtilitySubway } });
+        yield return new GateWait("the subway laid", () => c.Subways[c.Idx(sx1, sy)] != 0, 30);
+        var stationType = c.TypeById["subway-station"];
+        var stationsAt = new List<int>();
+        foreach (var endX in new[] { sx0 + 1, sx1 - 1 })
+            foreach (var (px, py) in ClientModel.Underground.StationSites(c, stationType.Width, stationType.Height, endX, sy).Take(8))
+            {
+                _client.Connection.Act(new Protocol.V0.Action { Building = new Protocol.V0.PlaceBuilding { X = px, Y = py, TypeId = stationType.Id } });
+                int at = c.Idx(px, py);
+                int frames = 0;
+                yield return new GateWait("a subway station placed", () => c.BuildingAt[at] != 0 || ++frames > 120, 30);
+                if (c.BuildingAt[at] != 0) { stationsAt.Add(at); break; }
+            }
+        MountainCheck("subway under the town", c.Subways[c.Idx(sx0, sy)] != 0 && stationsAt.Count == 2,
+            $"{sx1 - sx0 + 1} cells along row {sy}, stations at {string.Join(" and ", stationsAt.Select(i => $"{i % c.Width},{i / c.Width}"))}");
+
         _panels!.Model.ShowUnderground = true;
         int shown = 0;
         yield return new GateWait("the underground drawn", () => ++shown > 10 && _underground!.Drawn.Water > 0, 30);
         var d = _underground!.Drawn;
         MountainCheck("underground view", d.Water > 0 && d.Sewer == d.Water && d.Tunnel > 0 && d.Works >= 2 && _view!.Underground,
             $"{d.Water:N0} lengths of water main and {d.Sewer:N0} of sewer, {d.Tunnel} of road tunnel, {d.Works} pumps and plants; buildings hidden");
+        var ds = _underground.DrawnSubway;
+        MountainCheck("subway drawn", ds.Subway == sx1 - sx0 + 1 && ds.Stations == stationsAt.Count, $"{ds.Subway} lengths of subway tunnel, {ds.Stations} stations reaching down to it");
         _camera.CentreOn(tx, ty);
         v.Zoom = 3;
         yield return MountainMeasure("classic, underground");
@@ -105,6 +125,8 @@ public partial class Main
         var mid = tunnelCells[tunnelCells.Count / 2];
         Look(mid.X + 0.5f, mid.Y + 0.5f, 22, 38, 30);
         yield return MountainMeasure("free, the tunnel and pipes underground");
+        Look(tx, sy + 0.5f, 26, 22, 20);
+        yield return MountainMeasure("free, the subway under the town");
         _camera.ToggleFree();
         _panels.Model.ShowUnderground = false;
     }

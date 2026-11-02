@@ -128,7 +128,7 @@ public sealed partial class World
         var t = TypeOf(b);
         if (!StopWorks(b)) return t.PowerKw > 0 && !b.Powered ? "Closed: a station needs power." : "Closed.";
         if (!_stopById.TryGetValue(b.Id, out var info))
-            return $"Nothing stops here: it must touch {(t.Transit == TransitKind.Bus ? "a road" : t.Transit == TransitKind.Tram ? "a tram line" : "a rail line")}.";
+            return $"Nothing stops here: it must touch {(t.Transit == TransitKind.Bus ? "a road" : t.Transit == TransitKind.Tram ? "a tram line" : t.Transit == TransitKind.Subway ? "a subway tunnel, under it or beside it" : "a rail line")}.";
         int homes = Buildings.Count(h => h is { Residents: > 0 } && RectGap(h, b) <= t.Catchment);
         return $"{b.Riders:N0} people get on or off a day (built for {t.Capacity:N0}); the wait is {StopWait(b) / 600.0:0.#} minutes. "
             + $"Within {t.Catchment} cells: {homes} homes and {info.Sites.Length} workplaces. Changes to {info.Transfers.Length} other stops nearby.";

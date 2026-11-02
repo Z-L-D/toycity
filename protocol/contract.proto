@@ -212,6 +212,7 @@ enum TransitMode {
   BUS = 0;
   TRAM = 1;
   RAIL = 2;
+  SUBWAY = 3;  // v1.6
 }
 
 message GameToCity {

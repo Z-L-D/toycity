@@ -9,7 +9,7 @@ namespace ToyCity.ClientModel;
 public static class Underground
 {
     /// <summary>Depths below the ground, in metres: the water main shallow, the sewer below it.</summary>
-    public const float WaterDepthM = 2.5f, SewerDepthM = 5f;
+    public const float WaterDepthM = 2.5f, SewerDepthM = 5f, SubwayDepthM = 12f;
     /// <summary>How far each main sits to one side of the cell's middle, in cells (a cell is 16 m).</summary>
     public const float Offset = 0.16f;
 
@@ -21,6 +21,9 @@ public static class Underground
     /// A cell where a row and a column meet is in both.
     /// </summary>
     public static List<Run> PipeRuns(CityMirror c) => Runs(c, i => c.WaterPipes.Length > i && c.WaterPipes[i] != 0);
+
+    /// <summary>The subway tunnels as straight runs (Beta 3.2), as <see cref="PipeRuns"/> does for pipes.</summary>
+    public static List<Run> SubwayRuns(CityMirror c) => Runs(c, i => c.Subways.Length > i && c.Subways[i] != 0);
 
     /// <summary>The road tunnels as straight runs, as <see cref="PipeRuns"/> does for pipes.</summary>
     public static List<Run> TunnelRuns(CityMirror c) => Runs(c, c.IsTunnel);
@@ -67,7 +70,7 @@ public static class Underground
             : s.SewageUntreated > 0 ? $"Sewage {s.SewageProduced:N0} a day, {s.SewageCapacity:N0} treated by plants, {s.SewageUntreated:N0} left raw."
             : s.SewageCapacity == 0 ? $"Sewage {s.SewageProduced:N0} a day, on septic tanks."
             : $"Sewage {s.SewageProduced:N0} a day, all treated (plants take {s.SewageCapacity:N0}).";
-        return $"Water mains blue, sewers brown beside them, road tunnels grey. {sewage}";
+        return $"Water mains blue, sewers brown beside them, road tunnels grey, subways red. {sewage}";
     }
 
     /// <summary>
@@ -90,6 +93,29 @@ public static class Underground
                         if (!inside && c.WaterPipes[i] != 0 && (xx == x - 1 || xx == x + w) != (yy == y - 1 || yy == y + h)) pipe = true;
                     }
                 if (free && pipe) sites.Add((x, y, (x + w / 2f - nearX) * (x + w / 2f - nearX) + (y + h / 2f - nearY) * (y + h / 2f - nearY)));
+            }
+        return sites.OrderBy(s => s.D).Select(s => (s.X, s.Y));
+    }
+
+    /// <summary>
+    /// Free sites for a subway station of <paramref name="w"/> × <paramref name="h"/> that stand over or beside a
+    /// subway tunnel, nearest to (<paramref name="nearX"/>, <paramref name="nearY"/>) first.
+    /// </summary>
+    public static IEnumerable<(int X, int Y)> StationSites(CityMirror c, int w, int h, float nearX, float nearY)
+    {
+        var sites = new List<(int X, int Y, float D)>();
+        for (int y = 1; y + h < c.Height - 1; y++)
+            for (int x = 1; x + w < c.Width - 1; x++)
+            {
+                bool free = true;
+                for (int yy = y; yy < y + h && free; yy++)
+                    for (int xx = x; xx < x + w && free; xx++)
+                    {
+                        int i = c.Idx(xx, yy);
+                        if (c.Paths[i] != 0 || c.BuildingAt[i] != 0 || c.IsWater(i) || c.Zones[i] != 0) free = false;
+                    }
+                if (free && Tools.Planner.SubwayUnder(c, x, y, w, h))
+                    sites.Add((x, y, (x + w / 2f - nearX) * (x + w / 2f - nearX) + (y + h / 2f - nearY) * (y + h / 2f - nearY)));
             }
         return sites.OrderBy(s => s.D).Select(s => (s.X, s.Y));
     }

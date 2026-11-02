@@ -134,6 +134,8 @@ export class City {
   surfaces: Surface[] = [];
   powerLines = new Uint8Array(0);
   waterPipes = new Uint8Array(0);
+  /** 1 where a subway tunnel runs under the cell (Beta 3.2). */
+  subways = new Uint8Array(0);
   buildingAt = new Int32Array(0);
   buildings = new Map<number, Building>();
   stats: Msg = {};
@@ -185,6 +187,7 @@ export class City {
     if (db?.length === 2 * n) for (let i = 0; i < n; i++) this.pathDecks[i] = db[2 * i] | (db[2 * i + 1] << 8);
     this.powerLines = new Uint8Array(f.powerLines);
     this.waterPipes = new Uint8Array(f.waterPipes);
+    this.subways = f.subways && f.subways.length === this.waterPipes.length ? new Uint8Array(f.subways) : new Uint8Array(this.waterPipes.length);
     this.profiles = f.catalog.profiles;
     this.surfaces = f.catalog.surfaces ?? [];
     this.types = f.catalog.buildingTypes;
@@ -219,6 +222,7 @@ export class City {
       this.made[i] = c.made ? 1 : 0;
       this.powerLines[i] = c.powerLine ? 1 : 0;
       this.waterPipes[i] = c.waterPipe ? 1 : 0;
+      if (i < this.subways.length) this.subways[i] = c.subway ? 1 : 0;
     }
     for (const id of d.removedBuildings as number[]) this.removeBuilding(id);
     for (const b of d.buildings as Building[]) {

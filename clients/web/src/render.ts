@@ -30,7 +30,7 @@ const ZONE_COLORS = ['', '#5f9e4a', '#5b7fb8', '#c09a45'];
 const CIVIC_LABEL: Record<string, string> = {
   power: '⚡', water: '💧', garbage: '🗑', police: 'P', fire: 'F', health: '+', education: 'E', park: '',
 };
-const TRANSIT_LABEL: Record<string, string> = { bus: '🚌', tram: '🚋', rail: '🚆' };
+const TRANSIT_LABEL: Record<string, string> = { bus: '🚌', tram: '🚋', rail: '🚆', subway: '🚇' };
 
 /** Pixels to a cell in the ground layer. */
 const TERRAIN_DETAIL = 4;
@@ -599,7 +599,7 @@ export class Renderer {
       ctx.strokeStyle = 'rgba(255,204,77,0.45)';
       ctx.lineWidth = 1;
       for (const l of co.lots) {
-        if (!l.leased || !(l.kind === 'bus-stop' || l.kind === 'tram-stop' || l.kind === 'rail-station')) continue;
+        if (!l.leased || !(l.kind === 'bus-stop' || l.kind === 'tram-stop' || l.kind === 'rail-station' || l.kind === 'subway-station')) continue;
         const r = l.reach || co.catchment;
         ctx.fillRect(px(l.x - r), py(l.y - r), (l.w + 2 * r) * s, (l.h + 2 * r) * s);
         ctx.strokeRect(px(l.x - r) + 0.5, py(l.y - r) + 0.5, (l.w + 2 * r) * s - 1, (l.h + 2 * r) * s - 1);
@@ -1179,12 +1179,16 @@ export class Renderer {
     for (const b of c.buildings.values()) {
       if (b.x > x1 || b.y > y1 || b.x + b.width < x0 || b.y + b.height < y0) continue;
       const t = c.typeById.get(b.typeId);
-      const pump = (t?.waterOut ?? 0) > 0, plant = (t?.sewageCap ?? 0) > 0;
+      const pump = (t?.waterOut ?? 0) > 0, plant = (t?.sewageCap ?? 0) > 0, station = t?.transit === 'subway';
+      if (station) {
+        ctx.fillStyle = 'rgba(208,96,90,0.55)';
+        ctx.fillRect(px(b.x) + 1, py(b.y) + 1, b.width * s - 2, b.height * s - 2);
+      }
       if (pump || plant) {
         ctx.fillStyle = pump ? 'rgba(94,200,255,0.45)' : 'rgba(176,136,80,0.6)';
         ctx.fillRect(px(b.x) + 1, py(b.y) + 1, b.width * s - 2, b.height * s - 2);
       }
-      ctx.strokeStyle = pump ? '#5ec8ff' : plant ? '#d0a060' : 'rgba(255,255,255,0.25)';
+      ctx.strokeStyle = pump ? '#5ec8ff' : plant ? '#d0a060' : station ? '#e07870' : 'rgba(255,255,255,0.25)';
       ctx.strokeRect(px(b.x) + 1, py(b.y) + 1, b.width * s - 2, b.height * s - 2);
     }
     // The two mains: water a little to one side of the cell's middle, the sewer to the other (and deeper, so wider).
@@ -1207,6 +1211,25 @@ export class Renderer {
       ctx.lineCap = 'butt';
     };
     const off = s >= 6 ? s * 0.16 : 0;
+    // The subways, deepest: a broad dark-red tube under everything, with its stations ringed.
+    ctx.strokeStyle = '#c0504a';
+    ctx.lineWidth = Math.max(3, s * 0.55);
+    ctx.lineCap = 'round';
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const i = y * c.width + x;
+        if (!c.subways[i]) continue;
+        const cx = px(x) + s / 2, cy = py(y) + s / 2;
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx, cy);
+        if (x + 1 < c.width && c.subways[i + 1]) { ctx.moveTo(cx, cy); ctx.lineTo(cx + s, cy); }
+        if (y + 1 < c.height && c.subways[i + c.width]) { ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + s); }
+      }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.lineCap = 'butt';
     main('#9a7444', Math.max(2, s / 4), off);
     main('#5ec8ff', Math.max(1.5, s / 6), -off);
     // A key in the corner.
@@ -1214,14 +1237,16 @@ export class Renderer {
     ctx.fillStyle = 'rgba(16,18,22,0.75)';
     // Below the news ticker, which runs along the top.
     const k = 48;
-    ctx.fillRect(8, k, 150, 50);
+    ctx.fillRect(8, k, 150, 64);
     ctx.fillStyle = '#5ec8ff'; ctx.fillRect(16, k + 10, 18, 4);
     ctx.fillStyle = '#9a7444'; ctx.fillRect(16, k + 24, 18, 5);
     ctx.fillStyle = '#4c5056'; ctx.fillRect(16, k + 37, 18, 6);
+    ctx.fillStyle = '#c0504a'; ctx.fillRect(16, k + 50, 18, 7);
     ctx.fillStyle = '#e8e8ec';
     ctx.fillText('Water main', 42, k + 15);
     ctx.fillText('Sewer', 42, k + 29);
     ctx.fillText('Road tunnel', 42, k + 43);
+    ctx.fillText('Subway', 42, k + 57);
   }
 
   private drawBuildings(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {

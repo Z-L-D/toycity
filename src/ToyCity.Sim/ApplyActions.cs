@@ -3,6 +3,8 @@ namespace ToyCity.Sim;
 public sealed partial class World
 {
     public const int PowerLineCost = 5;
+    /// <summary>A cell of subway tunnel, bored deep under whatever is above (Beta 3.2).</summary>
+    public const int SubwayCost = 150;
     public const int WaterPipeCost = 3;
     public const int MaxDebt = 500_000;
 
@@ -342,7 +344,7 @@ public sealed partial class World
         for (int x = x0; x <= x1; x++)
         {
             int i = Idx(x, y);
-            if (a.Underground) { if (WaterPipe[i] != 0) cost += Content.BulldozeCostPerCell; continue; }
+            if (a.Underground) { if (WaterPipe[i] != 0 || Subway[i] != 0) cost += Content.BulldozeCostPerCell; continue; }
             if (BuildingAt[i] != 0) doomed.Add(BuildingAt[i] - 1);
             if (Path[i] != 0 || PowerLine[i] != 0) cost += Content.BulldozeCostPerCell;
         }
@@ -364,7 +366,7 @@ public sealed partial class World
         for (int x = x0; x <= x1; x++)
         {
             int i = Idx(x, y);
-            if (a.Underground) { WaterPipe[i] = 0; continue; }
+            if (a.Underground) { WaterPipe[i] = 0; Subway[i] = 0; continue; }
             Path[i] = 0;
             PathSurface[i] = 0;
             PathDeck[i] = 0;
@@ -517,6 +519,11 @@ public sealed partial class World
                 if (BuildingAt[i] != 0 || PowerLine[i] != 0) continue; // buildings conduct by themselves
                 cost += PowerLineCost;
             }
+            else if (a.Kind == UtilityKind.Subway)
+            {
+                if (Subway[i] != 0) continue;
+                cost += SubwayCost;
+            }
             else
             {
                 if (WaterPipe[i] != 0) continue;
@@ -528,7 +535,9 @@ public sealed partial class World
         foreach (var i in todo)
         {
             if (a.Kind == UtilityKind.PowerLine) PowerLine[i] = 1;
+            else if (a.Kind == UtilityKind.Subway) Subway[i] = 1;
             else WaterPipe[i] = 1;
+        if (a.Kind == UtilityKind.Subway) ForgetBusRoutes();
         }
     }
 }

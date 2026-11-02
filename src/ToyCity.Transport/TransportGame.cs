@@ -54,6 +54,7 @@ public sealed class TransportGame : ISideGame
         new(TransitMode.Bus, "bus", "buses", BusPrice, BusResale, WagePerBus, UpkeepPerBus, SeatsPerBus, BusesPerDepot, DriversPerBus, 12, 4, 2, 300, 150),
         new(TransitMode.Tram, "tram", "trams", 12_000, 5_000, 600, 300, 150, 8, 2, 25, 3, 3, 1_200, 500),
         new(TransitMode.Rail, "train", "trains", 12_000, 5_500, 900, 700, 400, 6, 3, 30, 3, 4, 3_000, 1_200),
+        new(TransitMode.Subway, "subway train", "subway trains", 16_000, 7_000, 900, 800, 600, 6, 2, 30, 3, 4, 3_000, 1_200),
     };
 
     /// <summary>Freight: trucks on the streets and freight trains on the rail lines.</summary>
@@ -83,8 +84,8 @@ public sealed class TransportGame : ISideGame
         _name = name;
         _paletteOffset = id == Id ? 0 : 4;
         Manifest = new(id, name, ContractInfo.Version,
-            new[] { "bus-stop", "bus-depot", "tram-stop", "tram-depot", "rail-station", "rail-depot", "freight-depot" },
-            "A transit company: bus, tram and train lines through leased stops, freight between leased depots, vehicles from leased depots, fares from the city's commuters.");
+            new[] { "bus-stop", "bus-depot", "tram-stop", "tram-depot", "rail-station", "rail-depot", "subway-station", "subway-depot", "freight-depot" },
+            "A transit company: bus, tram, train and subway lines through leased stops, freight between leased depots, vehicles from leased depots, fares from the city's commuters.");
     }
 
     public Manifest Manifest { get; }
@@ -288,7 +289,7 @@ public sealed class TransportGame : ISideGame
         foreach (var inc in input.Incidents)
         {
             if (inc.Kind is not ("fire" or "tornado" or "earthquake" or "robot" or "disaster") || inc.X < 0) continue;
-            foreach (var lot in _lots.Where(l => l.Kind is "bus-stop" or "tram-stop" or "rail-station"))
+            foreach (var lot in _lots.Where(l => l.Kind is "bus-stop" or "tram-stop" or "rail-station" or "subway-station"))
             {
                 if (Math.Max(Math.Abs(lot.X - inc.X), Math.Abs(lot.Y - inc.Y)) > 3) continue;
                 bool already = _closedUntil.TryGetValue(lot.LeaseId, out long until) && until > _tick;
@@ -493,7 +494,7 @@ public sealed class TransportGame : ISideGame
             line.Problem =
                 Depots(spec) == 0 ? $"No depot: lease a {DepotName(spec)} to keep {spec.Plural}." :
                 !Runnable(line) ? (line.Freight ? "A freight line needs two depots, or one and the run out to the edge." : "A line needs at least two stops.") :
-                line.RoundTrip == 0 ? (line.Mode == TransitMode.Bus ? $"No street route joins its {(line.Freight ? "depots" : "stops")}{(line.ToEdge ? " and the edge" : "")}." : $"No {(line.Mode == TransitMode.Tram ? "tram track" : "rail line")} joins its {(line.Freight ? "depots" : "stops")}{(line.ToEdge ? " and the edge" : "")}.") :
+                line.RoundTrip == 0 ? (line.Mode == TransitMode.Bus ? $"No street route joins its {(line.Freight ? "depots" : "stops")}{(line.ToEdge ? " and the edge" : "")}." : $"No {(line.Mode == TransitMode.Tram ? "tram track" : line.Mode == TransitMode.Subway ? "subway tunnel" : "rail line")} joins its {(line.Freight ? "depots" : "stops")}{(line.ToEdge ? " and the edge" : "")}.") :
                 line.Buses == 0 ? $"No {spec.Plural} on it." :
                 line.Running == 0 ? $"Every {spec.Word} is in the workshop." :
                 stops.Count < StopsNeeded(line) ? (line.Stops.Any(Barred) ? "Its stops are in a district where another company holds exclusive rights." : "Too many of its stops are closed.") : "";
@@ -612,7 +613,7 @@ public sealed class TransportGame : ISideGame
         output.Status = running == 0 ? $"{_name}: nothing running" : $"{_name}: {running} line{(running == 1 ? "" : "s")}, {riders:N0} riders yesterday";
     }
 
-    static string DepotName(Spec s) => s.Freight ? "freight depot" : s.Mode switch { TransitMode.Tram => "tram depot", TransitMode.Rail => "rail yard", _ => "bus depot" };
+    static string DepotName(Spec s) => s.Freight ? "freight depot" : s.Mode switch { TransitMode.Tram => "tram depot", TransitMode.Rail => "rail yard", TransitMode.Subway => "subway yard", _ => "bus depot" };
 
     /// <summary>
     /// Freight's day. Each freight line can move a load each departure over the day. It picks up the goods ready at
@@ -850,7 +851,7 @@ public sealed class TransportGame : ISideGame
                 var stops = c.StopLeaseIds.ToList();
                 var existing = c.LineId == 0 ? null : _lines.FirstOrDefault(l => l.Id == c.LineId);
                 if (c.LineId != 0 && existing == null) return new CommandResult(false, "That line has been closed.");
-                if (!Enum.IsDefined((TransitMode)(int)c.Mode)) return new CommandResult(false, "The company runs buses, trams and trains.");
+                if (!Enum.IsDefined((TransitMode)(int)c.Mode)) return new CommandResult(false, "The company runs buses, trams, trains and subway trains.");
                 var mode = existing?.Mode ?? (TransitMode)(int)c.Mode;
                 bool freight = existing?.Freight ?? c.Freight;
                 if (freight && FreightSpecOf(mode) == null) return new CommandResult(false, "Freight goes by truck or by train.");
@@ -865,7 +866,7 @@ public sealed class TransportGame : ISideGame
                 if (c.Through is < 0 or > 4) return new CommandResult(false, "A line runs on over the north, east, south or west border.");
                 if (c.Through > 0 && (freight || mode != TransitMode.Bus)) return new CommandResult(false, "Only bus lines run on into a neighbouring city.");
                 if (c.Through > 0 && _crossings.All(x => x.Side != c.Through - 1)) return new CommandResult(false, "No road crosses that border into a neighbouring city yet.");
-                var line = existing ?? NewLine(c.Name.Length > 0 ? c.Name : $"{(freight ? "Freight" : mode == TransitMode.Bus ? "Route" : mode == TransitMode.Tram ? "Tram" : "Rail")} {_nextLineId}", mode, stops);
+                var line = existing ?? NewLine(c.Name.Length > 0 ? c.Name : $"{(freight ? "Freight" : mode == TransitMode.Bus ? "Route" : mode == TransitMode.Tram ? "Tram" : mode == TransitMode.Subway ? "Metro" : "Rail")} {_nextLineId}", mode, stops);
                 line.Freight = freight;
                 line.ToEdge = toEdge;
                 line.Through = c.Through;
@@ -874,7 +875,7 @@ public sealed class TransportGame : ISideGame
                 line.FareCents = c.FareCents;
                 Route(line, city);
                 if (line.RoundTrip == 0)
-                    return new CommandResult(true, $"Saved the {line.Name} line, but no {(mode == TransitMode.Bus ? "street route" : mode == TransitMode.Tram ? "tram track" : "rail line")} joins all its stops{(toEdge ? " and the edge" : "")}.");
+                    return new CommandResult(true, $"Saved the {line.Name} line, but no {(mode == TransitMode.Bus ? "street route" : mode == TransitMode.Tram ? "tram track" : mode == TransitMode.Subway ? "subway tunnel" : "rail line")} joins all its stops{(toEdge ? " and the edge" : "")}.");
                 Log(c.LineId == 0 ? $"Opened the {line.Name} line." : $"Changed the {line.Name} line.");
                 return new CommandResult(true, "");
             }

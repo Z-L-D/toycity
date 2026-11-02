@@ -391,7 +391,7 @@ public sealed partial class PanelModel
         _ => new()
         {
             Mode = LeaseMode.LeaseBusiness, TaxTenths = 100, NoticeMonths = 3,
-            RentPerMonth = kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "tram-stop" => 60, "rail-station" => 150, "freight-depot" => 400, _ => 40 },
+            RentPerMonth = kind switch { "bus-depot" => 300, "tram-depot" => 500, "rail-depot" => 1_200, "subway-depot" => 1_500, "tram-stop" => 60, "rail-station" => 150, "subway-station" => 250, "freight-depot" => 400, _ => 40 },
         },
     };
 
