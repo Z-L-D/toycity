@@ -47,7 +47,30 @@ Subways (5.3) come in the next PR.
 
 ## Results
 
-To be filled in from the PR's CI run.
+CI run 41455572007 on the PR's head was green on every job.
+
+- Tests: 245 in the sim (3 new) and the client model's (1 new), all passing; the region gate and the Godot gate
+  (Alpha 3 loop and road weather on the benchmark city, now with its sewage plants) as before.
+- The Godot hill run:
+
+  ```
+  HILLS ok  sewage plant beside the pipes: at 91,19
+  HILLS ok  sewers to the plant: Water mains blue, sewers brown beside them, road tunnels grey. No sewage yet.
+  HILLS ok  underground view: 119 lengths of water main and 119 of sewer, 15 of road tunnel, 2 pumps and plants; buildings hidden
+  ```
+
+  The hill town is newly founded, so it makes no sewage yet when the plant opens; the client model's test runs it
+  two months on and sees it all treated.
+- Frame times on the CI runner's software OpenGL, the same as the hill run's other views:
+
+  | View | Avg ms | Triangles | Draw calls |
+  | --- | --- | --- | --- |
+  | classic, the town on its hillside | 133.2 | 71,303 | 173 |
+  | classic, underground | 133.7 | 43,283 | 164 |
+  | free, the tunnel and pipes underground | 133.3 | 65,077 | 193 |
+
+- Screenshots: [`docs/screenshots/beta3-2-underground`](screenshots/beta3-2-underground), the Godot ones cut from
+  the hill run's contact sheet and the web ones taken with Playwright on the same town.
 
 ## What's next
 

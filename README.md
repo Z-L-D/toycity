@@ -33,6 +33,8 @@ Part 4, underground ([`docs/screenshots/beta3-2-underground`](docs/screenshots/b
 
 | | |
 | --- | --- |
+| ![Godot underground view, classic camera](docs/screenshots/beta3-2-underground/godot-underground-classic.jpg) | ![Godot underground view of the tunnel](docs/screenshots/beta3-2-underground/godot-underground-tunnel.jpg) |
+| Godot (CI hill run): the ground a cutaway of soil, streets faint overhead, each pipe's water main and sewer beneath | Free camera over the hill: the road tunnel under it at its deck, the town's mains beyond |
 | ![The underground view of the hill town](docs/screenshots/beta3-2-underground/web-underground.jpg) | ![A tunnel in the underground view](docs/screenshots/beta3-2-underground/web-underground-tunnel.jpg) |
 | Web client, underground view: each pipe's water main (blue) and sewer (brown), the pump and the new sewage plant beside them, the streets overhead faint | The road tunnel under the hill, solid down here |
 | ![A tunnel from above, one dashed outline](docs/screenshots/beta3-2-underground/web-tunnel-above.jpg) | |
