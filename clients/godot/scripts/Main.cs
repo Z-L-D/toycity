@@ -48,6 +48,7 @@ public partial class Main : Node
     string _cityShown = "";
     string? _user;  // --user, the name signed in with
     string? _shots, _bench;
+    bool _regionShot;
     bool _frozen;  // the bench city is drawn from a fixed state; the server's deltas would undo it
     double _smokeTime;
 
@@ -383,11 +384,22 @@ public partial class Main : Node
         }
         // One view per few frames: set it, let it draw, save it.
         if (_wait-- > 0) return;
+        if (_regionShot)
+        {
+            // Last of all, the region map, with the land west of this city picked.
+            GetViewport().GetTexture().GetImage().SavePng($"{_shots}/view-{_shot + 1}-region.png");
+            GetTree().Quit(0);
+            return;
+        }
         if (_shot == ShotViews.Length && _graphicsPanel!.Visible)
         {
-            // Last, the graphics options over the free camera's view.
+            // Then the graphics options over the free camera's view.
             GetViewport().GetTexture().GetImage().SavePng($"{_shots}/view-{_shot}-graphics.png");
-            GetTree().Quit(0);
+            _graphicsPanel.Visible = false;
+            _panels!.Model.Click("rg-open");
+            if (_panels.Model.Region.State is { } rs) _panels.Model.Click($"rg-pick:{Math.Max(0, rs.HereCol - 1)}:{rs.HereRow}");
+            _regionShot = true;
+            _wait = 20;
             return;
         }
         if (_shot > 0)

@@ -5,7 +5,10 @@ simulation runs as a headless, authoritative server; front ends only draw it and
 Later phases link side games (transport, emergency services, hospital, zoo, theme park, farm,
 life sim) to lots in the city for live joined play.
 
-This repository is at **Beta 3.2, part 6: light and shadow.** The sun follows the day clock along its path for the
+This repository is at **Beta 3.2, part 7: growing regions**, the last part of Beta 3.2. A region can start as one
+tile and grow: add land on any side of it, and the new tile's ground, rivers and rock are made then, carrying on from
+the tiles beside it, so hills, coasts and rivers run on across the seam. Each new tile joins as open land that you or
+any other player can found a city on; a mayor can add the land beside their own city. **Part 6: light and shadow** made the sun follow the day clock along its path for the
 month, from dawn through golden hour to night, and rain and snow grey the day and thicken the haze. At night the
 windows light up by how many people are inside, the streets get pools of lamplight and the buses show their lights.
 Contact shadows and bounce light come with the better graphics presets, the view tilt-shifts while you query a cell,
@@ -34,6 +37,15 @@ to play; the web client stays as the debug and admin client.
 From the Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release adds a
 new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
+
+Part 7, growing regions ([`docs/screenshots/beta3-2-regions`](docs/screenshots/beta3-2-regions)):
+
+| | |
+| --- | --- |
+| ![Web client, a growing region of one tile](docs/screenshots/beta3-2-regions/web-region-one-tile.jpg) | ![Web client, the region grown to six tiles](docs/screenshots/beta3-2-regions/web-region-grown.jpg) |
+| Web client: a growing region starts as one tile, with wild land around it to add | Grown to six tiles with a second city; each new tile carries on the coast and hills of its neighbours |
+| ![Godot, the grown region's map](docs/screenshots/beta3-2-regions/godot-region-grown.jpg) | ![The ground of five tiles, made one at a time](docs/screenshots/beta3-2-regions/ground-five-tiles.jpg) |
+| Godot: the same region's map, with the land beside it ready to add | The gate's five tiles from above, each made when it was added: the seams (faint lines) meet exactly, and rivers run on across them |
 
 Part 6, light and shadow ([`docs/screenshots/beta3-2-light`](docs/screenshots/beta3-2-light)):
 
@@ -107,7 +119,7 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 2 | Multiplayer, consent, de-linking, emergency services alpha, transport beta | Done |
 | Beta 3 | Regions, cross-border play, federated hosting, emergency services beta | Done |
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
-| Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); light and shadow through the day and night (done); growing regions | In progress |
+| Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); light and shadow through the day and night (done); growing regions (done) | Done |
 | Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | Next |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
@@ -118,6 +130,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-02 | **Beta 3.2, part 7: growing regions** (PR #19) | A region that starts as one tile and adds land on any side, each new tile's ground, rivers and rock made then to carry on from its neighbours; new land is open for any player to found a city on; both clients' region maps show the wild land around the region to add. [Gate](docs/GATE-BETA3-2-REGIONS.md) |
 | 2026-11-02 | **Beta 3.2, part 6: light and shadow** (PR #18) | The sun follows the day clock and the month, golden hour and night, haze and grey skies by the weather, lit windows, street lights and bus lights at night, sky reflections on the water, contact shadows and bounce light by preset, tilt-shift while querying, a time-of-day pin, and day and night on the web map. [Gate](docs/GATE-BETA3-2-LIGHT.md) |
 | 2026-11-02 | **Beta 3.2, part 5: subways** (PR #17) | Subway tunnels laid under anything at $150 a cell, subway stations over or beside them, a subway yard, Metro lines run by the bus company, subways drawn red in both clients' underground views. [Gate](docs/GATE-BETA3-2-SUBWAYS.md) |
 | 2026-11-02 | **Beta 3.2, part 4: underground** (PR #16) | One pipe tool lays a water main and a sewer together, sewage treatment plants, raw sewage past a small town's septic tanks fouls the water and lowers desirability, an underground view in both clients with mains, sewers and tunnels under a cutaway ground, tunnels outlined once from above. [Gate](docs/GATE-BETA3-2-UNDERGROUND.md) |
