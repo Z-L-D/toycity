@@ -92,8 +92,8 @@ public sealed class GateRun
         : "no road weather";
 
     /// <summary>
-    /// Weather on the roads (Beta 3.2, part 4), after the loop: the sky pinned to a blizzard until the streets are
-    /// snowed in while the crews keep the highways clear, then to freezing rain, then let go.
+    /// Weather on the roads (Beta 3.2, part 4), after the loop: the sky pinned to a blizzard until the roads are
+    /// snowed in, the crews' budget raised from the Budget panel, then freezing rain, then storms, then let go.
     /// </summary>
     public IEnumerable<GateWait> Weather()
     {
@@ -105,8 +105,9 @@ public sealed class GateRun
         Speed(3);
         Pin(WeatherKind.WeatherSnow, 3);
         yield return Wait("a blizzard over the city", () => City.Stats.Weather.Contains("Blizzard"), 60);
-        yield return Wait("the streets snowed in", () => Cover(2) >= 50, 300);
-        Check("snow on the roads", Cover(2) >= 50 && Cover(0) < Cover(2), Roads());
+        // The benchmark city is built of roads alone, one tier: the snow beats the crews on it all the same.
+        yield return Wait("the roads snowed in", () => Enumerable.Range(0, 3).Max(Cover) >= 50, 300);
+        Check("snow on the roads", Enumerable.Range(0, 3).Max(Cover) >= 50, Roads());
         // The crews on double budget, from the budget panel.
         _panel.Open("budget");
         _panel.Click("crews:200");
@@ -115,13 +116,13 @@ public sealed class GateRun
 
         Phase = "ice";
         Pin(WeatherKind.WeatherIce, 2);
-        yield return Wait("freezing rain", () => City.Stats.Roads is { } r && r.Ice.Count == 3 && r.Ice.Any(i => i), 300);
+        yield return Wait("freezing rain", () => City.Stats.Roads is { WeatherKind: "ice" } r && r.Ice.Count == 3 && r.Ice.Any(i => i), 300);
         Check("ice on the roads", City.Stats.Roads!.Ice.Any(i => i), Roads());
 
         Phase = "rain";
         Pin(WeatherKind.WeatherRain, 3);
-        yield return Wait("wet roads", () => City.Stats.Roads is { Wet: > 50 }, 300);
-        Check("rain on the roads", City.Stats.Roads!.Wet > 50, Roads());
+        yield return Wait("storms on wet roads", () => City.Stats.Roads is { WeatherKind: "rain", Falling: true, Wet: > 50 }, 300);
+        Check("rain on the roads", City.Stats.Roads is { WeatherKind: "rain", Wet: > 50 }, Roads());
 
         Phase = "clear";
         Pin(WeatherKind.WeatherClear, 0);
