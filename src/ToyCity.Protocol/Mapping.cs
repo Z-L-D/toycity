@@ -24,6 +24,7 @@ public static class Mapping
         P.Action.KindOneofCase.Terraform => new TerraformAction(Rect(a.Terraform.Area), (TerraformMode)(int)a.Terraform.Mode),
         P.Action.KindOneofCase.Tax => new SetTaxAction((Zone)(int)a.Tax.Zone, (Level)(int)a.Tax.Wealth, a.Tax.PercentTenths),
         P.Action.KindOneofCase.Funding => new SetFundingAction(a.Funding.BuildingId, a.Funding.Percent),
+        P.Action.KindOneofCase.RoadCrews => new SetRoadCrewsAction(a.RoadCrews.Percent),
         P.Action.KindOneofCase.Loan => new TakeLoanAction(a.Loan.Amount),
         P.Action.KindOneofCase.Utility => new PlaceUtilityAction(a.Utility.X0, a.Utility.Y0, a.Utility.X1, a.Utility.Y1, (UtilityKind)(int)a.Utility.Kind),
         P.Action.KindOneofCase.Ordinance => new SetOrdinanceAction(a.Ordinance.Id, a.Ordinance.Enact),
@@ -67,6 +68,7 @@ public static class Mapping
         TerraformAction x => new P.Action { Terraform = new P.Terraform { Area = Rect(x.Area), Mode = (P.TerraformMode)(int)x.Mode } },
         SetTaxAction x => new P.Action { Tax = new P.SetTax { Zone = (P.ZoneKind)(int)x.Zone, Wealth = (P.Wealth)(int)x.Wealth, PercentTenths = x.PercentTenths } },
         SetFundingAction x => new P.Action { Funding = new P.SetFunding { BuildingId = x.BuildingId, Percent = x.Percent } },
+        SetRoadCrewsAction x => new P.Action { RoadCrews = new P.SetRoadCrews { Percent = x.Percent } },
         TakeLoanAction x => new P.Action { Loan = new P.TakeLoan { Amount = x.Amount } },
         PlaceUtilityAction x => new P.Action { Utility = new P.PlaceUtility { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, Kind = (P.UtilityKind)(int)x.Kind } },
         SetOrdinanceAction x => new P.Action { Ordinance = new P.SetOrdinance { Id = x.Id, Enact = x.Enact } },
@@ -118,10 +120,10 @@ public static class Mapping
             {
                 Id = p.Id, Name = p.Name, Kind = "path", SpeedKmh = p.SpeedKmh, Cars = p.Cars, Bikes = p.Bikes,
                 Pedestrians = p.Pedestrians, OneWay = p.OneWay, Frontage = p.Frontage, CostPerCell = p.CostPerCell, Color = p.Color, WidthM = (int)Math.Round(p.WidthM),
-                Tram = p.Tram, Rail = p.Rail, MaxGradePct = p.MaxGradePct, Stairs = p.Stairs, Surfaces = { p.Surfaces },
+                Tram = p.Tram, Rail = p.Rail, MaxGradePct = p.MaxGradePct, Stairs = p.Stairs, Surfaces = { p.Surfaces }, WinterTier = p.WinterTier, Drained = p.Drained,
             });
         foreach (var s in c.Surfaces)
-            cat.Surfaces.Add(new P.SurfaceInfo { Id = s.Id, Name = s.Name, MaxGradePct = s.MaxGradePct, CostPct = s.CostPct, SpeedPct = s.SpeedPct, Color = s.Color });
+            cat.Surfaces.Add(new P.SurfaceInfo { Id = s.Id, Name = s.Name, MaxGradePct = s.MaxGradePct, CostPct = s.CostPct, SpeedPct = s.SpeedPct, Color = s.Color, RainPct = s.RainPct, StormPct = s.StormPct, SnowPct = s.SnowPct, IcePct = s.IcePct, Muddy = s.Muddy });
         foreach (var t in c.Types)
             cat.BuildingTypes.Add(new P.BuildingTypeInfo
             {
@@ -181,6 +183,12 @@ public static class Mapping
         s.ClockMinute = w.ClockMinute;
         s.Pace = w.Pace;
         s.ClockMinutesPerTick = w.ClockMinutesPerTick;
+        s.Roads = new P.RoadWeather
+        {
+            Falling = w.Falling, Wet = w.RoadWet / 10, Mud = w.RoadMud / 10, CrewsPct = w.RoadCrewFunding, Text = w.RoadWeatherText(),
+            StayHomePct = w.StayHomePct, WeatherKind = w.Weather == WeatherKind.Clear ? "" : w.Weather.ToString().ToLowerInvariant(),
+        };
+        for (int t = 0; t < World.Tiers; t++) { s.Roads.Cover.Add(w.RoadCover[t] / 10); s.Roads.Ice.Add(w.RoadIce[t]); s.Roads.Banked.Add(w.RoadBanked[t] / 10); }
         foreach (var d in w.Disasters)
             s.Disasters.Add(new P.Disaster { Id = d.Id, Kind = (P.DisasterKind)(int)d.Kind, X = d.X, Y = d.Y, DaysLeft = d.DaysLeft, Destroyed = d.Destroyed, Damaged = d.Damaged });
         foreach (var (label, amount) in w.LastBudget) s.Budget.Add(new P.BudgetLine { Label = label, Amount = amount });

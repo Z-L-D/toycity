@@ -123,6 +123,7 @@ public sealed partial class World
         Line("Commercial taxes", taxNumerators[1] / 1000);
         Line("Industrial taxes", taxNumerators[2] / 1000);
         Line("Path upkeep", -(long)Math.Round(pathCost));
+        Line("Road crews", -RoadCrewCost());
         Line("Power lines and pipes", -(lines + pipes) / 10);
         foreach (var (label, amount) in OrdinanceMoney) Line(label, amount);
         long dealIncome = 0;

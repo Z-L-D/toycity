@@ -44,13 +44,26 @@ public partial class RoadsView : Node3D
     readonly List<Color> _c = new();
     /// <summary>On a bridge, the deck's height for everything drawn on the cell; null on the ground.</summary>
     float? _deck;
+    /// <summary>The weather on the cell being drawn (Beta 3.2, part 4): mud, snow, ice and banks.</summary>
+    RoadCondition _cond;
+    /// <summary>The look of the roads' weather when the chunks were last summed; a change sums them again.</summary>
+    int _weatherKey = -1;
+    static readonly Color SnowWhite = new(0.92f, 0.93f, 0.95f), IceGlaze = new(0.70f, 0.76f, 0.82f), MudBrown = new(0.27f, 0.20f, 0.14f);
 
     public RoadsView(CityMirror city, CityView view) => (_city, _view) = (city, view);
 
     public override void _Process(double delta)
     {
-        if (!_city.Loaded || _city.RoadVersion == _builtFor) return;
+        if (!_city.Loaded) return;
+        // Wet roads shine and darken, all at once: the material, not the mesh.
+        float wet = (_city.Stats.Roads?.Wet ?? 0) / 100f;
+        _material.Roughness = Mathf.Lerp(0.92f, 0.28f, wet);
+        _material.AlbedoColor = new Color(1, 1, 1).Lerp(new Color(0.74f, 0.75f, 0.78f), wet);
+        _material.MetallicSpecular = Mathf.Lerp(0.5f, 0.9f, wet);
+        int weatherKey = WeatherKey();
+        if (_city.RoadVersion == _builtFor && weatherKey == _weatherKey) return;
         _builtFor = _city.RoadVersion;
+        _weatherKey = weatherKey;
         int cols = (_city.Width + Chunk - 1) / Chunk, rows = (_city.Height + Chunk - 1) / Chunk;
         if (cols != _cols || rows != _rows)
         {
@@ -80,12 +93,24 @@ public partial class RoadsView : Node3D
                 int i = _city.Idx(x, y);
                 Mix(_city.Paths[i]);
                 Mix(_city.PathSurfaces.Length > i ? _city.PathSurfaces[i] : 0UL);
+                if (_city.Paths[i] != 0) Mix((ulong)RoadConditions.At(_city, i).Key);
                 if (_city.Paths[i] != 0) Mix(RoadShape.UnderStrip(_city, i) ? 1UL : 2UL);
             }
         for (int y = cy * Chunk; y <= Math.Min(_city.Height, (cy + 1) * Chunk); y++)
             for (int x = cx * Chunk; x <= Math.Min(_city.Width, (cx + 1) * Chunk); x++)
                 Mix(_city.Corners[_city.CornerIdx(x, y)]);
         return h;
+    }
+
+    /// <summary>The roads' weather in steps coarse enough to redraw on (mud, snow and banks per tier, in quarters).</summary>
+    int WeatherKey()
+    {
+        var r = _city.Stats.Roads;
+        if (r == null) return 0;
+        int key = (r.Mud + 12) / 25;
+        for (int t = 0; t < r.Cover.Count; t++)
+            key = key * 131 + (r.Cover[t] + 12) / 25 * 7 + (r.Ice.Count > t && r.Ice[t] ? 1 : 0) + (r.Banked.Count > t ? (r.Banked[t] + 12) / 25 * 37 : 0);
+        return key;
     }
 
     void BuildChunk(int k)
@@ -107,12 +132,14 @@ public partial class RoadsView : Node3D
                 _deck = _city.IsRiver(i) ? (_city.PathDecks[i] > 0 ? _city.PathDecks[i] / 20f : _city.Rivers[i] + 1) * ClassicView.HeightStep : null;
                 var look = RoadLook.For(_city.ProfileAt(i), _city.SurfaceAt(i));
                 int arms = RoadLook.Arms(_city, i);
+                _cond = RoadConditions.At(_city, i);
                 // Beta 3.2: a footpath steeper than its surface holds a ramp is built as stairs.
                 if (_deck == null && RoadLook.IsStairs(_city, i, arms)) Stairs(x, y, look, arms);
                 else Cell(x, y, look, arms);
                 if (_deck == null) RetainingWalls(x, y, arms);
                 if (_deck is { } deck) Bridge(x, y, look, arms, deck);
                 _deck = null;
+                _cond = RoadCondition.Dry;
             }
         if (_v.Count == 0)
         {
@@ -156,6 +183,20 @@ public partial class RoadsView : Node3D
         {
             Track(centre, arms, hw * 0.55f, true);
             return;
+        }
+        // Ploughed snow, pushed into ridges along the carriageway's edges.
+        if (_cond.Banked > 0.1f && _cond.Snow < 0.6f)
+        {
+            float bank = Math.Min(hw * 0.35f, 0.03f + 0.06f * _cond.Banked);
+            var cond = _cond;
+            _cond = RoadCondition.Dry;
+            for (int a = 0; a < 4; a++)
+            {
+                if ((arms & 1 << a) == 0) continue;
+                Arm(centre, a, hw - bank, 0.5f, -hw, -hw + bank, LiftKerb + 0.004f, SnowWhite, true);
+                Arm(centre, a, hw - bank, 0.5f, hw - bank, hw, LiftKerb + 0.004f, SnowWhite, true);
+            }
+            _cond = cond;
         }
         if (!look.Painted && !(look.Paving == Paving.Brick && look.Sidewalks)) return;
 
@@ -505,6 +546,15 @@ public partial class RoadsView : Node3D
                     var m = (p00 + p11) / 2;
                     float k = Mathf.Sin(m.X * 7.1f + m.Z * 3.3f) * Mathf.Sin(m.Z * 5.7f - m.X * 2.1f);
                     col = colour.Lightened(0.035f * k).Darkened(0.02f);
+                    // Mud darkens a dirt surface in patches.
+                    if (_cond.Mud > 0) col = col.Lerp(MudBrown, _cond.Mud * (0.45f + 0.25f * k));
+                }
+                // Snow lies over everything, paint too, thinner in the wheel tracks; ice is a grey glaze.
+                if (_cond.Snow > 0)
+                {
+                    var m = (p00 + p11) / 2;
+                    float drift = 0.85f + 0.15f * Mathf.Sin(m.X * 11.3f + m.Z * 9.1f);
+                    col = col.Lerp(_cond.Ice ? IceGlaze : SnowWhite, Math.Min(1, _cond.Snow * (_cond.Ice ? 0.6f : 1.1f) * drift));
                 }
                 foreach (var p in new[] { p00, p10, p11, p00, p11, p01 })
                 {

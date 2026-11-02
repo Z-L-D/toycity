@@ -46,6 +46,13 @@ public sealed class PathProfile
     public bool Stairs { get; set; }
     /// <summary>The surfaces it may be built in, by id; the first is the default. Empty for none (rail).</summary>
     public List<string> Surfaces { get; set; } = new();
+    /// <summary>
+    /// Which road crews clear it first in snow and ice (Beta 3.2, part 4): 0 highways, 1 roads, 2 streets and paths;
+    /// -1 for a path weather doesn't touch (rail).
+    /// </summary>
+    public int WinterTier { get; set; } = 2;
+    /// <summary>Built with drains: it sheds rain and shallow floodwater while road crews are funded.</summary>
+    public bool Drained { get; set; }
 
     /// <summary>Free-flow travel time across one 16 m cell, in deciseconds of commute time.</summary>
     [JsonIgnore] public int CellTime { get; set; }
@@ -65,6 +72,16 @@ public sealed class SurfaceDef
     public int CostPct { get; set; } = 100;
     public int MaintenancePct { get; set; } = 100;
     public int SpeedPct { get; set; } = 100;
+    /// <summary>
+    /// Percent of its traffic it still carries (Beta 3.2, part 4): wet, in heavy rain or storms, under full snow and
+    /// under ice.
+    /// </summary>
+    public int RainPct { get; set; } = 95;
+    public int StormPct { get; set; } = 85;
+    public int SnowPct { get; set; } = 35;
+    public int IcePct { get; set; } = 10;
+    /// <summary>Turns to mud in rain and stays muddy for a while after.</summary>
+    public bool Muddy { get; set; }
     public string Color { get; set; } = "#888888";
 }
 

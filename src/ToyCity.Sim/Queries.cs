@@ -30,7 +30,8 @@ public sealed partial class World
             int level = Traffic[i];
             string load = level < 64 ? "light" : level < 128 ? "busy" : level < 192 ? "congested" : "gridlocked";
             string cross = CrossStreetAt(x, y) is { } c ? $", at the corner of {c}" : "";
-            return new WhyReport(x, y, StreetAt(x, y), $"A {p.Name.ToLowerInvariant()}{cross}. {Trips[i]} commuter trips a day: {load} ({level * 100 / 128}% of capacity).", reqs, factors);
+            string going = RoadWeatherWhy(i);
+            return new WhyReport(x, y, StreetAt(x, y), $"A {p.Name.ToLowerInvariant()}{cross}. {Trips[i]} commuter trips a day: {load} ({level * 100 / 128}% of capacity).{(going.Length > 0 ? " " + going : "")}", reqs, factors);
         }
 
         var b = BuildingAtCell(i);
@@ -167,6 +168,7 @@ public sealed partial class World
         f.Add(("Power", Powered[i] switch { 1 => "yes", 2 => "brownout", _ => "no" }));
         f.Add(("Water", Watered[i] switch { 1 => "yes", 2 => "shortage", _ => "no" }));
         if (Path[i] != 0) f.Add(("Traffic", $"{Trips[i]} trips/day, level {Traffic[i]}"));
+        if (Path[i] != 0 && RoadShare(i, out var cause) < 100) f.Add(("Weather on the road", $"{cause}: carries {RoadSharePct(i)}%"));
         f.Add(("Coverage P / F / H / E / Parks", string.Join(" / ", Coverage.Select(c => c[i] * 100 / 255 + "%"))));
         if (BuildingOrStopAt(i) is { } b)
         {

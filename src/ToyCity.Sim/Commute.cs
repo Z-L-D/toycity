@@ -264,18 +264,7 @@ public sealed partial class World
         AddBorderTraffic();
         if (Mod(ModKey.Traffic) != 0)
             for (int i = 0; i < N; i++) if (Trips[i] > 0) Trips[i] = Scaled(Trips[i], ModKey.Traffic);
-        for (int i = 0; i < N; i++)
-        {
-            var p = ProfileAt(i);
-            if (p == null) { Traffic[i] = 0; TravelCost[i] = 0; continue; }
-            // Commuters spread over two peak hours, so a path carries about twice its hourly capacity in a day.
-            int capacityPerDay = Math.Max(1, p.CapacityPerHour * 2);
-            int level = (int)Math.Min(255, (long)Trips[i] * 128 / capacityPerDay);
-            Traffic[i] = (byte)level;
-            // BPR congestion curve: time = free * (1 + 0.15 (v/c)^4), capped at 5x.
-            double vc = level / 128.0;
-            double factor = Math.Min(5.0, 1 + 0.15 * vc * vc * vc * vc);
-            TravelCost[i] = (int)(PathCellTime(i) * factor);
-        }
+        // Congestion and travel times, as today's weather on the roads lets them carry it.
+        RecostRoads();
     }
 }

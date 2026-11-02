@@ -555,6 +555,12 @@ public sealed partial class PanelModel
             ("Garbage", util(s.GarbageProduced, s.GarbageCapacity)),
             ("Jobs filled", $"{Num(s.Workers)} / {Num(s.Jobs)}"),
         }));
+        sb.Append(H4("Road crews"));
+        int crews = s.Roads?.CrewsPct ?? 100;
+        string crew(int by, string label) => crews + by is >= 0 and <= 200 ? Link($"crews:{crews + by}", label) : Dim(label);
+        sb.Append($"Budget  {crew(-50, "−50")} {crew(-10, "−10")}  [b]{crews}%[/b]  {crew(10, "+10")} {crew(50, "+50")}\n");
+        if (s.Roads is { Text.Length: > 0 } roads) sb.Append(Esc(roads.Text)).Append('\n');
+        sb.Append(Small(Dim("Crews plough snow and salt ice on the highways first, then roads, then streets, and keep the drains on the bigger roads clear. Less budget, and the streets wait."))).Append('\n');
         sb.Append(H4("Loans"));
         sb.Append(Link("loan:10000", "Borrow $10,000")).Append("   ").Append(Link("loan:50000", "Borrow $50,000")).Append('\n');
         sb.Append(Small(Dim("Loans are repaid over about 10 years with 6% yearly interest."))).Append('\n');
@@ -582,6 +588,9 @@ public sealed partial class PanelModel
                 _ => Col("#2878c8", "███") + Col("#28c0a0", "███") + Col("#28ff50", "███"),
             };
             sb.Append($"\n{Esc(o.LegendLow is { Length: > 0 } lo ? lo : "low")} {ramp} {Esc(o.LegendHigh is { Length: > 0 } hi ? hi : "high")}\n");
+            // Traffic in bad weather: the roads carry less, and the legend says why.
+            if (ActiveOverlay == 9 && RoadConditions.Legend(_city.Stats) is { Length: > 0 } going)
+                sb.Append(Col(Warn, Esc(going))).Append('\n');
         }
         sb.Append(H4("Commuters"));
         sb.Append(Link("agents", ShowAgents ? "Showing commuters (M)" : "Show commuters (M)")).Append('\n');

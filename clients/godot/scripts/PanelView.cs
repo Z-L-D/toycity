@@ -511,7 +511,7 @@ public partial class PanelView : CanvasLayer
         _name!.Text = s.CityName;
         string clock = _clock.Text(s, DateTime.UtcNow);
         _date!.Text = clock + (s.Weather.Length > 0 ? $" · {s.Weather}" : "");
-        _date.TooltipText = $"Day {s.Day} of {MonthNames[Math.Clamp(s.Month - 1, 0, 11)]}, {s.Year}. The calendar runs at {GameClock.PaceName(s.Pace == 0 ? 30 : s.Pace).ToLowerInvariant()} of the clock.";
+        _date.TooltipText = $"Day {s.Day} of {MonthNames[Math.Clamp(s.Month - 1, 0, 11)]}, {s.Year}. The calendar runs at {GameClock.PaceName(s.Pace == 0 ? 30 : s.Pace).ToLowerInvariant()} of the clock." + (s.Roads is { Text.Length: > 0 } r ? $"\n{r.Text}. Road crews on {r.CrewsPct}% of their budget." : "");
         int paceAt = Array.IndexOf(GameClock.Paces, s.Pace == 0 ? 30 : s.Pace);
         if (paceAt >= 0 && _pace!.Selected != paceAt) _pace.Select(paceAt);
         _funds!.Text = Bb.Money(s.Funds);

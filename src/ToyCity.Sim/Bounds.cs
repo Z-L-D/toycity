@@ -42,6 +42,7 @@ public sealed partial class World
             PlaceUtilityAction u => !Cell(u.X0, u.Y0) || !Cell(u.X1, u.Y1) ? offMap : !Def(u.Kind) ? "Unknown utility." : null,
             TriggerDisasterAction d => !InBounds(d.X, d.Y) ? offMap : !Def(d.Kind) ? "Unknown disaster." : null,
             SetDisasterSettingAction d => !Def(d.Setting) ? "Unknown setting." : null,
+            SetRoadCrewsAction c => c.Percent is < 0 or > 200 ? "Road crews' budget runs from 0% to 200%." : null,
             SetPaceAction p => !IsPace(p.DaysPerClockDay) ? "That isn't one of the calendar's paces." : null,
             RespondPromptAction => null,
             SetOrdinanceAction o => !Text(o.Id) ? "Unknown ordinance." : null,

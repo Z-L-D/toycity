@@ -1,5 +1,6 @@
 import { City, lCells, SIDE_DX, SIDE_DY, stripPoints } from './state';
 import type { Building, BuildingType } from './state';
+import type { Msg } from './net';
 
 export interface Preview {
   kind: 'line' | 'rect' | 'footprint' | 'cell' | 'cells';
@@ -423,6 +424,7 @@ export class Renderer {
     } else {
       this.drawZones(x0, y0, x1, y1, px, py);
       this.drawPaths(x0, y0, x1, y1, px, py);
+      this.drawRoadWeather(x0, y0, x1, y1, px, py);
       this.drawBuildings(x0, y0, x1, y1, px, py);
       this.drawFlood(x0, y0, x1, y1, px, py);
       this.drawPowerLines(x0, y0, x1, y1, px, py);
@@ -962,6 +964,54 @@ export class Renderer {
         }
       }
     this.drawStrips(px, py);
+  }
+
+  /**
+   * Beta 3.2, part 4: weather on the roads, over what drawPaths drew. Wet roads take a dark sheen, mud browns dirt,
+   * snow lies on the tiers the crews haven't cleared (ice as a grey glaze), and ploughed snow lines the kerbs.
+   */
+  private drawRoadWeather(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {
+    const c = this.city;
+    const r = c.stats.roads as Msg | undefined;
+    if (!r) return;
+    const wet = (r.wet ?? 0) / 100, mud = (r.mud ?? 0) / 100;
+    const cover: number[] = r.cover ?? [], ice: boolean[] = r.ice ?? [], banked: number[] = r.banked ?? [];
+    if (wet === 0 && mud === 0 && !cover.some((v) => v > 0) && !banked.some((v) => v > 0)) return;
+    const ctx = this.ctx;
+    const s = this.scale;
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const i = y * c.width + x;
+        const p = c.profileAt(i);
+        if (!p || p.rail || (p.winterTier ?? 2) < 0 || c.underStrip.has(i) || c.isTunnel(i)) continue;
+        const t = Math.min(2, Math.max(0, p.winterTier ?? 2));
+        const surf = c.pathSurfaces[i] ? c.surfaces[c.pathSurfaces[i] - 1] : undefined;
+        const w = Math.max(s * 0.3, Math.min(s, (p.widthM / 16) * s));
+        const cx = px(x) + s / 2, cy = py(y) + s / 2;
+        const joins = (j: number) => !!c.paths[j] && !c.underStrip.has(j) && !(c.profileAt(j)?.rail ?? false);
+        const east = x + 1 < c.width && joins(i + 1), south = y + 1 < c.height && joins(i + c.width);
+        const west = x > 0 && joins(i - 1), north = y > 0 && joins(i - c.width);
+        const band = (width: number, colour: string) => {
+          const h2 = width / 2;
+          ctx.fillStyle = colour;
+          ctx.fillRect(cx - h2, cy - h2, width, width);
+          if (east) ctx.fillRect(cx, cy - h2, s / 2, width);
+          if (south) ctx.fillRect(cx - h2, cy, width, s / 2);
+          if (west) ctx.fillRect(px(x), cy - h2, s / 2, width);
+          if (north) ctx.fillRect(cx - h2, py(y), width, s / 2);
+        };
+        const snow = (cover[t] ?? 0) / 100;
+        if (wet > 0) band(w, `rgba(16,22,40,${(0.22 * wet).toFixed(3)})`);
+        if (mud > 0 && surf?.muddy) band(w, `rgba(62,42,24,${(0.55 * mud).toFixed(3)})`);
+        if (snow > 0) band(w, ice[t] ? `rgba(186,200,216,${(0.65 * snow).toFixed(3)})` : `rgba(240,244,250,${Math.min(0.95, snow).toFixed(3)})`);
+        else if ((banked[t] ?? 0) > 10 && s >= 6) {
+          // Ploughed: snow pushed into ridges along both edges.
+          const b = Math.max(1, s / 14);
+          ctx.fillStyle = 'rgba(240,244,250,0.9)';
+          if (east || west) { ctx.fillRect(west ? px(x) : cx - w / 2, cy - w / 2, (east ? px(x) + s : cx + w / 2) - (west ? px(x) : cx - w / 2), b); ctx.fillRect(west ? px(x) : cx - w / 2, cy + w / 2 - b, (east ? px(x) + s : cx + w / 2) - (west ? px(x) : cx - w / 2), b); }
+          if (north || south) { ctx.fillRect(cx - w / 2, north ? py(y) : cy - w / 2, b, (south ? py(y) + s : cy + w / 2) - (north ? py(y) : cy - w / 2)); ctx.fillRect(cx + w / 2 - b, north ? py(y) : cy - w / 2, b, (south ? py(y) + s : cy + w / 2) - (north ? py(y) : cy - w / 2)); }
+        }
+      }
   }
 
   /** Arcs and diagonals as the line the player drew, over the cells the sim runs them on. */

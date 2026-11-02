@@ -66,16 +66,18 @@ public sealed partial class World
             raised++;
         }
         // Crashes: on the busiest road cells, a small chance each.
-        for (int k = 0; k < 2 && raised < MaxCallsPerDay; k++)
+        for (int k = 0; k < (_roadsUsual ? 2 : 4) && raised < MaxCallsPerDay; k++)
         {
             int i = (int)(Hash((int)Tick, k, 0x696e, 3) % (ulong)N);
             // Walk to the nearest busy road along the row: cheap and deterministic.
             for (int step = 0; step < 64; step++, i = (i + 1) % N)
             {
                 if (Path[i] == 0 || Traffic[i] < 96) continue;
-                if ((int)(Hash((int)Tick, i, 0x696e, 4) % 100) < 15)
+                // Wet roads bring a few more crashes, snow and ice many more.
+                int crash = _roadsUsual ? 100 : CrashPct(i);
+                if ((int)(Hash((int)Tick, i, 0x696e, 4) % 100) < 15 * crash / 100)
                 {
-                    RaiseIncident("injury", i % Width, i / Width, "city", "a crash", Traffic[i] > 160 ? 2 : 1, "");
+                    RaiseIncident("injury", i % Width, i / Width, "city", crash > 100 ? CrashText(i) : "a crash", Traffic[i] > 160 || crash >= 250 ? 2 : 1, "");
                     raised++;
                 }
                 break;

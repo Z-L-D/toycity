@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 11;
+    public const int FormatVersion = 12;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -321,6 +321,8 @@ public sealed partial class World
         }
         RunCommutes();
         RunFloods();
+        // Showers, mud, snow and ice on the roads, and the crews clearing them, by the day clock.
+        RunRoadWeather();
         UpdateStats();
         // The city's own calls come on the day clock too, so a dispatcher hears them at one rate an hour whatever the
         // calendar's pace.
@@ -449,6 +451,7 @@ public sealed partial class World
             WriteU16(w, Bedrock);
             w.Write(Rock);
             WriteClock(w);
+            WriteRoadWeather(w);
         }
         return ms.ToArray();
     }
@@ -567,6 +570,8 @@ public sealed partial class World
             w.SetClock(ClockStartMinute + w.Tick * (MinutesPerClockDay / OldSavePace), OldSavePace);
             w.RememberFromThisTurn();
         }
+        // Format 12 added weather on the roads; an older city starts with dry roads and its crews at full budget.
+        if (version >= 12) w.ReadRoadWeather(r);
         w.RebuildAccess();
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.

@@ -53,7 +53,7 @@ public sealed partial class World
     Portfolio PortfolioFor(SimAction a) => a switch
     {
         PlacePathAction or PaintZoneAction or ZoneBlockAction or BulldozeAction or TerraformAction or PlaceUtilityAction => Portfolio.Planning,
-        SetTaxAction or SetFundingAction or TakeLoanAction => Portfolio.Budget,
+        SetTaxAction or SetFundingAction or SetRoadCrewsAction or TakeLoanAction => Portfolio.Budget,
         PlaceBuildingAction p => Content.TypeIndex(p.TypeId) is >= 0 and var t && IsTransitLot(Content.Types[t].LotKind) ? Portfolio.Transit : Portfolio.Services,
         UpgradeBuildingAction u => u.BuildingId >= 0 && u.BuildingId < Buildings.Count && Buildings[u.BuildingId] is { } b && IsTransitLot(LotKindOf(b)) ? Portfolio.Transit : Portfolio.Services,
         LeaseLotAction l => l.BuildingId >= 0 && l.BuildingId < Buildings.Count && Buildings[l.BuildingId] is { } lb && !IsTransitLot(LotKindOf(lb)) ? Portfolio.Services : Portfolio.Transit,
