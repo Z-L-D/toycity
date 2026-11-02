@@ -496,6 +496,11 @@ body.dispatch #em-panel { display: flex; flex-direction: column; min-height: 0; 
 .rg-tile { position: relative; padding: 0; border: 2px solid transparent; background: none; cursor: pointer; aspect-ratio: 1; }
 .rg-tile canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
 .rg-tile.open canvas { filter: saturate(0.6) brightness(0.8); }
+.rg-tile.wild { background: #0c1018; border: 2px dashed #ffffff18; }
+.rg-tile.wild.can { border-color: #4a7fe088; background: #121a28; }
+.rg-tile.wild.can:hover { border-color: #4a7fe0; }
+.rg-tile.wild.picked { border-color: #f0c030; }
+.rg-plus { font-size: 2.4em; color: #4a7fe0; }
 .rg-tile.here { border-color: #4a7fe0; }
 .rg-tile.picked { border-color: #f0c030; }
 .rg-tile:hover { border-color: #ffffff88; }

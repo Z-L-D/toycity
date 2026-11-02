@@ -107,6 +107,22 @@ public sealed partial class RegionHost : IDisposable
     }
 
     /// <summary>
+    /// Why this player can't add that tile to the region, or null (G4): an admin may add any, a mayor one beside their
+    /// own city, and the mayor of every city here one anywhere beside the region.
+    /// </summary>
+    string? CantGrow(Client c, int col, int row)
+    {
+        if (_region.CantGrow(col, row) is { } why) return why;
+        if (c.Admin) return null;
+        var t = _region.TileAt(col, row)!;
+        for (int side = 0; side < 4; side++)
+            if (_region.Across(t, side)?.City is { } n && n.MayorSeat.Owner == c.Player) return null;
+        var mayors = _region.Tiles.Where(x => x.City != null).Select(x => x.Mayor).Distinct().ToList();
+        if (mayors.Count == 1 && mayors[0] == c.Player) return null;
+        return "Only a mayor of a city beside it, or this server's admins, can add that tile.";
+    }
+
+    /// <summary>
     /// A player sets the calendar's pace for the region: an admin, or the mayor when every city here is theirs (a
     /// region shares one calendar, so one mayor can't speed it up for the others). Returns why not, or null.
     /// </summary>
@@ -575,9 +591,11 @@ public sealed partial class RegionHost : IDisposable
                 int cols = Math.Clamp(n.Cols, 1, Region.MaxSide), rows = Math.Clamp(n.Rows, 1, Region.MaxSide);
                 int size = n.TileSize is 64 or 128 or 256 ? n.TileSize : 128;
                 ulong seed = n.Seed != 0 ? n.Seed : (ulong)Random.Shared.NextInt64(1, long.MaxValue);
-                var r = Region.Create(_content, string.IsNullOrWhiteSpace(n.Name) ? "New Region" : n.Name.Trim(), seed, cols, rows, size);
+                string regionName = string.IsNullOrWhiteSpace(n.Name) ? "New Region" : n.Name.Trim();
+                // A growing region (G4) starts as one tile in the middle of its frame.
+                var r = n.Grows ? Region.CreateGrowing(_content, regionName, seed, size) : Region.Create(_content, regionName, seed, cols, rows, size);
                 // Someone has to be somewhere: the middle tile always has a city, a starter town if asked for.
-                r.Found(cols / 2, rows / 2, string.IsNullOrWhiteSpace(n.CityName) ? "New City" : n.CityName.Trim()[..Math.Min(40, n.CityName.Trim().Length)], c.Player, n.StarterTown);
+                r.Found(n.Grows ? Region.GrowStart : cols / 2, n.Grows ? Region.GrowStart : rows / 2, string.IsNullOrWhiteSpace(n.CityName) ? "New City" : n.CityName.Trim()[..Math.Min(40, n.CityName.Trim().Length)], c.Player, n.StarterTown);
                 broadcast = WithAll(() => { _pace = World.IsPace(_host.Pace) ? _host.Pace : 360; return Replace(r, c.Player); });
                 break;
             }
@@ -603,6 +621,20 @@ public sealed partial class RegionHost : IDisposable
                     OpenCities();
                     string by = computer is { } st ? $"{World.ComputerName(st, _region.TileAt(f.Col, f.Row)!.Seed)}, a {World.Temperament(st)} computer mayor," : c.Player;
                     var list = Cities.SelectMany(city => city.Notice($"{by} founded {name} in the region.", "info")).ToList();
+                    list.AddRange(RegionIfChanged(force: true));
+                    return list;
+                });
+                break;
+            }
+            case P.ClientMessage.BodyOneofCase.Grow:
+            {
+                var g = msg.Grow;
+                broadcast = WithAll(() =>
+                {
+                    if (CantGrow(c, g.Col, g.Row) is { } why) { reply = SimHost.Error(msg.Seq, why); return null; }
+                    _region.Grow(g.Col, g.Row);
+                    _pictures.Clear();
+                    var list = Cities.SelectMany(city => city.Notice($"{c.Player} added a tile of open land to {_region.Name}. Anyone can found a city on it.", "info")).ToList();
                     list.AddRange(RegionIfChanged(force: true));
                     return list;
                 });

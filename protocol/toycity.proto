@@ -36,7 +36,16 @@ message ClientMessage {
     MayorRequest mayor = 22;
     SetPace pace = 23;
     PinWeather pin_weather = 24;
+    GrowRegion grow = 25;
   }
+}
+
+// Adds a wild tile to a growing region (Beta 3.2, G4), on a side of a tile already in it. Its ground, rivers and rock
+// are made now, carrying on from its neighbours', and it joins as open land anyone may found a city on. An admin may
+// add any; a mayor, one beside their own city.
+message GrowRegion {
+  int32 col = 1;
+  int32 row = 2;
 }
 
 // Pins the sky over the whole region (Beta 3.2, part 4): an admin's, or the sole mayor's, weather control, for showing
@@ -527,6 +536,7 @@ message NewRegionRequest {
   int32 tile_size = 5;  // 64, 128 or 256
   bool starter_town = 6;
   string city_name = 7;  // the middle tile's city
+  bool grows = 8;        // G4: start as one tile, in the middle of an 8 x 8 frame of wild land, and grow (cols and rows are ignored)
 }
 
 // Moves this connection to another founded city of the region. The server answers with that city's FullState and
@@ -559,6 +569,7 @@ message RegionState {
   int32 ledger_months = 15;  // months in a row this host has checked every border ledger in the region and found it balanced
   int32 cross_border = 16;   // people and tons of goods crossing borders in the region each day this month, from the ledgers
   int32 pace = 17;           // Beta 3.2: the region's calendar pace, calendar days per day of the day clock
+  bool grows = 18;           // G4: the region grows a tile at a time; wild tiles aren't part of it yet
 }
 
 // Go to another host for that city (federated regions): address is its /ws URL.
@@ -701,6 +712,7 @@ message RegionTileState {
   string address = 10;  // where this tile's city is served, when not by the server this came from (federated)
   string computer = 11; // a computer mayor's temperament ("growth-hungry", "green", "careful"); empty for a player
   string weather = 12;  // today's weather over it, as in CityStats.weather
+  bool wild = 13;       // G4: land a growing region hasn't added yet (no picture); one beside the region can be added
 }
 
 message SetSpeed {
@@ -1560,6 +1572,19 @@ message RegionSave {
   int64 tick = 7;
   repeated RegionSavedCity cities = 8;
   repeated Deal offers = 9;  // deals offered and not yet answered; running ones are in the cities
+  bool grows = 10;           // G4: a growing region; its tiles' ground is in grown, since it can't be made again from the seed
+  repeated RegionGrownTile grown = 11;
+}
+
+// One tile a growing region has added, with the ground made for it then.
+message RegionGrownTile {
+  int32 col = 1;
+  int32 row = 2;
+  bytes corners = 3;            // (tile_size + 1)^2 corners, decimetres, uint16 little-endian
+  bytes rivers = 4;             // each cell's river surface in steps, 0 for none
+  repeated sint32 downstream = 5;  // each cell: the cell of the tile its river flows on into, -1 for none
+  bytes bedrock = 6;            // like corners: the top of the rock
+  bytes rock = 7;               // each cell's kind of rock
 }
 
 message RegionSavedCity {

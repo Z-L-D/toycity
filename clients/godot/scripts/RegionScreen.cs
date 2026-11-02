@@ -98,7 +98,7 @@ public partial class RegionScreen : CanvasLayer
             _sideShown = _version();
             _title!.Text = "🗺 " + _model.Title();
             _side!.Text = _model.Render();
-            _name!.Visible = _model.PickedTile is { Founded: false };
+            _name!.Visible = _model.PickedTile is { Founded: false, Wild: false };
             foreach (var (b, c, r) in _tiles) b.ButtonPressed = _model.Picked == (c, r);
         }
     }
@@ -109,11 +109,31 @@ public partial class RegionScreen : CanvasLayer
         if (_model.State is not { } s) return;
         foreach (var n in _grid!.GetChildren()) n.QueueFree();
         _tiles.Clear();
-        _grid.Columns = s.Cols;
-        ((AspectRatioContainer)_grid.GetParent()).Ratio = s.Cols / (float)s.Rows;
+        // A growing region shows the tiles in it and a ring of wild land around them, where it can grow (G4).
+        var (c0, r0, c1, r1) = _model.Shown;
+        _grid.Columns = c1 - c0 + 1;
+        ((AspectRatioContainer)_grid.GetParent()).Ratio = (c1 - c0 + 1) / (float)(r1 - r0 + 1);
         int size = RegionModel.PictureSize;
-        foreach (var t in s.Tiles.OrderBy(t => t.Row).ThenBy(t => t.Col))
+        foreach (var t in s.Tiles.Where(t => t.Col >= c0 && t.Col <= c1 && t.Row >= r0 && t.Row <= r1).OrderBy(t => t.Row).ThenBy(t => t.Col))
         {
+            int c = t.Col, r = t.Row;
+            if (t.Wild)
+            {
+                bool can = _model.CanGrow(t);
+                var w = new Button
+                {
+                    ToggleMode = true, FocusMode = Control.FocusModeEnum.None, Text = can ? "＋" : "",
+                    SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+                    TooltipText = can ? "Wild land: add it to the region" : "Wild land",
+                };
+                w.AddThemeFontSizeOverride("font_size", 40);
+                w.AddThemeColorOverride("font_color", UiTheme.Accent);
+                w.AddThemeStyleboxOverride("normal", UiTheme.Box(new Color(0.06f, 0.08f, 0.11f), can ? UiTheme.Accent.Darkened(0.4f) : UiTheme.Line, 2, 0, 0));
+                w.Pressed += () => _model.Click($"rg-pick:{c}:{r}");
+                _grid.AddChild(w);
+                _tiles.Add((w, c, r));
+                continue;
+            }
             var img = Image.CreateFromData(size, size, false, Image.Format.Rgb8, t.Picture.ToByteArray());
             var b = new Button
             {
@@ -128,7 +148,6 @@ public partial class RegionScreen : CanvasLayer
             label.AddThemeConstantOverride("outline_size", 4);
             if (t.Col == s.HereCol && t.Row == s.HereRow) label.AddThemeColorOverride("font_color", UiTheme.Accent);
             b.AddChild(label);
-            int c = t.Col, r = t.Row;
             b.Pressed += () => _model.Click($"rg-pick:{c}:{r}");
             b.GuiInput += e =>
             {

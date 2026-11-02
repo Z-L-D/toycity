@@ -17,6 +17,18 @@ public static class RegionMapping
         {
             FormatVersion = RegionFormat, Name = r.Name, Seed = r.Seed, Cols = r.Cols, Rows = r.Rows, TileSize = r.TileSize, Tick = r.Tick,
         };
+        s.Grows = r.Grows;
+        foreach (var t in r.Tiles)
+            if (r.GrownGround(t.Col, t.Row) is { } g)
+            {
+                var gt = new P.RegionGrownTile
+                {
+                    Col = t.Col, Row = t.Row, Corners = Words(g.Corners), Rivers = ByteString.CopyFrom(g.Rivers),
+                    Bedrock = Words(g.Bedrock), Rock = ByteString.CopyFrom(g.Rock),
+                };
+                gt.Downstream.AddRange(g.Downstream);
+                s.Grown.Add(gt);
+            }
         foreach (var t in r.Tiles.Where(t => t.City != null))
             s.Cities.Add(new P.RegionSavedCity { Col = t.Col, Row = t.Row, Save = ByteString.CopyFrom(Mapping.Save(t.City!)) });
         foreach (var d in r.Deals.Where(d => !d.Active)) s.Offers.Add(Deal(r, d));
@@ -31,7 +43,10 @@ public static class RegionMapping
         try
         {
             foreach (var c in s.Cities) cities.Add(Mapping.Load(content, c.Save.ToByteArray()));
-            var r = Region.Restore(content, s.Name, s.Seed, s.Cols, s.Rows, s.TileSize, s.Tick, cities);
+            var grown = s.Grows
+                ? s.Grown.Select(g => (g.Col, g.Row, new TileGround(Words(g.Corners), g.Rivers.ToByteArray(), g.Downstream.ToArray(), Words(g.Bedrock), g.Rock.ToByteArray()))).ToList()
+                : null;
+            var r = Region.Restore(content, s.Name, s.Seed, s.Cols, s.Rows, s.TileSize, s.Tick, cities, grown);
             foreach (var o in s.Offers)
                 r.RestoreOffer(new RegionDeal
                 {
@@ -47,6 +62,21 @@ public static class RegionMapping
         }
     }
 
+    static ByteString Words(ushort[] v)
+    {
+        var b = new byte[v.Length * 2];
+        for (int i = 0; i < v.Length; i++) { b[2 * i] = (byte)v[i]; b[2 * i + 1] = (byte)(v[i] >> 8); }
+        return ByteString.CopyFrom(b);
+    }
+
+    static ushort[] Words(ByteString b)
+    {
+        var s = b.Span;
+        var v = new ushort[s.Length / 2];
+        for (int i = 0; i < v.Length; i++) v[i] = (ushort)(s[2 * i] | s[2 * i + 1] << 8);
+        return v;
+    }
+
     /// <summary>True when the bytes are a region save rather than a city's.</summary>
     public static bool IsRegion(byte[] data)
     {
@@ -58,10 +88,15 @@ public static class RegionMapping
     public static P.RegionState State(Region r, int hereCol, int hereRow, int speed, Func<RegionTile, IEnumerable<string>> playersIn,
         IDictionary<int, ByteString>? pictures = null)
     {
-        var s = new P.RegionState { Name = r.Name, Cols = r.Cols, Rows = r.Rows, TileSize = r.TileSize, Tick = r.Tick, HereCol = hereCol, HereRow = hereRow, Speed = speed };
+        var s = new P.RegionState { Name = r.Name, Cols = r.Cols, Rows = r.Rows, TileSize = r.TileSize, Tick = r.Tick, HereCol = hereCol, HereRow = hereRow, Speed = speed, Grows = r.Grows };
         for (int i = 0; i < r.Tiles.Length; i++)
         {
             var t = r.Tiles[i];
+            if (t.Wild)
+            {
+                s.Tiles.Add(new P.RegionTileState { Col = t.Col, Row = t.Row, Name = "Wild land", Wild = true });
+                continue;
+            }
             var pic = pictures != null && pictures.TryGetValue(i, out var p) ? p : ByteString.CopyFrom(Picture(r, t));
             if (pictures != null) pictures[i] = pic;
             var ts = new P.RegionTileState { Col = t.Col, Row = t.Row, Founded = t.Founded, Name = t.Name, Mayor = t.Mayor, Picture = pic };

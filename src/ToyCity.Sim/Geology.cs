@@ -54,9 +54,10 @@ public sealed partial class World
 
     /// <summary>
     /// The bedrock (dm at each corner) and rock kind (each cell) for a map's ground. <paramref name="rivers"/> is each
-    /// cell's river surface in steps (0 for none).
+    /// cell's river surface in steps (0 for none). (<paramref name="ox"/>, <paramref name="oy"/>) is where the map starts
+    /// in a growing region's cells, so its rock carries on from its neighbours'.
     /// </summary>
-    public static (ushort[] Bedrock, byte[] Rock) GenerateGeology(ulong seed, ushort[] corners, byte[] rivers, int width, int height, int waterLevel = 8)
+    public static (ushort[] Bedrock, byte[] Rock) GenerateGeology(ulong seed, ushort[] corners, byte[] rivers, int width, int height, int waterLevel = 8, int ox = 0, int oy = 0)
     {
         int cw = width + 1, ch = height + 1;
         ulong salt = seed * 0xA24BAED4963EE407UL + 0x9FB21C651E98DF25UL;
@@ -122,7 +123,7 @@ public sealed partial class World
             // Silt beside water, on ground near the water's height.
             if (dist[c] <= SiltReach && h < sea + 120) soil += SiltDm * (1 - dist[c] / (double)(SiltReach + 1)) * flat;
             // Patchy: half to one and a half times, varying over a few cells and over a city.
-            soil *= 0.5 + 0.6 * Noise(0, x, y, 24) + 0.4 * Noise(1, x, y, 5) - 0.2;
+            soil *= 0.5 + 0.6 * Noise(0, x + ox, y + oy, 24) + 0.4 * Noise(1, x + ox, y + oy, 5) - 0.2;
             bed[c] = (ushort)Math.Clamp(h - (int)Math.Round(soil), 0, h);
         }
         var rock = new byte[width * height];
@@ -132,9 +133,10 @@ public sealed partial class World
             int i = y * width + x, c = y * cw + x;
             int h = (corners[c] + corners[c + 1] + corners[c + cw] + corners[c + cw + 1]) / 4;
             // Beds of rock, bent by a slow warp; granite comes up through the high ground.
-            double wx = x + (Noise(3, x, y, 40) - 0.5) * 30, wy = y + (Noise(4, x, y, 40) - 0.5) * 30;
+            int X = x + ox, Y = y + oy;
+            double wx = X + (Noise(3, X, Y, 40) - 0.5) * 30, wy = Y + (Noise(4, X, Y, 40) - 0.5) * 30;
             double bedNoise = Noise(2, wx, wy, 56);
-            double high = Math.Clamp((h - sea - 1800) / 1500.0, 0, 1) + (Noise(5, x, y, 32) - 0.5) * 0.4;
+            double high = Math.Clamp((h - sea - 1800) / 1500.0, 0, 1) + (Noise(5, X, Y, 32) - 0.5) * 0.4;
             rock[i] = high > 0.5 ? (byte)4 : bedNoise < 0.38 ? (byte)1 : bedNoise < 0.62 ? (byte)2 : (byte)3;
         }
         return (bed, rock);
