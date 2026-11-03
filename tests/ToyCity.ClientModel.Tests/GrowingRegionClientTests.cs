@@ -222,9 +222,22 @@ public class GrowingRegionClientTests : IDisposable
         tess.Panels.Click($"rg-pick:{c + 1}:{c}");
         tess.Panels.Click("rg-go");
         tess.WaitFor(() => tess.Client.City.Stats.CityName == "Eastwick", "Tess in Eastwick");
-        // Tess builds a road in Eastwick, to see it come along.
+        // Tess builds roads in Eastwick, to see them come along: along each row's longest dry stretch, since the
+        // region's seed is random and the tile may be half sea.
+        tess.WaitFor(() => tess.Client.City.Width == 64 && tess.Client.City.Heights.Length == 64 * 64, "Eastwick's ground");
         for (int y = 6; y < 64; y += 8)
-            tess.Client.Connection.Act(new ToyCity.Protocol.V0.Action { Path = new PlacePath { X0 = 5, Y0 = y, X1 = 60, Y1 = y, ProfileId = "road" } });
+        {
+            var m = tess.Client.City;
+            int bestX = 5, bestLen = 0, runX = 5;
+            for (int x = 5; x <= 61; x++)
+            {
+                if (x < 61 && (!m.IsWater(y * 64 + x) || m.IsRiver(y * 64 + x))) continue;
+                if (x - runX > bestLen) { bestLen = x - runX; bestX = runX; }
+                runX = x + 1;
+            }
+            if (bestLen >= 12)
+                tess.Client.Connection.Act(new ToyCity.Protocol.V0.Action { Path = new PlacePath { X0 = bestX, Y0 = y, X1 = bestX + bestLen - 1, Y1 = y, ProfileId = "road" } });
+        }
         tess.WaitFor(() => tess.Client.City.Paths.Count(p => p != 0) > 10, "Tess's roads");
         // The rest of them: until the count holds for a second.
         var steady = DateTime.UtcNow.AddSeconds(1);

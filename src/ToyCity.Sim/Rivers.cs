@@ -242,6 +242,13 @@ public sealed partial class World
                     }
                 }
         }
+        // The cells that were sea or lake before the cut stay so; the rest of the cut ground becomes the river's.
+        var wasWater = new bool[n];
+        for (int i = 0; i < n; i++)
+        {
+            int k = i / width * cw + i % width;
+            wasWater[i] = StepOf(corners[k], corners[k + 1], corners[k + cw + 1], corners[k + cw]) < waterLevel;
+        }
         for (int k = 0; k < corners.Length; k++)
             if (cut[k] < corners[k]) corners[k] = (ushort)Math.Max(0, cut[k]);
 
@@ -250,28 +257,31 @@ public sealed partial class World
         for (int i = 0; i < n; i++)
         {
             int c = owner[i];
-            if (c < 0 || surface[i] != 0) continue;
+            if (c < 0 || surface[i] != 0 || wasWater[i]) continue;
             int x = i % width, y = i / width, k = y * cw + x;
             int step = StepOf(corners[k], corners[k + 1], corners[k + cw + 1], corners[k + cw]);
             int s = Math.Min((int)MathF.Round(level[i]), step + 1);
-            if (step < waterLevel || step >= s) continue;
-            surface[i] = (byte)s;
+            // Ground cut under the sea's level is the river's too, however shallow, or it would read as a lake no
+            // path could bridge.
+            if (step >= s && step >= waterLevel) continue;
+            s = Math.Max(s, step + 1);
             // It flows on into the river beside it: the nearest of the next few cells down from there no higher than
-            // its own water, the furthest down of those as near, so it doesn't run back upstream.
-            if (downstream != null)
+            // its own water, the furthest down of those as near, so it doesn't run back upstream. Failing one of
+            // those (a cell cut deeper than the rapid beside it), the nearest of them, and its water stands at that
+            // cell's level.
+            int to = -1, fallback = -1, hops = 0;
+            float best = float.MaxValue, nearest = float.MaxValue;
+            for (int at = c; at >= 0 && hops < 64; at = receiver[at] >= 0 && surface[receiver[at]] != 0 ? receiver[at] : -1, hops++)
             {
-                int to = -1, hops = 0;
-                float best = float.MaxValue;
-                for (int at = c; at >= 0 && hops < 64; at = receiver[at] >= 0 && surface[receiver[at]] != 0 ? receiver[at] : -1, hops++)
-                {
-                    if (surface[at] > s) continue;
-                    float ddx = at % width - x, ddy = at / width - y, dd = ddx * ddx + ddy * ddy;
-                    if (dd <= best) { best = dd; to = at; }
-                    else if (to >= 0) break;
-                }
-                if (to < 0) { surface[i] = 0; continue; }
-                downstream[i] = to;
+                float ddx = at % width - x, ddy = at / width - y, dd = ddx * ddx + ddy * ddy;
+                if (dd < nearest) { nearest = dd; fallback = at; }
+                if (surface[at] > s) continue;
+                if (dd <= best) { best = dd; to = at; }
+                else if (to >= 0) break;
             }
+            if (to < 0) { to = fallback; s = Math.Max(s, surface[to]); }
+            surface[i] = (byte)s;
+            if (downstream != null) downstream[i] = to;
         }
     }
 
