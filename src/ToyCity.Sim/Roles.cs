@@ -52,7 +52,7 @@ public sealed partial class World
     /// <summary>The portfolio a city action falls under, or None when only the mayor may do it.</summary>
     Portfolio PortfolioFor(SimAction a) => a switch
     {
-        PlacePathAction or PaintZoneAction or ZoneBlockAction or BulldozeAction or TerraformAction or PlaceUtilityAction => Portfolio.Planning,
+        PlacePathAction or PaintZoneAction or ZoneBlockAction or BulldozeAction or TerraformAction or DigRiverAction or PlaceDamAction or PlaceUtilityAction => Portfolio.Planning,
         SetTaxAction or SetFundingAction or SetRoadCrewsAction or SetTreatmentAction or TakeLoanAction => Portfolio.Budget,
         PlaceBuildingAction p => Content.TypeIndex(p.TypeId) is >= 0 and var t && IsTransitLot(Content.Types[t].LotKind) ? Portfolio.Transit : Portfolio.Services,
         UpgradeBuildingAction u => u.BuildingId >= 0 && u.BuildingId < Buildings.Count && Buildings[u.BuildingId] is { } b && IsTransitLot(LotKindOf(b)) ? Portfolio.Transit : Portfolio.Services,

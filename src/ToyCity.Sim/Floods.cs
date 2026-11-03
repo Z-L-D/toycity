@@ -47,7 +47,7 @@ public sealed partial class World
     /// Each cell's floodwater surface in steps, or 0 where it's dry: the ground beside a river that the rise reaches.
     /// Worked out from the flow, not saved.
     /// </summary>
-    public byte[] Flooded => _flooded ??= FloodedCells(Width, HeightCells, Height, River, WaterLevel, RiverFlowPct);
+    public byte[] Flooded => _flooded ??= RiverFlow.Flooded(Width, HeightCells, Height, River, WaterLevel, RiverFlowPct, Dam);
     byte[]? _flooded;
 
     void ApplyFlood(FloodAction a)
@@ -102,10 +102,10 @@ public sealed partial class World
     }
 
     /// <summary>The cells the river would cover at a stage, for the map's flood layer and the advisors.</summary>
-    public byte[] FloodPlain(int stage) => FloodedCells(Width, HeightCells, Height, River, WaterLevel, FlowOfStage(stage));
+    public byte[] FloodPlain(int stage) => RiverFlow.Flooded(Width, HeightCells, Height, River, WaterLevel, FlowOfStage(stage), Dam);
 
     /// <summary>Called when the ground changes, so the floodwater is worked out again.</summary>
-    void FloodGroundChanged() => (_flooded, _waterSize) = (null, null);
+    void FloodGroundChanged() => (_flooded, _waterSize, _held) = (null, null, null);
 }
 
 public sealed partial class Region

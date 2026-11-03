@@ -25,6 +25,8 @@ type Tool =
   | { kind: 'utility'; utility: number }
   | { kind: 'building' }
   | { kind: 'terraform' }
+  | { kind: 'river' }
+  | { kind: 'dam' }
   | { kind: 'disaster' };
 
 const DISASTER_SETTINGS = ['Off', 'Rare', 'Normal'];
@@ -78,6 +80,10 @@ let surfaceId = '';
 let tunnel = false;
 let buildingTypeId = 'police-station';
 let terraformMode = 0;
+/** The river brush's channel, cells wide and steps deep, and how many steps a dam holds the river up. */
+let riverWidth = 2, riverDepth = 2, damRise = 3;
+/** As the sim: the longest stroke one dig takes, its cost a cell a step, and the longest dam and its costs. */
+const DIG_LONGEST = 64, DIG_COST = 60, DAM_LONGEST = 40, DAM_COST = 800, DAM_COST_STEP = 300;
 let disasterKind = 0;
 let pathMode: 'straight' | 'diagonal' | 'curve' = 'straight';
 /** Curve tool: the ends are set, the mouse now bends it. */
@@ -393,6 +399,12 @@ function toolOptions(): string {
     }
     case 'terraform':
       return named('land', 'Terraform') + seg('terraform', TERRAFORM_NAMES.map((n, k) => [String(k), n] as [string, string]), String(terraformMode));
+    case 'river':
+      return named('water', 'River brush') +
+        seg('rwidth', [1, 2, 3, 4, 5].map((k) => [String(k), `${16 * k} m`, `${k} cell${k > 1 ? 's' : ''} wide`] as [string, string, string]), String(riverWidth)) +
+        seg('rdepth', [1, 2, 3, 4].map((k) => [String(k), `${2 * k} m`, `${k} step${k > 1 ? 's' : ''} deep`] as [string, string, string]), String(riverDepth));
+    case 'dam':
+      return named('water', 'Dam') + seg('rise', [1, 2, 3, 4, 5, 6, 7, 8].map((k) => [String(k), `${2 * k} m`, `Holds the river ${2 * k} m over its level`] as [string, string, string]), String(damRise));
     case 'disaster':
       return named('disasters', 'Disaster') + seg('disaster', DISASTER_NAMES.map((n, k) => [String(k), n] as [string, string]), String(disasterKind)) +
         `<label title="How often disasters happen by themselves. The sandbox tool works either way.">By themselves<select id="sel-disaster-setting">${DISASTER_SETTINGS.map((n, k) => `<option value="${k}" ${k === (city.stats.disasterSetting ?? 1) ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
@@ -452,6 +464,15 @@ function buildToolbar() {
   el.querySelectorAll<HTMLButtonElement>('button[data-terraform]').forEach((b) =>
     b.addEventListener('click', () => { terraformMode = Number(b.dataset.terraform); setTool({ kind: 'terraform' }); }),
   );
+  el.querySelectorAll<HTMLButtonElement>('button[data-rwidth]').forEach((b) =>
+    b.addEventListener('click', () => { riverWidth = Number(b.dataset.rwidth); setTool({ kind: 'river' }); }),
+  );
+  el.querySelectorAll<HTMLButtonElement>('button[data-rdepth]').forEach((b) =>
+    b.addEventListener('click', () => { riverDepth = Number(b.dataset.rdepth); setTool({ kind: 'river' }); }),
+  );
+  el.querySelectorAll<HTMLButtonElement>('button[data-rise]').forEach((b) =>
+    b.addEventListener('click', () => { damRise = Number(b.dataset.rise); setTool({ kind: 'dam' }); }),
+  );
   el.querySelectorAll<HTMLButtonElement>('button[data-disaster]').forEach((b) =>
     b.addEventListener('click', () => { disasterKind = Number(b.dataset.disaster); setTool({ kind: 'disaster' }); }),
   );
@@ -490,6 +511,8 @@ function updateHints() {
     utility: [['Drag', 'draw line'], ['Shift', 'vertical leg first'], ['Esc', 'cancel']],
     building: [['Click', 'place'], ['Esc', 'cancel']],
     terraform: [['Drag', `${TERRAFORM_NAMES[terraformMode].toLowerCase()} area`], ['Esc', 'cancel']],
+    river: [['Drag', 'dig a river from where its water starts'], ['Esc', 'cancel']],
+    dam: [['Drag', 'wall a river, bank to bank'], ['Esc', 'cancel']],
     disaster: [['Click', `start a ${DISASTER_NAMES[disasterKind].toLowerCase()} here`], ['Esc', 'cancel']],
   };
   $('#hints').innerHTML = [...per[tool.kind], ...common].map(([k, v]) => `<div><kbd>${k}</kbd>${v}</div>`).join('');
@@ -676,6 +699,41 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
     if (plan.problem) ok = false;
     renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok, color: (prof?.color ?? '#888') + 'cc', cells };
     text = plan.problem ?? `Diagonal${surfaceLabel()}, ${cells.length} cells: ${money(plan.cost)}${grading(plan.grading)}${depthNote(plan, tunnel)}`;
+  } else if (drag && tool.kind === 'river') {
+    const line = diagonalCells(drag.x, drag.y, cell.x, cell.y);
+    const reach = riverWidth / 2, r = Math.ceil(reach);
+    const seen = new Set<number>(), cells: [number, number][] = [];
+    let cost = 0;
+    for (const [cx, cy] of line)
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++) {
+          const x = cx + dx, y = cy + dy, i = y * city.width + x;
+          if (!city.inBounds(x, y) || dx * dx + dy * dy > reach * reach || seen.has(i)) continue;
+          seen.add(i);
+          cells.push([x, y]);
+          if (city.buildingAt[i] || city.paths[i] || city.dams[i]) ok = false;
+          if (!city.isWater(i)) cost += DIG_COST * riverDepth;
+        }
+    renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok, color: '#3f86c8cc', cells };
+    const what = `River ${riverWidth * 16} m wide, ${riverDepth * 2} m deep, ${line.length * 16} m long`;
+    text = ok ? `${what}: about ${money(cost)}` : 'A river can’t be dug through buildings, roads or dams';
+  } else if (drag && tool.kind === 'dam') {
+    const cells = diagonalCells(drag.x, drag.y, cell.x, cell.y);
+    let top = 0, crossing = 0, problem = cells.length > DAM_LONGEST ? `A dam is at most ${DAM_LONGEST} cells long` : '';
+    for (const [x, y] of cells) {
+      const i = y * city.width + x;
+      if (!city.inBounds(x, y)) { ok = false; continue; }
+      if (city.isRiver(i)) { crossing++; top = Math.max(top, city.rivers[i]); }
+      if (city.buildingAt[i] || city.paths[i] || (city.isWater(i) && !city.isRiver(i))) problem ||= 'A dam can’t go through buildings, roads or the sea';
+    }
+    if (!crossing) problem ||= 'Draw the dam across a river, bank to bank';
+    if (cells.length < 3) problem ||= 'Draw the dam across a river, bank to bank';
+    if (problem) ok = false;
+    const crest = top + damRise + 1;
+    let cost = 0;
+    for (const [x, y] of cells) if (city.inBounds(x, y)) cost += DAM_COST + DAM_COST_STEP * Math.max(0, crest - city.heights[y * city.width + x]);
+    renderer.preview = { kind: 'cells', x0: 0, y0: 0, x1: 0, y1: 0, ok, color: '#b8b4a8dd', cells };
+    text = problem || `Dam holding the river ${damRise * 2} m up, ${cells.length * 16} m long: about ${money(cost)}`;
   } else if (drag && (tool.kind === 'path' || tool.kind === 'utility')) {
     const cells = lineCells(drag.x, drag.y, cell.x, cell.y, shiftHeld);
     let cost = 0;
@@ -768,6 +826,21 @@ function commit(start: { x: number; y: number }, end: { x: number; y: number }) 
       break;
     case 'terraform':
       act({ terraform: { area: rect(start, end), mode: terraformMode } }, `${TERRAFORM_NAMES[terraformMode]} ${size}`);
+      break;
+    case 'river': {
+      // A long stroke goes as several digs end to end, each within what one dig takes.
+      const len = diagonalCells(start.x, start.y, end.x, end.y).length;
+      const parts = Math.max(1, Math.ceil((len - 4) / (DIG_LONGEST - 4)));
+      let px = start.x, py = start.y;
+      for (let k = 1; k <= parts; k++) {
+        const qx = start.x + Math.round(((end.x - start.x) * k) / parts), qy = start.y + Math.round(((end.y - start.y) * k) / parts);
+        act({ digRiver: { x0: px, y0: py, x1: qx, y1: qy, width: riverWidth, depth: riverDepth } }, `River ${riverWidth * 16} m wide from ${px},${py} to ${qx},${qy}`);
+        [px, py] = [qx, qy];
+      }
+      break;
+    }
+    case 'dam':
+      act({ dam: { x0: start.x, y0: start.y, x1: end.x, y1: end.y, rise: damRise } }, `Dam from ${start.x},${start.y} to ${end.x},${end.y}`);
       break;
   }
 }

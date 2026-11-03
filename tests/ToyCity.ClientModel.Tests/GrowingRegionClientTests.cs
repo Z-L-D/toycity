@@ -194,10 +194,14 @@ public class GrowingRegionClientTests : IDisposable
         Assert.Equal((c + 1, c), tess.Region.Picked);
         Assert.Contains("2 × 1 tiles", tess.Region.Render());
         Assert.Equal(3, tess.Region.SideOf(tess.Region.TileAt(c, c)!));
-        // And it plays on: Tess builds roads on the new land (the region's seed is random, so some may meet water).
-        for (int y = 8; y < 64; y += 8)
-            tess.Client.Connection.Act(new ToyCity.Protocol.V0.Action { Path = new PlacePath { X0 = 70, Y0 = y, X1 = 120, Y1 = y, ProfileId = "road" } });
-        tess.WaitFor(() => Enumerable.Range(64, 64).Any(x => Enumerable.Range(1, 7).Any(k => tess.Client.City.Paths[k * 8 * 128 + x] != 0)), "a road on the new land");
+        // And it plays on: Tess builds roads on the new land. The region's seed is random, so the land may be water or
+        // steep in places: short roads over dry ground all over it, any of which will do.
+        var city = tess.Client.City;
+        for (int y = 6; y < 60; y += 4)
+            for (int x0 = 66; x0 < 120; x0 += 8)
+                if (Enumerable.Range(x0, 6).All(x => !city.IsWater(y * 128 + x)) && Enumerable.Range(x0, 5).All(x => Math.Abs(city.Heights[y * 128 + x] - city.Heights[y * 128 + x + 1]) <= 1))
+                    tess.Client.Connection.Act(new ToyCity.Protocol.V0.Action { Path = new PlacePath { X0 = x0, Y0 = y, X1 = x0 + 5, Y1 = y, ProfileId = "road" } });
+        tess.WaitFor(() => Enumerable.Range(0, 64 * 128).Any(i => i % 128 >= 64 && tess.Client.City.Paths[i] != 0), "a road on the new land");
         Assert.Empty(tess.Errors);
         Assert.Empty(may.Errors);
     }

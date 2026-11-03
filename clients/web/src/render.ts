@@ -449,6 +449,11 @@ export class Renderer {
           [r, gr, b] = mixRGB([r, gr, b], [61 * (0.9 + 0.2 * g), 97 * (0.9 + 0.2 * g), 38], plain * 0.8);
           [r, gr, b] = mixRGB([r, gr, b], mixRGB([87, 77, 56], [148, 138, 117], smooth(0.45, 0.7, cobble)).map((v) => v * 0.62) as RGB, wetBand);
         }
+        if (!water && c.dams.length && c.dams[cell(Math.floor(fx), Math.floor(fy))]) {
+          // A dam's crest and faces: poured concrete, with board marks.
+          const v = 0.9 + 0.2 * grain(cx0 * K + px, cy0 * K + py);
+          [r, gr, b] = [168 * v, 166 * v, 156 * v];
+        }
         if (!water && this.snowCm > 0) {
           // Lying snow (Beta 4, part 4), as the 3D client spreads it: deeper high up and on north-facing slopes
           // (the ground higher to the south, which is down the map), none where it's too steep to hold.

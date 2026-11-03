@@ -109,6 +109,45 @@ public partial class Main
         yield return MountainMeasure("free, the town from above the hills");
         Look(tx, ty, 16, 38, 45);
         yield return MountainMeasure("free, a street close up");
+
+        // River brush and dams: a dam across a river, its reservoir filling behind it, and a river dug by the brush.
+        // The sites come from what the client sees; the server may still turn one down, so a few are tried.
+        _client.Connection.Act(new Protocol.V0.Action { Loan = new Protocol.V0.TakeLoan { Amount = 200_000 } });
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 1 } });
+        var sites = ToyCity.ClientModel.Tools.DamSites.Find(c, 4).OrderBy(s => Math.Abs(s.Pool - 1200)).Take(8).ToList();
+        ToyCity.ClientModel.Tools.DamSites.Site? dam = null;
+        foreach (var s in sites)
+        {
+            int had = c.Dams.Count(d => d != 0);
+            _client.Connection.Act(new Protocol.V0.Action { Dam = new Protocol.V0.PlaceDam { X0 = s.X0, Y0 = s.Y0, X1 = s.X1, Y1 = s.Y1, Rise = 3 } });
+            double waited = 0;
+            yield return new GateWait("a dam", () => c.Dams.Count(d => d != 0) > had || (waited += GetProcessDeltaTime()) > 4, 30);
+            if (c.Dams.Count(d => d != 0) > had) { dam = s; break; }
+        }
+        var dig = ToyCity.ClientModel.Tools.DamSites.DigStart(c);
+        if (dig is { } d0)
+        {
+            _client.Connection.Act(new Protocol.V0.Action { DigRiver = new Protocol.V0.DigRiver { X0 = d0.X, Y0 = d0.Y, X1 = d0.X + 14, Y1 = d0.Y, Width = 3, Depth = 2 } });
+            double waited = 0;
+            yield return new GateWait("a dug river", () => c.IsRiver(d0.Y * c.Width + d0.X + 10) || (waited += GetProcessDeltaTime()) > 4, 30);
+        }
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } });
+        if (dam is { } wall)
+        {
+            int pool = c.DamHeld.Count(h => h == ToyCity.Sim.RiverFlow.Reservoir);
+            GD.Print($"{Tag} a dam at {wall.X0},{wall.Y0} to {wall.X1},{wall.Y1}: its reservoir {pool} cells");
+            float dx = (wall.X0 + wall.X1) / 2f + 0.5f, dy = (wall.Y0 + wall.Y1) / 2f + 0.5f;
+            Look(dx, dy, 60, 24, 160);
+            yield return MountainMeasure("free, a dam and its reservoir");
+            Look(dx, dy, 22, 20, 340);
+            yield return MountainMeasure("free, a dam close up");
+        }
+        else GD.Print($"{Tag} no dam site the server took, of {sites.Count} tried");
+        if (dig is { } d1 && c.IsRiver(d1.Y * c.Width + d1.X + 10))
+        {
+            Look(d1.X + 8f, d1.Y + 0.5f, 30, 30, 200);
+            yield return MountainMeasure("free, a river dug by the brush");
+        }
         _camera.ToggleFree();
     }
 

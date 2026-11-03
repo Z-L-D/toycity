@@ -161,7 +161,11 @@ public sealed class BuildMenu
         var landmarks = new List<BuildGroup> { new("Landmarks", Types(t => t.Category == "landmark")), new("Rewards", Types(t => t.Category == "reward")) };
         menu.Add(new BuildCategory("landmarks", "Landmarks", "landmarks", "", "One of a kind, and the rewards a city earns.", landmarks.Where(g => g.Items.Count > 0).ToList()));
         menu.Add(new BuildCategory("land", "Land", "land", "T", "Shape the ground. Roads grade their own way.",
-            new[] { new BuildGroup("Terraform", TerraformNames.Select((n, k) => new BuildItem(n, "", "land", ToolKind.Terraform) { Terraform = (TerraformMode)k }).ToList()) }));
+            new[]
+            {
+                new BuildGroup("Terraform", TerraformNames.Select((n, k) => new BuildItem(n, "", "land", ToolKind.Terraform) { Terraform = (TerraformMode)k }).ToList()),
+                new BuildGroup("Water", new List<BuildItem> { new("River", "", "water", ToolKind.River), new("Dam", "", "water", ToolKind.Dam) }),
+            }));
         menu.Add(new BuildCategory("disasters", "Disasters", "disasters", "K", "Set one loose on your own city.",
             new[] { new BuildGroup("Disasters", DisasterNames.Select((n, k) => new BuildItem(n, "", "disasters", ToolKind.Disaster) { Disaster = (DisasterKind)k }).ToList()) }));
         menu.Add(new BuildCategory("bulldoze", "Bulldoze", "bulldoze", "B", "Clear anything you built.", new[] { new BuildGroup("Bulldoze", new[] { new BuildItem("Bulldoze", "", "bulldoze", ToolKind.Bulldoze) }) }));

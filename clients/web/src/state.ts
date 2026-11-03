@@ -1,4 +1,4 @@
-import { flooded, ofStage, sizes, waterDm } from './riverflow';
+import { flooded, flowAt, held, ofStage, sizes, waterDm } from './riverflow';
 import type { Msg } from './net';
 
 export interface Building {
@@ -139,6 +139,8 @@ export class City {
   waterPipes = new Uint8Array(0);
   /** 1 where a subway tunnel runs under the cell (Beta 3.2). */
   subways = new Uint8Array(0);
+  /** Each cell's dam crest in steps, 0 for none (river brush and dams). */
+  dams = new Uint8Array(0);
   buildingAt = new Int32Array(0);
   buildings = new Map<number, Building>();
   stats: Msg = {};
@@ -168,6 +170,7 @@ export class City {
     const n = this.width * this.height;
     this.heights = new Uint8Array(f.heights);
     this.rivers = f.rivers?.length === n ? new Uint8Array(f.rivers) : new Uint8Array(n);
+    this.dams = f.dams?.length === n ? new Uint8Array(f.dams) : new Uint8Array(n);
     const cb = f.corners as Uint8Array | undefined;
     const nc = (this.width + 1) * (this.height + 1);
     this.corners = new Uint16Array(cb?.length === 2 * nc ? nc : 0);
@@ -226,6 +229,9 @@ export class City {
       this.powerLines[i] = c.powerLine ? 1 : 0;
       this.waterPipes[i] = c.waterPipe ? 1 : 0;
       if (i < this.subways.length) this.subways[i] = c.subway ? 1 : 0;
+      if ((c.river ?? 0) !== this.rivers[i] || (c.dam ?? 0) !== this.dams[i]) { terrain = true; this.terrainDirty?.push(i); }
+      this.rivers[i] = c.river ?? 0;
+      if (i < this.dams.length) this.dams[i] = c.dam ?? 0;
     }
     for (const id of d.removedBuildings as number[]) this.removeBuilding(id);
     for (const b of d.buildings as Building[]) {
@@ -377,7 +383,16 @@ export class City {
 
   /** A river or pond cell's water surface in steps at today's flow, 0 where there's none. */
   waterSurface(i: number): number {
-    return this.isRiver(i) ? waterDm(this.rivers[i], this.waterSize[i], this.flowPct) / 20 : 0;
+    return this.isRiver(i) ? waterDm(this.rivers[i], this.waterSize[i], flowAt(this.flowPct, this.damHeld[i] ?? 0)) / 20 : 0;
+  }
+
+  private heldKey = '';
+  private heldCache = new Uint8Array(0);
+  /** What the dams do to each river cell (RiverFlow.Held): 2 a reservoir, 1 the river below a dam. */
+  get damHeld(): Uint8Array {
+    const key = `${this.terrainVersion}:${this.width}:${this.height}`;
+    if (key !== this.heldKey) { this.heldKey = key; this.heldCache = held(this.width, this.height, this.heights, this.rivers, this.dams.length === this.rivers.length ? this.dams : new Uint8Array(this.rivers.length)); }
+    return this.heldCache;
   }
 
   /** The rivers' flood stage today: 0 in their banks, up to 3. */
@@ -390,7 +405,7 @@ export class City {
     const pct = this.flowPct, key = `${pct}:${this.terrainVersion}:${this.width}`;
     if (key === this.floodKey) return this.floodCells;
     this.floodKey = key;
-    return (this.floodCells = flooded(this.width, this.height, this.heights, this.rivers, this.waterLevel, pct));
+    return (this.floodCells = flooded(this.width, this.height, this.heights, this.rivers, this.waterLevel, pct, this.dams));
   }
 
   isRoadside(b: Building) {

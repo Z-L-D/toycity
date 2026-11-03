@@ -36,6 +36,8 @@ public sealed partial class World
             UpgradeBuildingAction u => !Building(u.BuildingId) || !Text(u.ToTypeId) ? "There's no such building." : null,
             BulldozeAction d => !Rect(d.Area) ? offMap : null,
             TerraformAction t => !Rect(t.Area) ? offMap : !Def(t.Mode) ? "Unknown terraforming." : null,
+            DigRiverAction d => !Cell(d.X0, d.Y0) || !Cell(d.X1, d.Y1) ? offMap : d.Width is < 1 or > DigWidest || d.Depth is < 1 or > DigDeepest ? "That isn't a river the brush can dig." : null,
+            PlaceDamAction d => !Cell(d.X0, d.Y0) || !Cell(d.X1, d.Y1) ? offMap : d.Rise is < 1 or > DamHighest ? $"A dam holds its water 1 to {DamHighest} steps up." : null,
             SetTaxAction t => !Def(t.Zone) || !Def(t.Wealth) || t.PercentTenths is < 0 or > 200 ? "Taxes run from 0% to 20%." : null,
             SetFundingAction f => !Building(f.BuildingId) ? "There's no such building." : f.Percent is < 0 or > 200 ? "Funding runs from 0% to 200%." : null,
             TakeLoanAction l => l.Amount is <= 0 or > MaxMoney ? "That isn't a loan the bank would make." : null,

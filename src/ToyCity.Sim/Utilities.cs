@@ -64,7 +64,7 @@ public sealed partial class World
         {
             if (b == null || !b.Operating) continue;
             var t = TypeOf(b);
-            if (t.PowerOutKw > 0) capacity[_comp[Idx(b.X, b.Y)]] += t.PowerOutKw * FundingFactor(b.Funding) / 100;
+            if (t.PowerOutKw > 0) capacity[_comp[Idx(b.X, b.Y)]] += (long)t.PowerOutKw * FundingFactor(b.Funding) / 100 * (t.Hydro ? HydroPct(b) : 100) / 100;
         }
         DealCapacity(DealKind.Power, _comp, capacity);
 

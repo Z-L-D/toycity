@@ -3,7 +3,7 @@ using PAction = ToyCity.Protocol.V0.Action;
 
 namespace ToyCity.ClientModel.Tools;
 
-public enum ToolKind { Query, Bulldoze, Path, Zone, Dezone, Utility, Building, Terraform, Disaster }
+public enum ToolKind { Query, Bulldoze, Path, Zone, Dezone, Utility, Building, Terraform, Disaster, River, Dam }
 
 /// <summary>What the player has picked: the tool and its options, as in the web client's toolbar.</summary>
 public sealed class ToolState
@@ -26,6 +26,10 @@ public sealed class ToolState
     public TerraformMode Terraform = TerraformMode.TerraformRaise;
     public DisasterKind Disaster = DisasterKind.DisasterFire;
     public bool Underground;              // bulldoze clears water pipes and subway tunnels only
+    /// <summary>The river brush: how wide a channel it digs, in cells (1..5), and how deep, in steps (1..4).</summary>
+    public int RiverWidth = 2, RiverDepth = 2;
+    /// <summary>Dams: how many steps (1..8) over the river they hold the water.</summary>
+    public int DamRise = 3;
 }
 
 /// <summary>Where the cursor is and what it's doing: the cell, where in the cell, the drag's start, and the held keys.</summary>
@@ -97,6 +101,10 @@ public static class Planner
                 return Line(c, t, s, p);
             case ToolKind.Zone or ToolKind.Dezone or ToolKind.Bulldoze or ToolKind.Terraform when p.DragStart is { } s:
                 return Area(c, t, s, p);
+            case ToolKind.River when p.DragStart is { } s:
+                return River(c, t, s, p);
+            case ToolKind.Dam when p.DragStart is { } s:
+                return Dam(c, t, s, p);
             default:
                 return null;
         }
@@ -390,6 +398,76 @@ public static class Planner
         ok &= plan.Problem == null;
         var action = new PAction { Path = new PlacePath { X0 = s.X, Y0 = s.Y, X1 = ex, Y1 = ey, ProfileId = t.ProfileId, Diagonal = true, Surface = t.Surface, Tunnel = t.Tunnel } };
         return new Preview(tinted, ok, plan.Problem ?? $"Diagonal{SurfaceName(c, t)}, {cells.Count} cells: {Money(cost)}{Grading(plan.Grading)}{Depth(plan, t.Tunnel)}", new() { action }, $"Diagonal {ProfileName(c, t.ProfileId)} from {s.X},{s.Y} to {ex},{ey}");
+    }
+
+    /// <summary>As World: the longest stroke one dig takes, and what a cell costs a step down.</summary>
+    public const int DigLongest = 64, DigCostPerCellStep = 60;
+    /// <summary>As World: the longest dam, and its cost a cell and a cell for each step of crest over the ground.</summary>
+    public const int DamLongest = 40, DamCostPerCell = 800, DamCostPerCellStep = 300;
+
+    /// <summary>
+    /// The river brush: the channel it would dig along the stroke, at the tool's width and depth. A stroke longer than
+    /// one dig takes is sent as several, end to end.
+    /// </summary>
+    static Preview River(CityMirror c, ToolState t, (int X, int Y) s, Pointer p)
+    {
+        var line = LineCells(s.X, s.Y, p.X, p.Y);
+        double reach = t.RiverWidth / 2.0;
+        int r = (int)Math.Ceiling(reach);
+        var seen = new HashSet<(int, int)>();
+        var cells = new List<(int, int, Tint)>();
+        bool ok = true;
+        long cost = 0;
+        foreach (var (cx, cy) in line)
+            for (int dy = -r; dy <= r; dy++)
+                for (int dx = -r; dx <= r; dx++)
+                {
+                    int x = cx + dx, y = cy + dy;
+                    if (!c.InBounds(x, y) || dx * dx + dy * dy > reach * reach || !seen.Add((x, y))) continue;
+                    int i = c.Idx(x, y);
+                    bool bad = c.BuildingAt[i] != 0 || c.Paths[i] != 0 || (c.Dams.Length > i && c.Dams[i] != 0);
+                    ok &= !bad;
+                    if (!c.IsWater(i)) cost += (long)DigCostPerCellStep * t.RiverDepth;
+                    cells.Add((x, y, bad ? Tint.Bad : Tint.Water));
+                }
+        var actions = new List<PAction>();
+        int parts = Math.Max(1, (line.Count + DigLongest - 5) / (DigLongest - 4));
+        int px = s.X, py = s.Y;
+        for (int k = 1; k <= parts; k++)
+        {
+            int qx = s.X + (int)Math.Round((p.X - s.X) * (double)k / parts), qy = s.Y + (int)Math.Round((p.Y - s.Y) * (double)k / parts);
+            actions.Add(new PAction { DigRiver = new DigRiver { X0 = px, Y0 = py, X1 = qx, Y1 = qy, Width = t.RiverWidth, Depth = t.RiverDepth } });
+            (px, py) = (qx, qy);
+        }
+        string what = $"River {t.RiverWidth * 16} m wide, {t.RiverDepth * 2} m deep, {line.Count * 16} m long";
+        return new Preview(cells, ok, ok ? $"{what}: about {Money(cost)}" : "A river can't be dug through buildings, roads or dams", actions, $"{what} from {s.X},{s.Y}");
+    }
+
+    /// <summary>A dam along the line: it has to cross a river; the server works out its reservoir and whether it holds.</summary>
+    static Preview Dam(CityMirror c, ToolState t, (int X, int Y) s, Pointer p)
+    {
+        var line = LineCells(s.X, s.Y, p.X, p.Y);
+        var cells = new List<(int, int, Tint)>();
+        bool ok = line.Count is >= 3 and <= DamLongest;
+        int top = 0, crossing = 0;
+        string? problem = line.Count > DamLongest ? $"A dam is at most {DamLongest} cells long" : null;
+        foreach (var (x, y) in line)
+        {
+            if (!c.InBounds(x, y)) { ok = false; continue; }
+            int i = c.Idx(x, y);
+            if (c.IsRiver(i)) { crossing++; top = Math.Max(top, c.Rivers[i]); }
+            bool bad = c.BuildingAt[i] != 0 || c.Paths[i] != 0 || (c.IsWater(i) && !c.IsRiver(i));
+            if (bad) { ok = false; problem ??= "A dam can't go through buildings, roads or the sea"; }
+            cells.Add((x, y, bad ? Tint.Bad : Tint.Building));
+        }
+        if (crossing == 0) { ok = false; problem ??= "Draw the dam across a river, bank to bank"; }
+        int crest = top + t.DamRise + 1;
+        long cost = 0;
+        foreach (var (x, y) in line)
+            if (c.InBounds(x, y)) cost += DamCostPerCell + (long)DamCostPerCellStep * Math.Max(0, crest - c.Heights[c.Idx(x, y)]);
+        string what = $"Dam holding the river {t.DamRise * 2} m up, {line.Count * 16} m long";
+        return new Preview(cells, ok, problem ?? $"{what}: about {Money(cost)}",
+            new() { new PAction { Dam = new PlaceDam { X0 = s.X, Y0 = s.Y, X1 = p.X, Y1 = p.Y, Rise = t.DamRise } } }, $"Dam from {s.X},{s.Y} to {p.X},{p.Y}");
     }
 
     static Rect RectOf((int X, int Y) a, (int X, int Y) b) => new() { X0 = a.X, Y0 = a.Y, X1 = b.X, Y1 = b.Y };

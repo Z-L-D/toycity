@@ -4,7 +4,7 @@
 import type { City, BuildingType, Profile } from './state';
 import icons from '../../../content/ui-icons.json';
 
-export type ItemKind = 'zone' | 'dezone' | 'path' | 'utility' | 'building' | 'terraform' | 'disaster' | 'bulldoze';
+export type ItemKind = 'zone' | 'dezone' | 'path' | 'utility' | 'building' | 'terraform' | 'river' | 'dam' | 'disaster' | 'bulldoze';
 
 export interface BuildItem {
   name: string;
@@ -135,7 +135,10 @@ export function menuFor(c: City): BuildCategory[] {
   });
   menu.push({
     id: 'land', name: 'Land', icon: 'land', key: 'T', description: 'Shape the ground. Roads grade their own way.',
-    groups: [{ name: 'Terraform', items: TERRAFORM_NAMES.map((n, k) => ({ name: n, price: '', icon: 'land', kind: 'terraform' as const, terraform: k, locked: '' })) }],
+    groups: [
+      { name: 'Terraform', items: TERRAFORM_NAMES.map((n, k) => ({ name: n, price: '', icon: 'land', kind: 'terraform' as const, terraform: k, locked: '' })) },
+      { name: 'Water', items: [{ name: 'River', price: '', icon: 'water', kind: 'river', locked: '' }, { name: 'Dam', price: '', icon: 'water', kind: 'dam', locked: '' }] },
+    ],
   });
   menu.push({
     id: 'disasters', name: 'Disasters', icon: 'disasters', key: 'K', description: 'Set one loose on your own city.',

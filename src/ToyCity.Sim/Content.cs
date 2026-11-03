@@ -154,6 +154,8 @@ public sealed class BuildingType
     public int Wait { get; set; }
     /// <summary>Placed on one side of a road instead of on land: it takes no tile and doesn't block the road.</summary>
     public bool Roadside { get; set; }
+    /// <summary>A hydro plant (river brush and dams): goes at a dam's foot, and makes power with its fall and the river's flow.</summary>
+    public bool Hydro { get; set; }
     /// <summary>What side games lease it as ("bus-stop", "bus-depot"), whatever size it has grown to; empty when not leasable.</summary>
     public string LotKind { get; set; } = "";
     /// <summary>Monthly rent on the city's standard lease for it; 0 for the lot kind's default.</summary>
@@ -307,6 +309,7 @@ public sealed partial class ContentDb
         public int Catchment { get; set; }
         public int Wait { get; set; }
         public bool Roadside { get; set; }
+        public bool Hydro { get; set; }
         public string LotKind { get; set; } = "";
         public int LeaseRent { get; set; }
         public List<UpgradeDef> Upgrades { get; set; } = new();
@@ -436,7 +439,7 @@ public sealed partial class ContentDb
                 Income = c.Income, Unique = c.Unique, UnlockText = c.UnlockText,
                 Transit = c.Transit switch { "" => TransitKind.None, "bus" => TransitKind.Bus, "tram" => TransitKind.Tram, "rail" => TransitKind.Rail, "subway" => TransitKind.Subway, _ => throw new InvalidDataException($"{c.Id}: bad transit '{c.Transit}'") },
                 Capacity = c.Capacity, Catchment = c.Catchment, Wait = c.Wait,
-                Roadside = c.Roadside, LotKind = c.LotKind, LeaseRent = c.LeaseRent, Upgrades = c.Upgrades,
+                Roadside = c.Roadside, Hydro = c.Hydro, LotKind = c.LotKind, LeaseRent = c.LeaseRent, Upgrades = c.Upgrades,
                 Serves = c.Serves, MinAge = c.MinAge, MaxAge = c.MaxAge,
                 Unlock = c.Unlock is { } u ? RuleGraph.Compile(u, c.Id + " unlock") : null,
             });

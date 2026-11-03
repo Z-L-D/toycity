@@ -86,13 +86,20 @@ public sealed class CityMirror
     /// <summary>Each cell's river surface in steps, 0 for none (Beta 3.1 part 5).</summary>
     public byte[] Rivers = Array.Empty<byte>();
     public bool IsRiver(int i) => Rivers[i] > Heights[i];
+    /// <summary>Each cell's dam crest in steps, 0 for none (river brush and dams).</summary>
+    public byte[] Dams = Array.Empty<byte>();
+    /// <summary>What the dams do to each river cell (RiverFlow.Held): 2 a reservoir, 1 the river below a dam.</summary>
+    public byte[] DamHeld => _held is { } h && _heldFor == TerrainVersion ? h
+        : (_held = ToyCity.Sim.RiverFlow.Held(Width, Height, Heights, Rivers, Dams), _heldFor = TerrainVersion).Item1;
+    byte[]? _held;
+    int _heldFor = -1;
 
     /// <summary>
     /// Each cell's floodwater surface in steps, 0 where dry, from the stats' river flow: the same rule the server
     /// uses (RiverFlow.Flooded), so the views show the water the sim damages buildings with.
     /// </summary>
     public byte[] Flooded => _flooded is { } f && _floodedFor == (FlowPct, TerrainVersion) ? f
-        : (_flooded = ToyCity.Sim.RiverFlow.Flooded(Width, Height, Heights, Rivers, WaterLevel, FlowPct), _floodedFor = (FlowPct, TerrainVersion)).Item1;
+        : (_flooded = ToyCity.Sim.RiverFlow.Flooded(Width, Height, Heights, Rivers, WaterLevel, FlowPct, Dams), _floodedFor = (FlowPct, TerrainVersion)).Item1;
     byte[]? _flooded;
     (int, int) _floodedFor = (-1, -1);
     public int FloodStage => Stats.FloodStage;
@@ -106,7 +113,7 @@ public sealed class CityMirror
     int _waterSizeFor = -1;
 
     /// <summary>A river or pond cell's water surface in steps at today's flow (RiverFlow.WaterDm), 0 where there's none.</summary>
-    public float WaterSurface(int i) => IsRiver(i) ? ToyCity.Sim.RiverFlow.WaterDm(Rivers[i], WaterSize[i], FlowPct) / 20f : 0f;
+    public float WaterSurface(int i) => IsRiver(i) ? ToyCity.Sim.RiverFlow.WaterDm(Rivers[i], WaterSize[i], ToyCity.Sim.RiverFlow.FlowAt(FlowPct, DamHeld[i])) / 20f : 0f;
 
     /// <summary>
     /// The river beside each cell, for drawing its banks (as the Flint Hills creek's wet bank and floodplain): the
@@ -176,6 +183,7 @@ public sealed class CityMirror
         int n = N;
         Heights = f.Heights.ToByteArray();
         Rivers = f.Rivers.Length == Width * Height ? f.Rivers.ToByteArray() : new byte[Width * Height];
+        Dams = f.Dams.Length == Width * Height ? f.Dams.ToByteArray() : new byte[Width * Height];
         var cb = f.Corners.Span;
         Corners = new ushort[(Width + 1) * (Height + 1)];
         if (cb.Length == Corners.Length * 2)
@@ -267,6 +275,9 @@ public sealed class CityMirror
             if (PathDecks[i] != c.Deck) roads = true;
             PathDecks[i] = (ushort)c.Deck;
             if (Made[i] != (c.Made ? 1 : 0)) terrain = true;
+            if (Rivers[i] != c.River || Dams[i] != c.Dam) terrain = true;
+            Rivers[i] = (byte)c.River;
+            Dams[i] = (byte)c.Dam;
             Made[i] = (byte)(c.Made ? 1 : 0);
             PowerLines[i] = (byte)(c.PowerLine ? 1 : 0);
             WaterPipes[i] = (byte)(c.WaterPipe ? 1 : 0);

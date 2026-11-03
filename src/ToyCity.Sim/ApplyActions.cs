@@ -18,6 +18,8 @@ public sealed partial class World
             case PlaceBuildingAction a: ApplyPlaceBuilding(a); break;
             case BulldozeAction a: ApplyBulldoze(a); break;
             case TerraformAction a: ApplyTerraform(a); break;
+            case DigRiverAction a: ApplyDigRiver(a); break;
+            case PlaceDamAction a: ApplyPlaceDam(a); break;
             case SetTaxAction a:
                 if (a.Zone != Zone.None) TaxTenths[((int)a.Zone - 1) * 3 + (int)a.Wealth] = Math.Clamp(a.PercentTenths, 0, 200);
                 break;
@@ -125,6 +127,7 @@ public sealed partial class World
             if (!InBounds(x, y)) return "That runs off the map.";
             int i = Idx(x, y);
             if (IsWater(i) && !IsRiver(i)) return "Paths can't cross the sea or a lake; a river they can bridge.";
+            if (Dam[i] != 0) return "Paths can't run over a dam.";
             if (BuildingAt[i] != 0) return $"A building is in the way at {x},{y}. Bulldoze it first.";
         }
         // The ground is graded to the steepest the path's type and surface allow, between the paths it meets.
@@ -214,7 +217,7 @@ public sealed partial class World
         for (int x = Math.Max(0, r.MinX); x <= Math.Min(Width - 1, r.MaxX); x++)
         {
             int i = Idx(x, y);
-            if (IsWater(i) || Path[i] != 0) continue;
+            if (IsWater(i) || Path[i] != 0 || Dam[i] != 0) continue;
             if (BuildingAtCell(i) is { } b && TypeOf(b).Placeable) continue;
             if (ZoneCode[i] != code && code != 0) cost += Content.ZoneCostPerCell;
         }
@@ -223,7 +226,7 @@ public sealed partial class World
         for (int x = Math.Max(0, r.MinX); x <= Math.Min(Width - 1, r.MaxX); x++)
         {
             int i = Idx(x, y);
-            if (IsWater(i) || Path[i] != 0) continue;
+            if (IsWater(i) || Path[i] != 0 || Dam[i] != 0) continue;
             var b = BuildingAtCell(i);
             if (b != null && TypeOf(b).Placeable) continue;
             // A different zone kind (or de-zoning) clears the old building; a density change keeps it until it redevelops.
@@ -254,11 +257,13 @@ public sealed partial class World
             if (IsWater(i)) return "Can't build on water.";
             if (BuildingAt[i] != 0) return "Something is already built there.";
             if (Path[i] != 0) return "A path is in the way.";
+            if (Dam[i] != 0) return "That's a dam.";
             minH = Math.Min(minH, Height[i]);
             maxH = Math.Max(maxH, Height[i]);
         }
         if (maxH - minH > MaxPadRise) return $"The ground is too uneven: it rises {maxH - minH} steps across the lot, and a pad can level at most {MaxPadRise}. Level it first.";
         if (PadLevel(a.X, a.Y, type.W, type.H) == null) return "The lots beside it stand at another level: its pad would have to meet theirs. Level it first, or leave a gap.";
+        if (type.Hydro && DamBeside(a.X, a.Y, type.W, type.H) == 0) return $"A {type.Name} goes at the foot of a dam, within {HydroReach} cells of it.";
         return null;
     }
 
@@ -361,9 +366,12 @@ public sealed partial class World
             return;
         }
         foreach (var id in doomed) cost += Content.BulldozeCostPerCell * Buildings[id]!.W * Buildings[id]!.H;
+        var dams = new List<List<int>>();
+        if (!a.Underground) cost += DamsIn(x0, y0, x1, y1, out dams);
         if (!Spend(cost, r.X0, r.Y0)) return;
         ForgetBusRoutes();
         foreach (var id in doomed) RemoveBuilding(Buildings[id]!);
+        RemoveDams(dams);
         for (int y = y0; y <= y1; y++)
         for (int x = x0; x <= x1; x++)
         {
@@ -395,7 +403,7 @@ public sealed partial class World
         {
             for (int dy = -1; dy <= 0; dy++)
             for (int dx = -1; dx <= 0; dx++)
-                if (InBounds(cx + dx, cy + dy) && (BuildingAt[Idx(cx + dx, cy + dy)] != 0 || Path[Idx(cx + dx, cy + dy)] != 0)) return true;
+                if (InBounds(cx + dx, cy + dy) && (BuildingAt[Idx(cx + dx, cy + dy)] != 0 || Path[Idx(cx + dx, cy + dy)] != 0 || Dam[Idx(cx + dx, cy + dy)] != 0)) return true;
             return false;
         }
         // Level brings the area to the first cell's height, a whole step, so levelled land is never under the water.

@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 17;
+    public const int FormatVersion = 18;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -183,6 +183,8 @@ public sealed partial class World
         Watered = new byte[N];
         Sewered = new byte[N];
         Subway = new byte[N];
+        Dam = new byte[N];
+        RiverBefore = new byte[N];
         LandValue = new byte[N];
         DesR = new short[N];
         DesC = new short[N];
@@ -469,6 +471,8 @@ public sealed partial class World
             WriteWaterQuality(w);
             // Format 17: how much the rivers carry, from the month's rain.
             w.Write(RiverFlowPct);
+            // Format 18: dams, and the rivers' levels before their reservoirs.
+            WC(w, Dam); WC(w, RiverBefore);
         }
         return ms.ToArray();
     }
@@ -606,6 +610,8 @@ public sealed partial class World
         w.ReadWaterQuality(r, version);
         // Format 17 added the rivers' flow; an older city's is its flood stage's.
         w.RiverFlowPct = version >= 17 ? r.ReadInt32() : FlowOfStage(w.FloodStage);
+        // Format 18 added dams; an older city has none.
+        if (version >= 18) { ReadBytes(r, w.Dam); ReadBytes(r, w.RiverBefore); }
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
         var demand = (int[])w.Demand.Clone();

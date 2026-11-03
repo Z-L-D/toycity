@@ -42,6 +42,8 @@ public static class Palette
     /// tint on empty zoned land, nothing otherwise. Roads are drawn as their own shapes (RoadsView, StripsView).</summary>
     public static Color Mark(CityMirror c, int i)
     {
+        // A dam's crest and faces: poured concrete (river brush and dams).
+        if (c.Dams.Length > i && c.Dams[i] != 0) return new Color(0.66f, 0.65f, 0.61f, 0.92f);
         bool strip = RoadShape.UnderStrip(c, i);
         if (c.Paths[i] != 0 && !strip) return new Color(0, 0, 0, 0);
         int z = strip ? RoadShape.FillZone(c, i) : c.Zones[i];

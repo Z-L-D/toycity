@@ -232,7 +232,29 @@ message Action {
     OpenTender open_tender = 32;
     SetRoadCrews road_crews = 33;
     SetTreatment treatment = 34;
+    DigRiver dig_river = 35;
+    PlaceDam dam = 36;
   }
+}
+
+// The river brush (river round 2): digs a channel along a straight stroke, width 1..5 cells and depth 1..4 steps.
+// Its water starts at the river it's dug from, or the ground at the start, and only falls along the stroke.
+message DigRiver {
+  int32 x0 = 1;
+  int32 y0 = 2;
+  int32 x1 = 3;
+  int32 y1 = 4;
+  int32 width = 5;
+  int32 depth = 6;
+}
+
+// A dam along a straight line across a river, holding its water rise (1..8) steps over the river there.
+message PlaceDam {
+  int32 x0 = 1;
+  int32 y0 = 2;
+  int32 x1 = 3;
+  int32 y1 = 4;
+  int32 rise = 5;
 }
 
 // How far the sewage plants treat sewage before letting it into the water (Beta 4, part 3): 0 none (raw sewage out,
@@ -1024,6 +1046,7 @@ message BuildingTypeInfo {
   int32 water_out = 25;    // a pump's water a day
   int32 sewage_cap = 26;   // a treatment plant's sewage a day (Beta 3.2)
   int32 water_treat = 27;  // a water treatment works' water cleaned a day (Beta 4, part 3)
+  bool hydro = 28;         // a hydro plant: goes at the foot of a dam (river brush and dams)
 }
 
 // An upgrade a type offers: what it becomes, what it costs and what the building must earn first.
@@ -1170,6 +1193,7 @@ message FullState {
   bytes bedrock = 19;       // uint16 little-endian per grid corner: the top of the rock in dm; the ground above it is soil
   bytes rock = 20;          // one byte per cell: the rock under it, 1 shale, 2 sandstone, 3 limestone, 4 granite
   bytes subways = 21;       // one byte per cell: 1 where a subway tunnel runs under it (Beta 3.2)
+  bytes dams = 22;          // one byte per cell: a dam's crest in steps, 0 for none (river brush and dams)
 }
 
 // An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
@@ -1197,6 +1221,8 @@ message CellUpdate {
   int32 deck = 8;     // the road's level in dm on a bridge or in a tunnel, 0 on the ground
   bool made = 9;      // earthworks reshaped the land here
   bool subway = 10;   // a subway tunnel runs under it (Beta 3.2)
+  int32 river = 11;   // the river surface in steps, 0 for none (the river brush and dams change it)
+  int32 dam = 12;     // a dam's crest in steps, 0 for none
 }
 
 message TickDelta {

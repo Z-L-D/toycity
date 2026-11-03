@@ -44,12 +44,13 @@ export function waterDm(river: number, size: number, pct: number): number {
 }
 
 /** The floodwater for a map at a flow, in steps (0 dry), as the sim's RiverFlow.Flooded. */
-export function flooded(w: number, h: number, ground: Uint8Array, river: Uint8Array, waterLevel: number, pct: number): Uint8Array {
+export function flooded(w: number, h: number, ground: Uint8Array, river: Uint8Array, waterLevel: number, pct: number, dams?: Uint8Array): Uint8Array {
   const n = w * h, water = new Uint8Array(n);
   if (stageOf(pct) <= 0 || river.length !== n) return water;
   const size = sizes(w, h, ground, river), dm = new Int32Array(n), dist = new Int32Array(n);
+  const hold = dams && dams.length === n ? held(w, h, ground, river, dams) : null;
   const queue: number[] = [];
-  for (let i = 0; i < n; i++) if (river[i] > ground[i]) { dm[i] = waterDm(river[i], size[i], pct); queue.push(i); }
+  for (let i = 0; i < n; i++) if (river[i] > ground[i]) { dm[i] = waterDm(river[i], size[i], hold ? flowAt(pct, hold[i]) : pct); queue.push(i); }
   for (let q = 0; q < queue.length; q++) {
     const c = queue[q];
     if (dist[c] >= REACH) continue;
@@ -66,4 +67,50 @@ export function flooded(w: number, h: number, ground: Uint8Array, river: Uint8Ar
   }
   for (let i = 0; i < n; i++) if (dm[i] && river[i] <= ground[i]) water[i] = Math.min(255, Math.floor((dm[i] + STEP_DM - 1) / STEP_DM));
   return water;
+}
+
+/** A reservoir's water, held at its dam's spillway; a river below a dam, its flow evened out. */
+export const RESERVOIR = 2, REGULATED = 1;
+export const HELD_LEAST = 60, HELD_MOST = 150;
+
+/** What the dams do to each river cell, as the sim's RiverFlow.Held: 2 a reservoir, 1 the river below a dam, 0 free. */
+export function held(w: number, h: number, ground: Uint8Array, river: Uint8Array, dams: Uint8Array): Uint8Array {
+  const n = w * h, out = new Uint8Array(n);
+  const D: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  const spread = (from: number, mark: number, level: number, exact: boolean) => {
+    const queue = [from];
+    out[from] = Math.max(out[from], mark);
+    for (let q = 0; q < queue.length; q++) {
+      const c = queue[q], x = c % w, y = (c / w) | 0;
+      for (const [dx, dy] of D) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (out[j] >= mark || dams[j] || river[j] <= ground[j]) continue;
+        if (exact ? river[j] !== level : river[j] > level) continue;
+        out[j] = mark;
+        queue.push(j);
+      }
+    }
+  };
+  for (let pass = 0; pass < 2; pass++)
+    for (let d = 0; d < n; d++) {
+      if (!dams[d]) continue;
+      const x = d % w, y = (d / w) | 0;
+      for (const [dx, dy] of D) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (dams[j] || river[j] <= ground[j]) continue;
+        const pool = river[j] === dams[d] - 1;
+        if (pass === 0 && pool && out[j] !== RESERVOIR) spread(j, RESERVOIR, river[j], true);
+        if (pass === 1 && !pool && out[j] === 0) spread(j, REGULATED, river[j], false);
+      }
+    }
+  return out;
+}
+
+/** The flow a river cell runs at, given what the dams do to it. */
+export function flowAt(pct: number, h: number): number {
+  return h === RESERVOIR ? 100 : h === REGULATED ? Math.min(HELD_MOST, Math.max(HELD_LEAST, pct)) : pct;
 }

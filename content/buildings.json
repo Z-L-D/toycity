@@ -567,6 +567,28 @@
       "garbageCap": 0
     },
     {
+      "id": "hydro-plant",
+      "name": "Hydro Plant",
+      "category": "power",
+      "w": 2,
+      "h": 2,
+      "cost": 28000,
+      "maintenance": 250,
+      "jobs": 15,
+      "powerOutKw": 9000,
+      "pollution": 0,
+      "waterPollution": 0,
+      "noise": 10,
+      "radius": 0,
+      "color": "#3d7ea6",
+      "powerKw": 0,
+      "waterUse": 0,
+      "garbage": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "hydro": true
+    },
+    {
       "id": "wind-turbine",
       "name": "Wind Turbine",
       "category": "power",

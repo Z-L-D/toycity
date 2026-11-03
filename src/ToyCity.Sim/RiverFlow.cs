@@ -66,19 +66,20 @@ public static class RiverFlow
     /// <see cref="Reach"/> cells, onto every cell whose ground lies under the raised water, through cells that are
     /// themselves under it. Each flooded cell's surface is the step its water reaches.
     /// </summary>
-    public static byte[] Flooded(int width, int height, byte[] ground, byte[] river, int waterLevel, int flowPct)
+    public static byte[] Flooded(int width, int height, byte[] ground, byte[] river, int waterLevel, int flowPct, byte[]? dams = null)
     {
         int n = width * height;
         var water = new byte[n];
         if (StageOf(flowPct) <= 0) return water;
         var size = Sizes(width, height, ground, river);
+        var held = dams == null ? null : Held(width, height, ground, river, dams);
         var dm = new int[n];
         var dist = new int[n];
         var queue = new Queue<int>();
         for (int i = 0; i < n; i++)
             if (river[i] > ground[i])
             {
-                dm[i] = WaterDm(river[i], size[i], flowPct);
+                dm[i] = WaterDm(river[i], size[i], held == null ? flowPct : FlowAt(flowPct, held[i]));
                 queue.Enqueue(i);
             }
         ReadOnlySpan<int> dx = [0, 1, 0, -1], dy = [-1, 0, 1, 0];
@@ -104,4 +105,67 @@ public static class RiverFlow
             if (dm[i] != 0 && river[i] <= ground[i]) water[i] = (byte)Math.Min(255, (dm[i] + StepDm - 1) / StepDm);
         return water;
     }
+
+    /// <summary>A reservoir's water, held at its dam's spillway whatever the rain.</summary>
+    public const byte Reservoir = 2;
+    /// <summary>A river below a dam: the reservoir evens its flow out.</summary>
+    public const byte Regulated = 1;
+    /// <summary>The least and most a dam lets through below it, as a share of the usual flow: no floods, no trickle.</summary>
+    public const int HeldLeast = 60, HeldMost = 150;
+
+    /// <summary>
+    /// What the dams do to each river cell (river brush and dams): <see cref="Reservoir"/> for a reservoir's water
+    /// (river cells joined to a dam at its spillway's level, a step under its crest), <see cref="Regulated"/> for the
+    /// river below a dam (river cells joined to the dam's foot at its level or lower), 0 for a free river. dams holds
+    /// each dam cell's crest in steps, 0 elsewhere.
+    /// </summary>
+    public static byte[] Held(int width, int height, byte[] ground, byte[] river, byte[] dams)
+    {
+        int n = width * height;
+        var held = new byte[n];
+        int[] dx = [0, 1, 0, -1], dy = [-1, 0, 1, 0];
+        var queue = new Queue<int>();
+        void Spread(int from, byte mark, int level, bool exact)
+        {
+            queue.Clear();
+            queue.Enqueue(from);
+            held[from] = Math.Max(held[from], mark);
+            while (queue.Count > 0)
+            {
+                int c = queue.Dequeue(), x = c % width, y = c / width;
+                for (int k = 0; k < 4; k++)
+                {
+                    int nx = x + dx[k], ny = y + dy[k];
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                    int j = ny * width + nx;
+                    if (held[j] >= mark || dams[j] != 0 || river[j] <= ground[j]) continue;
+                    if (exact ? river[j] != level : river[j] > level) continue;
+                    held[j] = mark;
+                    queue.Enqueue(j);
+                }
+            }
+        }
+        // Reservoirs first, so the river below never claims one.
+        for (int pass = 0; pass < 2; pass++)
+        for (int d = 0; d < n; d++)
+        {
+            if (dams[d] == 0) continue;
+            int x = d % width, y = d / width;
+            for (int k = 0; k < 4; k++)
+            {
+                int nx = x + dx[k], ny = y + dy[k];
+                if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                int j = ny * width + nx;
+                if (dams[j] != 0 || river[j] <= ground[j]) continue;
+                bool pool = river[j] == dams[d] - 1;
+                if (pass == 0 && pool && held[j] != Reservoir) Spread(j, Reservoir, river[j], true);
+                if (pass == 1 && !pool && held[j] == 0) Spread(j, Regulated, river[j], false);
+            }
+        }
+        return held;
+    }
+
+    /// <summary>The flow a river cell runs at, given what the dams do to it.</summary>
+    public static int FlowAt(int flowPct, byte held) =>
+        held == Reservoir ? 100 : held == Regulated ? Math.Clamp(flowPct, HeldLeast, HeldMost) : flowPct;
 }
