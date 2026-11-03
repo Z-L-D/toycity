@@ -169,33 +169,102 @@ public sealed partial class RegionHost : IDisposable
     List<(Client, P.ServerMessage)> Annexed(RegionTile city, int col, int row, string by)
     {
         var a = city.Anchor ?? city;
-        int oldIdx = a.Row * _region.Cols + a.Col;
+        string name = a.Name, who = by == a.Mayor ? "" : $" ({by})";
+        return Rehost(new[] { a }, () => _region.Annex(a, col, row),
+            (cols, rows) => $"{name} annexed the land beside it{who}: it's {cols} × {rows} tiles now.");
+    }
+
+    /// <summary>A city takes in its neighbour, as agreed: both hosts let everyone go, and the one city's host takes them in. Caller holds every gate.</summary>
+    List<(Client, P.ServerMessage)> TookOver(RegionTile buyer, RegionTile seller, long price)
+    {
+        var a = buyer.Anchor ?? buyer;
+        var b = seller.Anchor ?? seller;
+        string an = a.Name, bn = b.Name;
+        return Rehost(new[] { a, b }, () => _region.TakeOver(a, b, price),
+            (cols, rows) => $"{an} took in {bn} for ${price:N0}: it's one city of {cols} × {rows} tiles now.");
+    }
+
+    /// <summary>
+    /// Puts cities onto a new world (an annex or a takeover): their hosts let everyone go, the change is made, and the
+    /// new city's host takes them all in. Everyone else hears of it. Caller holds every gate.
+    /// </summary>
+    List<(Client, P.ServerMessage)> Rehost(RegionTile[] cities, Func<World> change, Func<int, int, string> told)
+    {
         var list = new List<(Client, P.ServerMessage)>();
-        var oldHost = _cities[oldIdx];
-        var moving = oldHost?.Clients.ToList() ?? new List<Client>();
-        foreach (var cl in moving) list.AddRange(oldHost!.Leave(cl));
-        string name = a.Name;
-        var w = _region.Annex(a, col, row);
+        var slots = cities.Select(Slot).Distinct().ToList();
+        var moving = new List<Client>();
+        foreach (int i in slots)
+            if (_cities[i] is { } h)
+                foreach (var cl in h.Clients.ToList()) { list.AddRange(h.Leave(cl)); moving.Add(cl); }
+        var w = change();
         var anchor = _region.TileOf(w)!;
-        _cities[oldIdx] = null;
-        oldHost?.Dispose();
+        foreach (int i in slots) { _cities[i]?.Dispose(); _cities[i] = null; }
         var (nc, nr, ncols, nrows) = _region.Footprint(anchor);
         for (int r = nr; r < nr + nrows; r++)
         for (int k = nc; k < nc + ncols; k++)
             _pictures.Remove(r * _region.Cols + k);
         OpenCities();
-        var host = _cities[anchor.Row * _region.Cols + anchor.Col]!;
+        var host = _cities[Slot(anchor)]!;
         foreach (var cl in moving)
         {
             var (mine, others) = host.Join(cl);
             list.AddRange(mine.Select(m => (cl, m)));
             list.AddRange(others);
         }
-        string who = by == a.Mayor ? "" : $" ({by})";
-        list.AddRange(Cities.Where(h => h != host).SelectMany(h => h.Notice($"{name} annexed the land beside it{who}: it's {ncols} × {nrows} tiles now.", "info")));
+        string text = told(ncols, nrows);
+        list.AddRange(Cities.Where(h => h != host).SelectMany(h => h.Notice(text, "info")));
         list.AddRange(host.Deltas(forceAlerts: true));
         list.AddRange(RegionIfChanged(force: true));
         return list;
+    }
+
+    /// <summary>A mayor's offer, answer or withdrawal on taking in a neighbour. Caller holds every gate.</summary>
+    List<(Client, P.ServerMessage)> Takeover(Client c, P.TakeoverRequest t, out string? why)
+    {
+        why = null;
+        if (c.Tile is not { } at) { why = "Open a city first."; return new(); }
+        var here = at.Anchor ?? at;
+        bool Hosted(RegionTile x) => _links.ElementAtOrDefault(Slot(x)) != null;
+        switch (t.Op)
+        {
+            case P.TakeoverRequest.Types.Op.Offer:
+            {
+                if (_region.TileAt(t.Col, t.Row) is not { Founded: true } there) { why = "There's no city there."; return new(); }
+                var them = there.Anchor!;
+                if (!c.Admin && here.Mayor != c.Player) { why = $"Only {here.Name}'s mayor can offer to take in a neighbour."; return new(); }
+                if (Hosted(here) || Hosted(them)) { why = "A city on its own host can't take in a neighbour or be taken in."; return new(); }
+                TakeoverOffer? o;
+                string? answer;
+                try { o = _region.OfferTakeover(here, them, t.Price, c.Player, out answer); }
+                catch (InvalidOperationException e) { why = e.Message; return new(); }
+                if (answer != null) { why = answer; return new(); }
+                // A computer mayor agreed: done now.
+                if (them.City!.ComputerMayor) return TookOver(here, them, t.Price);
+                var list = _cities[Slot(them)]?.Notice($"{c.Player} offers ${t.Price:N0} for {here.Name} to take in {them.Name}. Answer on the region map.", "info") ?? new();
+                list.AddRange(RegionIfChanged(force: true));
+                return list;
+            }
+            case P.TakeoverRequest.Types.Op.Accept:
+            {
+                if (_region.Takeovers.FirstOrDefault(x => x.Id == t.Id) is not { } o) { why = "That offer isn't open any more."; return new(); }
+                var (buyer, seller) = _region.Parties(o);
+                if (seller.Mayor != c.Player) { why = $"Only {seller.Name}'s mayor can agree to it."; return new(); }
+                if (Hosted(buyer) || Hosted(seller)) { why = "A city on its own host can't take in a neighbour or be taken in."; return new(); }
+                if (_region.CantTakeOver(buyer, seller, o.Price) is { } no) { why = no; return new(); }
+                return TookOver(buyer, seller, o.Price);
+            }
+            default:
+            {
+                if (_region.Takeovers.FirstOrDefault(x => x.Id == t.Id) is not { } o) { why = "That offer isn't open any more."; return new(); }
+                var (buyer, seller) = _region.Parties(o);
+                bool decline = t.Op == P.TakeoverRequest.Types.Op.Decline;
+                if (decline ? seller.Mayor != c.Player : buyer.Mayor != c.Player && o.By != c.Player) { why = "That offer isn't yours to answer."; return new(); }
+                _region.Takeovers.Remove(o);
+                var list = _cities[Slot(decline ? buyer : seller)]?.Notice(decline ? $"{seller.Name}'s mayor turned down {buyer.Name}'s offer to take it in." : $"{buyer.Name} withdrew its offer to take in {seller.Name}.", "info") ?? new();
+                list.AddRange(RegionIfChanged(force: true));
+                return list;
+            }
+        }
     }
 
     /// <summary>
@@ -397,6 +466,11 @@ public sealed partial class RegionHost : IDisposable
                 var list = new List<(Client, P.ServerMessage)>();
                 foreach (var c in Cities) list.AddRange(c.AfterStep());
                 list.AddRange(DecideVotes());
+                foreach (var o in _region.LapseTakeovers())
+                {
+                    _regionSig = "";
+                    if (_cities[o.Buyer] is { } bh) list.AddRange(bh.Notice($"The offer to take in {_region.Tiles[o.Seller].Name} lapsed.", "info"));
+                }
                 _sceneOpen = _region.Cities.Any(w => w.SideGames.Any(g => g.Last.Holding.Count > 0));
                 var first = _region.Cities.FirstOrDefault();
                 if (first != null && first.Day == 1)
@@ -514,7 +588,7 @@ public sealed partial class RegionHost : IDisposable
         string sig = $"{_speed}/{_speedBy}/{_region.Tick / World.DaysPerMonth}/{string.Join(",", _region.Deals.Select(d => $"{d.Id}{(d.Active ? "+" : "?")}"))}/{string.Join(",", _region.Tiles.Where(t => !t.Wild).Select(t => _region.WeatherAt(t, _region.Tick)))}/" + string.Join(",", _region.Tiles.Where(t => !t.Wild).Select(t =>
             $"{t.Name}:{t.Mayor}:{string.Join("/", t.City?.NextDoor.Select(n => n?.Sig ?? "") ?? Enumerable.Empty<string>())}:{string.Join("+", _cities[Slot(t)]?.Clients.Select(c => c.Player).Distinct().OrderBy(n => n, StringComparer.Ordinal) ?? Enumerable.Empty<string>())}"));
         sig += $"/{_waiting}/{_stopped}/{string.Join(",", _links.Where(l => l != null).Select(l => $"{l!.Index}:{l.Address}"))}";
-        sig += $"/{_region.Charter}/{string.Join(",", _region.Votes.Select(v => $"{v.Id}:{v.Yes.Count}:{v.No.Count}"))}";
+        sig += $"/{_region.Charter}/{string.Join(",", _region.Votes.Select(v => $"{v.Id}:{v.Yes.Count}:{v.No.Count}"))}/{string.Join(",", _region.Takeovers.Select(o => o.Id))}";
         if (!force && sig == _regionSig) return list;
         _regionSig = sig;
         foreach (var city in Cities)
@@ -830,6 +904,14 @@ public sealed partial class RegionHost : IDisposable
                 });
                 break;
             }
+            case P.ClientMessage.BodyOneofCase.Takeover:
+                broadcast = WithAll(() =>
+                {
+                    var list = Takeover(c, msg.Takeover, out var why);
+                    if (why != null) reply = SimHost.Error(msg.Seq, why);
+                    return list;
+                });
+                break;
             case P.ClientMessage.BodyOneofCase.Charter:
                 broadcast = WithAll(() =>
                 {

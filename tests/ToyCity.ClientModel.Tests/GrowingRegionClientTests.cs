@@ -202,6 +202,69 @@ public class GrowingRegionClientTests : IDisposable
         Assert.Empty(may.Errors);
     }
 
+    [Fact]
+    public void TwoMayorsAgreeAndTheirCitiesBecomeOne()
+    {
+        using var may = new Player(_server.Ws, "May");
+        may.Panels.Click("dialog:new");
+        may.Panels.SetInput("Firstford");
+        may.Panels.Click("grow");
+        may.Panels.Click("size:64");
+        may.Panels.Click("new-ok");
+        may.WaitFor(() => may.Client.City.Stats.CityName == "Firstford" && may.Region.State is { Grows: true, TileSize: 64 }, "the growing region");
+        int c = may.Region.State!.HereCol;
+        may.Client.Connection.Send(new ClientMessage { Grow = new GrowRegion { Col = c + 1, Row = c } });
+        may.WaitFor(() => may.Region.TileAt(c + 1, c)?.Wild == false, "the east tile");
+        using var tess = new Player(_server.Ws, "Tess");
+        tess.Client.Connection.Send(new ClientMessage { FoundCity = new FoundCity { Col = c + 1, Row = c, Name = "Eastwick" } });
+        tess.WaitFor(() => tess.Region.TileAt(c + 1, c)?.Founded == true, "Eastwick");
+        tess.Panels.Click("rg-open");
+        tess.Panels.Click($"rg-pick:{c + 1}:{c}");
+        tess.Panels.Click("rg-go");
+        tess.WaitFor(() => tess.Client.City.Stats.CityName == "Eastwick", "Tess in Eastwick");
+        // Tess builds a road in Eastwick, to see it come along.
+        for (int y = 6; y < 64; y += 8)
+            tess.Client.Connection.Act(new ToyCity.Protocol.V0.Action { Path = new PlacePath { X0 = 5, Y0 = y, X1 = 60, Y1 = y, ProfileId = "road" } });
+        tess.WaitFor(() => tess.Client.City.Paths.Count(p => p != 0) > 10, "Tess's roads");
+        Thread.Sleep(500);
+        tess.WaitFor(() => true, "the rest");
+        int roads = tess.Client.City.Paths.Count(p => p != 0);
+
+        // May offers to take Eastwick in; the panel shows the city the two would make and a starting price.
+        may.WaitFor(() => may.Region.TakeoverAt(may.Region.TileAt(c + 1, c)!) != null, "the option");
+        may.Panels.Click("rg-open");
+        may.Panels.Click($"rg-pick:{c + 1}:{c}");
+        var text = may.Region.Render();
+        Assert.Contains("Take in Eastwick", text);
+        Assert.Contains("2 × 1 tiles", text);
+        Assert.True(text.Contains("rg-takeover-offer"), text);
+        long start = may.Region.Bid.Price;
+        may.Panels.Click("rg-bid:+");
+        Assert.Equal(start + 5000, may.Region.Bid.Price);
+        tess.Panels.Click("rg-open");
+        may.Panels.Click("rg-takeover-offer");
+        tess.WaitFor(() => tess.Region.State!.Takeovers.Count == 1, "Tess hears of the offer");
+        Assert.Equal(start + 5000, tess.Region.State!.Takeovers[0].Price);
+        Assert.Contains("rg-to-accept", tess.Region.Render());
+
+        // Tess agrees: one city, May's, on two tiles; Tess is in it, a deputy, with her road.
+        tess.Panels.Click($"rg-to-accept:{tess.Region.State!.Takeovers[0].Id}");
+        tess.WaitFor(() => tess.Client.City.Width == 128 && tess.Client.City.Stats.CityName == "Firstford", "Tess in the one city");
+        may.WaitFor(() => may.Client.City.Width == 128, "May in the one city");
+        Assert.Equal(roads, tess.Client.City.Paths.Count(p => p != 0) - CountWest(tess.Client.City));
+        Assert.Equal("Firstford", may.Region.TileAt(c + 1, c)!.Name);
+        Assert.Empty(may.Region.State!.Takeovers);
+        Assert.Empty(may.Errors);
+        Assert.Empty(tess.Errors);
+
+        static int CountWest(CityMirror m)
+        {
+            int n = 0;
+            for (int y = 0; y < m.Height; y++) for (int x = 0; x < 64; x++) if (m.Paths[y * m.Width + x] != 0) n++;
+            return n;
+        }
+    }
+
     /// <summary>A seed whose first tile has a river running off one of its sides, and that side.</summary>
     static (ulong Seed, int Side) RiverSeed(int size)
     {

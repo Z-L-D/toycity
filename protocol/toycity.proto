@@ -41,6 +41,7 @@ message ClientMessage {
     SetCharter charter = 27;
     CastVote vote = 28;
     AnnexRequest annex = 29;
+    TakeoverRequest takeover = 30;
   }
 }
 
@@ -53,6 +54,48 @@ message AnnexRequest {
 
 // What annexing one tile beside this city would take: the rectangle the city would be, the price, and why it can't
 // when it can't.
+// Beta 4, part 6: a mayor offers to take in the city next door, and its mayor answers.
+message TakeoverRequest {
+  enum Op {
+    OFFER = 0;
+    ACCEPT = 1;
+    DECLINE = 2;
+    WITHDRAW = 3;
+  }
+  Op op = 1;
+  int32 col = 2;      // offer: a tile of the neighbour
+  int32 row = 3;
+  int64 price = 4;    // offer
+  int32 id = 5;       // accept, decline, withdraw
+}
+
+message TakeoverOffer {
+  int32 id = 1;
+  int32 buyer_col = 2;   // the city taking the other in (its top-left tile)
+  int32 buyer_row = 3;
+  int32 seller_col = 4;  // the city taken in
+  int32 seller_row = 5;
+  string buyer = 6;      // the cities' names, for the map
+  string seller = 7;
+  int64 price = 8;
+  string by = 9;
+  int64 day = 10;
+  int32 to_cols = 11;    // the city the two would make
+  int32 to_rows = 12;
+}
+
+message TakeoverOption {
+  int32 col = 1;         // the neighbour's top-left tile
+  int32 row = 2;
+  int32 to_col = 3;      // the rectangle the two would make
+  int32 to_row = 4;
+  int32 to_cols = 5;
+  int32 to_rows = 6;
+  int64 floor = 7;       // a computer mayor's price, or a fair start for a player's city
+  string why = 8;        // empty when it can be offered (the price aside)
+  bool computer = 9;
+}
+
 message AnnexOption {
   int32 col = 1;
   int32 row = 2;
@@ -663,6 +706,8 @@ message RegionState {
   int32 max_city_side = 24;        // the largest a city may be here, in tiles a side: the charter's limit within the server's
   int32 server_max_city_side = 25; // the most this server can run, in tiles a side (Region.MaxCityCells / tile_size)
   repeated AnnexOption annex = 26;  // the open tiles around this connection's city, and what annexing each would take
+  repeated TakeoverOffer takeovers = 27;  // offers to take in a neighbouring city, open now
+  repeated TakeoverOption takeover_options = 28;  // the cities next door to this connection's that it could take in
 }
 
 // Go to another host for that city (federated regions): address is its /ws URL.
@@ -1690,6 +1735,8 @@ message RegionSave {
   bool tile_by_tile = 13;    // Beta 4: a huge region; its tiles' ground made so far is in grown
   RegionCharter charter = 14;  // unset: RegionCharter's defaults for a region made before charters
   repeated RegionVote votes = 15;
+  repeated TakeoverOffer takeovers = 16;
+  int32 next_takeover = 17;
 }
 
 // One tile a growing region has added, with the ground made for it then.

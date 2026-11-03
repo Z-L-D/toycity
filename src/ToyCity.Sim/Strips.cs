@@ -45,8 +45,9 @@ public sealed partial class World
 
     void WriteStrips(BinaryWriter w)
     {
-        w.Write(Strips.Count);
-        foreach (var s in Strips)
+        var strips = SnapshotStrips.ToList();
+        w.Write(strips.Count);
+        foreach (var s in strips)
         {
             w.Write(s.Code); w.Write(s.Curved);
             w.Write(CX(s.X0)); w.Write(CY(s.Y0)); w.Write(CX(s.X1)); w.Write(CY(s.Y1)); w.Write(CX(s.CX)); w.Write(CY(s.CY));

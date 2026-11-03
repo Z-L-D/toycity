@@ -672,3 +672,4 @@ body.company #toasts, body.dispatch #toasts, body.company #hints { bottom: 10px;
 #away { top: 100px; }
 .cost { background: var(--glass); border: 1px solid var(--glass-line); border-radius: 8px; padding: 3px 9px; font-weight: 600; color: var(--gold); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
 .cost.bad { color: var(--bad); }
+.rg-offer { margin: 6px 0 10px; font-size: 0.92em; }

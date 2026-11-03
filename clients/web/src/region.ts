@@ -53,6 +53,8 @@ export class Region {
   private picked: { col: number; row: number } | null = null;
   /** The deal being drawn up for the picked neighbour. */
   private offer = { kind: 0, selling: true, amount: 500, price: 100 };
+  /** The price on the table for taking in a neighbour, and whose it is (its top-left tile). */
+  private bid = { col: -1, row: -1, price: 0 };
   /** The offer being answered with other terms, or 0 for a new offer. */
   private counterId = 0;
   /** A new charter being drawn up (Beta 4, part 6), or null. */
@@ -87,7 +89,7 @@ export class Region {
     if (/^(Deal|Taking over|Handing)/.test(this.pending)) this.pending = '';
     if (this.pending.startsWith('Adding') && (this.tile(this.picked.col, this.picked.row)?.wild === false
       || body.votes.some((v: Msg) => v.kind === 1 && v.col === this.picked!.col && v.row === this.picked!.row))) this.pending = '';
-    if (/^(Charter|Voting)/.test(this.pending)) this.pending = '';
+    if (/^(Charter|Voting|Takeover)/.test(this.pending)) this.pending = '';
     // A tile a city has annexed: the city is picked whole, from its top-left tile.
     const pt = this.tile(this.picked.col, this.picked.row);
     if (pt?.founded && (pt.cityCols ?? 0) * (pt.cityRows ?? 0) > 1) this.picked = { col: pt.cityCol, row: pt.cityRow };
@@ -235,6 +237,39 @@ export class Region {
   }
 
   /** This city's deals, with what its mayor can do about each; with a neighbour picked, the offer being drawn up. */
+  /**
+   * Taking in a neighbouring city by a deal (Beta 4, part 6): the offers open now, both ways, and, for a picked
+   * neighbour, what the two would make and an offer to send.
+   */
+  private takeoverHtml(p: Msg | undefined): string {
+    const s = this.state!;
+    const home = this.tile(s.hereCol, s.hereRow);
+    const me = this.host.conn.player;
+    let h = '';
+    for (const o of s.takeovers ?? []) {
+      const theirs = o.sellerCol === s.hereCol && o.sellerRow === s.hereRow;
+      h += `<div class="rg-offer"><b>${esc(o.buyer)}</b> would take in <b>${esc(o.seller)}</b> for ${money(o.price)}
+        <span class="muted">(${o.toCols} × ${o.toRows} tiles; offered by ${esc(o.by)})</span>
+        ${theirs && home?.mayor === me ? `<div class="actions"><button data-to-accept="${o.id}" class="active">Agree: ${esc(o.seller)} joins ${esc(o.buyer)}</button> <button data-to-decline="${o.id}">Decline</button></div>`
+          : !theirs && (home?.mayor === me || o.by === me) ? `<div class="actions"><span class="muted">Waiting for ${esc(o.seller)}'s mayor.</span> <button data-to-withdraw="${o.id}">Withdraw</button></div>` : ''}</div>`;
+    }
+    if (h) h = `<h3>Taking in a neighbour</h3>${h}`;
+    const opt = p && (s.takeoverOptions ?? []).find((x: Msg) => x.col === p.col && x.row === p.row);
+    if (!opt || !home) return h;
+    if (this.bid.col !== opt.col || this.bid.row !== opt.row) this.bid = { col: opt.col, row: opt.row, price: opt.floor };
+    // A computer mayor takes no less than its price, which moves with its city.
+    if (opt.computer && this.bid.price < opt.floor) this.bid.price = opt.floor;
+    const may = home.mayor === me || this.admin();
+    h += `<h4>Take in ${esc(p.name)}</h4>
+      <p class="muted">${esc(home.name)} and ${esc(p.name)} would be one city of <b>${opt.toCols} × ${opt.toRows} tiles</b>, named ${esc(home.name)}.
+        ${esc(p.name)}'s buildings, roads and people come with it, and its treasury and debts; its bus lines and dispatch close.
+        ${opt.computer ? `${esc(p.mayor)} sells for ${money(opt.floor)} or more, by its temperament.` : `Its mayor, ${esc(p.mayor)}, has to agree, and stays on as a deputy.`}</p>
+      ${opt.why ? `<p class="rg-why">${esc(opt.why)}</p>` : may ? `<div class="actions"><span class="muted">Price</span>
+          <button data-bid="-1">−</button> <b>${money(this.bid.price)}</b> <button data-bid="1">＋</button>
+          <button id="rg-takeover-offer" class="active">${opt.computer ? 'Buy it' : 'Offer it'}</button></div>` : ''}`;
+    return h;
+  }
+
   private dealsHtml(p: Msg | undefined): string {
     const s = this.state!;
     const here = this.tile(s.hereCol, s.hereRow);
@@ -398,6 +433,7 @@ export class Region {
       }
     }
     side += this.dealsHtml(p);
+    side += this.takeoverHtml(p && p.founded && !(p.col === s.hereCol && p.row === s.hereRow) ? p : undefined);
     side += this.charterHtml();
     if (this.pending) side += `<p class="rg-pending">⏳ ${esc(this.pending.replace(/^Deal: /, ''))}</p>`;
     $('#rg-body').innerHTML = `
@@ -473,6 +509,16 @@ export class Region {
       this.host.conn.send({ mayor: { col: p!.col, row: p!.row, computer: b.dataset.hand } });
     });
     on('[data-deal-counter]', (b) => this.counter(Number(b.dataset.dealCounter)));
+    on('[data-bid]', (b) => { this.bid.price = Math.max(0, this.bid.price + 5000 * Number(b.dataset.bid)); this.render(); });
+    on('#rg-takeover-offer', () => {
+      this.pending = `Takeover: offering ${money(this.bid.price)}…`;
+      this.render();
+      this.host.conn.send({ takeover: { op: 0, col: this.bid.col, row: this.bid.row, price: this.bid.price } });
+    });
+    const answer = (op: number, id: number, what: string) => { this.pending = `Takeover: ${what}…`; this.render(); this.host.conn.send({ takeover: { op, id } }); };
+    on('[data-to-accept]', (b) => answer(1, Number(b.dataset.toAccept), 'agreeing: the two cities become one'));
+    on('[data-to-decline]', (b) => answer(2, Number(b.dataset.toDecline), 'declining'));
+    on('[data-to-withdraw]', (b) => answer(3, Number(b.dataset.toWithdraw), 'withdrawing'));
     on('[data-deal-end]', (b) => this.deal(3, Number(b.dataset.dealEnd), 'ending'));
   }
 }

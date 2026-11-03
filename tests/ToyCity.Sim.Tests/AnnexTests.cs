@@ -164,3 +164,84 @@ public class RegionAnnexTests(ITestOutputHelper output)
         Assert.Equal(1, r.MaxCitySide);
     }
 }
+
+/// <summary>Absorbing a neighbour by a deal: two cities become one, with everything in both.</summary>
+public class TakeoverTests(ITestOutputHelper output)
+{
+    const int S = 128;
+
+    [Fact]
+    public void ACityTakesInItsNeighbourWithItsPeopleAndRoads()
+    {
+        using var r = Region.Create(Fixture.Content, "Twins", 31, 3, 1, S);
+        var west = r.Found(0, 0, "Westbury", "May", starter: true);
+        var east = r.Found(1, 0, "Eastbury", "Tess", starter: true);
+        r.Run(40);
+        Assert.Empty(west.Accounts());
+        Assert.Empty(east.Accounts());
+        int pop = west.Population + east.Population, buildings = west.Buildings.Count(b => b != null) + east.Buildings.Count(b => b != null);
+        int eastPaths = east.Path.Count(p => p != 0), westPaths = west.Path.Count(p => p != 0);
+        long funds = west.Funds + east.Funds, debt = west.Debt + east.Debt;
+        var eastRoads = Enumerable.Range(0, S * S).Where(i => east.Path[i] != 0).Select(i => (i % S, i / S, east.Path[i])).ToList();
+        var wt = r.TileAt(0, 0)!;
+        var et = r.TileAt(1, 0)!;
+        Assert.Equal((0, 0, 2, 1), r.TakeoverRect(wt, et));
+        long price = 20_000;
+        Assert.Null(r.CantTakeOver(wt, et, price));
+        Assert.Contains("needs $", r.CantTakeOver(wt, et, 10_000_000));
+        // A player's city: the offer waits for Tess.
+        var offer = r.OfferTakeover(wt, et, price, "May", out var answer);
+        Assert.NotNull(offer);
+        Assert.Null(answer);
+        Assert.Single(r.Takeovers);
+
+        var w = r.TakeOver(wt, et, price);
+        Assert.Empty(r.Takeovers);
+        Assert.Equal((2 * S, S), (w.Width, w.HeightCells));
+        Assert.Equal("Westbury", w.Name);
+        Assert.Equal(buildings, w.Buildings.Count(b => b != null));
+        Assert.Equal(eastPaths + westPaths, w.Path.Count(p => p != 0));
+        foreach (var (x, y, p) in eastRoads) Assert.Equal(p, w.Path[w.Idx(x + S, y)]);
+        Assert.Equal(funds - price, w.Funds);
+        Assert.Equal(debt, w.Debt);
+        Assert.Equal(pop, w.Population);
+        Assert.Empty(w.Accounts());
+        Assert.Equal(Portfolio.Planning | Portfolio.Budget | Portfolio.Services | Portfolio.Transit, w.Deputies["Tess"]);
+        Assert.Single(r.Cities);
+        Assert.Same(w, r.TileAt(1, 0)!.City);
+        Assert.Same(r.TileAt(0, 0), r.TileAt(1, 0)!.Anchor);
+        Assert.Equal(w.StateHash(), World.FromSnapshot(Fixture.Content, w.Snapshot()).StateHash());
+
+        // It plays on as one city, and the region saves it as one.
+        r.Run(30);
+        Assert.Empty(w.Accounts());
+        output.WriteLine($"{pop} people before, {w.Population} a month on");
+        Assert.True(w.Population >= pop * 8 / 10, $"{w.Population} of {pop}");
+        using var back = RegionMapping.Load(Fixture.Content, RegionMapping.Save(r));
+        Assert.Equal(r.StateHash(), back.StateHash());
+    }
+
+    [Fact]
+    public void AComputerMayorSellsOnlyAtItsPrice()
+    {
+        using var r = Region.Create(Fixture.Content, "Pair", 8, 2, 1, S);
+        var mine = r.Found(0, 0, "Mine", "May", starter: true);
+        r.Found(1, 0, "Theirs", "", starter: true, computer: AutopilotStyle.Growth);
+        r.Run(10);
+        var a = r.TileAt(0, 0)!;
+        var b = r.TileAt(1, 0)!;
+        long floor = r.TakeoverFloor(b);
+        Assert.True(floor >= 25_000);
+        mine.Enqueue(new TakeLoanAction(floor));
+        mine.ApplyPending();
+        Assert.Null(r.OfferTakeover(a, b, floor / 2, "May", out var no));
+        Assert.Contains("won't sell", no);
+        Assert.Empty(r.Takeovers);
+        Assert.NotNull(r.OfferTakeover(a, b, floor, "May", out var yes));
+        Assert.Null(yes);
+        var w = r.TakeOver(a, b, floor);
+        Assert.Equal(2 * S, w.Width);
+        Assert.Empty(w.Accounts());
+        Assert.Empty(w.Deputies);
+    }
+}

@@ -36,6 +36,8 @@ public static class RegionMapping
         foreach (var t in r.Anchors)
             s.Cities.Add(new P.RegionSavedCity { Col = t.Col, Row = t.Row, Save = ByteString.CopyFrom(Mapping.Save(t.City!)) });
         foreach (var d in r.Deals.Where(d => !d.Active)) s.Offers.Add(Deal(r, d));
+        foreach (var o in r.Takeovers) s.Takeovers.Add(Takeover(r, o));
+        s.NextTakeover = r.NextTakeoverId;
         return s.ToByteArray();
     }
 
@@ -60,6 +62,12 @@ public static class RegionMapping
             r.WaterCrossesBorders = !s.WaterStays;
             if (s.Charter != null) r.Charter = Charter(s.Charter);
             foreach (var v in s.Votes) r.RestoreVote(Vote(v));
+            foreach (var o in s.Takeovers)
+                r.Takeovers.Add(new TakeoverOffer
+                {
+                    Id = o.Id, Buyer = o.BuyerRow * s.Cols + o.BuyerCol, Seller = o.SellerRow * s.Cols + o.SellerCol, Price = o.Price, By = o.By, Day = o.Day,
+                });
+            r.NextTakeoverId = Math.Max(s.NextTakeover, r.Takeovers.Select(o => o.Id + 1).DefaultIfEmpty(1).Max());
             foreach (var o in s.Offers)
                 r.RestoreOffer(new RegionDeal
                 {
@@ -170,6 +178,20 @@ public static class RegionMapping
                     Price = r.AnnexPrice(here, to), Why = r.CantAnnex(here, col, row) ?? "",
                 });
             }
+            // The cities next door it could take in, by a deal.
+            var seen = new HashSet<RegionTile>();
+            for (int side = 0; side < 4; side++)
+            {
+                if (r.NeighbourOn(here, side) is not { } n || !seen.Add(n)) continue;
+                var to = r.TakeoverRect(here, n);
+                s.TakeoverOptions.Add(new P.TakeoverOption
+                {
+                    Col = n.Col, Row = n.Row, ToCol = to?.Col ?? 0, ToRow = to?.Row ?? 0, ToCols = to?.Cols ?? 0, ToRows = to?.Rows ?? 0,
+                    Floor = r.TakeoverFloor(n), Why = r.CantTakeOver(here, n, 0) ?? "", Computer = n.City!.ComputerMayor,
+                });
+            }
+            int mine = r.Footprint(here) is var f ? f.Row * r.Cols + f.Col : -1;
+            foreach (var o in r.Takeovers.Where(o => o.Buyer == mine || o.Seller == mine)) s.Takeovers.Add(Takeover(r, o));
         }
         if (r.TileAt(hereCol, hereRow) is { } at)
         {
@@ -177,6 +199,17 @@ public static class RegionMapping
             foreach (var d in r.Deals.Where(d => d.Seller == me || d.Buyer == me)) s.Deals.Add(Deal(r, d));
         }
         return s;
+    }
+
+    public static P.TakeoverOffer Takeover(Region r, TakeoverOffer o)
+    {
+        var (b, sl) = r.Parties(o);
+        var to = b.City != null && sl.City != null ? r.TakeoverRect(b, sl) : null;
+        return new P.TakeoverOffer
+        {
+            Id = o.Id, BuyerCol = b.Col, BuyerRow = b.Row, SellerCol = sl.Col, SellerRow = sl.Row, Buyer = b.Name, Seller = sl.Name,
+            Price = o.Price, By = o.By, Day = o.Day, ToCols = to?.Cols ?? 0, ToRows = to?.Rows ?? 0,
+        };
     }
 
     static bool Unsurveyed(Region r, RegionTile t) => r.TileByTile && t.City == null && r.GrownGround(t.Col, t.Row) == null;

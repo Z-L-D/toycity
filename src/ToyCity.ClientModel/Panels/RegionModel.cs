@@ -6,7 +6,7 @@ namespace ToyCity.ClientModel.Panels;
 /// <summary>
 /// The region map's screen, with no engine types: the latest <see cref="RegionState"/>, the tile picked, what the
 /// player is waiting on, and what each link does. While <see cref="Active"/> it replaces the city's whole interface.
-/// Links: rg-open, rg-close, rg-pick:COL:ROW, rg-go, rg-found, rg-grow, rg-annex, rg-starter, rg-founder[:T], rg-window, rg-takeover, rg-hand:T; deals: rg-kind:K, rg-sell, rg-amt:±,
+/// Links: rg-open, rg-close, rg-pick:COL:ROW, rg-go, rg-found, rg-grow, rg-annex, rg-bid:±, rg-takeover-offer, rg-to-accept|decline|withdraw:ID, rg-starter, rg-founder[:T], rg-window, rg-takeover, rg-hand:T; deals: rg-kind:K, rg-sell, rg-amt:±,
 /// rg-price:±, rg-offer, rg-accept:ID, rg-counter:ID, rg-decline:ID, rg-end:ID; the charter (Beta 4): rg-charter, rg-ch-grow:R,
 /// rg-ch-annex:R, rg-ch-max:N, rg-ch-send, rg-ch-cancel, rg-vote:ID:yes|no.
 /// </summary>
@@ -52,6 +52,8 @@ public sealed class RegionModel
     public bool OfferSelling { get; private set; } = true;
     public int OfferAmount { get; private set; } = 500;
     public int OfferPrice { get; private set; } = 100;
+    /// <summary>The price on the table for taking in a neighbour, and whose it is (its top-left tile).</summary>
+    public (int Col, int Row, long Price) Bid { get; private set; } = (-1, -1, 0);
     /// <summary>The offer being answered with other terms, or 0 for a new offer.</summary>
     public int CounterId { get; private set; }
     /// <summary>Goes up when the pictures or the grid change, so the view rebuilds its tiles.</summary>
@@ -101,7 +103,7 @@ public sealed class RegionModel
                 if (Pending.StartsWith("Founding") && PickedTile?.Founded == true) Pending = "";
                 if (Pending.StartsWith("Deal:") || Pending.StartsWith("Taking over") || Pending.StartsWith("Handing")) Pending = "";
                 if (Pending.StartsWith("Adding") && (PickedTile is { Wild: false } || m.Region.Votes.Any(v => v.Kind == VoteKind.VoteGrow && v.Col == Picked?.Col && v.Row == Picked?.Row))) Pending = "";
-                if (Pending.StartsWith("Charter") || Pending.StartsWith("Voting")) Pending = "";
+                if (Pending.StartsWith("Charter") || Pending.StartsWith("Voting") || Pending.StartsWith("Takeover")) Pending = "";
                 // A tile a city has annexed: the city is picked whole, from its top-left tile.
                 var pt = PickedTile;
                 if (pt is { Founded: true } && pt.CityCols * pt.CityRows > 1) Picked = (pt.CityCol, pt.CityRow);
@@ -213,6 +215,20 @@ public sealed class RegionModel
                 OfferAmount = OfferKind == DealKind.DealTransit ? 200 : OfferKind == DealKind.DealGarbage ? 300 : 500;
                 _changed();
                 return;
+            case "rg-bid" when a.Length == 2 && Bid.Col >= 0: Bid = (Bid.Col, Bid.Row, Math.Max(0, Bid.Price + (a[1] == "-" ? -5000 : 5000))); _changed(); return;
+            case "rg-takeover-offer" when PickedTile is { Founded: true } t && TakeoverAt(t) is { Why.Length: 0 } && Bid.Col == t.Col && Bid.Row == t.Row:
+                Pending = $"Takeover: offering {Money(Bid.Price)}…";
+                _send(new ClientMessage { Takeover = new TakeoverRequest { Op = TakeoverRequest.Types.Op.Offer, Col = t.Col, Row = t.Row, Price = Bid.Price } });
+                _changed();
+                return;
+            case "rg-to-accept" or "rg-to-decline" or "rg-to-withdraw" when a.Length == 2 && int.TryParse(a[1], out int toId):
+            {
+                var top = a[0] == "rg-to-accept" ? TakeoverRequest.Types.Op.Accept : a[0] == "rg-to-decline" ? TakeoverRequest.Types.Op.Decline : TakeoverRequest.Types.Op.Withdraw;
+                Pending = top == TakeoverRequest.Types.Op.Accept ? "Takeover: agreeing: the two cities become one…" : top == TakeoverRequest.Types.Op.Decline ? "Takeover: declining…" : "Takeover: withdrawing…";
+                _send(new ClientMessage { Takeover = new TakeoverRequest { Op = top, Id = toId } });
+                _changed();
+                return;
+            }
             case "rg-sell": OfferSelling = !OfferSelling; _changed(); return;
             case "rg-amt" when a.Length == 2: OfferAmount = Math.Clamp(OfferAmount + (a[1] == "-" ? -100 : 100), 100, 100_000); _changed(); return;
             case "rg-price" when a.Length == 2: OfferPrice = Math.Clamp(OfferPrice + (a[1] == "-" ? -25 : 25), 0, 100_000); _changed(); return;
@@ -379,6 +395,7 @@ public sealed class RegionModel
             }
         }
         RenderDeals(sb, s);
+        RenderTakeovers(sb, s, PickedTile is { Founded: true } pk && !(pk.Col == s.HereCol && pk.Row == s.HereRow) ? pk : null);
         RenderCharter(sb, s);
         if (Pending.Length > 0) sb.Append("\n\n").Append(Col(Warn, "⏳ " + Esc(Pending.StartsWith("Deal: ") ? Pending[6..] : Pending)));
         return sb.ToString();
@@ -483,6 +500,38 @@ public sealed class RegionModel
     /// This city's deals with its neighbours, with what its mayor can do about each; and with a neighbour picked, the
     /// offer being drawn up for it.
     /// </summary>
+    /// <summary>The city next door this player's city could take in: the rectangle the two would make and a fair start.</summary>
+    public TakeoverOption? TakeoverAt(RegionTileState t) => State?.TakeoverOptions.FirstOrDefault(x => x.Col == t.Col && x.Row == t.Row);
+
+    /// <summary>Taking in a neighbour by a deal: the offers open now, both ways, and for a picked neighbour an offer to send.</summary>
+    void RenderTakeovers(System.Text.StringBuilder sb, RegionState s, RegionTileState? p)
+    {
+        var home = Here;
+        if (s.Takeovers.Count > 0)
+        {
+            sb.Append("\n\n").Append(H3("Taking in a neighbour"));
+            foreach (var o in s.Takeovers)
+            {
+                bool theirs = o.SellerCol == s.HereCol && o.SellerRow == s.HereRow;
+                sb.Append($"[b]{Esc(o.Buyer)}[/b] would take in [b]{Esc(o.Seller)}[/b] for {Money(o.Price)} ").Append(Dim($"({o.ToCols} × {o.ToRows} tiles; offered by {Esc(o.By)})")).Append('\n');
+                if (theirs && home?.Mayor == Me()) sb.Append(Link($"rg-to-accept:{o.Id}", $"Agree: {Esc(o.Seller)} joins {Esc(o.Buyer)}")).Append("   ").Append(Link($"rg-to-decline:{o.Id}", "Decline")).Append('\n');
+                else if (!theirs && (home?.Mayor == Me() || o.By == Me())) sb.Append(Dim($"Waiting for {Esc(o.Seller)}'s mayor. ")).Append(Link($"rg-to-withdraw:{o.Id}", "Withdraw")).Append('\n');
+            }
+        }
+        if (p == null || home == null || TakeoverAt(p) is not { } opt) return;
+        if (Bid.Col != opt.Col || Bid.Row != opt.Row) Bid = (opt.Col, opt.Row, opt.Floor);
+        // A computer mayor takes no less than its price, which moves with its city.
+        if (opt.Computer && Bid.Price < opt.Floor) Bid = (Bid.Col, Bid.Row, opt.Floor);
+        sb.Append("\n\n").Append(H3($"Take in {Esc(p.Name)}"));
+        sb.Append(Dim($"{Esc(home.Name)} and {Esc(p.Name)} would be one city of ")).Append($"[b]{opt.ToCols} × {opt.ToRows} tiles[/b]")
+          .Append(Dim($", named {Esc(home.Name)}. {Esc(p.Name)}'s buildings, roads and people come with it, and its treasury and debts; its bus lines and dispatch close. "
+            + (opt.Computer ? $"{Esc(p.Mayor)} sells for {Money(opt.Floor)} or more, by its temperament." : $"Its mayor, {Esc(p.Mayor)}, has to agree, and stays on as a deputy."))).Append("\n\n");
+        if (opt.Why.Length > 0) sb.Append(Col(Warn, Esc(opt.Why)));
+        else if (home.Mayor == Me() || Admin())
+            sb.Append(Dim("Price ")).Append(Link("rg-bid:-", "−")).Append($" [b]{Money(Bid.Price)}[/b] ").Append(Link("rg-bid:+", "＋")).Append("   ")
+              .Append(Link("rg-takeover-offer", opt.Computer ? "Buy it" : "Offer it"));
+    }
+
     void RenderDeals(System.Text.StringBuilder sb, RegionState s)
     {
         var here = Here;

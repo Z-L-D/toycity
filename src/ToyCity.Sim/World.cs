@@ -400,8 +400,8 @@ public sealed partial class World
             foreach (var c in Coverage) WC(w, c);
             WC(w, Litter); WC(w, Blight); WC(w, Riders); w.Write(TransitBoardings);
 
-            w.Write(Buildings.Count);
-            foreach (var b in Buildings)
+            w.Write(SnapshotBuildingCount);
+            foreach (var (b, offset, theirs) in SnapshotBuildings())
             {
                 w.Write(b != null);
                 if (b == null) continue;
@@ -414,19 +414,21 @@ public sealed partial class World
                 w.Write(b.Assignments.Count);
                 foreach (var a in b.Assignments)
                 {
-                    w.Write(a.SiteId); w.Write(a.Count); w.Write(a.Minutes);
+                    w.Write(a.SiteId + offset); w.Write(a.Count); w.Write(a.Minutes);
                     w.Write(a.PathCells.Length);
                     foreach (var c in a.PathCells) w.Write(CI(c));
                     w.Write(a.RideCells.Length);
                     foreach (var c in a.RideCells) w.Write(CL(c));
                     w.Write(a.Stops.Length);
                     foreach (var c in a.Stops) w.Write(CI(c));
-                    w.Write(a.LineLegs.Length);
-                    foreach (var c in a.LineLegs) w.Write(c);
+                    // Rides on a merged neighbour's lines end with its side games.
+                    var legs = theirs ? Array.Empty<int>() : a.LineLegs;
+                    w.Write(legs.Length);
+                    foreach (var c in legs) w.Write(c);
                 }
             }
 
-            w.Write(Funds); w.Write(Debt);
+            w.Write(Funds + (_merge?.Other.Funds ?? 0)); w.Write(Debt + (_merge?.Other.Debt ?? 0));
             foreach (var t in TaxTenths) w.Write(t);
             foreach (var d in Demand) w.Write(d);
             w.Write(LastIncome); w.Write(LastExpenses);

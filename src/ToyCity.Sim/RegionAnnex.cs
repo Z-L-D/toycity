@@ -81,7 +81,7 @@ public sealed partial class Region
     /// Why a city of these tiles would crowd a side of itself or of a neighbour: a side of a city may border only one
     /// other city. <paramref name="who"/> is the city growing, or null for a new city of one tile.
     /// </summary>
-    string? CrowdsASide(int col, int row, World? who, int cols = 1, int rows = 1)
+    string? CrowdsASide(int col, int row, World? who, int cols = 1, int rows = 1, World? also = null)
     {
         // Its own sides.
         for (int side = 0; side < 4; side++)
@@ -91,7 +91,7 @@ public sealed partial class Region
             for (int k = 0; k < n; k++)
             {
                 var o = side switch { 0 => TileAt(col + k, row - 1), 1 => TileAt(col + cols, row + k), 2 => TileAt(col + k, row + rows), _ => TileAt(col - 1, row + k) };
-                if (o?.City is { } c && c != who) seen.Add(c);
+                if (o?.City is { } c && c != who && c != also) seen.Add(c);
             }
             if (seen.Count > 1) return $"Its {SideName(side)} side would border {string.Join(" and ", seen.Select(c => c.Name))}: a side of a city can border only one other city.";
         }
@@ -102,9 +102,9 @@ public sealed partial class Region
             for (int k = 0; k < n; k++)
             {
                 var o = side switch { 0 => TileAt(col + k, row - 1), 1 => TileAt(col + cols, row + k), 2 => TileAt(col + k, row + rows), _ => TileAt(col - 1, row + k) };
-                if (o?.City is not { } c || c == who) continue;
+                if (o?.City is not { } c || c == who || c == also) continue;
                 foreach (var other in AcrossSide(o.Anchor!, World.Opposite(side)))
-                    if (other?.City is { } x && x != c && x != who && !InRect(other, col, row, cols, rows))
+                    if (other?.City is { } x && x != c && x != who && x != also && !InRect(other, col, row, cols, rows))
                         return $"{c.Name}'s {SideName(World.Opposite(side))} side already borders {x.Name}: a side of a city can border only one other city.";
             }
         }

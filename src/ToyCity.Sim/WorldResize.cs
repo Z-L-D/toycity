@@ -27,20 +27,22 @@ public sealed partial class World
     /// <summary>A cell index mapped the way <see cref="CI"/> maps it, for a side game moving with its city.</summary>
     static Func<int, int> CellMap(int oldW, int n, int newW, int dx, int dy) => i => i < 0 || i >= n ? i : (i / oldW + dy) * newW + i % oldW + dx;
 
-    // Per-cell layers: as they are, or laid out on the bigger map with the new land empty.
+    // Per-cell layers: as they are, or laid out on the bigger map with the new land empty, or with another city's
+    // part of the map taken from it (WorldMerge.cs).
     void WC(BinaryWriter w, byte[] a)
     {
+        a = Layer(a, false);
         if (_shift is not { } s) { w.Write(a); return; }
         var b = new byte[s.NewW * s.NewH];
         for (int y = 0; y < s.OldH; y++) Array.Copy(a, y * s.OldW, b, (y + s.Dy) * s.NewW + s.Dx, s.OldW);
         w.Write(b);
     }
 
-    void WC(BinaryWriter w, ushort[] a) { if (_shift == null) WriteU16(w, a); else WriteU16(w, Lay(a, _shift, false)); }
-    void WC(BinaryWriter w, short[] a) { if (_shift == null) WriteI16(w, a); else WriteI16(w, Lay(a, _shift, false)); }
-    void WC(BinaryWriter w, int[] a) { if (_shift == null) WriteI32(w, a); else WriteI32(w, Lay(a, _shift, false)); }
+    void WC(BinaryWriter w, ushort[] a) { a = Layer(a, false); if (_shift == null) WriteU16(w, a); else WriteU16(w, Lay(a, _shift, false)); }
+    void WC(BinaryWriter w, short[] a) { a = Layer(a, false); if (_shift == null) WriteI16(w, a); else WriteI16(w, Lay(a, _shift, false)); }
+    void WC(BinaryWriter w, int[] a) { a = Layer(a, false); if (_shift == null) WriteI32(w, a); else WriteI32(w, Lay(a, _shift, false)); }
     /// <summary>A layer of corners, one more each way than cells.</summary>
-    void WK(BinaryWriter w, ushort[] a) { if (_shift == null) WriteU16(w, a); else WriteU16(w, Lay(a, _shift, true)); }
+    void WK(BinaryWriter w, ushort[] a) { a = Layer(a, true); if (_shift == null) WriteU16(w, a); else WriteU16(w, Lay(a, _shift, true)); }
 
     static T[] Lay<T>(T[] a, Shift s, bool corners)
     {
