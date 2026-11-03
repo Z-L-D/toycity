@@ -137,6 +137,18 @@ jobs:
           { echo '### Together: the Beta 2 gate (CI runner, software OpenGL)'; echo; grep '^TOGETHER ' together.log | sed 's/^TOGETHER /- /'; } >> "$GITHUB_STEP_SUMMARY"
           grep -q "TOGETHER OK" together.log || { tail -40 together-server.log; false; }
           ! grep -n "SHADER ERROR" -A3 together.log
+      - name: Room to grow, Beta 4 part 6 (a city buys out its neighbour and annexes land, then the views of it)
+        run: |
+          mkdir -p room
+          ToyCity__SaveDir="$PWD/room" dotnet run --project src/ToyCity.Server -c Release --no-build -- --urls http://localhost:5183 > room-server.log 2>&1 &
+          for i in $(seq 60); do curl -sf localhost:5183/health && break; sleep 1; done
+          timeout 300 dotnet run --project tools/ToyCity.Stage -c Release -- ws://localhost:5183/ws | tee room.log
+          grep -q "STAGE OK" room.log || { tail -40 room-server.log; false; }
+          xvfb-run -a -s "-screen 0 1600x900x24" timeout 180 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
+            --path clients/godot -- --shots "$PWD/room-shots" --server ws://localhost:5183/ws 2>&1 | tee room-shots.log
+          grep -q "SMOKE OK" room-shots.log
+          ! grep -n "SHADER ERROR" -A3 room-shots.log
+          { echo '### Room to grow (CI runner, software OpenGL)'; echo; grep '^STAGE ' room.log | sed 's/^STAGE /- /'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Contact sheets of the views (base64 JPEG, for reviewers who can't download artifacts)
         if: always()
         run: |
@@ -156,6 +168,15 @@ jobs:
           if ls together-shots/*.png > /dev/null 2>&1; then
             montage together-shots/*.png -tile 2x -geometry 800x450+2+2 -quality 55 together-sheet.jpg
             echo "::group::together-sheet.jpg base64"; echo "TOGETHER-SHEET-BEGIN"; base64 -w 0 together-sheet.jpg; echo; echo "TOGETHER-SHEET-END"; echo "::endgroup::"
+          fi
+          if ls room-shots/*.png > /dev/null 2>&1; then
+            montage room-shots/*.png -tile 4x -geometry 400x225+1+1 -quality 50 room-sheet.jpg
+            echo "::group::room-sheet.jpg base64"; echo "ROOM-SHEET-BEGIN"; base64 -w 0 room-sheet.jpg; echo; echo "ROOM-SHEET-END"; echo "::endgroup::"
+            for f in room-shots/view-1-*.png room-shots/*-region.png; do
+              [ -f "$f" ] || continue
+              convert "$f" -resize 1200x -quality 72 "room-$(basename "$f" .png).jpg"
+              echo "::group::$f base64"; echo "ROOM-SHOT-BEGIN $(basename "$f" .png)"; base64 -w 0 "room-$(basename "$f" .png).jpg"; echo; echo "ROOM-SHOT-END"; echo "::endgroup::"
+            done
           fi
           montage shots/*.png -tile 4x -geometry 320x180+1+1 -quality 45 sheet.jpg
           echo "::group::sheet.jpg base64"; echo "SHEET-BEGIN"; base64 -w 0 sheet.jpg; echo; echo "SHEET-END"; echo "::endgroup::"
@@ -194,4 +215,8 @@ jobs:
             together.json
             together.log
             together-server.log
+            room-shots/
+            room-sheet.jpg
+            room.log
+            room-server.log
             server.log
