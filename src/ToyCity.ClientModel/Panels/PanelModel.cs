@@ -27,6 +27,8 @@ public sealed partial class PanelModel
     public Func<string> Me { get; set; } = () => "player";
     /// <summary>True on a dedicated server, where seats go to the computer while their owner is away.</summary>
     public Func<bool> OnServer { get; set; } = () => false;
+    /// <summary>True when this player is one of the server's admins.</summary>
+    public Func<bool> Admin { get; set; } = () => false;
 
     public PanelModel(CityMirror city, Func<ClientMessage, uint> send)
     {
@@ -36,7 +38,7 @@ public sealed partial class PanelModel
         Company.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Company.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
         Emergency = new EmergencyModel(send, Changed) { Me = () => Me(), CityWidth = () => city.Width > 0 ? city.Width : 128 };
-        Region = new RegionModel(send, Changed) { Me = () => Me() };
+        Region = new RegionModel(send, Changed) { Me = () => Me(), Admin = () => Admin() };
         Emergency.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Emergency.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
         Emergency.Flash += (x0, y0, x1, y1) => Flash?.Invoke(new Rect { X0 = x0, Y0 = y0, X1 = x1, Y1 = y1 });
@@ -351,7 +353,7 @@ public sealed partial class PanelModel
         Dialog = name;
         if (name == "seat" && Mayor is { } m) _seatDraft = (m.Level, m.Style, m.SpendCap);
         if (name == "load") _send(new ClientMessage { Save = new SaveRequest { Name = "" } });  // refresh the list
-        if (name == "new") { Input = "New City"; _newSize = 128; _newStarter = _newBench = _newGrow = false; }
+        if (name == "new") { Input = "New City"; _newSize = 128; _newStarter = _newBench = _newGrow = false; _newSide = 0; _newCharter = new RegionCharter { Grow = CharterRule.CharterAnyone, Annex = CharterRule.CharterVote }; }
         if (name == "save")
         {
             var safe = new string((_city.Stats.CityName ?? "city").Where(ch => char.IsLetterOrDigit(ch) || ch is ' ' or '_' or '-').ToArray());
@@ -373,6 +375,9 @@ public sealed partial class PanelModel
     bool _newStarter, _newBench;
     /// <summary>Start a growing region (G4) rather than a lone city.</summary>
     bool _newGrow;
+    /// <summary>A fixed region's tiles a side (Beta 4: small 3 to huge 32), or 0 for a single city.</summary>
+    int _newSide;
+    RegionCharter _newCharter = new() { Grow = CharterRule.CharterAnyone, Annex = CharterRule.CharterVote };
     // The lease terms dialog: what it's for, the terms being edited, and what OK does with them.
     (string Title, string Ok, string Note, LeaseTerms Terms, Action<LeaseTerms> Done)? _terms;
     (string Text, System.Action Yes)? _confirm;
@@ -683,13 +688,16 @@ public sealed partial class PanelModel
             case "size": _newSize = I(1); Changed(); return;
             case "starter": _newStarter = !_newStarter; Changed(); return;
             case "bench": _newBench = !_newBench; Changed(); return;
-            case "grow": _newGrow = !_newGrow; Changed(); return;
+            case "grow": _newGrow = !_newGrow; if (_newGrow) _newSide = 0; Changed(); return;
+            case "region": _newSide = I(1); if (_newSide > 0) _newGrow = false; Changed(); return;
+            case "new-grow" when a.Length == 2 && Enum.TryParse<CharterRule>(a[1], out var ng): _newCharter.Grow = ng; Changed(); return;
+            case "new-annex" when a.Length == 2 && Enum.TryParse<CharterRule>(a[1], out var na): _newCharter.Annex = na; Changed(); return;
             case "new-ok":
             {
                 string name = Input.Trim() is { Length: > 0 } n ? n : "New City";
-                if (_newGrow && !_newBench)
+                if ((_newGrow || _newSide > 0) && !_newBench)
                 {
-                    _send(new ClientMessage { NewRegion = new NewRegionRequest { Name = $"{name} Region", CityName = name, TileSize = _newSize, StarterTown = _newStarter, Grows = true } });
+                    _send(new ClientMessage { NewRegion = new NewRegionRequest { Name = $"{name} Region", CityName = name, TileSize = _newSize, StarterTown = _newStarter, Grows = _newGrow, Cols = _newSide, Rows = _newSide, Charter = _newCharter.Clone() } });
                     CloseDialog();
                     StartWorking($"Making the {name} region…");
                     return;

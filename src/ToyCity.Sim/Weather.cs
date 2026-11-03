@@ -86,7 +86,8 @@ public sealed partial class Region
     public List<Front> Fronts(long tick)
     {
         var list = new List<Front>();
-        long w = (long)Cols * TileSize, h = (long)Rows * TileSize;
+        // Over the region's box (Beta 4, part 6): the tiles it has, not a growing region's whole frame.
+        long w = (long)BoxCols * TileSize, h = (long)BoxRows * TileSize;
         for (long slot = tick / FrontPeriod - FrontDays / FrontPeriod; slot <= tick / FrontPeriod; slot++)
         {
             if (slot < 0) continue;
@@ -126,7 +127,8 @@ public sealed partial class Region
     public (WeatherKind Kind, int Strength) WeatherAt(RegionTile t, long tick)
     {
         if (PinnedWeather is { } pin) return pin;
-        long cx = (long)t.Col * TileSize + TileSize / 2, cy = (long)t.Row * TileSize + TileSize / 2;
+        var (bx, by) = BoxCell(t, TileSize / 2, TileSize / 2);
+        long cx = bx, cy = by;
         var best = (WeatherKind.Clear, 0);
         foreach (var f in Fronts(tick))
         {

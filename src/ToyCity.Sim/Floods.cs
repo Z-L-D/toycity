@@ -132,14 +132,10 @@ public sealed partial class Region
     {
         if (_floodSamples != null) return _floodSamples;
         var g = Ground;
-        int wide = Cols * TileSize, high = Rows * TileSize;
+        int wide = BoxCols * TileSize;
         var samples = new List<(long, long, int)>[Tiles.Length];
         for (int k = 0; k < samples.Length; k++) samples[k] = new();
-        int TileIndex(int i)
-        {
-            int col = i % wide / TileSize, row = i / wide / TileSize;
-            return Array.FindIndex(Tiles, t => t.Col == col && t.Row == row);
-        }
+        int TileIndex(int i) => TileAtBox(i % wide, i / wide) is { } t ? t.Row * Cols + t.Col : -1;
         // Every seventh river cell stands for its stretch: walk down from it, noting the day it reaches each tile.
         for (int i = 0; i < g.Rivers.Length; i += 7)
         {

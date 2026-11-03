@@ -7,12 +7,19 @@ namespace ToyCity.ClientModel.Panels;
 /// The region map's screen, with no engine types: the latest <see cref="RegionState"/>, the tile picked, what the
 /// player is waiting on, and what each link does. While <see cref="Active"/> it replaces the city's whole interface.
 /// Links: rg-open, rg-close, rg-pick:COL:ROW, rg-go, rg-found, rg-grow, rg-starter, rg-founder[:T], rg-window, rg-takeover, rg-hand:T; deals: rg-kind:K, rg-sell, rg-amt:±,
-/// rg-price:±, rg-offer, rg-accept:ID, rg-counter:ID, rg-decline:ID, rg-end:ID.
+/// rg-price:±, rg-offer, rg-accept:ID, rg-counter:ID, rg-decline:ID, rg-end:ID; the charter (Beta 4): rg-charter, rg-ch-grow:R,
+/// rg-ch-annex:R, rg-ch-max:N, rg-ch-send, rg-ch-cancel, rg-vote:ID:yes|no.
 /// </summary>
 public sealed class RegionModel
 {
     /// <summary>Pixels along a side of a tile's picture (the server's RegionMapping.PictureSize).</summary>
     public const int PictureSize = 32;
+
+    /// <summary>The sizes a new region can be, tiles a side (the server's Region.Sizes).</summary>
+    public static readonly (string Name, int Side)[] Sizes = { ("Small", 3), ("Medium", 8), ("Large", 16), ("Huge", 32) };
+
+    /// <summary>True when the server makes a region this big a tile at a time (its Region.MaxEagerCells, 1024 cells a side).</summary>
+    public static bool MadeTileByTile(int side, int tileSize) => side * tileSize > 1024;
 
     readonly Func<ClientMessage, uint> _send;
     readonly System.Action _changed;
@@ -24,6 +31,11 @@ public sealed class RegionModel
     }
 
     public Func<string> Me { get; set; } = () => "player";
+    /// <summary>True when this player is one of the server's admins: their charter changes take effect at once.</summary>
+    public Func<bool> Admin { get; set; } = () => false;
+
+    /// <summary>A new charter being drawn up, or null.</summary>
+    public RegionCharter? CharterDraft { get; private set; }
 
     public RegionState? State { get; private set; }
     public bool Active { get; private set; }
@@ -88,7 +100,8 @@ public sealed class RegionModel
                 Picked ??= (m.Region.HereCol, m.Region.HereRow);
                 if (Pending.StartsWith("Founding") && PickedTile?.Founded == true) Pending = "";
                 if (Pending.StartsWith("Deal:") || Pending.StartsWith("Taking over") || Pending.StartsWith("Handing")) Pending = "";
-                if (Pending.StartsWith("Adding") && PickedTile is { Wild: false }) Pending = "";
+                if (Pending.StartsWith("Adding") && (PickedTile is { Wild: false } || m.Region.Votes.Any(v => v.Kind == VoteKind.VoteGrow && v.Col == Picked?.Col && v.Row == Picked?.Row))) Pending = "";
+                if (Pending.StartsWith("Charter") || Pending.StartsWith("Voting")) Pending = "";
                 MapVersion++;
                 _changed();
                 break;
@@ -154,6 +167,22 @@ public sealed class RegionModel
                 return;
             }
             case "rg-starter": StarterTown = !StarterTown; _changed(); return;
+            case "rg-charter" when State is { } cs: CharterDraft = (cs.Charter ?? new RegionCharter()).Clone(); _changed(); return;
+            case "rg-ch-grow" when CharterDraft != null && a.Length == 2 && Enum.TryParse<CharterRule>(a[1], out var gr): CharterDraft.Grow = gr; _changed(); return;
+            case "rg-ch-annex" when CharterDraft != null && a.Length == 2 && Enum.TryParse<CharterRule>(a[1], out var ar): CharterDraft.Annex = ar; _changed(); return;
+            case "rg-ch-max" when CharterDraft != null && a.Length == 2 && int.TryParse(a[1], out int mx): CharterDraft.MaxCitySide = Math.Max(0, mx); _changed(); return;
+            case "rg-ch-cancel": CharterDraft = null; _changed(); return;
+            case "rg-ch-send" when CharterDraft != null:
+                Pending = Admin() ? "Charter: setting it…" : "Charter: asking the mayors…";
+                _send(new ClientMessage { Charter = new SetCharter { Charter = CharterDraft } });
+                CharterDraft = null;
+                _changed();
+                return;
+            case "rg-vote" when a.Length == 3 && int.TryParse(a[1], out int vid):
+                Pending = "Voting…";
+                _send(new ClientMessage { Vote = new CastVote { Id = vid, Yes = a[2] == "yes" } });
+                _changed();
+                return;
             case "rg-water" when State is { } ws:
                 _send(new ClientMessage { RegionWater = new SetRegionWater { Stays = !ws.WaterStays } });
                 return;
@@ -292,17 +321,26 @@ public sealed class RegionModel
                 sb.Append(H3("Wild land"));
                 if (CanGrow(p))
                 {
-                    sb.Append(Dim($"Tile {p.Col + 1}, {p.Row + 1} isn't part of the region yet. Add it and its ground, rivers and rock are made now, "
+                    sb.Append(Dim($"{Where(s, p)} isn't part of the region yet. Add it and its ground, rivers and rock are made now, "
                         + "carrying on from the tiles beside it. It joins as open land: you or any other player can found a city on it.")).Append("\n\n");
-                    sb.Append(Dim("A mayor can add the land beside their own city; an admin, any.")).Append("\n\n");
-                    sb.Append(Link("rg-grow", "Add this tile to the region"));
+                    var rule = s.Charter?.Grow ?? CharterRule.CharterAnyone;
+                    sb.Append(Dim(rule switch
+                    {
+                        CharterRule.CharterAdmins => "The region's charter lets only the server's admins add land.",
+                        CharterRule.CharterVote => "By the region's charter, adding land goes to a vote of the mayors: more than half must agree.",
+                        _ => "By the region's charter, any mayor here can add land.",
+                    })).Append("\n\n");
+                    var asked = s.Votes.FirstOrDefault(v => v.Kind == VoteKind.VoteGrow && v.Col == p.Col && v.Row == p.Row);
+                    if (asked != null) sb.Append(Dim("The mayors are voting on it now (below)."));
+                    else sb.Append(Link("rg-grow", rule == CharterRule.CharterVote && !Admin() && s.Voters.Count > 1 ? "Ask the mayors to add this tile" : "Add this tile to the region"));
                 }
                 else sb.Append(Dim("Not part of the region yet. Land joins on a side of a tile already in it."));
             }
             else
             {
                 sb.Append(H3("Open land"));
-                sb.Append(Dim($"Tile {p.Col + 1}, {p.Row + 1}. Nobody has built here yet. Found a city and you'll be its mayor.")).Append("\n\n");
+                sb.Append(Dim($"{Where(s, p)}. Nobody has built here yet. Found a city and you'll be its mayor."
+                    + (p.Unsurveyed ? " The picture is a rough look: its ground, rivers and rock are made when a city is founded." : ""))).Append("\n\n");
                 sb.Append(Link("rg-starter", (StarterTown ? "☑" : "☐") + " Start with a small working town")).Append("\n\n");
                 sb.Append(Dim("Mayor: "));
                 foreach (var (key, label) in new[] { ("", "you"), ("growth", "growth-hungry computer"), ("green", "green computer"), ("careful", "careful computer") })
@@ -312,8 +350,81 @@ public sealed class RegionModel
             }
         }
         RenderDeals(sb, s);
+        RenderCharter(sb, s);
         if (Pending.Length > 0) sb.Append("\n\n").Append(Col(Warn, "⏳ " + Esc(Pending.StartsWith("Deal: ") ? Pending[6..] : Pending)));
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Where a tile is, in words: by column and row for a fixed region; for a growing one, from the tile it began with
+    /// (its frame is so wide the numbers would mean nothing).
+    /// </summary>
+    public static string Where(RegionState s, RegionTileState t)
+    {
+        if (!s.Grows) return $"Tile {t.Col + 1}, {t.Row + 1}";
+        int c = (s.Cols - 1) / 2, dx = t.Col - c, dy = t.Row - c;
+        if (dx == 0 && dy == 0) return "The tile the region began with";
+        var parts = new List<string>();
+        if (dy != 0) parts.Add($"{Math.Abs(dy)} {(dy < 0 ? "north" : "south")}");
+        if (dx != 0) parts.Add($"{Math.Abs(dx)} {(dx < 0 ? "west" : "east")}");
+        return $"The tile {string.Join(" and ", parts)} of where the region began";
+    }
+
+    public static string RuleName(CharterRule r) => r switch
+    {
+        CharterRule.CharterAdmins => "admins only",
+        CharterRule.CharterVote => "a vote of the mayors",
+        _ => "any mayor",
+    };
+
+    static string SideText(int side) => side == 1 ? "one tile" : side > 0 ? $"{side} × {side} tiles" : "as big as the server allows";
+
+    /// <summary>
+    /// The region's charter (Beta 4, part 6): who grows it, who annexes, how big a city may be; the votes open; and,
+    /// for a mayor or an admin, a new charter to set or ask for.
+    /// </summary>
+    void RenderCharter(System.Text.StringBuilder sb, RegionState s)
+    {
+        var ch = s.Charter ?? new RegionCharter();
+        sb.Append("\n\n").Append(H3("Region charter"));
+        sb.Append(Table(new[]
+        {
+            ("Adding land", s.Grows ? RuleName(ch.Grow) : Dim("this map was made all at once")),
+            ("Annexing", RuleName(ch.Annex)),
+            ("Cities up to", $"{s.MaxCitySide} × {s.MaxCitySide} tiles" + (ch.MaxCitySide == 0 ? Dim(" (the server's limit)") : "")),
+        }));
+        foreach (var v in s.Votes)
+        {
+            sb.Append('\n').Append($"🗳 {Esc(v.By)} asks for {Esc(v.Text)}. ");
+            sb.Append(Dim($"{v.Yes.Count} yes, {v.No.Count} no, of {s.Voters.Count} mayors; open until day {v.Day + 30}. "));
+            if (s.Voters.Contains(Me()))
+            {
+                bool yes = v.Yes.Contains(Me()), no = v.No.Contains(Me());
+                sb.Append(yes ? "[b]yes[/b]" : Link($"rg-vote:{v.Id}:yes", "Yes")).Append(" · ").Append(no ? "[b]no[/b]" : Link($"rg-vote:{v.Id}:no", "No"));
+            }
+        }
+        bool mayor = s.Voters.Contains(Me());
+        if (!mayor && !Admin()) return;
+        if (CharterDraft is not { } d)
+        {
+            sb.Append("\n").Append(Link("rg-charter", Admin() || s.Voters.Count <= 1 ? "Change the charter" : "Ask the mayors for a new charter"));
+            return;
+        }
+        sb.Append("\n\n").Append(H4("A new charter"));
+        void Rules(string key, string label, CharterRule now)
+        {
+            sb.Append(Dim(label + ": "));
+            foreach (var r in new[] { CharterRule.CharterAdmins, CharterRule.CharterVote, CharterRule.CharterAnyone })
+                sb.Append(r == now ? $"[b]{RuleName(r)}[/b]" : Link($"{key}:{r}", RuleName(r))).Append("  ");
+            sb.Append('\n');
+        }
+        if (s.Grows) Rules("rg-ch-grow", "Adding land", d.Grow);
+        Rules("rg-ch-annex", "Annexing", d.Annex);
+        sb.Append(Dim("Cities up to: "));
+        foreach (int side in new[] { 1, 2, 3, 4, 0 }.Where(x => x <= Math.Max(1, s.ServerMaxCitySide)).Distinct())
+            sb.Append(side == d.MaxCitySide ? $"[b]{SideText(side)}[/b]" : Link($"rg-ch-max:{side}", SideText(side))).Append("  ");
+        sb.Append("\n").Append(Link("rg-ch-cancel", "Cancel")).Append("   ")
+          .Append($"[b]{Link("rg-ch-send", Admin() || s.Voters.Count <= 1 ? "Set it" : "Put it to a vote")}[/b]");
     }
 
     /// <summary>

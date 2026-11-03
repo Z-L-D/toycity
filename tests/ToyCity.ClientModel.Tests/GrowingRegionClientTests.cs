@@ -2,6 +2,8 @@ using System.Diagnostics;
 using ToyCity.ClientModel.Panels;
 using ToyCity.Protocol.V0;
 using ToyCity.Sim;
+using CharterRule = ToyCity.Protocol.V0.CharterRule;
+using VoteKind = ToyCity.Protocol.V0.VoteKind;
 
 namespace ToyCity.ClientModel.Tests;
 
@@ -22,7 +24,7 @@ public class GrowingRegionClientTests : IDisposable
         public Player(Uri ws, string name)
         {
             Client = new CityClient(ws, "test");
-            Panels = new PanelModel(Client.City, Client.Connection.Send) { Me = () => name };
+            Panels = new PanelModel(Client.City, Client.Connection.Send) { Me = () => name, Admin = () => Client.Connection.Admin };
             Client.Message += Panels.Handle;
             Client.Message += m => { if (m.BodyCase == ServerMessage.BodyOneofCase.Error) Errors.Add(m.Error.Message); };
             Client.Message += m => { if (m.BodyCase == ServerMessage.BodyOneofCase.Full) Fulls++; };
@@ -63,9 +65,9 @@ public class GrowingRegionClientTests : IDisposable
         may.WaitFor(() => may.Client.City.Stats.CityName == "Firstford" && may.Region.State?.Grows == true, "the growing region");
         var s = may.Region.State!;
         int c = s.HereCol;
-        Assert.Equal((3, 3), (s.HereCol, s.HereRow));
+        Assert.Equal((Region.GrowStart, Region.GrowStart), (s.HereCol, s.HereRow));
         Assert.Single(s.Tiles, t => !t.Wild);
-        Assert.Equal((2, 2, 4, 4), may.Region.Shown);
+        Assert.Equal((c - 1, c - 1, c + 1, c + 1), may.Region.Shown);
         Assert.Contains("1 tile, growing", may.Region.Title());
 
         // She adds the land east of her city.
@@ -76,7 +78,7 @@ public class GrowingRegionClientTests : IDisposable
         Assert.StartsWith("Adding", may.Region.Pending);
         may.WaitFor(() => may.Region.TileAt(c + 1, c)?.Wild == false, "the new tile");
         Assert.Equal("", may.Region.Pending);
-        Assert.Equal((2, 2, 5, 4), may.Region.Shown);
+        Assert.Equal((c - 1, c - 1, c + 2, c + 1), may.Region.Shown);
         Assert.Contains("Open land", may.Region.Render());
         Assert.Equal(RegionModel.PictureSize * RegionModel.PictureSize * 3, may.Region.TileAt(c + 1, c)!.Picture.Length);
 
@@ -86,7 +88,7 @@ public class GrowingRegionClientTests : IDisposable
         tess.Panels.Click($"rg-pick:{c - 1}:{c}");
         tess.Panels.Click("rg-grow");
         tess.WaitFor(() => tess.Errors.Count > 0, "the refusal");
-        Assert.Contains("Only a mayor of a city beside it", tess.Errors[0]);
+        Assert.Contains("Only a mayor here", tess.Errors[0]);
         Assert.True(tess.Region.TileAt(c - 1, c)!.Wild);
         tess.Panels.Click($"rg-pick:{c + 1}:{c}");
         tess.Region.NewName = "Eastwick";
@@ -98,6 +100,72 @@ public class GrowingRegionClientTests : IDisposable
         tess.WaitFor(() => tess.Region.TileAt(c + 2, c)?.Wild == false, "the tile east of Eastwick");
         may.WaitFor(() => may.Region.TileAt(c + 2, c)?.Wild == false, "May's map shows it");
         Assert.Single(tess.Errors);
+    }
+
+    [Fact]
+    public void UnderAVotingCharterTheMayorsDecideWhatJoinsTheRegion()
+    {
+        // May, the admin, makes a growing region whose charter puts new land to a vote.
+        using var may = new Player(_server.Ws, "May");
+        may.Panels.Click("dialog:new");
+        may.Panels.SetInput("Firstford");
+        may.Panels.Click("grow");
+        Assert.Contains("Adding land", may.Panels.Render());
+        may.Panels.Click("new-grow:CharterVote");
+        may.Panels.Click("size:64");
+        may.Panels.Click("new-ok");
+        may.WaitFor(() => may.Client.City.Stats.CityName == "Firstford" && may.Region.State is { Grows: true, TileSize: 64 }, "the growing region");
+        var s = may.Region.State!;
+        int c = s.HereCol;
+        Assert.Equal(CharterRule.CharterVote, s.Charter.Grow);
+        Assert.Equal(512 / 64, s.MaxCitySide);
+        Assert.Contains("a vote of the mayors", may.Region.Render());
+        // An admin adds land at once whatever the charter says; Tess founds a city on it.
+        may.Client.Connection.Send(new ClientMessage { Grow = new GrowRegion { Col = c + 1, Row = c } });
+        may.WaitFor(() => may.Region.TileAt(c + 1, c)?.Wild == false, "the east tile");
+        using var tess = new Player(_server.Ws, "Tess");
+        tess.Client.Connection.Send(new ClientMessage { FoundCity = new FoundCity { Col = c + 1, Row = c, Name = "Eastwick" } });
+        tess.WaitFor(() => tess.Region.State!.Voters.Count == 2, "two mayors");
+
+        // Tess asks to add the land east of Eastwick: it goes to a vote, and May's yes carries it.
+        tess.Panels.Click("rg-open");
+        tess.Panels.Click($"rg-pick:{c + 2}:{c}");
+        Assert.Contains("Ask the mayors to add this tile", tess.Region.Render());
+        tess.Panels.Click("rg-grow");
+        tess.WaitFor(() => tess.Region.State!.Votes.Count == 1, "the vote");
+        Assert.Equal("", tess.Region.Pending);
+        Assert.True(tess.Region.TileAt(c + 2, c)!.Wild);
+        Assert.Contains("The mayors are voting on it now", tess.Region.Render());
+        may.WaitFor(() => may.Region.State!.Votes.Count == 1, "May hears of the vote");
+        var v = may.Region.State!.Votes[0];
+        Assert.Contains("east of Eastwick", v.Text);
+        may.Panels.Click("rg-open");
+        Assert.Contains($"rg-vote:{v.Id}:yes", may.Region.Render());
+        may.Panels.Click($"rg-vote:{v.Id}:yes");
+        tess.WaitFor(() => tess.Region.TileAt(c + 2, c)?.Wild == false, "the tile, voted in");
+        Assert.Empty(tess.Region.State!.Votes);
+
+        // Tess asks for a charter where anyone annexes; May says no, and with half against it's turned down.
+        tess.Panels.Click("rg-charter");
+        tess.Panels.Click("rg-ch-annex:CharterAnyone");
+        tess.Panels.Click("rg-ch-max:2");
+        Assert.Contains("Put it to a vote", tess.Region.Render());
+        tess.Panels.Click("rg-ch-send");
+        tess.WaitFor(() => tess.Region.Pending == "" || tess.Errors.Count > 0, "the charter asked");
+        Assert.Empty(tess.Errors);
+        may.WaitFor(() => may.Region.State!.Votes is { Count: 1 } vs && vs[0].Kind == VoteKind.VoteCharter, "the charter vote");
+        may.Panels.Click($"rg-vote:{may.Region.State!.Votes[0].Id}:no");
+        tess.WaitFor(() => tess.Region.State!.Votes.Count == 0, "the vote over");
+        Assert.Equal(CharterRule.CharterVote, tess.Region.State!.Charter.Annex);
+
+        // An admin's change takes effect at once.
+        may.Panels.Click("rg-charter");
+        may.Panels.Click("rg-ch-max:2");
+        Assert.Contains("Set it", may.Region.Render());
+        may.Panels.Click("rg-ch-send");
+        tess.WaitFor(() => tess.Region.State!.MaxCitySide == 2, "May's charter");
+        Assert.Empty(may.Errors);
+        Assert.Empty(tess.Errors);
     }
 
     /// <summary>A seed whose first tile has a river running off one of its sides, and that side.</summary>
@@ -129,7 +197,7 @@ public class GrowingRegionClientTests : IDisposable
         int c = Region.GrowStart;
         using var may = new Player(_server.Ws, "May");
         may.Client.Connection.Send(new ClientMessage { NewRegion = new NewRegionRequest { Name = "Frontier", CityName = "Firstford", Seed = seed, TileSize = Size, StarterTown = true, Grows = true } });
-        may.WaitFor(() => may.Client.City.Stats.CityName == "Firstford" && may.Region.State?.Grows == true, "the growing region");
+        may.WaitFor(() => may.Client.City.Stats.CityName == "Firstford" && may.Region.State is { Grows: true, TileSize: Size }, "the growing region");
         Console.WriteLine($"GATE seed {seed}: one {Size}-cell tile at {c},{c}; a river leaves it on side {riverSide}");
 
         // May adds a tile on every side of her city, the river's side first.
@@ -151,7 +219,8 @@ public class GrowingRegionClientTests : IDisposable
         var mine = may.Client.City;
         int same = 0;
         for (int k = 0; k < mine.Corners.Length; k++) if (mine.Corners[k] == local.GrownGround(c, c)!.Corners[k]) same++;
-        Assert.True(same > mine.Corners.Length * 9 / 10, $"Firstford's ground isn't the region's: {same} of {mine.Corners.Length} corners agree");
+        // The starter town levels its own blocks (on this seed's ground, about an eighth of the tile).
+        Assert.True(same > mine.Corners.Length * 8 / 10, $"Firstford's ground isn't the region's: {same} of {mine.Corners.Length} corners agree");
         foreach (int side in order)
         {
             var (col, row) = Beside(c, side);
@@ -176,7 +245,7 @@ public class GrowingRegionClientTests : IDisposable
         }
         // The river runs on across the seam in the whole region's map.
         var ground = local.Ground;
-        int wide = local.Cols * Size, crossings = 0;
+        int wide = local.BoxCols * Size, crossings = 0;
         for (int i = 0; i < ground.Rivers.Length; i++)
         {
             int d = ground.Downstream[i];
@@ -220,16 +289,17 @@ public class GrowingRegionClientTests : IDisposable
     /// </summary>
     static void Picture(Region r, string path)
     {
-        int s = r.TileSize, c0 = Region.GrowStart - 1, n = 3 * s, scale = 2;
+        // The region's ground covers the box of its tiles.
+        int s = r.TileSize, c0 = Region.GrowStart - 1 - r.BoxCol, r0 = Region.GrowStart - 1 - r.BoxRow, n = 3 * s, scale = 2;
         var g = r.Ground;
-        int wide = r.Cols * s, cw = wide + 1;
+        int wide = r.BoxCols * s, cw = wide + 1;
         var px = new byte[n * scale * n * scale * 3];
         for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++)
         {
-            int gx = c0 * s + x, gy = c0 * s + y, i = gy * wide + gx, k = gy * cw + gx;
+            int gx = c0 * s + x, gy = r0 * s + y, i = gy * wide + gx, k = gy * cw + gx;
             byte cr, cg, cb;
-            if (r.TileAt(gx / s, gy / s)!.Wild) (cr, cg, cb) = ((byte)14, (byte)16, (byte)22);
+            if (r.TileAt(r.BoxCol + gx / s, r.BoxRow + gy / s)!.Wild) (cr, cg, cb) = ((byte)14, (byte)16, (byte)22);
             else
             {
                 int h = (g.Corners[k] + g.Corners[k + 1] + g.Corners[k + cw] + g.Corners[k + cw + 1]) / 4;

@@ -1518,7 +1518,10 @@ $('#btn-new').addEventListener('click', () => {
   form.innerHTML = `
     <h3>New region or city</h3>
     <label>Start</label><select name="kind"><option value="region" selected>A region: tiles of open land, your city in the middle</option><option value="grow">A growing region: your city's tile to start, more added on any side</option><option value="city">A single city on its own</option></select>
-    <label>Region size (tiles; a growing region starts with one)</label><select name="tiles"><option value="2">2 × 2</option><option value="3" selected>3 × 3</option><option value="4">4 × 4</option><option value="5">5 × 5</option></select>
+    <label>Region size (tiles a side; a growing region starts with one)</label><select name="tiles"><option value="3" selected>Small, 3 × 3</option><option value="8">Medium, 8 × 8</option><option value="16">Large, 16 × 16</option><option value="32">Huge, 32 × 32</option></select>
+    <p class="muted">Past 1,024 cells a side (a large region of medium maps, or a huge one), each tile's ground is made when it's first used.</p>
+    <label>Charter: who adds land to a growing region</label><select name="chGrow"><option value="0">Admins only</option><option value="1">A vote of the mayors</option><option value="2" selected>Any mayor</option></select>
+    <label>Charter: who lets a city annex the land beside it</label><select name="chAnnex"><option value="0">Admins only</option><option value="1" selected>A vote of the mayors</option><option value="2">Any mayor</option></select>
     <label>Name</label><input type="text" name="name" value="New City" maxlength="40">
     <label>Seed (blank for random)</label><input type="number" name="seed" min="1">
     <label>Map size</label><select name="size"><option value="64">Small (64 × 64, 1 km)</option><option value="128" selected>Medium (128 × 128, 2 km)</option><option value="256">Large (256 × 256, 4 km)</option></select>
@@ -1532,7 +1535,8 @@ $('#btn-new').addEventListener('click', () => {
       const n = Number(fd.get('tiles'));
       const grows = fd.get('kind') === 'grow';
       busy('Making the region…', 'new');
-      conn.send({ newRegion: { name: `${String(fd.get('name') || 'New')} Region`, cityName: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), cols: n, rows: n, tileSize: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', grows } });
+      conn.send({ newRegion: { name: `${String(fd.get('name') || 'New')} Region`, cityName: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), cols: n, rows: n, tileSize: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', grows,
+        charter: { grow: Number(fd.get('chGrow')), annex: Number(fd.get('chAnnex')), maxCitySide: 0 } } });
       return;
     }
     busy(fd.get('benchmark') === 'on' ? 'Building the benchmark city…' : 'Making the city…', 'new');
@@ -1632,6 +1636,7 @@ emergency = new Emergency({
   },
 });
 region = new Region({ conn, toast, onRegion: (r) => { renderer.borders = r.borders ?? []; dirty = true; updateAdmin(); updateTopBar(); } });
+region.admin = () => conn.admin;
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.

@@ -31,15 +31,20 @@ public sealed partial class Region
     /// <summary>Each tile's ground in a growing region, null while it's wild.</summary>
     TileGround?[]? _grown;
 
-    /// <summary>The tile a growing region starts from: near the middle, so it can grow every way.</summary>
-    public const int GrowStart = (MaxSide - 1) / 2;
-
     /// <summary>
-    /// A new growing region: one tile of open land, in the middle of a frame of <see cref="MaxSide"/> tiles a side.
+    /// A new growing region's frame (Beta 4, part 6): so wide it's never in the way, 127 tiles every way from where it
+    /// starts. Regions grown before Beta 4 keep the 8-tile frame they were saved with. Only the tiles in the region
+    /// cost anything: the region's ground is kept for the box around them.
     /// </summary>
+    public const int GrowFrame = 255;
+
+    /// <summary>The tile a growing region starts from: the middle of its frame, so it can grow every way.</summary>
+    public const int GrowStart = (GrowFrame - 1) / 2;
+
+    /// <summary>A new growing region: one tile of open land, in the middle of its frame.</summary>
     public static Region CreateGrowing(ContentDb content, string name, ulong seed, int tileSize = 128)
     {
-        var r = new Region(content, name, seed, MaxSide, MaxSide, tileSize, 0);
+        var r = new Region(content, name, seed, GrowFrame, GrowFrame, tileSize, 0);
         r.BeGrowing();
         r.Grow(GrowStart, GrowStart);
         return r;
@@ -52,14 +57,86 @@ public sealed partial class Region
         foreach (var t in Tiles) t.Wild = true;
     }
 
-    /// <summary>The ground of a tile of a growing region, or null (wild, or a fixed region).</summary>
-    public TileGround? GrownGround(int col, int row) => Grows && TileAt(col, row) is { } t ? _grown![t.Row * Cols + t.Col] : null;
+    /// <summary>A fixed region too big to make at once: all open land, each tile's ground made when it's first needed.</summary>
+    void BeTileByTile() => _grown = new TileGround?[Tiles.Length];
+
+    /// <summary>
+    /// True when each tile's ground is made on its own and kept with the region: a growing region, or a fixed one too
+    /// big to make at once.
+    /// </summary>
+    public bool PerTile => _grown != null;
+
+    /// <summary>A fixed region too big to make at once (huge): its tiles' ground is made as each is first needed.</summary>
+    public bool TileByTile => PerTile && !Grows;
+
+    /// <summary>The ground of a tile made on its own so far, or null (wild, not made yet, or a region made at once).</summary>
+    public TileGround? GrownGround(int col, int row) => PerTile && TileAt(col, row) is { } t ? _grown![t.Row * Cols + t.Col] : null;
+
+    /// <summary>
+    /// A tile's own ground, made now if it's open land whose ground isn't made yet (a huge region's). Null for a
+    /// region made at once, whose tiles are cut from the region's ground, and for wild land.
+    /// </summary>
+    public TileGround? Survey(int col, int row)
+    {
+        if (!PerTile || TileAt(col, row) is not { Wild: false } t) return null;
+        ref var g = ref _grown![row * Cols + col];
+        if (g == null)
+        {
+            g = MakeTileGround(col, row);
+            GroundChanged();
+        }
+        return g;
+    }
+
+    /// <summary>
+    /// The box of tiles the region's own ground (<see cref="Ground"/>, <see cref="Heights"/>) covers: the whole map
+    /// for a region made at once, else just around the tiles whose ground is made, so a wide frame costs nothing.
+    /// </summary>
+    public int BoxCol => Box().Col;
+    public int BoxRow => Box().Row;
+    public int BoxCols => Box().Cols;
+    public int BoxRows => Box().Rows;
+    (int Col, int Row, int Cols, int Rows)? _box;
+
+    (int Col, int Row, int Cols, int Rows) Box()
+    {
+        if (_box is { } b) return b;
+        if (!PerTile) return (_box = (0, 0, Cols, Rows)).Value;
+        int c0 = int.MaxValue, r0 = int.MaxValue, c1 = -1, r1 = -1;
+        for (int k = 0; k < _grown!.Length; k++)
+        {
+            if (_grown[k] == null) continue;
+            int c = k % Cols, r = k / Cols;
+            (c0, r0, c1, r1) = (Math.Min(c0, c), Math.Min(r0, r), Math.Max(c1, c), Math.Max(r1, r));
+        }
+        if (c1 < 0) return (_box = (0, 0, 1, 1)).Value;
+        return (_box = (c0, r0, c1 - c0 + 1, r1 - r0 + 1)).Value;
+    }
+
+    /// <summary>The region-ground cell of a tile's cell, in the box (<see cref="BoxCol"/>).</summary>
+    public (int X, int Y) BoxCell(RegionTile t, int x, int y) => ((t.Col - BoxCol) * TileSize + x, (t.Row - BoxRow) * TileSize + y);
+
+    /// <summary>The tile under a region-ground cell, or null outside the region's tiles.</summary>
+    public RegionTile? TileAtBox(int x, int y) => x < 0 || y < 0 ? null : TileAt(BoxCol + x / TileSize, BoxRow + y / TileSize);
+
+    /// <summary>
+    /// A rough look at a tile whose ground isn't made yet (a huge region's open land): the region's noise every few
+    /// cells, unworn and without rivers, at the region's shore, as <paramref name="n"/> by <paramref name="n"/> step
+    /// heights. For the region map, so it doesn't make a thousand tiles' ground to draw them.
+    /// </summary>
+    public byte[] Glimpse(int col, int row, int n)
+    {
+        int step = Math.Max(1, TileSize / n);
+        var m = World.RawMetres(Seed, n + 1, n + 1, col * TileSize, row * TileSize, step, GrowPeriod);
+        var (shore, lowest) = Sea();
+        return World.StepsFromCorners(World.CornersFromMetres(m, shore, lowest, 8), n, n);
+    }
 
     /// <summary>Why a tile can't be added to this region, or null.</summary>
     public string? CantGrow(int col, int row)
     {
         if (!Grows) return "This region's map was made all at once: only a growing region adds tiles.";
-        if (TileAt(col, row) is not { } t) return $"The region can't grow past {MaxSide} tiles a side.";
+        if (TileAt(col, row) is not { } t) return $"The region can't grow past {Cols} tiles a side.";
         if (!t.Wild) return "That tile is part of the region already.";
         if (!Tiles.Any(o => !o.Wild)) return null;
         for (int side = 0; side < 4; side++)
@@ -84,7 +161,7 @@ public sealed partial class Region
     /// <summary>Puts back a tile's ground from a save.</summary>
     public void RestoreGrown(int col, int row, TileGround g)
     {
-        if (!Grows) throw new InvalidOperationException("only a growing region keeps its tiles' ground");
+        if (!PerTile) throw new InvalidOperationException("only a growing or huge region keeps its tiles' ground");
         var t = TileAt(col, row) ?? throw new InvalidDataException($"{col},{row} is outside the region");
         int s = TileSize;
         if (g.Corners.Length != (s + 1) * (s + 1) || g.Bedrock.Length != g.Corners.Length || g.Rivers.Length != s * s || g.Rock.Length != s * s || g.Downstream.Length != s * s)
@@ -101,6 +178,7 @@ public sealed partial class Region
         _heights = null;
         _floodSamples = null;
         _waterExits = null;
+        _box = null;
     }
 
     /// <summary>The noise's scale for a growing region: the same as a fixed region of these tiles.</summary>
@@ -116,8 +194,11 @@ public sealed partial class Region
     (double Shore, double Lowest) Sea()
     {
         if (_sea is { } s) return s;
-        int stride = Math.Max(1, TileSize / 16), side = Cols * TileSize / stride + 1;
-        var m = World.RawMetres(Seed, side, side, 0, 0, stride, GrowPeriod);
+        // Sampled over a set window, so the shore never moves as the region grows: the whole frame of an 8-tile
+        // (pre-Beta 4) or huge region, else the 8 tiles a side around where a growing region starts.
+        int window = Cols <= MaxSide ? Cols : 8, at = Cols <= MaxSide ? 0 : (GrowStart - 3) * TileSize;
+        int stride = Math.Max(1, TileSize / 16), side = window * TileSize / stride + 1;
+        var m = World.RawMetres(Seed, side, side, at, at, stride, GrowPeriod);
         Array.Sort(m);
         return (_sea = (m[(int)(m.Length * 0.18)], m[0])).Value;
     }
@@ -250,15 +331,15 @@ public sealed partial class Region
     /// </summary>
     World.Ground GrownFrame()
     {
-        int s = TileSize, wide = Cols * s, high = Rows * s, cw = wide + 1;
+        int s = TileSize, wide = BoxCols * s, high = BoxRows * s, cw = wide + 1;
         var corners = new ushort[cw * (high + 1)];
         var rivers = new byte[wide * high];
         var down = new int[wide * high];
         Array.Fill(down, -1);
-        foreach (var t in Tiles)
+        foreach (var t in BoxTiles())
         {
             if (GrownGround(t.Col, t.Row) is not { } g) continue;
-            int ox = t.Col * s, oy = t.Row * s;
+            var (ox, oy) = BoxCell(t, 0, 0);
             for (int y = 0; y <= s; y++) Array.Copy(g.Corners, y * (s + 1), corners, (oy + y) * cw + ox, s + 1);
             for (int y = 0; y < s; y++)
             for (int x = 0; x < s; x++)
@@ -273,7 +354,7 @@ public sealed partial class Region
                     if (!OnSide(x, y, s, side)) continue;
                     int ax = ox + x + (side == 1 ? 1 : side == 3 ? -1 : 0), ay = oy + y + (side == 2 ? 1 : side == 0 ? -1 : 0);
                     if (ax < 0 || ay < 0 || ax >= wide || ay >= high) continue;
-                    var (ac, ar) = (ax / s, ay / s);
+                    var (ac, ar) = (BoxCol + ax / s, BoxRow + ay / s);
                     if (GrownGround(ac, ar) is { } n && n.Rivers[ay % s * s + ax % s] != 0) { down[at] = ay * wide + ax; break; }
                 }
             }
@@ -283,16 +364,24 @@ public sealed partial class Region
 
     (ushort[] Bedrock, byte[] Rock) GrownGeology()
     {
-        int s = TileSize, wide = Cols * s, cw = wide + 1;
-        var bed = new ushort[cw * (Rows * s + 1)];
-        var rock = new byte[wide * Rows * s];
-        foreach (var t in Tiles)
+        int s = TileSize, wide = BoxCols * s, cw = wide + 1;
+        var bed = new ushort[cw * (BoxRows * s + 1)];
+        var rock = new byte[wide * BoxRows * s];
+        foreach (var t in BoxTiles())
         {
             if (GrownGround(t.Col, t.Row) is not { } g) continue;
-            int ox = t.Col * s, oy = t.Row * s;
+            var (ox, oy) = BoxCell(t, 0, 0);
             for (int y = 0; y <= s; y++) Array.Copy(g.Bedrock, y * (s + 1), bed, (oy + y) * cw + ox, s + 1);
             for (int y = 0; y < s; y++) Array.Copy(g.Rock, y * s, rock, (oy + y) * wide + ox, s);
         }
         return (bed, rock);
+    }
+
+    /// <summary>The tiles in the box, row by row.</summary>
+    public IEnumerable<RegionTile> BoxTiles()
+    {
+        for (int r = BoxRow; r < BoxRow + BoxRows; r++)
+        for (int c = BoxCol; c < BoxCol + BoxCols; c++)
+            yield return Tiles[r * Cols + c];
     }
 }

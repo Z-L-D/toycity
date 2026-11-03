@@ -913,7 +913,27 @@ public sealed partial class PanelModel
         foreach (var (size, label) in new[] { (64, "Small (64 × 64, 1 km)"), (128, "Medium (128 × 128, 2 km)"), (256, "Large (256 × 256, 4 km)") })
             sb.Append(_newSize == size ? $"◉ [b]{label}[/b]" : $"○ {Link($"size:{size}", label)}").Append('\n');
         sb.Append('\n').Append(Link("starter", $"{(_newStarter ? "☑" : "☐")} Start with a small working town")).Append('\n');
-        sb.Append(Link("grow", $"{(_newGrow ? "☑" : "☐")} A growing region: this city's tile first, more land added on any side")).Append('\n');
+        sb.Append('\n').Append(H4("Region"));
+        sb.Append(_newSide == 0 && !_newGrow ? "◉ [b]A single city on its own[/b]" : $"○ {Link("region:0", "A single city on its own")}").Append('\n');
+        foreach (var (label, side) in RegionModel.Sizes)
+        {
+            string text = $"{label} region: {side} × {side} tiles" + (RegionModel.MadeTileByTile(side, _newSize) ? ", each tile's ground made when first used" : "");
+            sb.Append(_newSide == side ? $"◉ [b]{text}[/b]" : $"○ {Link($"region:{side}", text)}").Append('\n');
+        }
+        sb.Append(_newGrow ? "◉ [b]A growing region: this city's tile first, more land added on any side[/b]" : $"○ {Link("grow", "A growing region: this city's tile first, more land added on any side")}").Append('\n');
+        if (_newGrow || _newSide > 0)
+        {
+            sb.Append('\n').Append(H4("Charter")).Append(Dim("Who may change the region. Mayors can vote to change it later.")).Append('\n');
+            void Rules(string key, string label, CharterRule now)
+            {
+                sb.Append(Dim(label + ": "));
+                foreach (var r in new[] { CharterRule.CharterAdmins, CharterRule.CharterVote, CharterRule.CharterAnyone })
+                    sb.Append(r == now ? $"[b]{RegionModel.RuleName(r)}[/b]" : Link($"{key}:{r}", RegionModel.RuleName(r))).Append("  ");
+                sb.Append('\n');
+            }
+            if (_newGrow) Rules("new-grow", "Adding land", _newCharter.Grow);
+            Rules("new-annex", "Annexing", _newCharter.Annex);
+        }
         sb.Append(Link("bench", $"{(_newBench ? "☑" : "☐")} Benchmark city: 256 × 256, every block built")).Append('\n');
         return sb.Append(Footer(Link("close", "Cancel"), $"[b]{Link("new-ok", "Found city")}[/b]")).ToString();
     }

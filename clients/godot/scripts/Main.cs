@@ -150,6 +150,7 @@ public partial class Main : Node
         var pm = _panels.Model;
         pm.Me = () => _client.Connection.Player is { Length: > 0 } me ? me : "player";
         pm.OnServer = () => _client.Connection.Welcome?.SignInRequired == true;
+        pm.Admin = () => _client.Connection.Admin;
         if (global::Godot.FileAccess.FileExists(ReportFile) && long.TryParse(global::Godot.FileAccess.GetFileAsString(ReportFile).Trim(), out var seen)) pm.ShownReport = _savedReport = seen;
         _client.Message += pm.Handle;
         pm.JumpTo += (x, y) => _camera.CentreOn(x + 0.5f, y + 0.5f);

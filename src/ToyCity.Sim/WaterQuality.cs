@@ -384,13 +384,13 @@ public sealed partial class Region
     {
         if (_waterExits != null) return _waterExits;
         var g = Ground;
-        int wide = Cols * TileSize, s = TileSize;
+        int wide = BoxCols * TileSize, s = TileSize;
         var exits = new List<(int, int, int, int)>();
         for (int i = 0; i < g.Rivers.Length; i++)
         {
             int d = g.Downstream[i];
             if (g.Rivers[i] == 0 || d < 0) continue;
-            int a = i / wide / s * Cols + i % wide / s, b = d / wide / s * Cols + d % wide / s;
+            int a = (BoxRow + i / wide / s) * Cols + BoxCol + i % wide / s, b = (BoxRow + d / wide / s) * Cols + BoxCol + d % wide / s;
             if (a == b) continue;
             exits.Add((a, i / wide % s * s + i % wide % s, b, d / wide % s * s + d % wide % s));
         }

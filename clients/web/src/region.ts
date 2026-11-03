@@ -25,6 +25,23 @@ export function describeDeal(d: Msg): string {
   return `${d.seller} sells ${d.buyer} ${unit(d.kind, d.amount)} for ${money(d.price)} a month`;
 }
 
+const RULES = ['admins only', 'a vote of the mayors', 'any mayor'];
+const sideText = (n: number) => (n === 1 ? 'one tile' : n > 0 ? `${n} × ${n} tiles` : 'as big as the server allows');
+
+/**
+ * Where a tile is, in words: by column and row for a fixed region; for a growing one, from the tile it began with
+ * (its frame is so wide the numbers would mean nothing).
+ */
+export function where(s: Msg, t: Msg): string {
+  if (!s.grows) return `Tile ${t.col + 1}, ${t.row + 1}`;
+  const c = (s.cols - 1) >> 1, dx = t.col - c, dy = t.row - c;
+  if (dx === 0 && dy === 0) return 'The tile the region began with';
+  const parts: string[] = [];
+  if (dy) parts.push(`${Math.abs(dy)} ${dy < 0 ? 'north' : 'south'}`);
+  if (dx) parts.push(`${Math.abs(dx)} ${dx < 0 ? 'west' : 'east'}`);
+  return `The tile ${parts.join(' and ')} of where the region began`;
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export class Region {
@@ -38,6 +55,10 @@ export class Region {
   private offer = { kind: 0, selling: true, amount: 500, price: 100 };
   /** The offer being answered with other terms, or 0 for a new offer. */
   private counterId = 0;
+  /** A new charter being drawn up (Beta 4, part 6), or null. */
+  private draft: { grow: number; annex: number; maxCitySide: number } | null = null;
+  /** True when this player is one of the server's admins. */
+  admin = () => false;
 
   constructor(private readonly host: RegionHost) {
     $('#btn-region').addEventListener('click', () => this.toggle());
@@ -64,7 +85,9 @@ export class Region {
     if (!this.picked) this.picked = { col: body.hereCol, row: body.hereRow };
     if (this.pending.startsWith('Founding') && this.tile(this.picked.col, this.picked.row)?.founded) this.pending = '';
     if (/^(Deal|Taking over|Handing)/.test(this.pending)) this.pending = '';
-    if (this.pending.startsWith('Adding') && this.tile(this.picked.col, this.picked.row)?.wild === false) this.pending = '';
+    if (this.pending.startsWith('Adding') && (this.tile(this.picked.col, this.picked.row)?.wild === false
+      || body.votes.some((v: Msg) => v.kind === 1 && v.col === this.picked!.col && v.row === this.picked!.row))) this.pending = '';
+    if (/^(Charter|Voting)/.test(this.pending)) this.pending = '';
     this.host.onRegion(body);
     this.render();
   }
@@ -204,6 +227,40 @@ export class Region {
     return h;
   }
 
+  /**
+   * The region's charter (Beta 4, part 6): who grows it, who annexes, how big a city may be; the votes open; and, for
+   * a mayor or an admin, a new charter to set or ask for.
+   */
+  private charterHtml(): string {
+    const s = this.state!;
+    const c = s.charter ?? { grow: 2, annex: 1, maxCitySide: 0 };
+    const me = this.host.conn.player;
+    let h = `<h3>Region charter</h3><table class="kv">
+      <tr><td>Adding land</td><td>${s.grows ? RULES[c.grow] : '<span class="muted">this map was made all at once</span>'}</td></tr>
+      <tr><td>Annexing</td><td>${RULES[c.annex]}</td></tr>
+      <tr><td>Cities up to</td><td>${s.maxCitySide} × ${s.maxCitySide} tiles${c.maxCitySide ? '' : ' <span class="muted">(the server\'s limit)</span>'}</td></tr>
+    </table>`;
+    for (const v of s.votes) {
+      const yes = v.yes.includes(me), no = v.no.includes(me);
+      h += `<div class="rg-vote"><p>🗳 ${esc(v.by)} asks for ${esc(v.text)}.
+        <span class="muted">${v.yes.length} yes, ${v.no.length} no, of ${s.voters.length} mayors; open until day ${v.day + 30}.</span></p>
+        ${s.voters.includes(me) ? `<div class="actions"><button data-vote="${v.id}" data-yes="1"${yes ? ' class="active"' : ''}>Yes</button>
+          <button data-vote="${v.id}" data-yes="0"${no ? ' class="active"' : ''}>No</button></div>` : ''}</div>`;
+    }
+    const mayor = s.voters.includes(me), direct = this.admin() || s.voters.length <= 1;
+    if (!mayor && !this.admin()) return h;
+    const d = this.draft;
+    if (!d) return h + `<div class="actions"><button id="rg-charter">${direct ? 'Change the charter' : 'Ask the mayors for a new charter'}</button></div>`;
+    const rules = (key: string, label: string, now: number) =>
+      `<label>${label}</label><div class="seg">${RULES.map((r, k) => `<button data-ch-${key}="${k}"${k === now ? ' class="active"' : ''}>${r}</button>`).join('')}</div>`;
+    const sides = [1, 2, 3, 4, 0].filter((n) => n <= Math.max(1, s.serverMaxCitySide));
+    return h + `<h4>A new charter</h4>
+      ${s.grows ? rules('grow', 'Adding land', d.grow) : ''}
+      ${rules('annex', 'Annexing', d.annex)}
+      <label>Cities up to</label><div class="seg">${sides.map((n) => `<button data-ch-max="${n}"${n === d.maxCitySide ? ' class="active"' : ''}>${sideText(n)}</button>`).join('')}</div>
+      <div class="actions"><button id="ch-cancel">Cancel</button><button id="ch-send" class="active">${direct ? 'Set it' : 'Put it to a vote'}</button></div>`;
+  }
+
   private ownWindow(t: Msg) {
     const url = new URL(location.href);
     url.searchParams.set('tile', `${t.col},${t.row}`);
@@ -261,16 +318,20 @@ export class Region {
             : p.mayor === this.host.conn.player ? `<div class="actions"><span class="muted">Hand it to a computer mayor:</span>
                 <button data-hand="growth">growth-hungry</button> <button data-hand="green">green</button> <button data-hand="careful">careful</button></div>` : ''}`;
       } else if (p.wild) {
+        const rule = s.charter?.grow ?? 2;
+        const asked = s.votes.some((v: Msg) => v.kind === 1 && v.col === p.col && v.row === p.row);
+        const ask = rule === 1 && !this.admin() && s.voters.length > 1;
         side = this.canGrow(p)
           ? `<h3>Wild land</h3>
-            <p class="muted">Tile ${p.col + 1}, ${p.row + 1} isn't part of the region yet. Add it and its ground, rivers and rock are
+            <p class="muted">${where(s, p)} isn't part of the region yet. Add it and its ground, rivers and rock are
               made now, carrying on from the tiles beside it. It joins as open land: you or any other player can found a city on it.</p>
-            <p class="muted">A mayor can add the land beside their own city; an admin, any.</p>
-            <div class="actions"><button id="rg-grow" class="active">Add this tile to the region</button></div>`
+            <p class="muted">${['The region\'s charter lets only the server\'s admins add land.', 'By the region\'s charter, adding land goes to a vote of the mayors: more than half must agree.', 'By the region\'s charter, any mayor here can add land.'][rule]}</p>
+            ${asked ? '<p class="muted">The mayors are voting on it now (below).</p>'
+              : `<div class="actions"><button id="rg-grow" class="active">${ask ? 'Ask the mayors to add this tile' : 'Add this tile to the region'}</button></div>`}`
           : `<h3>Wild land</h3><p class="muted">Not part of the region yet. Land joins on a side of a tile already in it.</p>`;
       } else {
         side = `<h3>Open land</h3>
-          <p class="muted">Tile ${p.col + 1}, ${p.row + 1}. Nobody has built here yet. Found a city and you'll be its mayor.</p>
+          <p class="muted">${where(s, p)}. Nobody has built here yet. Found a city and you'll be its mayor.${p.unsurveyed ? ' The picture is a rough look: its ground, rivers and rock are made when a city is founded.' : ''}</p>
           <label>Name</label><input type="text" id="rg-name" value="New City" maxlength="40">
           <label><input type="checkbox" id="rg-starter" checked> Start with a small working town</label>
           <label>Mayor</label><select id="rg-founder">
@@ -282,9 +343,10 @@ export class Region {
       }
     }
     side += this.dealsHtml(p);
+    side += this.charterHtml();
     if (this.pending) side += `<p class="rg-pending">⏳ ${esc(this.pending.replace(/^Deal: /, ''))}</p>`;
     $('#rg-body').innerHTML = `
-      <div class="rg-map" style="grid-template-columns:repeat(${box.c1 - box.c0 + 1}, minmax(0, 1fr));grid-template-rows:repeat(${box.r1 - box.r0 + 1}, auto)">${cells}</div>
+      <div class="rg-map${box.c1 - box.c0 + 1 > 12 ? ' big' : ''}" style="grid-template-columns:repeat(${box.c1 - box.c0 + 1}, minmax(0, 1fr));grid-template-rows:repeat(${box.r1 - box.r0 + 1}, auto)">${cells}</div>
       <aside class="rg-side">
         <p class="muted">${cities} ${cities === 1 ? 'city' : 'cities'} · ${pop.toLocaleString('en-US')} people in the region</p>
         ${s.cols * s.rows > 1 ? `<label title="Whether what one city puts in a river reaches the cities downstream. An admin's, or the sole mayor's, to set."><input type="checkbox" id="rg-water" ${s.waterStays ? '' : 'checked'}> Rivers carry foul water on into the next city</label>` : ''}
@@ -320,6 +382,23 @@ export class Region {
     $('#rg-water')?.addEventListener('change', () => this.host.conn.send({ regionWater: { stays: !(s.waterStays ?? false) } }));
     const body = $('#rg-body');
     const on = (sel: string, f: (b: HTMLButtonElement) => void) => body.querySelectorAll<HTMLButtonElement>(sel).forEach((b) => b.addEventListener('click', () => f(b)));
+    const charter = (k: 'grow' | 'annex' | 'maxCitySide', v: number) => { if (this.draft) { this.draft[k] = v; this.render(); } };
+    on('[data-ch-grow]', (b) => charter('grow', Number(b.dataset.chGrow)));
+    on('[data-ch-annex]', (b) => charter('annex', Number(b.dataset.chAnnex)));
+    on('[data-ch-max]', (b) => charter('maxCitySide', Number(b.dataset.chMax)));
+    on('#rg-charter', () => { const c = s.charter ?? {}; this.draft = { grow: c.grow ?? 2, annex: c.annex ?? 1, maxCitySide: c.maxCitySide ?? 0 }; this.render(); });
+    on('#ch-cancel', () => { this.draft = null; this.render(); });
+    on('#ch-send', () => {
+      this.pending = this.admin() || s.voters.length <= 1 ? 'Charter: setting it…' : 'Charter: asking the mayors…';
+      this.host.conn.send({ charter: { charter: this.draft } });
+      this.draft = null;
+      this.render();
+    });
+    on('[data-vote]', (b) => {
+      this.pending = 'Voting…';
+      this.render();
+      this.host.conn.send({ vote: { id: Number(b.dataset.vote), yes: b.dataset.yes === '1' } });
+    });
     on('[data-kind]', (b) => { this.offer.kind = Number(b.dataset.kind); this.offer.amount = AMOUNTS[this.offer.kind]; this.render(); });
     on('#rg-sell', () => { this.offer.selling = !this.offer.selling; this.render(); });
     on('[data-amt]', (b) => { this.offer.amount = Math.max(100, this.offer.amount + 100 * Number(b.dataset.amt)); this.render(); });

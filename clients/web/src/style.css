@@ -495,6 +495,10 @@ body.dispatch #em-panel { display: flex; flex-direction: column; min-height: 0; 
 #rg-body { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 16px; overflow: auto; }
 .rg-map { display: grid; gap: 3px; flex: 1; max-width: min(78vh, 100%); align-self: flex-start; }
 .rg-tile { position: relative; padding: 0; border: 2px solid transparent; background: none; cursor: pointer; aspect-ratio: 1; }
+/* A large or huge region: the tiles meet, so the map reads as one piece of land. */
+.rg-map.big { gap: 0; }
+.rg-map.big .rg-tile { border-width: 1px; }
+.rg-map.big .rg-label { font-size: 0.75em; left: 1px; bottom: 1px; white-space: nowrap; overflow: visible; z-index: 1; }
 .rg-tile canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
 .rg-tile.open canvas { filter: saturate(0.6) brightness(0.8); }
 .rg-tile.wild { background: #0c1018; border: 2px dashed #ffffff18; }

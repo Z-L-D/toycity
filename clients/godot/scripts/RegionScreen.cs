@@ -139,7 +139,7 @@ public partial class RegionScreen : CanvasLayer
             {
                 ToggleMode = true, FocusMode = Control.FocusModeEnum.None, ExpandIcon = true, Icon = ImageTexture.CreateFromImage(img),
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, SizeFlagsVertical = Control.SizeFlags.ExpandFill,
-                TooltipText = (t.Founded ? $"{t.Name} · {t.Mayor} · {t.Population:N0} people" : "Open land") + (t.Weather.Length > 0 ? $" · {t.Weather}" : ""),
+                TooltipText = (t.Founded ? $"{t.Name} · {t.Mayor} · {t.Population:N0} people" : t.Unsurveyed ? "Open land (a rough look; its ground is made when a city is founded)" : "Open land") + (t.Weather.Length > 0 ? $" · {t.Weather}" : ""),
                 TextureFilter = CanvasItem.TextureFilterEnum.Nearest,
             };
             if (!t.Founded) b.Modulate = new Color(0.8f, 0.8f, 0.8f);

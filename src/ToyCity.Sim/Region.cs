@@ -27,7 +27,21 @@ public sealed class RegionTile
 /// </summary>
 public sealed partial class Region : IDisposable
 {
-    public const int MaxSide = 8;
+    /// <summary>The largest fixed region, "huge" (Beta 4, part 6): 32 tiles a side, as SC4's largest.</summary>
+    public const int MaxSide = 32;
+
+    /// <summary>
+    /// The widest fixed region, in cells, whose ground is made all at once (about 5 s). Past it the ground would take
+    /// from half a minute (2048) to minutes and gigabytes (4096), so a bigger region makes each tile's ground the
+    /// first time it's needed, as a growing region does.
+    /// </summary>
+    public const int MaxEagerCells = 1024;
+
+    /// <summary>True when a fixed region this big is made a tile at a time.</summary>
+    public static bool MadeTileByTile(int cols, int rows, int tileSize) => cols * tileSize > MaxEagerCells || rows * tileSize > MaxEagerCells;
+
+    /// <summary>The sizes a new region can be, as in SC4: tiles a side.</summary>
+    public static readonly (string Name, int Side)[] Sizes = { ("Small", 3), ("Medium", 8), ("Large", 16), ("Huge", 32) };
 
     public ContentDb Content { get; }
     public string Name { get; set; }
@@ -44,7 +58,7 @@ public sealed partial class Region : IDisposable
 
     Region(ContentDb content, string name, ulong seed, int cols, int rows, int tileSize, long tick)
     {
-        if (cols is < 1 or > MaxSide || rows is < 1 or > MaxSide) throw new ArgumentOutOfRangeException(nameof(cols), $"a region is 1 to {MaxSide} tiles a side");
+        if (cols is < 1 or > GrowFrame || rows is < 1 or > GrowFrame) throw new ArgumentOutOfRangeException(nameof(cols), $"a region is 1 to {MaxSide} tiles a side");
         if (tileSize is not (64 or 128 or 256)) throw new ArgumentOutOfRangeException(nameof(tileSize), "tiles are 64, 128 or 256 cells");
         Content = content;
         Name = name;
@@ -61,7 +75,12 @@ public sealed partial class Region : IDisposable
 
     /// <summary>A new region of open land. Found cities on it with <see cref="Found"/>.</summary>
     public static Region Create(ContentDb content, string name, ulong seed, int cols = 3, int rows = 3, int tileSize = 128)
-        => new(content, name, seed, cols, rows, tileSize, 0);
+    {
+        if (cols is < 1 or > MaxSide || rows is < 1 or > MaxSide) throw new ArgumentOutOfRangeException(nameof(cols), $"a region is 1 to {MaxSide} tiles a side");
+        var r = new Region(content, name, seed, cols, rows, tileSize, 0);
+        if (MadeTileByTile(cols, rows, tileSize)) r.BeTileByTile();
+        return r;
+    }
 
     /// <summary>
     /// A region of one tile holding an existing city, so a lone city (an old save, a de-link copy, the benchmark)
@@ -77,15 +96,16 @@ public sealed partial class Region : IDisposable
 
     /// <summary>Puts back a region from its parts: a save, or a region host rebuilding after a load.</summary>
     /// <param name="grown">For a growing region: each tile added so far, with its ground. Null for a fixed region.</param>
+    /// <param name="tileByTile">A fixed region too big to make at once (huge): its tiles' ground, made so far, is in
+    /// <paramref name="grown"/>. Null to go by its size, for one with nothing saved; a save says which it was.</param>
     public static Region Restore(ContentDb content, string name, ulong seed, int cols, int rows, int tileSize, long tick, IEnumerable<World> cities,
-        IEnumerable<(int Col, int Row, TileGround Ground)>? grown = null)
+        IEnumerable<(int Col, int Row, TileGround Ground)>? grown = null, bool? tileByTile = null)
     {
         var r = new Region(content, name, seed, cols, rows, tileSize, tick);
+        if (tileByTile ?? (grown == null && MadeTileByTile(cols, rows, tileSize))) r.BeTileByTile();
+        else if (grown != null) r.BeGrowing();
         if (grown != null)
-        {
-            r.BeGrowing();
             foreach (var (col, row, g) in grown) r.RestoreGrown(col, row, g);
-        }
         foreach (var w in cities)
         {
             var t = r.TileOf(w) ?? throw new InvalidDataException($"{w.Name} isn't on a tile of {name}");
@@ -111,27 +131,27 @@ public sealed partial class Region : IDisposable
 
     public IEnumerable<World> Cities => Tiles.Where(t => t.City != null).Select(t => t.City!);
 
-    /// <summary>The whole region's ground, row-major over Cols * TileSize by Rows * TileSize cells. Made on first use.</summary>
-    public byte[] Heights => _heights ??= World.StepsFromCorners(Corners, Cols * TileSize, Rows * TileSize);
+    /// <summary>The region's ground over its box (<see cref="BoxCols"/> by <see cref="BoxRows"/> tiles), row-major in steps. Made on first use.</summary>
+    public byte[] Heights => _heights ??= World.StepsFromCorners(Corners, BoxCols * TileSize, BoxRows * TileSize);
 
-    /// <summary>The whole region's ground at every corner, in decimetres, (Cols * TileSize + 1) wide. Made on first use.</summary>
+    /// <summary>The region's ground at every corner of its box, in decimetres, (BoxCols * TileSize + 1) wide. Made on first use.</summary>
     public ushort[] Corners => Ground.Corners;
 
     /// <summary>The whole region's rivers: each cell's water surface in steps, 0 for none. Made with the ground.</summary>
     public byte[] Rivers => Ground.Rivers;
 
     /// <summary>The whole region's ground, rivers and where each river cell flows. Made on first use.</summary>
-    public World.Ground Ground => _ground ??= Grows ? GrownFrame() : World.GenerateGround(Seed, Cols * TileSize, Rows * TileSize);
+    public World.Ground Ground => _ground ??= PerTile ? GrownFrame() : World.GenerateGround(Seed, Cols * TileSize, Rows * TileSize);
     World.Ground? _ground;
 
     /// <summary>The whole region's soil and rock, made over all its ground at once so tiles agree at their borders.</summary>
-    public (ushort[] Bedrock, byte[] Rock) Geology => _geology ??= Grows ? GrownGeology() : World.GenerateGeology(Seed, Corners, Rivers, Cols * TileSize, Rows * TileSize);
+    public (ushort[] Bedrock, byte[] Rock) Geology => _geology ??= PerTile ? GrownGeology() : World.GenerateGeology(Seed, Corners, Rivers, Cols * TileSize, Rows * TileSize);
     (ushort[] Bedrock, byte[] Rock)? _geology;
 
     /// <summary>One tile's soil and rock, cut from the region's: its edge corners are its neighbours' too.</summary>
     public (ushort[] Bedrock, byte[] Rock) TileGeology(int col, int row)
     {
-        if (GrownGround(col, row) is { } g) return ((ushort[])g.Bedrock.Clone(), (byte[])g.Rock.Clone());
+        if (Survey(col, row) is { } g) return ((ushort[])g.Bedrock.Clone(), (byte[])g.Rock.Clone());
         int s = TileSize, wide = Cols * s;
         var (bed, rock) = Geology;
         var b = new ushort[(s + 1) * (s + 1)];
@@ -144,7 +164,7 @@ public sealed partial class Region : IDisposable
     /// <summary>One tile's rivers, cut from the region's.</summary>
     public byte[] TileRivers(int col, int row)
     {
-        if (GrownGround(col, row) is { } g) return (byte[])g.Rivers.Clone();
+        if (Survey(col, row) is { } g) return (byte[])g.Rivers.Clone();
         int s = TileSize, wide = Cols * s;
         var r = new byte[s * s];
         for (int y = 0; y < s; y++) Array.Copy(Rivers, (row * s + y) * wide + col * s, r, y * s, s);
@@ -154,7 +174,7 @@ public sealed partial class Region : IDisposable
     /// <summary>The step heights of one tile's cells, cut from the region's.</summary>
     public byte[] TileHeights(int col, int row)
     {
-        if (GrownGround(col, row) is { } g) return World.StepsFromCorners(g.Corners, TileSize, TileSize);
+        if (Survey(col, row) is { } g) return World.StepsFromCorners(g.Corners, TileSize, TileSize);
         int s = TileSize, wide = Cols * s;
         var all = Heights;
         var h = new byte[s * s];
@@ -165,7 +185,7 @@ public sealed partial class Region : IDisposable
     /// <summary>The corners of one tile: its edge corners are its neighbours' too, so the ground meets exactly.</summary>
     public ushort[] TileCorners(int col, int row)
     {
-        if (GrownGround(col, row) is { } g) return (ushort[])g.Corners.Clone();
+        if (Survey(col, row) is { } g) return (ushort[])g.Corners.Clone();
         int s = TileSize, wide = Cols * s + 1;
         var all = Corners;
         var c = new ushort[(s + 1) * (s + 1)];
@@ -326,7 +346,7 @@ public sealed partial class Region : IDisposable
     {
         ulong h = (ulong)Tick * 0x9E3779B97F4A7C15UL;
         foreach (var t in Tiles)
-            h = (h ^ (t.City?.StateHash() ?? 0)) * 0x100000001B3UL + (ulong)(t.Row * Cols + t.Col);
+            if (t.City != null || Cols <= MaxSide) h = (h ^ (t.City?.StateHash() ?? 0)) * 0x100000001B3UL + (ulong)(t.Row * Cols + t.Col);
         return h;
     }
 

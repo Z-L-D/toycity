@@ -38,7 +38,55 @@ message ClientMessage {
     PinWeather pin_weather = 24;
     GrowRegion grow = 25;
     SetRegionWater region_water = 26;
+    SetCharter charter = 27;
+    CastVote vote = 28;
   }
+}
+
+// Beta 4, part 6: who may grow the region and let a city annex the land beside it.
+enum CharterRule {
+  CHARTER_ADMINS = 0;  // this server's admins only
+  CHARTER_VOTE = 1;    // a mayor asks; more than half the region's mayors must agree
+  CHARTER_ANYONE = 2;  // any mayor here, on their own say
+}
+
+// A region's charter. The region's main server keeps it.
+message RegionCharter {
+  CharterRule grow = 1;
+  CharterRule annex = 2;
+  int32 max_city_side = 3;  // the largest a city may grow by annexing, in tiles a side; 0 = as big as the server lets it
+}
+
+// A new charter: an admin's takes effect at once; a mayor's goes to a vote of the region's mayors.
+message SetCharter {
+  RegionCharter charter = 1;
+}
+
+// A mayor's vote on a question put to the region's mayors.
+message CastVote {
+  int32 id = 1;
+  bool yes = 2;
+}
+
+enum VoteKind {
+  VOTE_CHARTER = 0;
+  VOTE_GROW = 1;   // add the wild tile at col, row
+  VOTE_ANNEX = 2;  // the city at col, row annexes the open tile at to_col, to_row
+}
+
+message RegionVote {
+  int32 id = 1;
+  VoteKind kind = 2;
+  int32 col = 3;
+  int32 row = 4;
+  int32 to_col = 5;
+  int32 to_row = 6;
+  RegionCharter charter = 7;  // for a charter vote
+  string by = 8;
+  int64 day = 9;              // the tick it was asked on; it lapses 30 days later
+  repeated string yes = 10;
+  repeated string no = 11;
+  string text = 12;           // what it asks, in words (in a state; not saved)
 }
 
 // Whether foul water runs on down a river from one city into the next (Beta 4, part 3). The region's host's (an
@@ -546,12 +594,13 @@ message MayorRequest {
 message NewRegionRequest {
   string name = 1;
   uint64 seed = 2;
-  int32 cols = 3;       // 1..8
-  int32 rows = 4;       // 1..8
+  int32 cols = 3;       // 1..32: small 3, medium 8, large 16, huge 32 (huge is made a tile at a time)
+  int32 rows = 4;       // 1..32
   int32 tile_size = 5;  // 64, 128 or 256
   bool starter_town = 6;
   string city_name = 7;  // the middle tile's city
-  bool grows = 8;        // G4: start as one tile, in the middle of an 8 x 8 frame of wild land, and grow (cols and rows are ignored)
+  bool grows = 8;        // G4: start as one tile of wild land's wide frame, and grow (cols and rows are ignored)
+  RegionCharter charter = 9;  // Beta 4: who may grow it and annex; unset is any mayor grows, annexing by vote
 }
 
 // Moves this connection to another founded city of the region. The server answers with that city's FullState and
@@ -586,6 +635,12 @@ message RegionState {
   int32 pace = 17;           // Beta 3.2: the region's calendar pace, calendar days per day of the day clock
   bool grows = 18;           // G4: the region grows a tile at a time; wild tiles aren't part of it yet
   bool water_stays = 19;     // Beta 4: each city's water is its own; foul water doesn't run on down a river into the next
+  bool tile_by_tile = 20;    // Beta 4: a huge region, its ground made a tile at a time; open land not yet looked at has a rough picture
+  RegionCharter charter = 21;
+  repeated RegionVote votes = 22;  // open now
+  repeated string voters = 23;     // the mayors who vote
+  int32 max_city_side = 24;        // the largest a city may be here, in tiles a side: the charter's limit within the server's
+  int32 server_max_city_side = 25; // the most this server can run, in tiles a side (Region.MaxCityCells / tile_size)
 }
 
 // Go to another host for that city (federated regions): address is its /ws URL.
@@ -729,6 +784,7 @@ message RegionTileState {
   string computer = 11; // a computer mayor's temperament ("growth-hungry", "green", "careful"); empty for a player
   string weather = 12;  // today's weather over it, as in CityStats.weather
   bool wild = 13;       // G4: land a growing region hasn't added yet (no picture); one beside the region can be added
+  bool unsurveyed = 14; // Beta 4: a huge region's open land whose ground isn't made yet; its picture is a rough look
 }
 
 message SetSpeed {
@@ -1604,6 +1660,9 @@ message RegionSave {
   bool grows = 10;           // G4: a growing region; its tiles' ground is in grown, since it can't be made again from the seed
   repeated RegionGrownTile grown = 11;
   bool water_stays = 12;     // Beta 4: foul water doesn't run on from one city into the next
+  bool tile_by_tile = 13;    // Beta 4: a huge region; its tiles' ground made so far is in grown
+  RegionCharter charter = 14;  // unset: RegionCharter's defaults for a region made before charters
+  repeated RegionVote votes = 15;
 }
 
 // One tile a growing region has added, with the ground made for it then.

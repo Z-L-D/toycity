@@ -18,7 +18,10 @@ public static class RegionMapping
             FormatVersion = RegionFormat, Name = r.Name, Seed = r.Seed, Cols = r.Cols, Rows = r.Rows, TileSize = r.TileSize, Tick = r.Tick,
         };
         s.Grows = r.Grows;
+        s.TileByTile = r.TileByTile;
         s.WaterStays = !r.WaterCrossesBorders;
+        s.Charter = Charter(r.Charter);
+        foreach (var v in r.Votes) s.Votes.Add(Vote(r, v, text: false));
         foreach (var t in r.Tiles)
             if (r.GrownGround(t.Col, t.Row) is { } g)
             {
@@ -44,11 +47,13 @@ public static class RegionMapping
         try
         {
             foreach (var c in s.Cities) cities.Add(Mapping.Load(content, c.Save.ToByteArray()));
-            var grown = s.Grows
+            var grown = s.Grows || s.TileByTile
                 ? s.Grown.Select(g => (g.Col, g.Row, new TileGround(Words(g.Corners), g.Rivers.ToByteArray(), g.Downstream.ToArray(), Words(g.Bedrock), g.Rock.ToByteArray()))).ToList()
                 : null;
-            var r = Region.Restore(content, s.Name, s.Seed, s.Cols, s.Rows, s.TileSize, s.Tick, cities, grown);
+            var r = Region.Restore(content, s.Name, s.Seed, s.Cols, s.Rows, s.TileSize, s.Tick, cities, grown, s.TileByTile);
             r.WaterCrossesBorders = !s.WaterStays;
+            if (s.Charter != null) r.Charter = Charter(s.Charter);
+            foreach (var v in s.Votes) r.RestoreVote(Vote(v));
             foreach (var o in s.Offers)
                 r.RestoreOffer(new RegionDeal
                 {
@@ -90,18 +95,41 @@ public static class RegionMapping
     public static P.RegionState State(Region r, int hereCol, int hereRow, int speed, Func<RegionTile, IEnumerable<string>> playersIn,
         IDictionary<int, ByteString>? pictures = null)
     {
-        var s = new P.RegionState { Name = r.Name, Cols = r.Cols, Rows = r.Rows, TileSize = r.TileSize, Tick = r.Tick, HereCol = hereCol, HereRow = hereRow, Speed = speed, Grows = r.Grows, WaterStays = !r.WaterCrossesBorders };
+        var s = new P.RegionState
+        {
+            Name = r.Name, Cols = r.Cols, Rows = r.Rows, TileSize = r.TileSize, Tick = r.Tick, HereCol = hereCol, HereRow = hereRow, Speed = speed,
+            Grows = r.Grows, WaterStays = !r.WaterCrossesBorders, TileByTile = r.TileByTile, Charter = Charter(r.Charter), MaxCitySide = r.MaxCitySide,
+            ServerMaxCitySide = Math.Max(1, Region.MaxCityCells / r.TileSize),
+        };
+        s.Voters.AddRange(r.Voters());
+        foreach (var v in r.Votes) s.Votes.Add(Vote(r, v, text: true));
+        // A growing region's frame is 255 tiles a side: only the tiles in it, and the wild ring around them where it
+        // can grow, go on the wire.
+        int c0 = r.BoxCol - 1, r0 = r.BoxRow - 1, c1 = r.BoxCol + r.BoxCols, r1 = r.BoxRow + r.BoxRows;
+        // Pictures not made yet are made side by side: a huge region has a thousand of them.
+        if (pictures != null)
+        {
+            var missing = Enumerable.Range(0, r.Tiles.Length).Where(i => !r.Tiles[i].Wild && !pictures.ContainsKey(i)).ToList();
+            if (missing.Count > 4)
+            {
+                r.Glimpse(0, 0, 1);  // the shore, worked out once before the threads share it
+                var made = new byte[missing.Count][];
+                Parallel.For(0, missing.Count, k => made[k] = Picture(r, r.Tiles[missing[k]]));
+                for (int k = 0; k < missing.Count; k++) pictures[missing[k]] = ByteString.CopyFrom(made[k]);
+            }
+        }
         for (int i = 0; i < r.Tiles.Length; i++)
         {
             var t = r.Tiles[i];
             if (t.Wild)
             {
+                if (t.Col < c0 || t.Col > c1 || t.Row < r0 || t.Row > r1) continue;
                 s.Tiles.Add(new P.RegionTileState { Col = t.Col, Row = t.Row, Name = "Wild land", Wild = true });
                 continue;
             }
             var pic = pictures != null && pictures.TryGetValue(i, out var p) ? p : ByteString.CopyFrom(Picture(r, t));
             if (pictures != null) pictures[i] = pic;
-            var ts = new P.RegionTileState { Col = t.Col, Row = t.Row, Founded = t.Founded, Name = t.Name, Mayor = t.Mayor, Picture = pic };
+            var ts = new P.RegionTileState { Col = t.Col, Row = t.Row, Founded = t.Founded, Name = t.Name, Mayor = t.Mayor, Picture = pic, Unsurveyed = Unsurveyed(r, t) };
             if (t.City is { } w)
             {
                 ts.Population = w.Population;
@@ -123,6 +151,34 @@ public static class RegionMapping
             foreach (var d in r.Deals.Where(d => d.Seller == me || d.Buyer == me)) s.Deals.Add(Deal(r, d));
         }
         return s;
+    }
+
+    static bool Unsurveyed(Region r, RegionTile t) => r.TileByTile && t.City == null && r.GrownGround(t.Col, t.Row) == null;
+
+    public static P.RegionCharter Charter(RegionCharter c) => new() { Grow = (P.CharterRule)(int)c.Grow, Annex = (P.CharterRule)(int)c.Annex, MaxCitySide = c.MaxCitySide };
+
+    public static RegionCharter Charter(P.RegionCharter c) => new((CharterRule)(int)c.Grow, (CharterRule)(int)c.Annex, c.MaxCitySide);
+
+    public static P.RegionVote Vote(Region r, RegionVote v, bool text)
+    {
+        var p = new P.RegionVote { Id = v.Id, Kind = (P.VoteKind)(int)v.Kind, Col = v.Col, Row = v.Row, ToCol = v.ToCol, ToRow = v.ToRow, By = v.By, Day = v.Day };
+        if (v.Charter != null) p.Charter = Charter(v.Charter);
+        p.Yes.AddRange(v.Yes);
+        p.No.AddRange(v.No);
+        if (text) p.Text = r.Describe(v);
+        return p;
+    }
+
+    static RegionVote Vote(P.RegionVote p)
+    {
+        var v = new RegionVote
+        {
+            Id = p.Id, Kind = (VoteKind)(int)p.Kind, Col = p.Col, Row = p.Row, ToCol = p.ToCol, ToRow = p.ToRow, By = p.By, Day = p.Day,
+            Charter = p.Charter != null ? Charter(p.Charter) : null,
+        };
+        foreach (var y in p.Yes) v.Yes.Add(y);
+        foreach (var n in p.No) v.No.Add(n);
+        return v;
     }
 
     /// <summary>A temperament as the wire names it ("growth", "green", "careful", "chaos"), or null.</summary>
@@ -154,6 +210,18 @@ public static class RegionMapping
     {
         int n = PictureSize, s = r.TileSize, step = s / n;
         var w = t.City;
+        if (Unsurveyed(r, t))
+        {
+            // A huge region's open land not yet looked at: a rough look, not its ground (making that takes seconds a tile).
+            var g = r.Glimpse(t.Col, t.Row, n);
+            var rough = new byte[n * n * 3];
+            for (int i = 0; i < n * n; i++)
+            {
+                var (cr, cg, cb) = Colour(null, g, 8, i, 0);
+                rough[i * 3] = cr; rough[i * 3 + 1] = cg; rough[i * 3 + 2] = cb;
+            }
+            return rough;
+        }
         var heights = w?.Height ?? r.TileHeights(t.Col, t.Row);
         int water = w?.WaterLevel ?? 8;
         var px = new byte[n * n * 3];

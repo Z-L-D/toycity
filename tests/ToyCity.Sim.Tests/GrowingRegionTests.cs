@@ -35,7 +35,7 @@ public class GrowingRegionTests(ITestOutputHelper output)
     {
         using var r = Region.CreateGrowing(Fixture.Content, "Seedling", 11, S);
         Assert.True(r.Grows);
-        Assert.Equal(Region.MaxSide, r.Cols);
+        Assert.Equal(Region.GrowFrame, r.Cols);
         var start = r.TileAt(Region.GrowStart, Region.GrowStart)!;
         Assert.False(start.Wild);
         Assert.Single(r.Tiles, t => !t.Wild);
@@ -79,10 +79,11 @@ public class GrowingRegionTests(ITestOutputHelper output)
             output.WriteLine($"{col},{row} side {side}: across the seam {seam:0.00} steps, within the tiles {within:0.00}");
             Assert.True(seam <= within * 1.5 + 0.2, $"the ground jumps at the seam: {seam:0.00} steps against {within:0.00}");
         }
-        // The whole frame agrees with the tiles.
+        // The region's own ground, over the box of its tiles, agrees with the tiles.
         Assert.Equal(r.TileCorners(c + 1, c + 1), r.GrownGround(c + 1, c + 1)!.Corners);
-        int wide = r.Cols * S;
-        Assert.Equal(r.GrownGround(c + 1, c)!.Corners[0], r.Corners[c * S * (wide + 1) + (c + 1) * S]);
+        Assert.Equal((c, c, 2, 2), (r.BoxCol, r.BoxRow, r.BoxCols, r.BoxRows));
+        int wide = r.BoxCols * S;
+        Assert.Equal(r.GrownGround(c + 1, c)!.Corners[0], r.Corners[(c - r.BoxRow) * S * (wide + 1) + (c + 1 - r.BoxCol) * S]);
     }
 
     /// <summary>A river's cells, followed down from one cell to where it ends.</summary>
@@ -124,13 +125,14 @@ public class GrowingRegionTests(ITestOutputHelper output)
             Assert.True(n.Rivers[entry] <= g.Rivers[exit], "the river climbs over the border");
             var path = Follow(n, entry);
             output.WriteLine($"it runs on {path.Count} cells in the new tile");
-            Assert.True(path.Count >= 3, "the river stops at the border");
+            // It runs on, unless it has reached the sea (water level 8) just over the border.
+            Assert.True(path.Count >= 3 || n.Rivers[path[^1]] <= 8, "the river stops at the border");
             for (int k = 1; k < path.Count; k++) Assert.True(n.Rivers[path[k]] <= n.Rivers[path[k - 1]], "the river climbs");
-            // In the whole frame, the first tile's river flows on into the new one.
-            int wide = r.Cols * S;
-            int at = (c * S + ey) * wide + c * S + ex;
+            // In the region's ground (over the box of its tiles), the first tile's river flows on into the new one.
+            int wide = r.BoxCols * S;
+            int at = ((c - r.BoxRow) * S + ey) * wide + (c - r.BoxCol) * S + ex;
             int next = r.Ground.Downstream[at];
-            Assert.Equal((nr * S + ay) * wide + nc * S + ax, next);
+            Assert.Equal(((nr - r.BoxRow) * S + ay) * wide + (nc - r.BoxCol) * S + ax, next);
             return;
         }
         Assert.Fail("no seed had a river leaving its first tile");
@@ -160,10 +162,11 @@ public class GrowingRegionTests(ITestOutputHelper output)
         r.Found(c - 1, c, "Westbrook", "Tess");
         r.Run(40);
         Assert.Null(r.Unbalanced());
-        // The map: wild land has no picture; the rest does.
+        // The map: the region's tiles and the ring of wild land around them, not the whole wide frame. Wild land has
+        // no picture; the rest does.
         var s = RegionMapping.State(r, c, c, 1, _ => Array.Empty<string>());
         Assert.True(s.Grows);
-        Assert.Equal(Region.MaxSide * Region.MaxSide, s.Tiles.Count);
+        Assert.Equal(4 * 4, s.Tiles.Count);
         Assert.Equal(3, s.Tiles.Count(t => !t.Wild));
         Assert.All(s.Tiles.Where(t => t.Wild), t => Assert.True(t.Picture.IsEmpty));
         Assert.All(s.Tiles.Where(t => !t.Wild), t => Assert.Equal(RegionMapping.PictureSize * RegionMapping.PictureSize * 3, t.Picture.Length));

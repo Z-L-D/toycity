@@ -107,19 +107,98 @@ public sealed partial class RegionHost : IDisposable
     }
 
     /// <summary>
-    /// Why this player can't add that tile to the region, or null (G4): an admin may add any, a mayor one beside their
-    /// own city, and the mayor of every city here one anywhere beside the region.
+    /// Whether this player may add that tile to the region now (G4), under the region's charter (Beta 4): an admin
+    /// always; else the charter's rule, any mayor here, or none (admins only). Returns why not, or null; sets
+    /// <paramref name="vote"/> when it has to go to a vote of the mayors first.
     /// </summary>
-    string? CantGrow(Client c, int col, int row)
+    string? CantGrow(Client c, int col, int row, out bool vote)
     {
+        vote = false;
         if (_region.CantGrow(col, row) is { } why) return why;
         if (c.Admin) return null;
-        var t = _region.TileAt(col, row)!;
-        for (int side = 0; side < 4; side++)
-            if (_region.Across(t, side)?.City is { } n && n.MayorSeat.Owner == c.Player) return null;
-        var mayors = _region.Tiles.Where(x => x.City != null).Select(x => x.Mayor).Distinct().ToList();
-        if (mayors.Count == 1 && mayors[0] == c.Player) return null;
-        return "Only a mayor of a city beside it, or this server's admins, can add that tile.";
+        bool mayor = _region.Tiles.Any(t => t.Mayor == c.Player);
+        switch (_region.Charter.Grow)
+        {
+            case CharterRule.Anyone when mayor: return null;
+            case CharterRule.Vote when mayor:
+                // A sole mayor is the whole vote.
+                vote = _region.Voters().Count > 1;
+                return null;
+            case CharterRule.Admins: return "This region's charter lets only the server's admins add land to it.";
+            default: return "Only a mayor here, or this server's admins, can add land to the region.";
+        }
+    }
+
+    /// <summary>Adds a tile, with the notices. Caller holds every gate.</summary>
+    List<(Client, P.ServerMessage)> Grown(int col, int row, string by)
+    {
+        _region.Grow(col, row);
+        _pictures.Remove(row * _region.Cols + col);
+        var list = Cities.SelectMany(city => city.Notice($"{by} added a tile of open land to {_region.Name}. Anyone can found a city on it.", "info")).ToList();
+        list.AddRange(RegionIfChanged(force: true));
+        return list;
+    }
+
+    /// <summary>
+    /// A player asks for a new charter: an admin's takes effect now; a mayor's goes to a vote (or takes effect, when
+    /// they're the only mayor). Caller holds every gate.
+    /// </summary>
+    List<(Client, P.ServerMessage)> SetCharter(Client c, P.SetCharter set, out string? why)
+    {
+        why = null;
+        var charter = RegionMapping.Charter(set.Charter ?? new P.RegionCharter());
+        if (_region.CantCharter(charter) is { } bad) { why = bad; return new(); }
+        bool mayor = _region.Tiles.Any(t => t.Mayor == c.Player);
+        if (!c.Admin && !mayor) { why = "Only the region's mayors and this server's admins can change its charter."; return new(); }
+        if (c.Admin || _region.Voters().Count <= 1)
+        {
+            _region.Charter = charter;
+            var list = Cities.SelectMany(city => city.Notice($"{c.Player} set {_region.Name}'s charter: growing by {RegionCharter.Name(charter.Grow)}, annexing by {RegionCharter.Name(charter.Annex)}.", "info")).ToList();
+            list.AddRange(RegionIfChanged(force: true));
+            return list;
+        }
+        return Asked(c, VoteKind.Charter, -1, -1, charter, out why);
+    }
+
+    /// <summary>Opens a vote, and tells the region. Caller holds every gate.</summary>
+    List<(Client, P.ServerMessage)> Asked(Client c, VoteKind kind, int col, int row, RegionCharter? charter, out string? why)
+    {
+        why = null;
+        RegionVote v;
+        try { v = _region.Ask(kind, c.Player, col, row, charter); }
+        catch (InvalidOperationException e) { why = e.Message; return new(); }
+        var list = Cities.SelectMany(city => city.Notice($"{c.Player} asks the region's mayors to vote on {_region.Describe(v)}. Open the region map to vote.", "info")).ToList();
+        list.AddRange(DecideVotes());
+        list.AddRange(RegionIfChanged(force: true));
+        return list;
+    }
+
+    /// <summary>Carries out the votes that passed and drops those that failed or lapsed, with notices. Caller holds every gate.</summary>
+    List<(Client, P.ServerMessage)> DecideVotes()
+    {
+        var list = new List<(Client, P.ServerMessage)>();
+        if (_region.Votes.Count == 0) return list;
+        var (passed, failed) = _region.Decide();
+        foreach (var v in failed)
+            list.AddRange(Cities.SelectMany(city => city.Notice($"The region's mayors turned down {_region.Describe(v)}.", "info")));
+        foreach (var v in passed)
+        {
+            string what = _region.Describe(v);
+            switch (v.Kind)
+            {
+                case VoteKind.Charter:
+                    _region.Charter = v.Charter!;
+                    list.AddRange(Cities.SelectMany(city => city.Notice($"The region's mayors agreed {what}.", "info")));
+                    break;
+                case VoteKind.Grow:
+                    if (_region.CantGrow(v.Col, v.Row) is { } why)
+                        list.AddRange(Cities.SelectMany(city => city.Notice($"The region's mayors agreed {what}, but it can't be added now: {why}", "info")));
+                    else list.AddRange(Grown(v.Col, v.Row, "A vote of the mayors"));
+                    break;
+            }
+        }
+        if (passed.Count + failed.Count > 0) _regionSig = "";
+        return list;
     }
 
     /// <summary>
@@ -248,13 +327,16 @@ public sealed partial class RegionHost : IDisposable
             {
                 var list = new List<(Client, P.ServerMessage)>();
                 foreach (var c in Cities) list.AddRange(c.AfterStep());
+                list.AddRange(DecideVotes());
                 _sceneOpen = _region.Cities.Any(w => w.SideGames.Any(g => g.Last.Holding.Count > 0));
                 var first = _region.Cities.FirstOrDefault();
                 if (first != null && first.Day == 1)
                 {
                     // Pictures change slowly: made again monthly.
                     if (first.Month == 1) AutoSave();
-                    _pictures.Clear();
+                    // Only cities change: open land's pictures stay (a huge region has a thousand of them).
+                    foreach (var t in _region.Tiles)
+                        if (t.City != null) _pictures.Remove(t.Row * _region.Cols + t.Col);
                     _regionSig = "";
                 }
                 list.AddRange(RegionIfChanged());
@@ -350,8 +432,9 @@ public sealed partial class RegionHost : IDisposable
         s.Stopped = _stopped;
         s.LedgerMonths = _ledgerMonths;
         s.CrossBorder = _crossBorder;
+        // The wire carries only some of a growing region's tiles: find each linked one by where it is.
         for (int i = 0; i < _links.Length; i++)
-            if (_links[i] is { } l) s.Tiles[i].Address = l.Address;
+            if (_links[i] is { } l && s.Tiles.FirstOrDefault(x => x.Col == i % _region.Cols && x.Row == i / _region.Cols) is { } ts) ts.Address = l.Address;
         return s;
     }
 
@@ -359,9 +442,10 @@ public sealed partial class RegionHost : IDisposable
     List<(Client, P.ServerMessage)> RegionIfChanged(bool force = false)
     {
         var list = new List<(Client, P.ServerMessage)>();
-        string sig = $"{_speed}/{_speedBy}/{_region.Tick / World.DaysPerMonth}/{string.Join(",", _region.Deals.Select(d => $"{d.Id}{(d.Active ? "+" : "?")}"))}/{string.Join(",", _region.Tiles.Select(t => _region.WeatherAt(t, _region.Tick)))}/" + string.Join(",", _region.Tiles.Select(t =>
+        string sig = $"{_speed}/{_speedBy}/{_region.Tick / World.DaysPerMonth}/{string.Join(",", _region.Deals.Select(d => $"{d.Id}{(d.Active ? "+" : "?")}"))}/{string.Join(",", _region.Tiles.Where(t => !t.Wild).Select(t => _region.WeatherAt(t, _region.Tick)))}/" + string.Join(",", _region.Tiles.Where(t => !t.Wild).Select(t =>
             $"{t.Name}:{t.Mayor}:{string.Join("/", t.City?.NextDoor.Select(n => n?.Sig ?? "") ?? Enumerable.Empty<string>())}:{string.Join("+", _cities[t.Row * _region.Cols + t.Col]?.Clients.Select(c => c.Player).Distinct().OrderBy(n => n, StringComparer.Ordinal) ?? Enumerable.Empty<string>())}"));
-        sig += $"/{_waiting}/{_stopped}/{string.Join(",", _links.Select(l => l == null ? "" : l.Address))}";
+        sig += $"/{_waiting}/{_stopped}/{string.Join(",", _links.Where(l => l != null).Select(l => $"{l!.Index}:{l.Address}"))}";
+        sig += $"/{_region.Charter}/{string.Join(",", _region.Votes.Select(v => $"{v.Id}:{v.Yes.Count}:{v.No.Count}"))}";
         if (!force && sig == _regionSig) return list;
         _regionSig = sig;
         foreach (var city in Cities)
@@ -609,11 +693,14 @@ public sealed partial class RegionHost : IDisposable
             {
                 var n = msg.NewRegion;
                 int cols = Math.Clamp(n.Cols, 1, Region.MaxSide), rows = Math.Clamp(n.Rows, 1, Region.MaxSide);
+                var charter = n.Charter != null ? RegionMapping.Charter(n.Charter) : RegionCharter.Default;
                 int size = n.TileSize is 64 or 128 or 256 ? n.TileSize : 128;
                 ulong seed = n.Seed != 0 ? n.Seed : (ulong)Random.Shared.NextInt64(1, long.MaxValue);
                 string regionName = string.IsNullOrWhiteSpace(n.Name) ? "New Region" : n.Name.Trim();
                 // A growing region (G4) starts as one tile in the middle of its frame.
                 var r = n.Grows ? Region.CreateGrowing(_content, regionName, seed, size) : Region.Create(_content, regionName, seed, cols, rows, size);
+                if (r.CantCharter(charter) is { } badCharter) { r.Dispose(); reply = SimHost.Error(msg.Seq, badCharter); break; }
+                r.Charter = charter;
                 // Someone has to be somewhere: the middle tile always has a city, a starter town if asked for.
                 r.Found(n.Grows ? Region.GrowStart : cols / 2, n.Grows ? Region.GrowStart : rows / 2, string.IsNullOrWhiteSpace(n.CityName) ? "New City" : n.CityName.Trim()[..Math.Min(40, n.CityName.Trim().Length)], c.Player, n.StarterTown);
                 broadcast = WithAll(() => { _pace = World.IsPace(_host.Pace) ? _host.Pace : 360; return Replace(r, c.Player); });
@@ -637,7 +724,7 @@ public sealed partial class RegionHost : IDisposable
                     }
                     _region.Found(f.Col, f.Row, name, c.Player, f.StarterTown, computer);
                     KeepPace();
-                    _pictures.Clear();
+                    _pictures.Remove(f.Row * _region.Cols + f.Col);
                     OpenCities();
                     string by = computer is { } st ? $"{World.ComputerName(st, _region.TileAt(f.Col, f.Row)!.Seed)}, a {World.Temperament(st)} computer mayor," : c.Player;
                     var list = Cities.SelectMany(city => city.Notice($"{by} founded {name} in the region.", "info")).ToList();
@@ -651,15 +738,31 @@ public sealed partial class RegionHost : IDisposable
                 var g = msg.Grow;
                 broadcast = WithAll(() =>
                 {
-                    if (CantGrow(c, g.Col, g.Row) is { } why) { reply = SimHost.Error(msg.Seq, why); return null; }
-                    _region.Grow(g.Col, g.Row);
-                    _pictures.Clear();
-                    var list = Cities.SelectMany(city => city.Notice($"{c.Player} added a tile of open land to {_region.Name}. Anyone can found a city on it.", "info")).ToList();
-                    list.AddRange(RegionIfChanged(force: true));
+                    if (CantGrow(c, g.Col, g.Row, out bool vote) is { } why) { reply = SimHost.Error(msg.Seq, why); return null; }
+                    if (!vote) return Grown(g.Col, g.Row, c.Player);
+                    var list = Asked(c, VoteKind.Grow, g.Col, g.Row, null, out var no);
+                    if (no != null) reply = SimHost.Error(msg.Seq, no);
                     return list;
                 });
                 break;
             }
+            case P.ClientMessage.BodyOneofCase.Charter:
+                broadcast = WithAll(() =>
+                {
+                    var list = SetCharter(c, msg.Charter, out var why);
+                    if (why != null) reply = SimHost.Error(msg.Seq, why);
+                    return list;
+                });
+                break;
+            case P.ClientMessage.BodyOneofCase.Vote:
+                broadcast = WithAll(() =>
+                {
+                    if (_region.Cast(msg.Vote.Id, c.Player, msg.Vote.Yes) is { } why) { reply = SimHost.Error(msg.Seq, why); return null; }
+                    var list = DecideVotes();
+                    list.AddRange(RegionIfChanged(force: true));
+                    return list;
+                });
+                break;
             case P.ClientMessage.BodyOneofCase.GoTo:
             {
                 var g = msg.GoTo;
