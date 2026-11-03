@@ -401,13 +401,25 @@ export class Renderer {
     const banks = c.riverBanks;
     const bankLevel = (x: number, y: number) => banks.level[cell(x, y)];
     const bankNear = (x: number, y: number) => banks.near[cell(x, y)];
+    // The river's level blended between the cells' centres that have one, so its surface (and so its shore) runs
+    // smoothly down the valley instead of stepping at each cell's edge.
+    const smoothLevel = (fx: number, fy: number) => {
+      const gx = fx - 0.5, gy = fy - 0.5;
+      const x = Math.floor(gx), y = Math.floor(gy), u = gx - x, v = gy - y;
+      let sum = 0, wt = 0;
+      for (const [dx, dy, w] of [[0, 0, (1 - u) * (1 - v)], [1, 0, u * (1 - v)], [0, 1, (1 - u) * v], [1, 1, u * v]]) {
+        const l = bankLevel(x + dx, y + dy);
+        if (l > 0 && w > 0) { sum += l * w; wt += w; }
+      }
+      return wt > 0 ? sum / wt : bankLevel(Math.floor(fx), Math.floor(fy));
+    };
     for (let py = 0; py < H; py++)
       for (let px = 0; px < W; px++) {
         const fx = cx0 + (px + 0.5) / K, fy = cy0 + (py + 0.5) / K;
         const hAt = ground ?? ((x: number, y: number) => blend(at, x, y));
         const h = hAt(fx, fy);
         const near = blend(bankNear, fx, fy);
-        const riverTop = near > 0 ? bankLevel(Math.floor(fx), Math.floor(fy)) - 0.35 : 0;
+        const riverTop = near > 0 ? smoothLevel(fx, fy) - 0.35 : 0;
         const water = near > 0.3 && riverTop > 0 ? h < riverTop : blend(wet, fx, fy) > 0.5;
         // The slope over most of a cell either way, so it doesn't jump at cell edges where the corners' blend bends.
         const D = 0.75;
@@ -422,7 +434,7 @@ export class Renderer {
         const made = c.made.length ? blend((x: number, y: number) => c.made[cell(x, y)], fx, fy) : 0;
         const soil = c.bedrock.length ? blend(soilAt, fx, fy) : 1;
         const kind = c.rock.length ? c.rock[cell(Math.floor(fx), Math.floor(fy))] : 0;
-        let [r, gr, b] = groundColor(water ? Math.min(h, top - 0.01) : Math.max(h, c.waterLevel), c.waterLevel, slope, g, water ? Math.max(0.5, top - h) : 0, made, soil, kind);
+        let [r, gr, b] = groundColor(water ? Math.min(h, top - 0.01) : Math.max(h, c.waterLevel), c.waterLevel, slope, g, water ? Math.max(near > 0.3 && riverTop > 0 ? 2.5 : 0.5, top - h) : 0, made, soil, kind);
         if (!water && near > 0 && riverTop > 0) {
           // The river's banks, as the Flint Hills creek has them: a dark wet band of mud and cobbles at the waterline,
           // then lusher grass on the floodplain.
