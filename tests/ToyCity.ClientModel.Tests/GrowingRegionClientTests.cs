@@ -226,9 +226,15 @@ public class GrowingRegionClientTests : IDisposable
         for (int y = 6; y < 64; y += 8)
             tess.Client.Connection.Act(new ToyCity.Protocol.V0.Action { Path = new PlacePath { X0 = 5, Y0 = y, X1 = 60, Y1 = y, ProfileId = "road" } });
         tess.WaitFor(() => tess.Client.City.Paths.Count(p => p != 0) > 10, "Tess's roads");
-        Thread.Sleep(500);
-        tess.WaitFor(() => true, "the rest");
-        int roads = tess.Client.City.Paths.Count(p => p != 0);
+        // The rest of them: until the count holds for a second.
+        var steady = DateTime.UtcNow.AddSeconds(1);
+        int roads = 0;
+        tess.WaitFor(() =>
+        {
+            int n = tess.Client.City.Paths.Count(p => p != 0);
+            if (n != roads) { roads = n; steady = DateTime.UtcNow.AddSeconds(1); }
+            return DateTime.UtcNow > steady;
+        }, "the rest of Tess's roads");
 
         // May offers to take Eastwick in; the panel shows the city the two would make and a starting price.
         may.WaitFor(() => may.Region.TakeoverAt(may.Region.TileAt(c + 1, c)!) != null, "the option");
