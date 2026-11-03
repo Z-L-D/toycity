@@ -154,6 +154,7 @@ as the sim damages buildings with.
 | ![Web, the dam tool's preview across a river, with its cost](screenshots/beta4-rivers/web-dam-preview.jpg) | ![Web, the reservoir filled behind the dam](screenshots/beta4-rivers/web-dam-reservoir.jpg) |
 | ![Web, the river brush's preview, 48 m wide](screenshots/beta4-rivers/web-river-preview.jpg) | ![Web, the dug channel joined to the river](screenshots/beta4-rivers/web-river-dug.jpg) |
 | ![Web, the river in flood after weeks of storms, at six times its usual flow](screenshots/beta4-rivers/web-flow-flood.jpg) | ![Web, the same reach low after a heatwave, at a third of its flow](screenshots/beta4-rivers/web-flow-low.jpg) |
+| ![Web, the mountain city (seed 40) after the fix: no straight strips of water](screenshots/beta4-rivers/web-mountain-rivers.jpg) | |
 
 ## Trade-offs to watch
 
