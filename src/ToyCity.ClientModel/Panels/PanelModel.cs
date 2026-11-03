@@ -56,6 +56,8 @@ public sealed partial class PanelModel
     void Changed() => Version++;
 
     public string Tab { get; private set; } = "why";
+    /// <summary>Counts each time a tab is asked for, so a client whose panel closes (UI A) opens it again.</summary>
+    public int Opened { get; private set; }
     /// <summary>The dialog over the map: "seat", "consent", "council", "dispatch", "report", "terms", "offer", "confirm", "new", "save" or "load"; null when none.</summary>
     public string? Dialog { get; private set; }
     /// <summary>Everyone the server knows of in this city, from its presence list, for picking deputies.</summary>
@@ -208,6 +210,7 @@ public sealed partial class PanelModel
         _send(new ClientMessage { Why = new WhyRequest { X = x, Y = y } });
         _send(new ClientMessage { Inspect = new InspectRequest { X = x, Y = y } });
         if (switchTab && Tab != "inspect") Tab = "why";
+        if (switchTab) Opened++;
         Dialog = null;
         Changed();
     }
@@ -216,6 +219,7 @@ public sealed partial class PanelModel
     public void Open(string tab)
     {
         Tab = tab;
+        Opened++;
         Refresh(tab);
         Changed();
     }

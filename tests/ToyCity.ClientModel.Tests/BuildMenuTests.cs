@@ -62,3 +62,18 @@ public class BuildMenuTests : IClassFixture<ServerFixture>
         }
     }
 }
+
+public class UiIconTests
+{
+    [Fact]
+    public void EveryIconTheMenuUsesIsInTheSharedSet()
+    {
+        Assert.True(UiIcons.Names.Count >= 40);
+        foreach (var name in new[] { "query", "zones", "transport", "road", "tram", "bus", "rail", "subway", "utilities", "power", "water", "garbage", "civic",
+                     "police", "fire", "health", "education", "parks", "landmarks", "land", "disasters", "bulldoze", "pin", "close", "menu", "layers", "underground" })
+            Assert.True(UiIcons.Has(name), name);
+        var svg = UiIcons.Svg("road", "#ffffff");
+        Assert.StartsWith("<svg", svg);
+        Assert.Contains("stroke='#ffffff'", svg);
+    }
+}

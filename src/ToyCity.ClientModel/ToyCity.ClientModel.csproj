@@ -14,4 +14,8 @@
     <Compile Include="../ToyCity.Sim/PathGrade.cs" Link="Shared/PathGrade.cs" />
     <Compile Include="../ToyCity.Sim/SnowDepth.cs" Link="Shared/SnowDepth.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The UI's icons (Beta 4, part 2), the same file the web client imports. -->
+    <EmbeddedResource Include="../../content/ui-icons.json" LogicalName="ui-icons.json" />
+  </ItemGroup>
 </Project>

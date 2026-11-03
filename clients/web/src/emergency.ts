@@ -162,7 +162,7 @@ export class Emergency {
     const btn = $('#btn-emergency');
     btn.classList.remove('hidden');
     const open = this.waiting;
-    btn.textContent = `🚒 ${open ? `Dispatch (${open})` : 'Dispatch'}`;
+    btn.textContent = open ? `Dispatch (${open})` : 'Dispatch';
     const scenes = this.view.scenes as Msg[];
     // The scene on show ended: keep it up, as it last was, under its report.
     const was = (before?.scenes as Msg[] | undefined)?.find((x) => x.id === this.sceneId);

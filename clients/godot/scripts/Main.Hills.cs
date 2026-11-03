@@ -267,6 +267,44 @@ public partial class Main
         _camera.ToggleFree();
         em.Map.Return();
         em.SetActive(false);
+
+        // The UI overhaul (Beta 4, part 2, variation A): the build rail's flyouts, a tile picked from one, and the
+        // panel floating over the map with the L along the bottom left.
+        var tools = _tools!;
+        var pv = _panels!;
+        int uiFrames = 0;
+        yield return new GateWait("the mayor's view back", () => ++uiFrames > 10 && !em.Active, 30);
+        _camera.CentreOn(tx, ty);
+        v.Zoom = 3;
+        var cats = tools.Menu;
+        var everything = cats.SelectMany(m => m.Groups).SelectMany(g => g.Items).ToList();
+        MountainCheck("build menu", cats.Count == 9 && c.Types.Where(t => t.Placeable).All(t => everything.Count(i => i.Type == t.Id) == 1) && c.Profiles.All(p => everything.Count(i => i.Profile == p.Id) == 1),
+            $"{cats.Count} categories on the rail, {everything.Count} things to build: " + string.Join(", ", cats.Select(m => $"{m.Name} {m.Groups.Sum(g => g.Items.Count)}")));
+        tools.OpenMenu("transport", 1);
+        uiFrames = 0;
+        yield return new GateWait("the transport flyout", () => ++uiFrames > 5, 10);
+        int roads = cats.Single(m => m.Id == "transport").Groups[1].Items.Count;
+        MountainCheck("flyout open", tools.FlyoutShown == "transport" && tools.TilesShown == roads && !tools.OptionsShown, $"Transport, Roads: {tools.TilesShown} tiles of {roads}");
+        yield return MountainMeasure("classic, the roads flyout");
+        bool picked = tools.PickTile(i => i.Profile == "road");
+        uiFrames = 0;
+        yield return new GateWait("the road picked", () => ++uiFrames > 5, 10);
+        MountainCheck("a tile picks the tool", picked && tools.State.Kind == ClientModel.Tools.ToolKind.Path && tools.State.ProfileId == "road" && tools.FlyoutShown == null && tools.OptionsShown,
+            $"tool {tools.State.Kind} {tools.State.ProfileId}; flyout {(tools.FlyoutShown == null ? "closed" : "open")}; options {(tools.OptionsShown ? "shown" : "hidden")}");
+        tools.OpenMenu("civic", 0, pin: true);
+        pv.Model.Open("budget");
+        uiFrames = 0;
+        yield return new GateWait("the civic flyout and the budget", () => ++uiFrames > 5, 10);
+        var screen = GetViewport().GetVisibleRect().Size;
+        var side = pv.SideRect;
+        var bar = pv.BarRect;
+        var up = pv.UprightRect;
+        MountainCheck("panel floats over the map", side is { } sr && sr.End.X <= screen.X - 8 && sr.Position.Y >= 40 && sr.End.Y <= bar.Position.Y && bar.End.Y <= screen.Y - 8 && up.End.Y <= bar.Position.Y && up.Position.X < 20 && pv.ModesRect.End.X <= screen.X - 8,
+            $"panel {side?.Position.X:0},{side?.Position.Y:0} to {side?.End.X:0},{side?.End.Y:0}; bar {bar.Position.Y:0} to {bar.End.Y:0}; upright {up.Position.X:0},{up.Position.Y:0}; screen {screen.X:0}×{screen.Y:0}");
+        yield return MountainMeasure("classic, the civic flyout and the budget");
+        tools.CloseMenu();
+        pv.ClosePanel();
+        tools.SetTool(ClientModel.Tools.ToolKind.Query);
     }
 
     /// <summary>Spots for a station by the streets, near a point and away from the stations already placed.</summary>

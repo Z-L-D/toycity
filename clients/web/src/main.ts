@@ -10,6 +10,7 @@ import { Transport } from './transport';
 import { Emergency } from './emergency';
 import { TickClock } from './dispatch';
 import { Region } from './region';
+import { BuildMenuState, DISASTER_NAMES, TERRAFORM_NAMES, icon, menuFor, type BuildCategory, type BuildItem } from './buildmenu';
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -26,11 +27,9 @@ type Tool =
   | { kind: 'terraform' }
   | { kind: 'disaster' };
 
-const DISASTER_NAMES = ['Fire', 'Tornado', 'Earthquake', 'Clockwork Colossus'];
 const DISASTER_SETTINGS = ['Off', 'Rare', 'Normal'];
 
 const DENSITY_NAMES = ['Low', 'Medium', 'High'];
-const TERRAFORM_NAMES = ['Raise', 'Lower', 'Level', 'Smooth', 'Even slope'];
 /** The cost line's grading part, or nothing on ground that needs none. */
 const grading = (dollars: number) => (dollars > 0 ? ` (grading ${money(dollars)})` : '');
 const ZONE_COST = 5;
@@ -253,7 +252,11 @@ function updateTopBar() {
   const f = $('#funds');
   f.textContent = money(s.funds);
   f.classList.toggle('neg', s.funds < 0);
-  $('#pop').textContent = `👥 ${s.population.toLocaleString('en-US')}`;
+  const net = (s.lastMonthIncome ?? 0) - (s.lastMonthExpenses ?? 0);
+  const fc = $('#funds-change');
+  fc.textContent = s.lastMonthIncome || s.lastMonthExpenses ? `${net >= 0 ? '+' : '−'}${money(Math.abs(net))}/mo` : '';
+  fc.className = `lb-change ${net >= 0 ? 'up' : 'down'}`;
+  $('#pop').textContent = s.population.toLocaleString('en-US');
   document.querySelectorAll<HTMLButtonElement>('#speed button').forEach((b) => b.classList.toggle('active', Number(b.dataset.speed) === s.speed));
   const d: number[] = s.demand ?? [];
   const raw: number[] = s.demandRaw?.length ? s.demandRaw : d;
@@ -290,10 +293,6 @@ $<HTMLSelectElement>('#pace').addEventListener('change', (e) => {
 // Toolbar
 // ---------------------------------------------------------------------------
 
-function toolEquals(a: Tool, b: Tool) {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
 function setTool(t: Tool) {
   tool = t;
   drag = null;
@@ -328,87 +327,149 @@ function surfaceLabel(): string {
   return s ? ` in ${s.name.toLowerCase()}` : '';
 }
 
+// The build rail and its flyouts (Beta 4, part 2, variation A): the same menu as the Godot client's.
+const buildMenu = new BuildMenuState();
+let menu: BuildCategory[] = [];
+
+function itemCurrent(i: BuildItem): boolean {
+  switch (i.kind) {
+    case 'zone': return tool.kind === 'zone' && tool.zone === i.zone && density === i.density;
+    case 'path': return tool.kind === 'path' && profileId === i.profile;
+    case 'utility': return tool.kind === 'utility' && tool.utility === i.utility;
+    case 'building': return tool.kind === 'building' && buildingTypeId === i.type;
+    case 'terraform': return tool.kind === 'terraform' && terraformMode === i.terraform;
+    case 'disaster': return tool.kind === 'disaster' && disasterKind === i.disaster;
+    default: return tool.kind === i.kind;
+  }
+}
+
+/** A tile: sets the tool it stands for, and the flyout closes unless it's pinned. */
+function pickItem(i: BuildItem) {
+  if (i.locked) { toast(`${i.name}: ${i.locked === 'Built' ? 'there can only be one, and it’s built' : i.locked}`, 'warning'); return; }
+  buildMenu.picked();
+  switch (i.kind) {
+    case 'zone': density = i.density!; setTool({ kind: 'zone', zone: i.zone! }); break;
+    case 'path': if (profileId !== i.profile) surfaceId = ''; profileId = i.profile!; setTool({ kind: 'path' }); break;
+    case 'utility': setTool({ kind: 'utility', utility: i.utility! }); break;
+    case 'building': buildingTypeId = i.type!; setTool({ kind: 'building' }); break;
+    case 'terraform': terraformMode = i.terraform!; setTool({ kind: 'terraform' }); break;
+    case 'disaster': disasterKind = i.disaster!; setTool({ kind: 'disaster' }); break;
+    default: setTool({ kind: i.kind } as Tool);
+  }
+}
+
+function closeFlyout() {
+  if (!buildMenu.open || buildMenu.pinned) return;
+  buildMenu.open = null;
+  buildToolbar();
+}
+
+function seg(attr: string, options: [string, string, string?][], current: string): string {
+  return `<div class="seg">${options.map(([v, label, title]) => `<button data-${attr}="${v}" class="${v === current ? 'active' : ''}" ${title ? `title="${esc(title)}"` : ''}>${label}</button>`).join('')}</div>`;
+}
+
+/** The tool in hand, and its options, along the top of the map. */
+function toolOptions(): string {
+  const named = (ic: string, name: string, price = '') => `<span class="opt-name">${icon(ic, 18)}${esc(name)}${price ? ` <span class="tile-price">${esc(price)}</span>` : ''}</span>`;
+  switch (tool.kind) {
+    case 'path': {
+      const p = city.profiles.find((q) => q.id === profileId);
+      return named(p?.rail || p?.tram ? 'tram' : 'road', p?.name ?? 'Path', p ? `$${p.costPerCell} / cell` : '') +
+        `<select id="sel-surface" title="Surface: sets how steep it may climb">${surfaceOptions()}</select>` +
+        seg('tunnel', [['0', 'Cut through', 'Grade through hills, however deep the cut'], ['1', 'Tunnel', 'Go under a hill where the road would run 8 m or more deep']], tunnel ? '1' : '0') +
+        seg('pathmode', [['straight', 'Straight', 'Straight or L-shaped runs'], ['diagonal', 'Diagonal', 'Smooth diagonals at any angle (A cycles)'], ['curve', 'Curve', 'Arcs snapped to the grid (A cycles)']], pathMode);
+    }
+    case 'zone':
+      return named('zones', ['', 'Residential', 'Commercial', 'Industrial'][tool.zone]) +
+        seg('density', DENSITY_NAMES.map((d, k) => [String(k), d, `${d} density (V cycles)`] as [string, string, string]), String(density)) +
+        seg('zonemode', [['area', 'Area', 'Drag a rectangle'], ['block', 'Block', 'Click inside a block enclosed by roads to zone it lot-deep (G toggles)']], zoneMode) +
+        (zoneMode === 'block' ? `<label title="Cells deeper in the block than any lot can reach">Leftover<select id="sel-leftover">${LEFTOVER_NAMES.map((n, k) => `<option value="${k}" ${k === leftover ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : '');
+    case 'dezone': return named('bulldoze', 'Dezone');
+    case 'bulldoze': return named('bulldoze', 'Bulldoze');
+    case 'utility': return named(['power', 'water', 'subway'][tool.utility], ['Power line', 'Water and sewer pipe', 'Subway tunnel'][tool.utility], ['$5 / cell', '$3 / cell', '$150 / cell'][tool.utility]);
+    case 'building': {
+      const t = city.typeById.get(buildingTypeId);
+      return named('civic', t?.name ?? 'Building', t?.cost ? `$${t.cost.toLocaleString('en-US')}` : '');
+    }
+    case 'terraform':
+      return named('land', 'Terraform') + seg('terraform', TERRAFORM_NAMES.map((n, k) => [String(k), n] as [string, string]), String(terraformMode));
+    case 'disaster':
+      return named('disasters', 'Disaster') + seg('disaster', DISASTER_NAMES.map((n, k) => [String(k), n] as [string, string]), String(disasterKind)) +
+        `<label title="How often disasters happen by themselves. The sandbox tool works either way.">By themselves<select id="sel-disaster-setting">${DISASTER_SETTINGS.map((n, k) => `<option value="${k}" ${k === (city.stats.disasterSetting ?? 1) ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
+    default: return '';
+  }
+}
+
 function buildToolbar() {
-  const el = $('#tools');
-  const btn = (label: string, key: string, t: Tool, swatch?: string) =>
-    `<button data-tool='${JSON.stringify(t)}' class="${toolEquals(t, tool) ? 'active' : ''}">` +
-    `<span>${swatch ? `<i class="swatch" style="background:${swatch}"></i>` : ''}${label}</span><kbd>${key}</kbd></button>`;
-  const profiles = city.profiles.map((p) => `<option value="${p.id}" ${p.id === profileId ? 'selected' : ''}>${esc(p.name)} ($${p.costPerCell})</option>`).join('');
-  const option = (t: (typeof city.types)[number]) => {
-    const locked = !city.unlocked.has(t.id) && t.unlockText !== '';
-    const built = t.unique && [...city.buildings.values()].some((b) => b.typeId === t.id);
-    const price = t.cost ? `$${t.cost.toLocaleString('en-US')}` : 'free';
-    const note = locked ? ` 🔒 ${t.unlockText}` : built ? ' (built)' : ` (${price})`;
-    return `<option value="${t.id}" ${t.id === buildingTypeId ? 'selected' : ''} ${locked || built ? 'disabled' : ''}>${esc(t.name)}${esc(note)}</option>`;
-  };
-  const groups: [string, string[]][] = [
-    ['Services', ['power', 'water', 'garbage', 'police', 'fire', 'health', 'education', 'park']],
-    ['Transit', ['transit']],
-    ['Landmarks', ['landmark']],
-    ['Reward lots', ['reward']],
-  ];
-  const civic = groups
-    .map(([label, cats]) => `<optgroup label="${label}">${city.types.filter((t) => t.placeable && cats.includes(t.category)).map(option).join('')}</optgroup>`)
-    .join('');
-  el.innerHTML = `
-    <h4>Look</h4>
-    ${btn('Query', 'Q', { kind: 'query' })}
-    ${btn('Bulldoze', 'B', { kind: 'bulldoze' })}
-    <h4>Paths</h4>
-    ${btn('Build path', 'R', { kind: 'path' })}
-    <select id="sel-profile" title="Path type">${profiles}</select>
-    <select id="sel-surface" title="Surface: sets how steep it may climb">${surfaceOptions()}</select>
-    <div class="row"><button data-tunnel="0" class="${!tunnel ? 'active' : ''}" title="Grade through hills, however deep the cut">Cut through</button><button data-tunnel="1" class="${tunnel ? 'active' : ''}" title="Go under a hill where the road would run 8 m or more deep">Tunnel</button></div>
-    <div class="row"><button data-pathmode="straight" class="${pathMode === 'straight' ? 'active' : ''}" title="Straight or L-shaped runs">Straight</button><button data-pathmode="diagonal" class="${pathMode === 'diagonal' ? 'active' : ''}" title="Smooth diagonals at any angle (A cycles)">Diagonal</button><button data-pathmode="curve" class="${pathMode === 'curve' ? 'active' : ''}" title="Arcs snapped to the grid (A cycles)">Curve</button></div>
-    <h4>Zones</h4>
-    ${btn('Residential', 'Z', { kind: 'zone', zone: 1 }, 'var(--r)')}
-    ${btn('Commercial', 'X', { kind: 'zone', zone: 2 }, 'var(--c)')}
-    ${btn('Industrial', 'C', { kind: 'zone', zone: 3 }, 'var(--i)')}
-    <div class="row">${DENSITY_NAMES.map((d, k) => `<button data-density="${k}" class="${k === density ? 'active' : ''}" title="${d} density (V cycles)">${d[0]}</button>`).join('')}</div>
-    <div class="row"><button data-zonemode="area" class="${zoneMode === 'area' ? 'active' : ''}" title="Drag a rectangle">Area</button><button data-zonemode="block" class="${zoneMode === 'block' ? 'active' : ''}" title="Click inside a block enclosed by roads to zone it lot-deep (G toggles)">Block</button></div>
-    ${zoneMode === 'block' ? `<label class="field" title="Cells deeper in the block than any lot can reach">Leftover<select id="sel-leftover">${LEFTOVER_NAMES.map((n, k) => `<option value="${k}" ${k === leftover ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : ''}
-    ${btn('De-zone', 'D', { kind: 'dezone' })}
-    <h4>Utilities</h4>
-    ${btn('Power line', 'P', { kind: 'utility', utility: 0 }, '#ffd84a')}
-    ${btn('Water and sewer pipe', 'W', { kind: 'utility', utility: 1 }, '#5ec8ff')}
-    ${btn('Subway tunnel', 'J', { kind: 'utility', utility: 2 }, '#d0605a')}
-    <h4>Civic</h4>
-    ${btn('Place building', 'E', { kind: 'building' })}
-    <select id="sel-building" title="Building">${civic}</select>
-    <h4>Land</h4>
-    ${btn('Terraform', 'T', { kind: 'terraform' })}
-    <div class="row">${TERRAFORM_NAMES.map((n, k) => `<button data-terraform="${k}" class="${k === terraformMode ? 'active' : ''}">${n}</button>`).join('')}</div>
-    <h4>Disasters</h4>
-    ${btn('Start disaster', 'K', { kind: 'disaster' })}
-    <select id="sel-disaster" title="Which disaster the sandbox tool starts">${DISASTER_NAMES.map((n, k) => `<option value="${k}" ${k === disasterKind ? 'selected' : ''}>${n}</option>`).join('')}</select>
-    <label class="field" title="How often disasters happen by themselves. The sandbox tool works either way.">By themselves
-      <select id="sel-disaster-setting">${DISASTER_SETTINGS.map((n, k) => `<option value="${k}" ${k === (city.stats.disasterSetting ?? 1) ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-  `;
-  el.querySelectorAll<HTMLButtonElement>('button[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(JSON.parse(b.dataset.tool!))));
+  menu = menuFor(city);
+  const lit = menu.find((c) => c.groups.some((g) => g.items.some(itemCurrent)))?.id;
+  // The rail: query, then a button for each category.
+  const rail = $('#rail');
+  rail.innerHTML =
+    `<button class="icon-btn ${tool.kind === 'query' ? 'active' : ''}" data-rail="query" title="Query (Q): click anything to see why it is the way it is">${icon('query', 22)}<kbd>Q</kbd></button><div class="rail-sep"></div>` +
+    menu.map((c) => `<button class="icon-btn ${buildMenu.open === c.id ? 'active' : ''} ${lit === c.id ? 'lit' : ''}" data-rail="${c.id}" title="${esc(c.name)}${c.key ? ` (${c.key})` : ''}">${icon(c.icon, 22)}${c.key ? `<kbd>${c.key}</kbd>` : ''}</button>`).join('');
+  rail.querySelectorAll<HTMLButtonElement>('button[data-rail]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const id = b.dataset.rail!;
+      if (id === 'query') { buildMenu.open = null; setTool({ kind: 'query' }); return; }
+      if (id === 'bulldoze') { buildMenu.open = null; setTool({ kind: 'bulldoze' }); return; }
+      buildMenu.toggle(id);
+      buildToolbar();
+    }),
+  );
+
+  // The flyout: title, what it's for, the pin, the group tabs and the tiles with their prices.
+  const fly = $('#flyout');
+  const shown = buildMenu.shown(menu);
+  fly.classList.toggle('hidden', !shown);
+  if (shown) {
+    const { category: c, group } = shown;
+    const items = c.groups[group].items;
+    fly.innerHTML = `
+      <div class="fly-head"><div class="fly-icon">${icon(c.icon, 20)}</div><h3>${esc(c.name)}</h3>
+        <button class="icon-btn ${buildMenu.pinned ? 'active' : ''}" data-fly="pin" title="${buildMenu.pinned ? 'Pinned open: click to let it close after a pick' : 'Pin it open'}">${icon('pin', 16)}</button>
+        <button class="icon-btn" data-fly="close" title="Close">${icon('close', 16)}</button></div>
+      <p class="fly-desc">${esc(c.description)}</p>
+      ${c.groups.length > 1 ? `<div class="fly-tabs">${c.groups.map((g, k) => `<button data-group="${k}" class="${k === group ? 'active' : ''}">${esc(g.name)}</button>`).join('')}</div>` : ''}
+      <div class="fly-tiles">${items.map((i, k) => `<button class="tile ${itemCurrent(i) ? 'active' : ''} ${i.locked ? 'locked' : ''}" data-item="${k}" title="${esc(i.name)}${i.locked ? ` (${esc(i.locked)})` : ''}">
+        <span class="tile-ic"${i.kind === 'zone' ? ` style="color:${['', 'var(--r)', 'var(--c)', 'var(--i)'][i.zone!]}"` : ''}>${icon(i.icon, 24)}</span>
+        <span class="tile-name">${esc(i.name)}</span>
+        <span class="tile-price">${i.locked ? `🔒 ${esc(i.locked)}` : esc(i.price)}</span></button>`).join('')}</div>`;
+    fly.querySelector('[data-fly="pin"]')!.addEventListener('click', () => { buildMenu.pinned = !buildMenu.pinned; buildToolbar(); });
+    fly.querySelector('[data-fly="close"]')!.addEventListener('click', () => { buildMenu.open = null; buildToolbar(); });
+    fly.querySelectorAll<HTMLButtonElement>('button[data-group]').forEach((b) => b.addEventListener('click', () => { buildMenu.group = Number(b.dataset.group); buildToolbar(); }));
+    fly.querySelectorAll<HTMLButtonElement>('button[data-item]').forEach((b) => b.addEventListener('click', () => pickItem(items[Number(b.dataset.item)])));
+  }
+
+  // The tool in hand and its options.
+  const el = $('#toolopts');
+  const opts = toolOptions();
+  el.classList.toggle('hidden', !opts);
+  el.innerHTML = opts;
   el.querySelectorAll<HTMLButtonElement>('button[data-density]').forEach((b) =>
-    b.addEventListener('click', () => { density = Number(b.dataset.density); buildToolbar(); }),
+    b.addEventListener('click', () => { density = Number(b.dataset.density); buildToolbar(); updateHints(); }),
   );
   el.querySelectorAll<HTMLButtonElement>('button[data-terraform]').forEach((b) =>
     b.addEventListener('click', () => { terraformMode = Number(b.dataset.terraform); setTool({ kind: 'terraform' }); }),
   );
-  $<HTMLSelectElement>('#sel-profile').addEventListener('change', (e) => { profileId = (e.target as HTMLSelectElement).value; surfaceId = ''; setTool({ kind: 'path' }); });
+  el.querySelectorAll<HTMLButtonElement>('button[data-disaster]').forEach((b) =>
+    b.addEventListener('click', () => { disasterKind = Number(b.dataset.disaster); setTool({ kind: 'disaster' }); }),
+  );
   el.querySelectorAll<HTMLButtonElement>('button[data-tunnel]').forEach((b) =>
     b.addEventListener('click', () => { tunnel = b.dataset.tunnel === '1'; setTool({ kind: 'path' }); }),
   );
-  $<HTMLSelectElement>('#sel-surface').addEventListener('change', (e) => { surfaceId = (e.target as HTMLSelectElement).value; setTool({ kind: 'path' }); });
+  el.querySelector<HTMLSelectElement>('#sel-surface')?.addEventListener('change', (e) => { surfaceId = (e.target as HTMLSelectElement).value; setTool({ kind: 'path' }); });
   el.querySelectorAll<HTMLButtonElement>('button[data-pathmode]').forEach((b) =>
     b.addEventListener('click', () => { pathMode = b.dataset.pathmode as typeof pathMode; curveEnds = null; setTool({ kind: 'path' }); }),
   );
   el.querySelectorAll<HTMLButtonElement>('button[data-zonemode]').forEach((b) =>
     b.addEventListener('click', () => { zoneMode = b.dataset.zonemode as typeof zoneMode; setTool(tool.kind === 'zone' ? tool : { kind: 'zone', zone: 1 }); }),
   );
-  document.querySelector<HTMLSelectElement>('#sel-leftover')?.addEventListener('change', (e) => { leftover = Number((e.target as HTMLSelectElement).value); dirty = true; });
-  $<HTMLSelectElement>('#sel-disaster').addEventListener('change', (e) => { disasterKind = Number((e.target as HTMLSelectElement).value); setTool({ kind: 'disaster' }); });
-  $<HTMLSelectElement>('#sel-disaster-setting').addEventListener('change', (e) => {
+  el.querySelector<HTMLSelectElement>('#sel-leftover')?.addEventListener('change', (e) => { leftover = Number((e.target as HTMLSelectElement).value); dirty = true; });
+  el.querySelector<HTMLSelectElement>('#sel-disaster-setting')?.addEventListener('change', (e) => {
     const setting = Number((e.target as HTMLSelectElement).value);
     act({ disasters: { setting } }, `Disasters: ${DISASTER_SETTINGS[setting].toLowerCase()}`);
   });
-  $<HTMLSelectElement>('#sel-building').addEventListener('change', (e) => { buildingTypeId = (e.target as HTMLSelectElement).value; setTool({ kind: 'building' }); });
 }
 
 /** Lower-left key hints for the current tool (Fortnite style). */
@@ -722,6 +783,8 @@ function query(x: number, y: number, switchTab = true) {
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('mousedown', (e) => {
+  closeFlyout();
+  $('#game-menu').classList.add('hidden');
   const { sx, sy } = localXY(e);
   if (e.button === 2 || e.button === 1) {
     panning = { sx, sy, ox: renderer.offX, oy: renderer.offY };
@@ -852,8 +915,10 @@ window.addEventListener('keydown', (e) => {
   };
   if (keyTools[k]) setTool(keyTools[k]);
   else if (k === 'v') { density = (density + 1) % 3; buildToolbar(); updateHints(); }
-  else if (k === 'm') { renderer.showAgents = !renderer.showAgents; if (activeTab === 'layers') renderLayers(); dirty = true; }
-  else if (k === 'u') { renderer.underground = !renderer.underground; updateHints(); dirty = true; }
+  else if (k === 'm') { renderer.showAgents = !renderer.showAgents; if (activeTab === 'layers') renderLayers(); updateUpright(); dirty = true; }
+  else if (k === 'u') { renderer.underground = !renderer.underground; updateHints(); updateUpright(); dirty = true; }
+  else if (k === 'escape' && buildMenu.open) { buildMenu.open = null; buildToolbar(); }
+  else if (k === 'escape' && !$('#panel').classList.contains('closed')) closePanel();
   else if (k === 'escape' && renderer.followed !== null) stopFollowing();
   else if (k === 'escape' && curveEnds) { curveEnds = null; renderer.preview = null; updateHints(); dirty = true; }
   else if (k === 'escape') { drag = null; renderer.preview = null; setTool({ kind: 'query' }); }
@@ -883,8 +948,17 @@ setInterval(() => {
 // Side panel
 // ---------------------------------------------------------------------------
 
+const TAB_TITLES: Record<string, string> = {
+  why: 'Why', inspect: 'Inspect', demand: 'Demand', alerts: 'Alerts', forecast: 'Forecast', laws: 'Laws', people: 'People', buses: 'Buses', budget: 'Budget', layers: 'Layers', guide: 'Guide',
+};
+
+/** Shows a tab of the floating panel, opening it. */
 function showTab(name: string) {
   activeTab = name;
+  $('#panel').classList.remove('closed');
+  document.body.classList.add('panel-open');
+  $('#panel-title').textContent = TAB_TITLES[name] ?? name;
+  updateUpright();
   document.querySelectorAll<HTMLButtonElement>('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll<HTMLElement>('.tab').forEach((t) => t.classList.toggle('active', t.id === `tab-${name}`));
   if (name === 'budget') renderBudget();
@@ -893,6 +967,128 @@ function showTab(name: string) {
 document.querySelectorAll<HTMLButtonElement>('#tabs button').forEach((b) =>
   b.addEventListener('click', () => (talk ? talk.open(b.dataset.tab!) : showTab(b.dataset.tab!))),
 );
+
+function closePanel() {
+  $('#panel').classList.add('closed');
+  document.body.classList.remove('panel-open');
+  updateUpright();
+}
+$('#panel-close').innerHTML = icon('close', 16);
+$('#panel-close').addEventListener('click', closePanel);
+
+// ---------------------------------------------------------------------------
+// The L (Beta 4, part 2, variation A): the minimap and the panels up the left, the city's numbers along the bottom
+// ---------------------------------------------------------------------------
+
+const UPRIGHT: [string, string, string][] = [
+  ['layers', 'layers', 'Layers: what the map shows'], ['underground', 'underground', 'Underground view (U): pipes, tunnels and subways'], ['traffic', 'traffic', 'Commuters on the streets (M)'],
+  ['why', 'why', 'Why: what you queried, and why it is the way it is'], ['inspect', 'inspect', 'Inspect: the raw values of a queried cell'],
+  ['demand', 'demand', 'Demand: what the city wants more of, and why'], ['forecast', 'forecast', 'Forecast: where the city is heading'], ['people', 'people', 'People: what they think of you'],
+  ['laws', 'laws', 'Laws: ordinances'], ['guide', 'guide', 'Guide: how to play'],
+];
+
+function updateUpright() {
+  const open = !$('#panel').classList.contains('closed');
+  document.querySelectorAll<HTMLButtonElement>('#lup-btns button').forEach((b) => {
+    const p = b.dataset.panel!;
+    b.classList.toggle('active', p === 'underground' ? renderer.underground : p === 'traffic' ? renderer.showAgents : open && activeTab === p);
+  });
+  $('#btn-budget').classList.toggle('active', open && activeTab === 'budget');
+  $('#btn-alerts').classList.toggle('active', open && activeTab === 'alerts');
+}
+
+function openPanel(name: string) {
+  if (!$('#panel').classList.contains('closed') && activeTab === name) { closePanel(); return; }
+  if (talk) talk.open(name);
+  else showTab(name);
+}
+
+$('#lup-btns').innerHTML = UPRIGHT.map(([p, ic, title]) => `<button class="icon-btn" data-panel="${p}" title="${esc(title)}">${icon(ic, 18)}</button>`).join('');
+document.querySelectorAll<HTMLButtonElement>('#lup-btns button').forEach((b) =>
+  b.addEventListener('click', () => {
+    const p = b.dataset.panel!;
+    if (p === 'underground') { renderer.underground = !renderer.underground; updateHints(); dirty = true; }
+    else if (p === 'traffic') { renderer.showAgents = !renderer.showAgents; if (activeTab === 'layers') renderLayers(); dirty = true; }
+    else openPanel(p);
+    updateUpright();
+  }),
+);
+$('#btn-budget').innerHTML = icon('budget', 20);
+$('#btn-budget').addEventListener('click', () => openPanel('budget'));
+$('#btn-alerts').insertAdjacentHTML('afterbegin', icon('alerts', 20));
+$('#btn-menu').innerHTML = icon('menu', 18);
+$('#btn-menu').addEventListener('click', () => $('#game-menu').classList.toggle('hidden'));
+$('#game-menu').addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('button')) $('#game-menu').classList.add('hidden'); });
+document.querySelector<HTMLButtonElement>('#speed button[data-speed="0"]')!.innerHTML = icon('pause', 14);
+
+/** The whole city, small: land and water, zones, roads and buildings, with the view's rectangle on it. */
+const minimap = $<HTMLCanvasElement>('#minimap');
+let minimapImage: ImageData | null = null;
+let minimapAt = 0;
+
+function drawMinimapImage() {
+  const c = city;
+  const w = c.width, h = c.height;
+  if (!w || !h) return;
+  const img = new ImageData(w, h);
+  const zone = [[0, 0, 0], [95, 158, 74], [91, 127, 184], [192, 154, 69]];
+  for (let i = 0; i < w * h; i++) {
+    let r: number, g: number, b: number;
+    const ht = c.heights[i];
+    if (ht <= c.waterLevel || c.rivers[i]) { r = 38; g = 86; b = 140; }
+    else { const k = Math.min(1, (ht - c.waterLevel) / 40); r = 70 + 50 * k; g = 104 + 30 * k; b = 62 + 30 * k; }
+    const z = c.zones[i];
+    if (z) { const col = zone[Math.floor(z / 3)] ?? zone[0]; r = (r + col[0]) / 2; g = (g + col[1]) / 2; b = (b + col[2]) / 2; }
+    const bid = c.buildingAt[i];
+    if (bid) {
+      const bd = c.buildings.get(bid);
+      const col = bd && bd.zone ? zone[bd.zone] : [200, 200, 210];
+      r = col[0]; g = col[1]; b = col[2];
+    }
+    if (c.paths[i]) { r = 214; g = 214; b = 220; }
+    img.data.set([r, g, b, 255], i * 4);
+  }
+  minimapImage = img;
+}
+
+function drawMinimap(now: number) {
+  if (!city.loaded || document.body.classList.contains('company') || document.body.classList.contains('dispatch')) return;
+  if (!minimapImage || now - minimapAt > 2000) { drawMinimapImage(); minimapAt = now; }
+  const ctx = minimap.getContext('2d')!;
+  const W = minimap.width, H = minimap.height;
+  const s = Math.min(W / city.width, H / city.height);
+  const ox = (W - city.width * s) / 2, oy = (H - city.height * s) / 2;
+  ctx.fillStyle = '#0b0f17';
+  ctx.fillRect(0, 0, W, H);
+  if (minimapImage) {
+    const tmp = new OffscreenCanvas(city.width, city.height);
+    tmp.getContext('2d')!.putImageData(minimapImage, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(tmp, ox, oy, city.width * s, city.height * s);
+  }
+  // What the main view shows.
+  const r = canvas.getBoundingClientRect();
+  const x0 = -renderer.offX / renderer.scale, y0 = -renderer.offY / renderer.scale;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(ox + x0 * s, oy + y0 * s, (r.width / renderer.scale) * s, (r.height / renderer.scale) * s);
+}
+
+function minimapLook(e: MouseEvent) {
+  const b = minimap.getBoundingClientRect();
+  const s = Math.min(minimap.width / city.width, minimap.height / city.height);
+  const ox = (minimap.width - city.width * s) / 2, oy = (minimap.height - city.height * s) / 2;
+  const x = ((e.clientX - b.left) * (minimap.width / b.width) - ox) / s;
+  const y = ((e.clientY - b.top) * (minimap.height / b.height) - oy) / s;
+  followCam = false;
+  renderer.centerOn(Math.max(0, Math.min(city.width - 1, x)) - 0.5, Math.max(0, Math.min(city.height - 1, y)) - 0.5);
+  dirty = true;
+}
+let minimapDrag = false;
+minimap.addEventListener('mousedown', (e) => { minimapDrag = true; minimapLook(e); });
+window.addEventListener('mousemove', (e) => { if (minimapDrag) minimapLook(e); });
+window.addEventListener('mouseup', () => (minimapDrag = false));
+setInterval(() => drawMinimap(performance.now()), 200);
 
 function renderWhy(w: Msg) {
   const reqs = (w.requirements as Msg[])

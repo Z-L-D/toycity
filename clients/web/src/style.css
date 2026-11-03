@@ -530,3 +530,138 @@ body.dispatch #em-panel { display: flex; flex-direction: column; min-height: 0; 
 #busy.hidden { display: none; }
 #busy .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #fff3; border-top-color: var(--accent); animation: busy-spin 0.8s linear infinite; }
 @keyframes busy-spin { to { transform: rotate(360deg); } }
+
+/* ===========================================================================================================
+   The UI overhaul, variation A (Beta 4, part 2): the map fills the window, with glass panels floating over it.
+   A build rail down the left opens flyouts of priced tiles; the city's name and the modes sit top right; an L in
+   the bottom left holds the minimap and its panel buttons (the upright) and the date, speed, money, people,
+   demand, news and alerts (the bar).
+   =========================================================================================================== */
+:root {
+  --glass: rgba(14, 19, 31, 0.82);
+  --glass-line: rgba(255, 255, 255, 0.09);
+  --ui-accent: #3e6fd1;
+  --gold: #f3c94a;
+  --ui-font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+html, body { font-family: var(--ui-font); }
+#app { position: relative; }
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.ic { display: block; flex: none; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 6px; background: transparent; border: 1px solid transparent; border-radius: 8px; color: #c9d2e3; }
+.icon-btn:hover { background: rgba(255, 255, 255, 0.07); border-color: transparent; color: #fff; }
+.icon-btn.active { background: var(--ui-accent); border-color: transparent; color: #fff; }
+
+/* The mayor's view: no top bar or tool column, the map fills it all. */
+body:not(.company):not(.dispatch) #view { grid-column: 1 / 4; grid-row: 1 / 3; }
+body.company #rail, body.company #flyout, body.company #toolopts, body.company #modes, body.company #game-menu, body.company #lup, body.company #lbar,
+body.dispatch #rail, body.dispatch #flyout, body.dispatch #toolopts, body.dispatch #modes, body.dispatch #game-menu, body.dispatch #lup, body.dispatch #lbar { display: none; }
+
+/* The build rail and its flyout. */
+#rail { position: absolute; left: 12px; top: 12px; z-index: 12; display: flex; flex-direction: column; gap: 4px; padding: 6px; }
+#rail button { width: 42px; height: 42px; position: relative; }
+#rail .rail-sep { height: 1px; margin: 3px 6px; background: var(--glass-line); }
+#rail kbd { position: absolute; right: 2px; bottom: 1px; font: 600 8.5px/1 var(--ui-font); color: #8f99ad; }
+#rail button.active kbd { color: #dfe7ff; }
+#rail button.lit:not(.active)::after { content: ''; position: absolute; left: -6px; top: 11px; bottom: 11px; width: 3px; border-radius: 2px; background: var(--ui-accent); }
+
+#flyout { position: absolute; left: 74px; top: 12px; z-index: 12; width: 360px; max-height: calc(100% - 260px); display: flex; flex-direction: column; overflow: hidden; }
+#flyout.hidden { display: none; }
+.fly-head { display: flex; align-items: center; gap: 10px; padding: 12px 12px 4px 14px; }
+.fly-head .fly-icon { width: 32px; height: 32px; border-radius: 8px; background: var(--ui-accent); display: flex; align-items: center; justify-content: center; }
+.fly-head h3 { margin: 0; font-size: 15px; font-weight: 700; flex: 1; }
+.fly-desc { margin: 0; padding: 0 14px 8px; color: #9aa6bd; font-size: 12px; }
+.fly-tabs { display: flex; gap: 4px; padding: 0 12px 8px; flex-wrap: wrap; }
+.fly-tabs button { padding: 3px 10px; border-radius: 14px; font-size: 12px; background: rgba(255, 255, 255, 0.05); border-color: transparent; color: #c9d2e3; }
+.fly-tabs button.active { background: rgba(62, 111, 209, 0.28); border-color: var(--ui-accent); color: #fff; }
+.fly-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 4px 12px 12px; overflow-y: auto; }
+.tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px 7px; text-align: center; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--glass-line); min-height: 92px; }
+.tile:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.18); }
+.tile.active { border-color: var(--ui-accent); background: rgba(62, 111, 209, 0.22); }
+.tile .tile-ic { width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.06); }
+.tile .tile-name { font-size: 11.5px; line-height: 1.2; color: #e6e9ef; }
+.tile .tile-price { font-size: 11px; font-weight: 600; color: var(--gold); font-variant-numeric: tabular-nums; }
+.tile.locked { opacity: 0.45; cursor: not-allowed; }
+.tile.locked .tile-price { color: #9aa6bd; font-weight: 400; }
+
+/* Options for the tool in hand, along the top. */
+#toolopts { position: absolute; top: 12px; left: 74px; max-width: calc(100% - 700px); min-width: 0; z-index: 11; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 10px; white-space: nowrap; }
+#flyout:not(.hidden) ~ #toolopts { display: none; }
+#toolopts.hidden { display: none; }
+#toolopts .opt-name { font-weight: 600; color: #fff; padding-right: 4px; display: flex; gap: 6px; align-items: center; }
+#toolopts .seg { display: flex; gap: 0; background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 2px; }
+#toolopts .seg button { border: 0; background: transparent; padding: 3px 9px; border-radius: 6px; font-size: 12px; color: #c9d2e3; }
+#toolopts .seg button.active { background: var(--ui-accent); color: #fff; }
+#toolopts select { background: rgba(255, 255, 255, 0.06); border-color: var(--glass-line); }
+#toolopts label { font-size: 11px; color: #9aa6bd; display: flex; gap: 6px; align-items: center; }
+
+/* The city and its modes, top right. */
+#modes { position: absolute; top: 12px; right: 12px; z-index: 12; display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 14px; border-radius: 22px; }
+.mode-city { font-weight: 700; letter-spacing: 0.2px; margin-right: 4px; white-space: nowrap; }
+.mode-sep, .lb-sep { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--glass-line); }
+.mode { padding: 5px 12px; border-radius: 16px; border: 0; background: transparent; color: #c9d2e3; font-weight: 500; }
+.mode:hover { background: rgba(255, 255, 255, 0.07); }
+.mode.active { background: var(--ui-accent); color: #fff; }
+#modes .conn { margin: 0 6px 0 2px; }
+#game-menu { position: absolute; top: 58px; right: 12px; z-index: 14; display: flex; flex-direction: column; gap: 4px; padding: 8px; min-width: 200px; }
+#game-menu.hidden { display: none; }
+#game-menu button { text-align: left; background: transparent; border-color: transparent; }
+#game-menu button:hover { background: rgba(255, 255, 255, 0.07); }
+#game-menu .menu-sep { height: 1px; background: var(--glass-line); margin: 2px 0; }
+#game-menu .hidden { display: none; }
+
+/* The L: the minimap and the panels up the left, the city's numbers along the bottom. */
+#lup { position: absolute; left: 12px; bottom: 76px; z-index: 11; padding: 8px; width: 202px; border-bottom-left-radius: 4px; }
+#minimap { display: block; width: 184px; height: 184px; border-radius: 8px; cursor: pointer; background: #0b0f17; image-rendering: pixelated; }
+#lup-btns { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; margin-top: 6px; }
+#lup-btns button { padding: 6px 0; }
+#lbar { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 11; height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 10px 0 14px; border-top-left-radius: 4px; }
+.lb-cell { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.lb-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.7px; color: #7d889e; font-weight: 600; }
+#lbar .stat { font-size: 13.5px; font-weight: 600; }
+.lb-clock { min-width: 210px; }
+#lbar .speed { background: rgba(255, 255, 255, 0.05); border-radius: 9px; padding: 2px; gap: 1px; }
+#lbar .speed button { border: 0; background: transparent; padding: 4px 8px; font-size: 12px; font-weight: 600; color: #c9d2e3; display: flex; align-items: center; }
+#lbar .speed button.active { background: var(--ui-accent); color: #fff; }
+#lbar #pace { background: rgba(255, 255, 255, 0.05); border-color: transparent; font-size: 12px; max-width: 132px; }
+.lb-change { font-size: 11px; font-weight: 600; }
+.lb-change.up { color: var(--good); }
+.lb-change.down { color: var(--bad); }
+#lbar .rci { height: 40px; }
+#lbar .rci .bar { width: 14px; background: rgba(0, 0, 0, 0.35); }
+#lbar #ticker { position: static; transform: none; flex: 1; min-width: 0; max-width: none; background: rgba(255, 255, 255, 0.04); border: 0; border-radius: 16px; }
+#lbar #ticker .tag { background: var(--ui-accent); color: #fff; }
+#btn-alerts { position: relative; }
+#btn-alerts .badge { position: absolute; top: -3px; right: -5px; font-size: 10px; min-width: 16px; padding: 0 4px; line-height: 15px; }
+#btn-alerts .badge.none { display: none; }
+
+/* The panel floats on the right, and closes. */
+body:not(.company):not(.dispatch) #panel { position: absolute; top: 64px; right: 12px; bottom: 80px; width: 380px; z-index: 13; border-radius: 12px;
+  background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); overflow: hidden; }
+body:not(.company):not(.dispatch) #panel.closed { display: none; }
+#panel-head { display: none; }
+body:not(.company):not(.dispatch) #panel-head { display: flex; align-items: center; padding: 8px 8px 0 14px; }
+#panel-title { flex: 1; font-weight: 700; font-size: 14px; }
+body:not(.company):not(.dispatch) #tabs { display: flex; flex-wrap: wrap; gap: 3px; padding: 6px 10px; border-bottom: 1px solid var(--glass-line); }
+body:not(.company):not(.dispatch) #tabs button { padding: 2px 8px; font-size: 11.5px; border-radius: 12px; background: transparent; border-color: transparent; color: #9aa6bd; }
+body:not(.company):not(.dispatch) #tabs button.active { background: rgba(62, 111, 209, 0.28); color: #fff; }
+
+/* What sits over the map, moved out of the floating panels' way. */
+#hints { left: 226px; bottom: 80px; }
+body.company #hints, body.dispatch #hints { left: 10px; }
+#hints div { background: var(--glass); border: 1px solid var(--glass-line); border-radius: 8px; }
+body.panel-open:not(.company):not(.dispatch) #toasts { right: 404px; }
+#toasts { right: 12px; bottom: 80px; }
+body.company #toasts, body.dispatch #toasts, body.company #hints { bottom: 10px; }
+#follow { top: 64px; }
+#away { top: 100px; }
+.cost { background: var(--glass); border: 1px solid var(--glass-line); border-radius: 8px; padding: 3px 9px; font-weight: 600; color: var(--gold); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+.cost.bad { color: var(--bad); }

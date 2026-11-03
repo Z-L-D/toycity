@@ -17,7 +17,13 @@ public partial class PanelView : CanvasLayer
     public readonly PanelModel Model;
     static readonly string[] MonthNames = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
-    Label? _name, _date, _funds, _pop;
+    Label? _name, _date, _funds, _pop, _fundsChange, _sideTitle;
+    PanelContainer? _topBar, _lbar, _modes, _upright, _gameMenu;
+    Control? _miniFrame;
+    Button? _mayorMode;
+    readonly Dictionary<string, Button> _uprightButtons = new();
+    int _opened;
+    Control? _sideHead;
     OptionButton? _pace;
     /// <summary>Both clocks, the hands running on between ticks (Beta 3.2).</summary>
     readonly GameClock _clock = new();
@@ -61,7 +67,7 @@ public partial class PanelView : CanvasLayer
     Label? _coPending;
     PanelContainer? _coTools;
     RichTextLabel? _coToolsText;
-    string _wasScreen = "city";
+    string _wasScreen = "";
     string? _wasShown;
     /// <summary>Whether screen switches fade; off for screenshots and scripted runs, which capture a frame at once.</summary>
     public bool Transitions { get; set; } = true;
@@ -146,10 +152,30 @@ public partial class PanelView : CanvasLayer
     }
 
     /// <summary>The four speed buttons, small and close together, as the web's.</summary>
-    Button[] Speeds(Container parent)
+    Button[] Speeds(Container parent, bool glass = false)
     {
         var box = new HBoxContainer();
         box.AddThemeConstantOverride("separation", 2);
+        if (glass)
+        {
+            var well = new PanelContainer { SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+            well.AddThemeStyleboxOverride("panel", UiTheme.Box(new Color(1, 1, 1, 0.05f), null, 9, 2, 2));
+            parent.AddChild(well);
+            well.AddChild(box);
+            string[] g = { "", "1×", "2×", "3×" };
+            string[] gt = { "Pause (Space)", "Slow", "Normal", "Fast" };
+            var gl = new Button[4];
+            for (int k = 0; k < 4; k++)
+            {
+                int kk = k;
+                gl[k] = UiTheme.Flat(new Button { Text = g[k], ToggleMode = true, FocusMode = Control.FocusModeEnum.None, TooltipText = gt[k] }, 8, 3, 7);
+                if (k == 0) gl[k].Icon = UiTheme.Icon("pause", 14);
+                gl[k].AddThemeFontSizeOverride("font_size", 12);
+                gl[k].Pressed += () => _client.Connection.Send(new ClientMessage { Speed = new SetSpeed { Speed = kk } });
+                box.AddChild(gl[k]);
+            }
+            return gl;
+        }
         parent.AddChild(box);
         string[] names = { "⏸", "▶", "▶▶", "▶▶▶" };
         string[] tips = { "Pause (Space)", "Slow", "Normal", "Fast" };
@@ -200,6 +226,222 @@ public partial class PanelView : CanvasLayer
         return p;
     }
 
+    /// <summary>A small upper-case label over a number in the L's bar.</summary>
+    static VBoxContainer Cell(Container parent, string label)
+    {
+        var v = new VBoxContainer { SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+        v.AddThemeConstantOverride("separation", 0);
+        parent.AddChild(v);
+        v.AddChild(new Label { Text = label.ToUpperInvariant(), LabelSettings = new LabelSettings { FontSize = 9, FontColor = UiTheme.Label2 } });
+        return v;
+    }
+
+    static Control Sep(Container parent)
+    {
+        var r = new ColorRect { Color = UiTheme.GlassLine, CustomMinimumSize = new Vector2(1, 34), SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+        parent.AddChild(r);
+        return r;
+    }
+
+    static PanelContainer GlassPanel(Control parent)
+    {
+        var p = new PanelContainer();
+        p.AddThemeStyleboxOverride("panel", UiTheme.GlassBox());
+        parent.AddChild(p);
+        return p;
+    }
+
+    static readonly (string Id, string Icon, string Tip)[] Upright =
+    {
+        ("layers", "layers", "Layers: what the map shows"), ("underground", "underground", "Underground view (U): pipes, tunnels and subways"), ("traffic", "traffic", "Commuters on the streets (M)"),
+        ("why", "why", "Why: what you queried, and why it is the way it is"), ("inspect", "inspect", "Inspect: the raw values of a queried cell"),
+        ("demand", "demand", "Demand: what the city wants more of, and why"), ("forecast", "forecast", "Forecast: where the city is heading"), ("people", "people", "People: what they think of you"),
+        ("laws", "laws", "Laws: ordinances"), ("guide", "guide", "Guide: how to play"),
+    };
+
+    /// <summary>
+    /// The mayor's view of the UI overhaul (variation A, Beta 4): the city's name and the modes in a glass pill top
+    /// right, and the L in the bottom left, the minimap and the panels' buttons up it and the city's numbers along it.
+    /// </summary>
+    void BuildL()
+    {
+        var root = new Control { MouseFilter = Control.MouseFilterEnum.Ignore };
+        root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        AddChild(root);
+
+        // The bar along the bottom.
+        _lbar = GlassPanel(root);
+        _lbar.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
+        (_lbar.OffsetLeft, _lbar.OffsetRight, _lbar.OffsetTop, _lbar.OffsetBottom) = (12, -12, -68, -12);
+        var lb = _lbar.GetThemeStylebox("panel") as StyleBoxFlat;
+        var row = _cityBar = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 12);
+        _lbar.AddChild(row);
+        _date = new Label { CustomMinimumSize = new Vector2(220, 0) };
+        _date.AddThemeFontSizeOverride("font_size", 14);
+        _date.MouseFilter = Control.MouseFilterEnum.Pass;
+        Cell(row, "Date").AddChild(_date);
+        _speeds = Speeds(row, glass: true);
+        _pace = PaceMenu(row);
+        _pace.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
+        UiTheme.Flat(_pace, 8, 4, 8);
+        Sep(row);
+        var fundsRow = new HBoxContainer();
+        fundsRow.AddThemeConstantOverride("separation", 6);
+        Cell(row, "Funds").AddChild(fundsRow);
+        _funds = new Label { TooltipText = "Treasury", MouseFilter = Control.MouseFilterEnum.Pass };
+        fundsRow.AddChild(_funds);
+        _fundsChange = new Label { VerticalAlignment = VerticalAlignment.Center, LabelSettings = new LabelSettings { FontSize = 11, FontColor = UiTheme.Good } };
+        fundsRow.AddChild(_fundsChange);
+        _pop = new Label { TooltipText = "Population", MouseFilter = Control.MouseFilterEnum.Pass };
+        Cell(row, "People").AddChild(_pop);
+        var ap = Cell(row, "Approval");
+        _approval = UiTheme.Flat(Btn("Approval", () => Model.Open("people"), ap), 0, 0, 4);
+        _approval.TooltipText = "Mayor approval: click for what people think";
+        _approval.Alignment = HorizontalAlignment.Left;
+        _rci = new DemandBars(_client.City) { CustomMinimumSize = new Vector2(50, 40), TooltipText = "Demand: bars up mean the city wants more of that zone", SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+        _rci.GuiInput += e => { if (e is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }) Model.Open("demand"); };
+        row.AddChild(_rci);
+        Sep(row);
+        // The news, in the bar's free middle.
+        _ticker = new Button { FocusMode = Control.FocusModeEnum.None, ClipText = true, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+            Alignment = HorizontalAlignment.Left, Text = "" };
+        foreach (var st in new[] { "normal", "hover", "pressed", "hover_pressed" })
+            _ticker.AddThemeStyleboxOverride(st, UiTheme.Box(new Color(1, 1, 1, st.StartsWith("hover") ? 0.07f : 0.04f), null, 16, 12, 6));
+        _ticker.Pressed += () =>
+        {
+            var hs = Model.Headlines;
+            if (_tickerIndex >= 0 && _tickerIndex < hs.Count && hs[_tickerIndex].X >= 0) Model.Click($"jump:{hs[_tickerIndex].X}:{hs[_tickerIndex].Y}");
+            else Model.Open("people");
+        };
+        row.AddChild(_ticker);
+        _alerts = UiTheme.IconButton("alerts", "Alerts: problems in the city, click one to go there");
+        _alerts.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
+        _alerts.Pressed += () => Toggle("alerts");
+        row.AddChild(_alerts);
+        var budget = UiTheme.IconButton("budget", "Budget: taxes, spending and loans");
+        budget.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
+        budget.ToggleMode = true;
+        budget.Pressed += () => Toggle("budget");
+        row.AddChild(budget);
+        _uprightButtons["budget"] = budget;
+
+        // The upright: the minimap and the panels' buttons.
+        _upright = GlassPanel(root);
+        _upright.GrowVertical = Control.GrowDirection.Begin;
+        var ucol = new VBoxContainer();
+        ucol.AddThemeConstantOverride("separation", 6);
+        _upright.AddChild(ucol);
+        _miniFrame = new Control { CustomMinimumSize = new Vector2(184, 184), MouseFilter = Control.MouseFilterEnum.Stop, TooltipText = "The whole city: click or drag to look there" };
+        ucol.AddChild(_miniFrame);
+        _miniFrame.GuiInput += e =>
+        {
+            bool look = e is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } || e is InputEventMouseMotion { ButtonMask: MouseButtonMask.Left };
+            if (!look || Map?.CellAt(GetViewport().GetMousePosition()) is not { } m) return;
+            Camera?.CentreOn(m.X + 0.5f, m.Y + 0.5f);
+            FollowCam = false;
+            _miniFrame.AcceptEvent();
+        };
+        _miniFrame.Resized += () => Map?.Refit();
+        var grid = new GridContainer { Columns = 5 };
+        grid.AddThemeConstantOverride("h_separation", 2);
+        grid.AddThemeConstantOverride("v_separation", 2);
+        ucol.AddChild(grid);
+        foreach (var (id, icon, tip) in Upright)
+        {
+            var b = UiTheme.IconButton(icon, tip, 18, 7);
+            b.ToggleMode = true;
+            string pid = id;
+            b.Pressed += () =>
+            {
+                if (pid == "underground") Model.ShowUnderground = !Model.ShowUnderground;
+                else if (pid == "traffic") Model.ShowAgents = !Model.ShowAgents;
+                else Toggle(pid);
+            };
+            grid.AddChild(b);
+            _uprightButtons[id] = b;
+        }
+
+        // The city and its modes, top right.
+        _modes = GlassPanel(root);
+        var ms = UiTheme.GlassBox(22, 14, 4);
+        ms.ContentMarginRight = 6;
+        _modes.AddThemeStyleboxOverride("panel", ms);
+        _modes.GrowHorizontal = Control.GrowDirection.Begin;
+        var mrow = new HBoxContainer();
+        mrow.AddThemeConstantOverride("separation", 4);
+        _modes.AddChild(mrow);
+        _name = new Label { VerticalAlignment = VerticalAlignment.Center, LabelSettings = new LabelSettings { FontSize = 14, FontColor = Colors.White } };
+        mrow.AddChild(_name);
+        Sep(mrow).CustomMinimumSize = new Vector2(1, 22);
+        Button Mode(string text, string tip, System.Action go)
+        {
+            var b = UiTheme.Flat(Btn(text, go, mrow), 12, 5, 16);
+            b.TooltipText = tip;
+            return b;
+        }
+        _mayorMode = Mode("Mayor", "The mayor's view: build and run the city", () => { });
+        _mayorMode.ToggleMode = true;
+        _mayorMode.SetPressedNoSignal(true);
+        _company = Mode("Transit", "Switch to the bus company's own screen", () => Model.Click("co-open"));
+        _company.Visible = false;
+        _dispatch = Mode("Dispatch", "Switch to the emergency services' own screen", () => Model.Click("em-open"));
+        _dispatch.Visible = false;
+        Mode("Region", "The region map: the cities around this one, and open land to found more", () => Model.Click("rg-open"));
+        var menu = UiTheme.IconButton("menu", "Game: who runs the city, new, save, load and graphics", 18, 6);
+        mrow.AddChild(menu);
+
+        // The game menu under it.
+        _gameMenu = GlassPanel(root);
+        _gameMenu.Visible = false;
+        _gameMenu.GrowHorizontal = Control.GrowDirection.Begin;
+        _gameMenu.CustomMinimumSize = new Vector2(200, 0);
+        var gcol = new VBoxContainer();
+        _gameMenu.AddChild(gcol);
+        Button Item(string text, System.Action go) { var b = UiTheme.Flat(Btn(text, () => { _gameMenu!.Visible = false; go(); }, gcol), 10, 5, 8); b.Alignment = HorizontalAlignment.Left; return b; }
+        _seat = Item("Mayor", () => Model.OpenDialog("seat"));
+        _seat.TooltipText = "Who runs the city: hand it to the computer while you're away";
+        Item("New city", () => Model.OpenDialog("new"));
+        Item("Save", () => Model.OpenDialog("save"));
+        Item("Load", () => Model.OpenDialog("load"));
+        Item("Graphics", () => GraphicsPressed?.Invoke());
+        menu.Pressed += () => _gameMenu.Visible = !_gameMenu.Visible;
+        // Placed once their contents give them a size: top right, the menu under the pill.
+        Callable.From(() =>
+        {
+            _modes.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopRight, Control.LayoutPresetMode.Minsize, 12);
+            _gameMenu.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopRight, Control.LayoutPresetMode.Minsize, 12);
+            _gameMenu.OffsetTop += 48;
+            _gameMenu.OffsetBottom += 48;
+            _upright.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.Minsize, 12);
+            _upright.OffsetTop -= 64;
+            _upright.OffsetBottom -= 64;
+        }).CallDeferred();
+    }
+
+    /// <summary>The minimap: in the L's upright in the mayor's view, in the map's lower right on the side games' screens.</summary>
+    void PlaceMap()
+    {
+        if (Map == null || _miniFrame == null) return;
+        Node want = _wasScreen == "city" ? _miniFrame : Map.HomeParent ?? this;
+        if (Map.GetParent() != want) Map.Reparent(want, false);
+        Map.Refit();
+    }
+
+    /// <summary>For the gate: whether the floating panel is up, and where.</summary>
+    public Rect2? SideRect => _side is { Visible: true } ? _side.GetGlobalRect() : null;
+    public Rect2 BarRect => _lbar!.GetGlobalRect();
+    public Rect2 UprightRect => _upright!.GetGlobalRect();
+    public Rect2 ModesRect => _modes!.GetGlobalRect();
+    public void ClosePanel() => _side!.Visible = false;
+
+    /// <summary>An L button: opens its tab in the floating panel, or closes the panel when that tab is up.</summary>
+    void Toggle(string tab)
+    {
+        if (_side!.Visible && Model.Tab == tab) { _side.Visible = false; return; }
+        Model.Open(tab);
+    }
+
     public override void _Ready()
     {
         Layer = 3;
@@ -214,38 +456,8 @@ public partial class PanelView : CanvasLayer
         var bars = new VBoxContainer();
         bar.AddChild(bars);
 
-        var row = _cityBar = TopRow(bars, true);
-        Stat(row, "ToyCity", 14, UiTheme.Accent, bold: true);
-        _name = Stat(row);
-        _date = Stat(row);
-        _funds = Stat(row);
-        _funds.TooltipText = "Treasury";
-        _pop = Stat(row);
-        _approval = Btn("Approval", () => Model.Open("people"), row);
-        _approval.Flat = true;
-        _approval.TooltipText = "Mayor approval: click for what people think";
-        _speeds = Speeds(row);
-        _pace = PaceMenu(row);
-        _rci = new DemandBars(_client.City) { CustomMinimumSize = new Vector2(56, 34), TooltipText = "Demand: bars up mean the city wants more of that zone", SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
-        _rci.GuiInput += e => { if (e is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }) Model.Open("demand"); };
-        row.AddChild(_rci);
-        _alerts = Btn("⚠ 0", () => Model.Open("alerts"), row);
-        _alerts.TooltipText = "Alerts: problems in the city, click one to go there";
-        _seat = Btn("Mayor", () => Model.OpenDialog("seat"), row);
-        _seat.TooltipText = "Who runs the city: hand it to the computer while you're away";
-        // The side games' own screens, as the web client's top bar has them.
-        _company = Btn("🚌 Bus company", () => Model.Click("co-open"), row);
-        _company.TooltipText = "Switch to the bus company's own screen";
-        _company.Visible = false;
-        _dispatch = Btn("🚒 Dispatch", () => Model.Click("em-open"), row);
-        _dispatch.TooltipText = "Switch to the emergency services' own screen";
-        _dispatch.Visible = false;
-        row.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
-        Btn("🗺 Region", () => Model.Click("rg-open"), row).TooltipText = "The region map: the cities around this one, and open land to found more";
-        Btn("New", () => Model.OpenDialog("new"), row);
-        Btn("Save", () => Model.OpenDialog("save"), row);
-        Btn("Load", () => Model.OpenDialog("load"), row);
-        Btn("Graphics", () => GraphicsPressed?.Invoke(), row);
+        _topBar = bar;
+        BuildL();
 
         // The bus company's top bar, in the city's place while its screen is up.
         var co = _coBar = TopRow(bars, false);
@@ -270,7 +482,7 @@ public partial class PanelView : CanvasLayer
         Btn("🏙 Back to the city", () => Model.Click("em-city"), em);
 
         // The side panel, down the right.
-        _side = new PanelContainer();
+        _side = new PanelContainer { Visible = false };
         _side.AddThemeStyleboxOverride("panel", UiTheme.Docked(Side.Left, 0));
         _side.SetAnchorsPreset(Control.LayoutPreset.RightWide);
         (_side.OffsetLeft, _side.OffsetRight, _side.OffsetTop, _side.OffsetBottom) = (-ToolController.SideWidth, 0, ToolController.TopHeight, 0);
@@ -278,6 +490,19 @@ public partial class PanelView : CanvasLayer
         var col = new VBoxContainer();
         col.AddThemeConstantOverride("separation", 0);
         _side.AddChild(col);
+        // In the mayor's view the panel floats and closes: its tab's name and a close button head it.
+        var shead = new HBoxContainer { Visible = false };
+        var sheadBox = new MarginContainer();
+        foreach (var (side, m) in new[] { ("left", 14), ("right", 6), ("top", 8), ("bottom", 0) }) sheadBox.AddThemeConstantOverride($"margin_{side}", m);
+        sheadBox.AddChild(shead);
+        col.AddChild(sheadBox);
+        _sideHead = sheadBox;
+        _sideTitle = new Label { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, VerticalAlignment = VerticalAlignment.Center, LabelSettings = new LabelSettings { FontSize = 15, FontColor = Colors.White } };
+        shead.AddChild(_sideTitle);
+        var sclose = UiTheme.IconButton("close", "Close (P)", 16, 6);
+        sclose.Pressed += () => _side!.Visible = false;
+        shead.AddChild(sclose);
+        shead.Visible = true;
         var tabsBox = new PanelContainer();
         var tabsStyle = UiTheme.Box(UiTheme.Panel, null, 0, 6, 6);
         (tabsStyle.BorderColor, tabsStyle.BorderWidthBottom) = (UiTheme.Line, 1);
@@ -400,20 +625,6 @@ public partial class PanelView : CanvasLayer
         _followCentre = Btn("Centre", () => FollowCam = true, (Container)_follow.GetChild(0));
         Btn("Stop following", Model.StopFollowing, (Container)_follow.GetChild(0));
 
-        // The news ticker, along the bottom of the map.
-        _ticker = new Button { FocusMode = Control.FocusModeEnum.None, Visible = false, ClipText = true };
-        foreach (var st in new[] { "normal", "hover", "pressed", "hover_pressed" })
-            _ticker.AddThemeStyleboxOverride(st, UiTheme.Box(UiTheme.Chip with { A = 0.9f }, st.StartsWith("hover") ? UiTheme.HoverLine : UiTheme.Line, 14, 12, 4));
-        _ticker.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterBottom, Control.LayoutPresetMode.Minsize, 10);
-        _ticker.GrowHorizontal = Control.GrowDirection.Both;
-        _ticker.GrowVertical = Control.GrowDirection.Begin;
-        _ticker.Pressed += () =>
-        {
-            var hs = Model.Headlines;
-            if (_tickerIndex >= 0 && _tickerIndex < hs.Count && hs[_tickerIndex].X >= 0) Model.Click($"jump:{hs[_tickerIndex].X}:{hs[_tickerIndex].Y}");
-            else Model.Open("people");
-        };
-        area.AddChild(_ticker);
     }
 
     RichTextLabel Text()
@@ -482,7 +693,25 @@ public partial class PanelView : CanvasLayer
         if (screen != _wasScreen)
         {
             _wasScreen = screen;
-            _cityBar!.Visible = _cityTabs!.Visible = screen == "city";
+            _cityTabs!.Visible = screen == "city";
+            bool city = screen == "city";
+            _topBar!.Visible = !city;
+            _lbar!.Visible = _modes!.Visible = _upright!.Visible = city;
+            _gameMenu!.Visible = false;
+            _sideHead!.Visible = city;
+            // The side games keep the docked panel down the right; the mayor's floats as glass and closes.
+            if (city)
+            {
+                _side!.AddThemeStyleboxOverride("panel", UiTheme.GlassBox(12, 0, 0));
+                (_side.OffsetLeft, _side.OffsetRight, _side.OffsetTop, _side.OffsetBottom) = (-392, -12, 64, -84);
+            }
+            else
+            {
+                _side!.AddThemeStyleboxOverride("panel", UiTheme.Docked(Side.Left, 0));
+                (_side.OffsetLeft, _side.OffsetRight, _side.OffsetTop, _side.OffsetBottom) = (-ToolController.SideWidth, 0, ToolController.TopHeight, 0);
+                _side.Visible = true;
+            }
+            PlaceMap();
             _coBar!.Visible = _coTabs!.Visible = _coTools!.Visible = company;
             _emBar!.Visible = _emTools!.Visible = dispatch;
             _tabsBox!.Visible = !dispatch;
@@ -494,6 +723,14 @@ public partial class PanelView : CanvasLayer
         if (dispatch) DispatchBar(c);
         Redraw();
         if (Map != null) Map.RightInset = _side!.Visible ? ToolController.SideWidth : 0;
+        // A tab asked for (a query, an alert, an L button) opens the floating panel again.
+        if (Model.Opened != _opened) { _opened = Model.Opened; _side.Visible = true; }
+        if (_wasScreen == "city")
+        {
+            _sideTitle!.Text = PanelModel.Tabs.FirstOrDefault(t => t.Id == Model.Tab).Name ?? Model.Tab;
+            foreach (var (id, b) in _uprightButtons)
+                b.SetPressedNoSignal(id switch { "underground" => Model.ShowUnderground, "traffic" => Model.ShowAgents, _ => _side.Visible && Model.Tab == id });
+        }
         // The scene a player runs is in the 3D city itself; its report comes up over it once it's over.
         var em = Model.Emergency;
         bool scene = dispatch && em.Scene != null && !em.SceneHidden;
@@ -519,7 +756,10 @@ public partial class PanelView : CanvasLayer
         _funds!.Text = Bb.Money(s.Funds);
         _funds.AddThemeColorOverride("font_color", s.Funds < 0 ? UiTheme.Bad : UiTheme.Text);
         _name.AddThemeColorOverride("font_color", UiTheme.Text);
-        _pop!.Text = $"👥 {Bb.Num(s.Population)}";
+        _pop!.Text = Bb.Num(s.Population);
+        long net = s.LastMonthIncome - s.LastMonthExpenses;
+        _fundsChange!.Text = s.LastMonthIncome != 0 || s.LastMonthExpenses != 0 ? $"{(net >= 0 ? "+" : "−")}{Bb.Money(Math.Abs(net))}/mo" : "";
+        _fundsChange.LabelSettings.FontColor = net >= 0 ? UiTheme.Good : UiTheme.Bad;
         foreach (var set in new[] { _speeds, _coSpeeds, _emSpeeds })
             for (int k = 0; k < set.Length; k++) set[k].SetPressedNoSignal(s.Speed == k);
         if (Model.Civic is { } civic)
@@ -529,13 +769,13 @@ public partial class PanelView : CanvasLayer
             _tabs["people"].Text = Model.OpenPrompts > 0 ? $"People ({Model.OpenPrompts})" : "People";
         }
         var (count, worst) = Model.AlertBadge;
-        _alerts!.Text = $"⚠ {count}";
+        _alerts!.Text = count > 0 ? count.ToString() : "";
         _alerts.Modulate = worst switch { "danger" => new Color(1, 0.5f, 0.45f), "warning" => new Color(1, 0.85f, 0.45f), _ => Colors.White };
         _seat!.Text = Model.SeatLabel;
         _dispatch!.Visible = Model.Emergency.View != null;
-        _dispatch.Text = Model.Emergency.Waiting > 0 ? $"🚒 Dispatch ({Model.Emergency.Waiting})" : "🚒 Dispatch";
+        _dispatch.Text = Model.Emergency.Waiting > 0 ? $"Dispatch ({Model.Emergency.Waiting})" : "Dispatch";
         _company!.Visible = Model.Company.View != null;
-        if (Model.Company.View is { } co) _company.Text = $"🚌 {co.Name}";
+        if (Model.Company.View is { } co) _company.TooltipText = $"Switch to {co.Name}'s own screen";
         _rci!.QueueRedraw();
     }
 
@@ -642,8 +882,8 @@ public partial class PanelView : CanvasLayer
     void Ticker(double delta)
     {
         var hs = Model.Headlines;
-        _ticker!.Visible = hs.Count > 0;
-        if (hs.Count == 0) return;
+        // It keeps its place in the L's bar, empty until there's news.
+        if (hs.Count == 0) { _ticker!.Text = ""; return; }
         _tickerClock += delta;
         // A new headline shows at once; otherwise the newest few take turns.
         if (hs[0].Seq != _tickerSeq) { _tickerSeq = hs[0].Seq; _tickerIndex = 0; _tickerClock = 0; }

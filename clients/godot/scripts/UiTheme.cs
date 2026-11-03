@@ -149,4 +149,57 @@ public static class UiTheme
             b.AddThemeStyleboxOverride(st, Box(bg, border, 6, padX, padY));
         return b;
     }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // The UI overhaul, variation A (Beta 4, part 2): glass panels floating over the map, a blue accent, gold prices.
+
+    public static readonly Color Glass = new(14 / 255f, 19 / 255f, 31 / 255f, 0.86f), GlassLine = new(1, 1, 1, 0.09f),
+        UiAccent = new("#3e6fd1"), Gold = new("#f3c94a"), Soft = new("#c9d2e3"), Label2 = new("#7d889e");
+
+    /// <summary>A glass panel over the map, with a soft shadow.</summary>
+    public static StyleBoxFlat GlassBox(int radius = 12, int padX = 8, int padY = 8)
+    {
+        var s = Box(Glass, GlassLine, radius, padX, padY);
+        s.ShadowColor = new Color(0, 0, 0, 0.3f);
+        s.ShadowSize = 12;
+        s.ShadowOffset = new Vector2(0, 4);
+        return s;
+    }
+
+    static readonly Dictionary<(string, int, Color), Texture2D> Icons = new();
+
+    /// <summary>One of the shared UI icons, drawn at a size in a colour.</summary>
+    public static Texture2D Icon(string name, int size = 20, Color? colour = null)
+    {
+        var c = colour ?? Soft;
+        if (Icons.TryGetValue((name, size, c), out var t)) return t;
+        var img = new Image();
+        img.LoadSvgFromString(ToyCity.ClientModel.Tools.UiIcons.Svg(name, "#" + c.ToHtml(false)), size / 24f);
+        return Icons[(name, size, c)] = ImageTexture.CreateFromImage(img);
+    }
+
+    /// <summary>A flat square button holding an icon: blue when pressed, a faint fill on hover.</summary>
+    public static Button IconButton(string icon, string tip, int size = 20, int pad = 8)
+    {
+        var b = new Button { Icon = Icon(icon, size), TooltipText = tip, FocusMode = Control.FocusModeEnum.None, IconAlignment = HorizontalAlignment.Center, ExpandIcon = false };
+        Flat(b, pad, pad, 8);
+        b.AddThemeColorOverride("icon_normal_color", Soft);
+        b.AddThemeColorOverride("icon_pressed_color", Colors.White);
+        b.AddThemeColorOverride("icon_hover_pressed_color", Colors.White);
+        return b;
+    }
+
+    /// <summary>Glass-styled flat button states: clear, a faint fill on hover, the blue accent when pressed.</summary>
+    public static T Flat<T>(T b, int padX = 10, int padY = 4, int radius = 8) where T : Button
+    {
+        b.AddThemeStyleboxOverride("normal", Box(Colors.Transparent, null, radius, padX, padY));
+        b.AddThemeStyleboxOverride("hover", Box(new Color(1, 1, 1, 0.07f), null, radius, padX, padY));
+        b.AddThemeStyleboxOverride("pressed", Box(UiAccent, null, radius, padX, padY));
+        b.AddThemeStyleboxOverride("hover_pressed", Box(UiAccent, null, radius, padX, padY));
+        b.AddThemeColorOverride("font_color", Soft);
+        b.AddThemeColorOverride("font_pressed_color", Colors.White);
+        b.AddThemeColorOverride("font_hover_pressed_color", Colors.White);
+        b.AddThemeColorOverride("font_hover_color", Colors.White);
+        return b;
+    }
 }

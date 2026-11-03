@@ -49,7 +49,7 @@ public partial class Main
             RenderingServer.ViewportSetMeasureRenderTime(GetViewport().GetViewportRid(), true);
             var layer = new CanvasLayer { Layer = 50 };
             AddChild(layer);
-            _gpuProgress = new Label { Position = new Vector2(ToolController.ColumnWidth + 12, 132) };
+            _gpuProgress = new Label { Position = new Vector2(ToolController.RailWidth + 12, 132) };
             _gpuProgress.AddThemeColorOverride("font_outline_color", Colors.Black);
             _gpuProgress.AddThemeConstantOverride("outline_size", 5);
             _gpuProgress.AddThemeFontSizeOverride("font_size", 20);

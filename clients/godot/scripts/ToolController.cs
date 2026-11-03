@@ -19,7 +19,10 @@ public partial class ToolController : Node
     readonly ClassicCamera _camera;
     readonly MapView _map;
     public readonly ToolState State = new();
-    Control? _column;
+    Control? _column, _flyout, _toolopts;
+    VBoxContainer? _railList, _flyList;
+    readonly BuildMenu _menu = new();
+    List<BuildCategory> _cats = new();
     bool _enabled = true;
 
     /// <summary>Off while the bus company's view is up: no toolbar, previews or clicks.</summary>
@@ -30,6 +33,8 @@ public partial class ToolController : Node
         {
             _enabled = value;
             _column!.Visible = _hints!.Visible = value;
+            if (!value) _flyout!.Visible = _toolopts!.Visible = false;
+            else { BuildRail(); BuildFlyout(); BuildOptions(); }
             if (value) return;
             _drag = null;
             State.CurveEnds = null;
@@ -53,19 +58,21 @@ public partial class ToolController : Node
     MeshInstance3D? _overlay;
     Label? _cost;
     VBoxContainer? _toasts, _hints;
-    VBoxContainer? _options;
-    readonly Dictionary<ToolKind, Button> _buttons = new();
-    readonly Dictionary<ToolKind, VBoxContainer> _optionBoxes = new();
+    HBoxContainer? _options;
 
-    /// <summary>The screen's frame, as the web client's: the top bar, the tool column on the left, the panel on the right.</summary>
-    public const int TopHeight = 46, ColumnWidth = 168, SideWidth = 360;
+    /// <summary>
+    /// The screen's frame. The side games keep the web client's docked one: a bar across the top, a column down the
+    /// left and the panel on the right. The mayor's view (UI A, Beta 4) floats glass over a full-window map: the build
+    /// rail down the left (<see cref="RailWidth"/> with its margin) and the L along the bottom (<see cref="BarHeight"/>).
+    /// </summary>
+    public const int TopHeight = 46, ColumnWidth = 168, SideWidth = 360, RailWidth = 74, BarHeight = 80;
 
     /// <summary>A control covering the map between the bars, for things placed over the map.</summary>
     public static Control MapArea()
     {
         var a = new Control { MouseFilter = Control.MouseFilterEnum.Ignore };
         a.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        (a.OffsetLeft, a.OffsetTop, a.OffsetRight, a.OffsetBottom) = (ColumnWidth, TopHeight, -SideWidth, 0);
+        (a.OffsetLeft, a.OffsetTop, a.OffsetRight, a.OffsetBottom) = (RailWidth, 0, 0, -BarHeight);
         return a;
     }
     int _lastSpeed = 1;
@@ -92,6 +99,13 @@ public partial class ToolController : Node
         ("Disasters", new[] { ToolKind.Disaster }),
     };
 
+    /// <summary>The rail's keys in this client, by category.</summary>
+    static readonly Dictionary<string, ToolKind> RailTools = new()
+    {
+        ["zones"] = ToolKind.Zone, ["transport"] = ToolKind.Path, ["utilities"] = ToolKind.Utility, ["civic"] = ToolKind.Building,
+        ["land"] = ToolKind.Terraform, ["disasters"] = ToolKind.Disaster, ["bulldoze"] = ToolKind.Bulldoze,
+    };
+
     public override void _Ready()
     {
         _overlay = new MeshInstance3D
@@ -107,44 +121,31 @@ public partial class ToolController : Node
 
         var hud = new CanvasLayer { Layer = 2 };
         AddChild(hud);
-        // The tool column down the left: each section's tools, and the chosen tool's options under its button.
-        var column = new PanelContainer();
-        column.AddThemeStyleboxOverride("panel", UiTheme.Docked(Side.Right, 8));
-        column.SetAnchorsPreset(Control.LayoutPreset.LeftWide);
-        (column.OffsetLeft, column.OffsetTop, column.OffsetRight, column.OffsetBottom) = (0, TopHeight, ColumnWidth, 0);
-        hud.AddChild(column);
-        _column = column;
-        var scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
-        column.AddChild(scroll);
-        var list = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
-        list.AddThemeConstantOverride("separation", 4);
-        scroll.AddChild(list);
-        var group = new ButtonGroup();
-        foreach (var (heading, kinds) in Sections)
-        {
-            var h = UiTheme.Heading(heading);
-            if (list.GetChildCount() > 0) h.CustomMinimumSize = new Vector2(0, 22);
-            h.VerticalAlignment = VerticalAlignment.Bottom;
-            list.AddChild(h);
-            foreach (var kind in kinds)
-            {
-                var (_, name, key) = Tools.First(t => t.Kind == kind);
-                var b = new Button { Text = name, ToggleMode = true, ButtonGroup = group, FocusMode = Control.FocusModeEnum.None, Alignment = HorizontalAlignment.Left };
-                // The key, small and grey at the button's right, as the web's tool buttons show it.
-                var k = new Label { Text = key.ToString(), MouseFilter = Control.MouseFilterEnum.Ignore, VerticalAlignment = VerticalAlignment.Center,
-                    LabelSettings = new LabelSettings { FontSize = 10, FontColor = UiTheme.Muted } };
-                k.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.RightWide);
-                k.OffsetLeft = -22;
-                b.AddChild(k);
-                b.Pressed += () => SetTool(kind);
-                list.AddChild(b);
-                _buttons[kind] = b;
-                var opts = new VBoxContainer { Visible = false };
-                opts.AddThemeConstantOverride("separation", 3);
-                list.AddChild(opts);
-                _optionBoxes[kind] = opts;
-            }
-        }
+        // The build rail down the left (UI A): query, then a button per category, each opening a flyout of tiles.
+        var rail = new PanelContainer();
+        rail.AddThemeStyleboxOverride("panel", UiTheme.GlassBox(12, 6, 6));
+        rail.Position = new Vector2(12, 12);
+        hud.AddChild(rail);
+        _column = rail;
+        _railList = new VBoxContainer();
+        _railList.AddThemeConstantOverride("separation", 4);
+        rail.AddChild(_railList);
+        // The flyout, beside the rail.
+        var fly = new PanelContainer { Visible = false, Position = new Vector2(RailWidth, 12), CustomMinimumSize = new Vector2(360, 0) };
+        fly.AddThemeStyleboxOverride("panel", UiTheme.GlassBox(12, 12, 10));
+        hud.AddChild(fly);
+        _flyout = fly;
+        _flyList = new VBoxContainer();
+        _flyList.AddThemeConstantOverride("separation", 8);
+        fly.AddChild(_flyList);
+        // The tool in hand and its options, along the top beside the rail.
+        var opts = new PanelContainer { Visible = false, Position = new Vector2(RailWidth, 12) };
+        opts.AddThemeStyleboxOverride("panel", UiTheme.GlassBox(12, 10, 6));
+        hud.AddChild(opts);
+        _toolopts = opts;
+        _options = new HBoxContainer();
+        _options.AddThemeConstantOverride("separation", 8);
+        opts.AddChild(_options);
 
         var area = MapArea();
         hud.AddChild(area);
@@ -155,6 +156,7 @@ public partial class ToolController : Node
         _hints = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
         _hints.AddThemeConstantOverride("separation", 3);
         _hints.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.Minsize, 10);
+        _hints.Position += new Vector2(160, 0);
         _hints.GrowVertical = Control.GrowDirection.Begin;
         area.AddChild(_hints);
         _toasts = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
@@ -173,8 +175,7 @@ public partial class ToolController : Node
         State.Kind = kind;
         State.CurveEnds = null;
         _drag = null;
-        // Without a signal the group doesn't let go of the last tool, so each button is set.
-        foreach (var (k, b) in _buttons) b.SetPressedNoSignal(k == kind);
+        BuildRail();
         BuildOptions();
     }
 
@@ -191,7 +192,7 @@ public partial class ToolController : Node
     }
 
     /// <summary>Redraws the options, for when what they list changed, such as the buildings unlocked.</summary>
-    public void RebuildOptions() => BuildOptions();
+    public void RebuildOptions() { BuildRail(); BuildFlyout(); BuildOptions(); }
 
     /// <summary>Straight (0), diagonal (1) or curved (2) roads.</summary>
     int PathMode => State.Curve ? 2 : State.Diagonal ? 1 : 0;
@@ -203,32 +204,215 @@ public partial class ToolController : Node
         State.CurveEnds = null;
     }
 
+    // ---------------------------------------------------------------------------------------------------------
+    // The build rail and its flyout (UI A, Beta 4): the shared BuildMenu, as the web client draws it.
+
+    void BuildRail()
+    {
+        if (_railList == null) return;
+        _cats = BuildMenu.For(_client.City);
+        string? lit = BuildMenu.CategoryOf(State, _cats);
+        foreach (var child in _railList.GetChildren()) child.QueueFree();
+        var q = RailButton("query", "Query (Q): click anything to see why it is the way it is", "Q", State.Kind == ToolKind.Query);
+        q.Pressed += () => { _menu.Close(); SetTool(ToolKind.Query); BuildFlyout(); };
+        _railList.AddChild(new HSeparator { Modulate = new Color(1, 1, 1, 0.5f) });
+        foreach (var c in _cats)
+        {
+            string key = RailTools.TryGetValue(c.Id, out var tk) && Tools.FirstOrDefault(t => t.Kind == tk) is { Name: not null } t ? t.Key.ToString() : "";
+            var b = RailButton(c.Icon, c.Name + (key.Length > 0 ? $" ({key})" : ""), key, _menu.Open == c.Id || (_menu.Open == null && lit == c.Id && c.Id != "bulldoze") || (c.Id == "bulldoze" && State.Kind == ToolKind.Bulldoze));
+            string id = c.Id;
+            b.Pressed += () =>
+            {
+                if (id == "bulldoze") { _menu.Close(); SetTool(ToolKind.Bulldoze); }
+                else _menu.Toggle(id);
+                BuildRail();
+                BuildFlyout();
+            };
+        }
+    }
+
+    Button RailButton(string icon, string tip, string key, bool on)
+    {
+        var b = UiTheme.IconButton(icon, tip, 22, 9);
+        b.ToggleMode = true;
+        b.SetPressedNoSignal(on);
+        b.CustomMinimumSize = new Vector2(42, 42);
+        if (key.Length > 0)
+        {
+            var k = new Label { Text = key, MouseFilter = Control.MouseFilterEnum.Ignore, LabelSettings = new LabelSettings { FontSize = 9, FontColor = on ? new Color("#dfe7ff") : UiTheme.Muted } };
+            k.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomRight);
+            (k.OffsetLeft, k.OffsetTop, k.OffsetRight, k.OffsetBottom) = (-10, -14, -2, 0);
+            b.AddChild(k);
+        }
+        _railList!.AddChild(b);
+        return b;
+    }
+
+    /// <summary>The flyout: title, what it's for, the pin, the group tabs and the tiles with their prices.</summary>
+    void BuildFlyout()
+    {
+        if (_flyList == null) return;
+        foreach (var child in _flyList.GetChildren()) child.QueueFree();
+        var shown = _menu.Shown(_cats);
+        _flyout!.Visible = shown != null && _enabled;
+        _toolopts!.Visible = _enabled && shown == null && _options!.GetChildCount() > 0;
+        if (shown is not { } sh) return;
+        var (cat, group) = sh;
+        var head = new HBoxContainer();
+        head.AddThemeConstantOverride("separation", 10);
+        _flyList.AddChild(head);
+        var badge = new PanelContainer { CustomMinimumSize = new Vector2(32, 32) };
+        badge.AddThemeStyleboxOverride("panel", UiTheme.Box(UiTheme.UiAccent, null, 8, 6, 6));
+        badge.AddChild(new TextureRect { Texture = UiTheme.Icon(cat.Icon, 20, Colors.White), StretchMode = TextureRect.StretchModeEnum.KeepCentered });
+        head.AddChild(badge);
+        head.AddChild(new Label { Text = cat.Name, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, VerticalAlignment = VerticalAlignment.Center,
+            LabelSettings = new LabelSettings { FontSize = 16, FontColor = Colors.White } });
+        var pin = UiTheme.IconButton("pin", _menu.Pinned ? "Pinned open: click to let it close after a pick" : "Pin it open", 16, 6);
+        pin.ToggleMode = true;
+        pin.SetPressedNoSignal(_menu.Pinned);
+        pin.Pressed += () => { _menu.Pin(); BuildFlyout(); };
+        head.AddChild(pin);
+        var close = UiTheme.IconButton("close", "Close (Esc)", 16, 6);
+        close.Pressed += () => { _menu.Close(); BuildRail(); BuildFlyout(); };
+        head.AddChild(close);
+        _flyList.AddChild(new Label { Text = cat.Description, AutowrapMode = TextServer.AutowrapMode.WordSmart, CustomMinimumSize = new Vector2(336, 0),
+            LabelSettings = new LabelSettings { FontSize = 12, FontColor = new Color("#9aa6bd") } });
+        if (cat.Groups.Count > 1)
+        {
+            var tabs = new HFlowContainer();
+            tabs.AddThemeConstantOverride("h_separation", 4);
+            tabs.AddThemeConstantOverride("v_separation", 4);
+            _flyList.AddChild(tabs);
+            for (int k = 0; k < cat.Groups.Count; k++)
+            {
+                int kk = k;
+                var t = UiTheme.Flat(new Button { Text = cat.Groups[k].Name, ToggleMode = true, FocusMode = Control.FocusModeEnum.None }, 10, 3, 14);
+                t.AddThemeFontSizeOverride("font_size", 12);
+                t.SetPressedNoSignal(k == group);
+                t.Pressed += () => { _menu.PickGroup(kk); BuildFlyout(); };
+                tabs.AddChild(t);
+            }
+        }
+        var items = cat.Groups[group].Items;
+        var grid = new GridContainer { Columns = 3 };
+        grid.AddThemeConstantOverride("h_separation", 6);
+        grid.AddThemeConstantOverride("v_separation", 6);
+        foreach (var item in items) grid.AddChild(Tile(item));
+        // Tall lists scroll, leaving room for the L at the bottom.
+        int rows = (items.Count + 2) / 3;
+        float room = GetViewport().GetVisibleRect().Size.Y - 330;
+        if (rows * 104 > room)
+        {
+            var scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled, CustomMinimumSize = new Vector2(336, Math.Max(200, room)) };
+            scroll.AddChild(grid);
+            _flyList.AddChild(scroll);
+        }
+        else _flyList.AddChild(grid);
+        _flyout.ResetSize();
+    }
+
+    static readonly Color[] TileZone = { new("#4caf50"), new("#4a7fe0"), new("#e0b030") };
+
+    Button Tile(BuildItem item)
+    {
+        bool on = BuildMenu.IsCurrent(item, State), locked = item.Locked.Length > 0;
+        var b = new Button { FocusMode = Control.FocusModeEnum.None, CustomMinimumSize = new Vector2(108, 96), TooltipText = item.Name + (locked ? $" ({item.Locked})" : "") };
+        var edge = on ? UiTheme.UiAccent : UiTheme.GlassLine;
+        var fill = on ? UiTheme.UiAccent with { A = 0.22f } : new Color(1, 1, 1, 0.04f);
+        b.AddThemeStyleboxOverride("normal", UiTheme.Box(fill, edge, 10, 4, 8));
+        b.AddThemeStyleboxOverride("hover", UiTheme.Box(on ? fill : new Color(1, 1, 1, 0.08f), on ? edge : new Color(1, 1, 1, 0.18f), 10, 4, 8));
+        b.AddThemeStyleboxOverride("pressed", UiTheme.Box(fill, UiTheme.UiAccent, 10, 4, 8));
+        if (locked) b.Modulate = new Color(1, 1, 1, 0.45f);
+        var col = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore, Alignment = BoxContainer.AlignmentMode.Center };
+        col.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        (col.OffsetTop, col.OffsetBottom) = (8, -6);
+        col.AddThemeConstantOverride("separation", 3);
+        b.AddChild(col);
+        var iconBox = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore, SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter, CustomMinimumSize = new Vector2(38, 38) };
+        iconBox.AddThemeStyleboxOverride("panel", UiTheme.Box(new Color(1, 1, 1, 0.06f), null, 9, 7, 7));
+        var tint = item.Kind == ToolKind.Zone ? TileZone[(int)item.Zone - 1] : UiTheme.Soft;
+        iconBox.AddChild(new TextureRect { Texture = UiTheme.Icon(item.Icon, 24, tint), MouseFilter = Control.MouseFilterEnum.Ignore, StretchMode = TextureRect.StretchModeEnum.KeepCentered });
+        col.AddChild(iconBox);
+        col.AddChild(new Label { Text = item.Name, HorizontalAlignment = HorizontalAlignment.Center, AutowrapMode = TextServer.AutowrapMode.WordSmart, MouseFilter = Control.MouseFilterEnum.Ignore,
+            CustomMinimumSize = new Vector2(100, 0), LabelSettings = new LabelSettings { FontSize = 11, FontColor = UiTheme.Text } });
+        string price = locked ? $"🔒 {item.Locked}" : item.Price;
+        if (price.Length > 0)
+            col.AddChild(new Label { Text = price, HorizontalAlignment = HorizontalAlignment.Center, MouseFilter = Control.MouseFilterEnum.Ignore, ClipText = true, CustomMinimumSize = new Vector2(100, 0),
+                LabelSettings = new LabelSettings { FontSize = 11, FontColor = locked ? new Color("#9aa6bd") : UiTheme.Gold } });
+        b.Pressed += () =>
+        {
+            if (!_menu.Pick(item, State)) { Toast($"{item.Name}: {(item.Locked == "Built" ? "there can only be one, and it's built" : item.Locked)}", "warning"); return; }
+            State.CurveEnds = null;
+            _drag = null;
+            BuildRail();
+            BuildOptions();
+            BuildFlyout();
+        };
+        return b;
+    }
+
+    // For the gate: the menu worked as a player would.
+
+    /// <summary>The open flyout's category, or null.</summary>
+    public string? FlyoutShown => _flyout is { Visible: true } ? _menu.Open : null;
+    public bool OptionsShown => _toolopts is { Visible: true };
+    public IReadOnlyList<BuildCategory> Menu => _cats;
+    /// <summary>The tiles in the flyout as drawn.</summary>
+    public int TilesShown => _flyList?.FindChildren("*", "GridContainer", true, false).Sum(g => g.GetChildCount()) ?? 0;
+
+    /// <summary>A rail button's press, then a group tab's.</summary>
+    public void OpenMenu(string category, int group, bool pin = false)
+    {
+        if (_menu.Open != category) _menu.Toggle(category);
+        _menu.PickGroup(group);
+        if (pin != _menu.Pinned) _menu.Pin();
+        BuildRail();
+        BuildFlyout();
+    }
+
+    /// <summary>A tile's press in the open flyout: false when there's none like it, or it's locked.</summary>
+    public bool PickTile(Func<BuildItem, bool> which)
+    {
+        if (_menu.Shown(_cats) is not { } sh || _flyList == null) return false;
+        var buttons = _flyList.FindChildren("*", "GridContainer", true, false).SelectMany(g => g.GetChildren()).OfType<Button>().ToList();
+        var items = sh.Category.Groups[sh.Group].Items;
+        for (int k = 0; k < Math.Min(buttons.Count, items.Count); k++)
+        {
+            if (!which(items[k])) continue;
+            buttons[k].EmitSignal(BaseButton.SignalName.Pressed);
+            return items[k].Locked.Length == 0;
+        }
+        return false;
+    }
+
+    public void CloseMenu() { if (_menu.Pinned) _menu.Pin(); _menu.Close(); BuildRail(); BuildFlyout(); }
+
+    /// <summary>The tool in hand: its icon, name and price, ahead of its options.</summary>
+    void Named(string icon, string name, string price = "")
+    {
+        _options!.AddChild(new TextureRect { Texture = UiTheme.Icon(icon, 18, Colors.White), StretchMode = TextureRect.StretchModeEnum.KeepCentered, CustomMinimumSize = new Vector2(20, 20) });
+        _options.AddChild(new Label { Text = name, VerticalAlignment = VerticalAlignment.Center, LabelSettings = new LabelSettings { FontSize = 14, FontColor = Colors.White } });
+        if (price.Length > 0) _options.AddChild(new Label { Text = price, VerticalAlignment = VerticalAlignment.Center, LabelSettings = new LabelSettings { FontSize = 12, FontColor = UiTheme.Gold } });
+    }
+
     void BuildOptions()
     {
-        if (_optionBoxes.Count == 0) return;
-        foreach (var (kind, box) in _optionBoxes)
-        {
-            foreach (var child in box.GetChildren()) child.QueueFree();
-            box.Visible = false;
-        }
-        if (!_optionBoxes.TryGetValue(State.Kind, out _options)) return;
+        if (_options == null) return;
+        foreach (var child in _options.GetChildren()) { _options.RemoveChild(child); child.QueueFree(); }
         var c = _client.City;
         switch (State.Kind)
         {
             case ToolKind.Zone:
-                Choice(new[] { "Residential", "Commercial", "Industrial" }, (int)State.Zone - 1, k => State.Zone = (ZoneKind)(k + 1), ZoneColours);
-                Choice(Planner.DensityNames.Select(n => n[..1]).ToArray(), (int)State.Density, k => State.Density = (Density)k, tips: Planner.DensityNames);
+                Named("zones", new[] { "Residential", "Commercial", "Industrial" }[Math.Clamp((int)State.Zone - 1, 0, 2)]);
+                Choice(Planner.DensityNames, (int)State.Density, k => State.Density = (Density)k, tips: Planner.DensityNames.Select(n => $"{n} density (V cycles)").ToArray());
                 Choice(new[] { "Area", "Block" }, State.BlockZoning ? 1 : 0, k => State.BlockZoning = k == 1, tips: new[] { "Paint zones over an area", "Zone whole blocks (G)" });
                 if (State.BlockZoning) Choice(new[] { "Leave leftovers", "Leftovers to parks", "Zone leftovers" }, (int)State.Leftover, k => State.Leftover = (Leftover)k);
                 break;
+            case ToolKind.Dezone: Named("bulldoze", "Dezone"); break;
             case ToolKind.Path:
-                Dropdown(c.Profiles.Select(p => (p.Id, $"{p.Name} ({Planner.Money(p.CostPerCell)}/cell)")).ToList(), State.ProfileId, id =>
-                {
-                    if (id == State.ProfileId) return;
-                    State.ProfileId = id;
-                    State.Surface = "";
-                    Callable.From(BuildOptions).CallDeferred();
-                });
+            {
+                var p = c.Profiles.FirstOrDefault(q => q.Id == State.ProfileId);
+                Named(p != null && (p.Rail || p.Tram.Length > 0) ? "tram" : "road", p?.Name ?? "Path", p != null ? $"{Planner.Money(p.CostPerCell)} / cell" : "");
                 // Beta 3.2: what it's paved with, and so how steep it climbs.
                 if (Planner.SurfaceChoices(c, State.ProfileId) is { Count: > 1 } surfaces)
                     Dropdown(surfaces, State.Surface, id => State.Surface = id);
@@ -236,37 +420,34 @@ public partial class ToolController : Node
                     tips: new[] { "Grade through hills, however deep the cut", "Go under a hill where the road would run 8 m or more deep" });
                 Choice(new[] { "Straight", "Diagonal", "Curve" }, PathMode, SetPathMode, tips: new[] { "Straight roads", "Smooth diagonals at any angle (C)", "Curved roads (C)" });
                 break;
+            }
             case ToolKind.Utility:
-                Choice(new[] { "Power line", "Water and sewer pipe", "Subway tunnel" }, (int)State.Utility, k => State.Utility = (UtilityKind)k);
+                Named(new[] { "power", "water", "subway" }[(int)State.Utility], new[] { "Power line", "Water and sewer pipe", "Subway tunnel" }[(int)State.Utility], new[] { "$5 / cell", "$3 / cell", "$150 / cell" }[(int)State.Utility]);
                 break;
             case ToolKind.Building:
             {
-                // Landmarks and reward lots stay locked until earned, and a one-per-city building once it's built.
-                var items = new List<(string, string, bool)>();
-                foreach (var t in c.Types.Where(t => t.Placeable).OrderBy(t => t.Category).ThenBy(t => t.Cost))
-                {
-                    bool locked = !c.Unlocked.Contains(t.Id) && t.UnlockText != "";
-                    bool built = t.Unique && c.Buildings.Values.Any(b => b.TypeId == t.Id);
-                    string note = locked ? $" 🔒 {t.UnlockText}" : built ? " (built)" : $" ({(t.Cost > 0 ? Planner.Money(t.Cost) : "free")})";
-                    items.Add((t.Id, $"{Cap(t.Category)}: {t.Name}{note}", locked || built));
-                }
-                Dropdown(items, State.BuildingTypeId, id => State.BuildingTypeId = id);
+                var t = c.TypeById.GetValueOrDefault(State.BuildingTypeId);
+                Named(t == null ? "civic" : BuildMenu.For(c).SelectMany(m => m.Groups).SelectMany(g => g.Items).FirstOrDefault(i => i.Type == t.Id)?.Icon ?? "civic", t?.Name ?? "Building", t is { Cost: > 0 } ? Planner.Money(t.Cost) : "");
                 break;
             }
             case ToolKind.Terraform:
+                Named("land", "Terraform");
                 Choice(Planner.TerraformNames, (int)State.Terraform, k => State.Terraform = (TerraformMode)k);
                 break;
             case ToolKind.Disaster:
+                Named("disasters", "Disaster");
                 Choice(Planner.DisasterNames, (int)State.Disaster, k => State.Disaster = (DisasterKind)k);
-                _options!.AddChild(new Label { Text = "By themselves", LabelSettings = new LabelSettings { FontSize = 11, FontColor = UiTheme.Muted } });
+                _options.AddChild(new Label { Text = "By themselves", VerticalAlignment = VerticalAlignment.Center, LabelSettings = new LabelSettings { FontSize = 11, FontColor = UiTheme.Muted } });
                 Choice(new[] { "Off", "Rare", "Normal" }, (int)c.Stats.DisasterSetting,
                     k => _client.Connection.Act(new PAction { Disasters = new SetDisasters { Setting = (DisasterSetting)k } }));
                 break;
             case ToolKind.Bulldoze:
+                Named("bulldoze", "Bulldoze");
                 Choice(new[] { "Above ground", "Pipes only (U)" }, State.Underground ? 1 : 0, k => State.Underground = k == 1);
                 break;
         }
-        _options.Visible = _options.GetChildCount() > 0;
+        _toolopts!.Visible = _enabled && _options.GetChildCount() > 0 && _menu.Open == null;
+        _toolopts.ResetSize();
         UpdateHints();
     }
 
@@ -289,22 +470,21 @@ public partial class ToolController : Node
     /// </summary>
     void Choice(string[] names, int selected, Action<int> pick, Color[]? colours = null, string[]? tips = null)
     {
-        var group = new ButtonGroup();
-        bool row = colours == null && names.Length <= 3 && names.All(n => n.Length <= 8);
-        Container box = row ? new HBoxContainer() : new VBoxContainer();
-        box.AddThemeConstantOverride("separation", 3);
-        _options!.AddChild(box);
+        // A segmented row: the options side by side in a faint well, the chosen one blue.
+        var well = new PanelContainer { SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+        well.AddThemeStyleboxOverride("panel", UiTheme.Box(new Color(1, 1, 1, 0.05f), null, 8, 2, 2));
+        _options!.AddChild(well);
+        var box = new HBoxContainer();
+        box.AddThemeConstantOverride("separation", 0);
+        well.AddChild(box);
         for (int k = 0; k < names.Length; k++)
         {
             int kk = k;
-            var b = UiTheme.Small(new Button
-            {
-                Text = names[k], ToggleMode = true, ButtonGroup = group, ButtonPressed = k == selected, FocusMode = Control.FocusModeEnum.None,
-                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, Alignment = row ? HorizontalAlignment.Center : HorizontalAlignment.Left,
-                TooltipText = tips?[k] ?? "", ClipText = true,
-            }, row ? 2 : 8, 3, 13);
+            var b = UiTheme.Flat(new Button { Text = names[k], ToggleMode = true, FocusMode = Control.FocusModeEnum.None, TooltipText = tips?[k] ?? "" }, 9, 3, 6);
+            b.AddThemeFontSizeOverride("font_size", 12);
+            b.SetPressedNoSignal(k == selected);
             if (colours != null) b.Icon = Swatch(colours[k]);
-            b.Pressed += () => { pick(kk); BuildOptions(); };
+            b.Pressed += () => { pick(kk); Callable.From(BuildOptions).CallDeferred(); };
             box.AddChild(b);
         }
     }
@@ -385,7 +565,8 @@ public partial class ToolController : Node
         {
             if (k.Keycode == Key.Escape)
             {
-                if (_drag != null || State.CurveEnds != null) { _drag = null; State.CurveEnds = null; UpdateHints(); }
+                if (_menu.Open != null) { _menu.Close(); BuildRail(); BuildFlyout(); }
+                else if (_drag != null || State.CurveEnds != null) { _drag = null; State.CurveEnds = null; UpdateHints(); }
                 else SetTool(ToolKind.Query);
             }
             else if (k.Keycode == Key.Space)
@@ -415,6 +596,8 @@ public partial class ToolController : Node
         }
         if (!c.Loaded || Cursor is not { } at) return;
         GetViewport().SetInputAsHandled();
+        // A click on the map closes the flyout, unless it's pinned.
+        if (mb.Pressed && _menu.Open != null && !_menu.Pinned) { _menu.Close(); BuildRail(); BuildFlyout(); }
         if (mb.Pressed)
         {
             bool click = State.Kind is ToolKind.Building or ToolKind.Disaster

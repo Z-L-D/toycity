@@ -4,48 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ToyCity</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='1' y='7' width='4' height='8' fill='%234caf50'/><rect x='6' y='3' width='4' height='12' fill='%234a7fe0'/><rect x='11' y='9' width='4' height='6' fill='%23e0b030'/></svg>" />
   </head>
   <body>
     <div id="app">
-      <header id="top">
-        <div class="brand">ToyCity</div>
-        <div class="stat" id="city-name">…</div>
-        <div class="stat" id="date">…</div>
-        <div class="stat" id="funds" title="Treasury">$0</div>
-        <div class="stat" id="pop" title="Population">👥 0</div>
-        <div class="stat" id="approval" title="Mayor approval: click for what people think">👍 50%</div>
-        <div class="speed" id="speed">
-          <button data-speed="0" title="Pause (Space)">⏸</button>
-          <button data-speed="1" title="Slow (1)">▶</button>
-          <button data-speed="2" title="Normal (2)">▶▶</button>
-          <button data-speed="3" title="Fast (3)">▶▶▶</button>
-        </div>
-        <select id="pace" title="The calendar's pace: how many calendar days pass in one day of the clock. Growth, building and money go by the calendar; commuters, calls and the sun by the clock.">
-          <option value="30">A month a day</option>
-          <option value="60">Two months a day</option>
-          <option value="120">Four months a day</option>
-          <option value="360">A year a day</option>
-          <option value="720">Two years a day</option>
-        </select>
-        <div class="rci" id="rci" title="Demand: bars up mean the city wants more of that zone">
-          <div class="bar"><span class="ghost ghost-r"></span><span class="r"></span><label>R</label></div>
-          <div class="bar"><span class="ghost ghost-c"></span><span class="c"></span><label>C</label></div>
-          <div class="bar"><span class="ghost ghost-i"></span><span class="i"></span><label>I</label></div>
-        </div>
-        <button id="btn-alerts" title="Alerts: problems in the city, click one to go there">⚠ <span id="alert-count" class="badge none">0</span></button>
-        <button id="btn-seat" title="Who runs the city: hand it to the computer while you're away">🧑 Mayor</button>
-        <button id="btn-council" class="hidden" title="Deputies, the council and its votes">🏛 Council</button>
-        <button id="btn-company" class="hidden" title="Switch to the bus company's own view">🚌 Bus company</button>
-        <button id="btn-emergency" class="hidden" title="Switch to the emergency services' own screen: calls, units and scenes">🚒 Dispatch</button>
-        <div class="spacer"></div>
-        <button id="btn-region" title="The region map: the cities around this one, and open land to found more">🗺 Region</button>
-        <button id="btn-new">New</button>
-        <button id="btn-save">Save</button>
-        <button id="btn-load">Load</button>
-        <div id="players" class="players hidden"></div>
-        <div id="conn" class="conn off" title="Server connection"></div>
-      </header>
       <header id="co-top">
         <div class="brand co-brand">🚌 <span id="co-name">Bus company</span></div>
         <div class="stat" id="co-date">…</div>
@@ -79,13 +44,78 @@
         <button id="em-city" title="Back to the city (the service carries on)">🏙 City</button>
         <div id="em-conn" class="conn off" title="Server connection"></div>
       </header>
-      <aside id="tools"></aside>
       <aside id="em-tools"></aside>
       <aside id="co-tools"></aside>
       <main id="view">
         <canvas id="map"></canvas>
+        <nav id="rail" class="glass" aria-label="Build"></nav>
+        <div id="flyout" class="glass hidden"></div>
+        <div id="toolopts" class="glass hidden"></div>
+        <div id="modes" class="glass">
+          <span id="city-name" class="mode-city">…</span>
+          <div class="mode-sep"></div>
+          <button class="mode active" id="mode-mayor" title="The mayor's view: build and run the city">Mayor</button>
+          <button class="mode hidden" id="btn-company" title="Switch to the bus company's own view">Transit</button>
+          <button class="mode hidden" id="btn-emergency" title="Switch to the emergency services' own screen: calls, units and scenes">Dispatch</button>
+          <button class="mode" id="btn-region" title="The region map: the cities around this one, and open land to found more">Region</button>
+          <div id="players" class="players hidden"></div>
+          <button class="icon-btn" id="btn-menu" title="Game: who runs the city, the council, new, save and load"></button>
+          <div id="conn" class="conn off" title="Server connection"></div>
+        </div>
+        <div id="game-menu" class="glass hidden">
+          <button id="btn-seat" title="Who runs the city: hand it to the computer while you're away">🧑 Mayor</button>
+          <button id="btn-council" class="hidden" title="Deputies, the council and its votes">🏛 Council</button>
+          <div class="menu-sep"></div>
+          <button id="btn-new">New city</button>
+          <button id="btn-save">Save</button>
+          <button id="btn-load">Load</button>
+        </div>
+        <div id="lup" class="glass">
+          <canvas id="minimap" width="184" height="184" title="The whole city: click or drag to look there"></canvas>
+          <div id="lup-btns"></div>
+        </div>
+        <div id="lbar" class="glass">
+          <div class="lb-cell lb-clock">
+            <div class="lb-label">Date</div>
+            <div class="stat" id="date">…</div>
+          </div>
+          <div class="speed" id="speed">
+            <button data-speed="0" title="Pause (Space)"></button>
+            <button data-speed="1" title="Slow (1)">1×</button>
+            <button data-speed="2" title="Normal (2)">2×</button>
+            <button data-speed="3" title="Fast (3)">3×</button>
+          </div>
+          <select id="pace" title="The calendar's pace: how many calendar days pass in one day of the clock. Growth, building and money go by the calendar; commuters, calls and the sun by the clock.">
+            <option value="30">A month a day</option>
+            <option value="60">Two months a day</option>
+            <option value="120">Four months a day</option>
+            <option value="360">A year a day</option>
+            <option value="720">Two years a day</option>
+          </select>
+          <div class="lb-sep"></div>
+          <div class="lb-cell">
+            <div class="lb-label">Funds</div>
+            <div class="stat lb-money"><span id="funds" title="Treasury">$0</span> <span id="funds-change" class="lb-change"></span></div>
+          </div>
+          <div class="lb-cell">
+            <div class="lb-label">People</div>
+            <div class="stat" id="pop" title="Population">0</div>
+          </div>
+          <div class="lb-cell">
+            <div class="lb-label">Approval</div>
+            <div class="stat" id="approval" title="Mayor approval: click for what people think">👍 50%</div>
+          </div>
+          <div class="rci" id="rci" title="Demand: bars up mean the city wants more of that zone">
+            <div class="bar"><span class="ghost ghost-r"></span><span class="r"></span><label>R</label></div>
+            <div class="bar"><span class="ghost ghost-c"></span><span class="c"></span><label>C</label></div>
+            <div class="bar"><span class="ghost ghost-i"></span><span class="i"></span><label>I</label></div>
+          </div>
+          <div class="lb-sep"></div>
+          <div id="ticker" title="City news: click a headline with a place to go there"><span class="tag">NEWS</span><span id="ticker-text"></span></div>
+          <button id="btn-alerts" class="icon-btn" title="Alerts: problems in the city, click one to go there"><span id="alert-count" class="badge none">0</span></button>
+          <button id="btn-budget" class="icon-btn" title="Budget: taxes, spending and loans"></button>
+        </div>
         <div id="cost" class="cost hidden"></div>
-        <div id="ticker" title="City news: click a headline with a place to go there"><span class="tag">NEWS</span><span id="ticker-text"></span></div>
         <div id="follow" class="hidden"><span id="follow-text"></span><button id="follow-centre" class="mini hidden">Centre</button><button id="follow-stop" class="mini">Stop following</button></div>
         <div id="away" class="hidden"><span id="away-text"></span><button id="away-back" class="mini">Take it back</button></div>
         <div id="hints"></div>
@@ -93,7 +123,8 @@
         <div id="busy" class="hidden"></div>
         <div id="em" class="hidden"></div>
       </main>
-      <aside id="panel">
+      <aside id="panel" class="closed">
+        <div id="panel-head"><span id="panel-title">Why</span><button id="panel-close" class="icon-btn" title="Close (Esc)"></button></div>
         <nav id="tabs">
           <button data-tab="why" class="active">Why</button>
           <button data-tab="inspect">Inspect</button>

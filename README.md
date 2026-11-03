@@ -17,8 +17,11 @@ the taps. The mayor picks how far the plants treat sewage, from none (cheap, and
 new water treatment works cleans the mains. **Direct dispatch** puts every fire engine, patrol car and ambulance on
 the city's streets as a little vehicle in its colours: on the service's screen, pick them with a click, shift-clicks
 or a box, and right-click to send them somewhere, to a call, or after another unit, while the computer still answers
-calls with whoever is nearest. The rest of Beta 4 is planned: the new floating build menu and L-shaped info bar,
-region sizes and annexing, and tile hosts for growing regions.
+calls with whoever is nearest. **The new look** (variation A of the UI mockups) gives the map the whole window in
+both clients. A build rail down the left opens flyouts of priced tiles, sorted into tabs. The city's name and the
+modes sit top right. An L in the bottom left holds the minimap and the panels' buttons up its side, and the date,
+speed, money, people, demand, news and alerts along the bottom. The panels float on the right and close. The rest of
+Beta 4 is planned: region sizes and annexing, and tile hosts for growing regions.
 
 Beta 3.2 ended with **part 7: growing regions**. A region can start as one
 tile and grow: add land on any side of it, and the new tile's ground, rivers and rock are made then, carrying on from
@@ -52,6 +55,15 @@ to play; the web client stays as the debug and admin client.
 From the Beta 4 and Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release
 adds a new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
+
+Beta 4, part 2, the new look ([`docs/screenshots/beta4-ui`](docs/screenshots/beta4-ui)):
+
+| | |
+| --- | --- |
+| ![Godot, the transport flyout open on its roads tab over the hill town](docs/screenshots/beta4-ui/godot-ui-roads-flyout.jpg) | ![Godot, the civic flyout pinned open and the budget panel floating on the right](docs/screenshots/beta4-ui/godot-ui-civic-and-budget.jpg) |
+| Godot (local hill gate run): the build rail, the roads flyout with each road's price per cell, and the L | The civic flyout pinned open, and the budget panel floating clear of the L |
+| ![Web client, the transport flyout open on its roads tab](docs/screenshots/beta4-ui/web-ui-roads-flyout.jpg) | ![Web client, drawing a street with the tool's options along the top and the cost chip](docs/screenshots/beta4-ui/web-ui-drawing-a-road.jpg) |
+| Web client: the same menu, from the same shared description | Drawing a street: its surface, cut or tunnel, and straight, diagonal or curve along the top, and the cost at the cursor |
 
 Beta 4, part 1, direct dispatch ([`docs/screenshots/beta4-dispatch`](docs/screenshots/beta4-dispatch)):
 
@@ -167,7 +179,7 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 3 | Regions, cross-border play, federated hosting, emergency services beta | Done |
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
 | Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); light and shadow through the day and night (done); growing regions (done) | Done |
-| Beta 4 | GPU test (done); snow on the ground and roofs (done); water quality (done); direct dispatch (done); the floating build menu and L-shaped info bar in both clients; region sizes, annexing and a region charter; tile hosts for growing regions | In progress |
+| Beta 4 | GPU test (done); snow on the ground and roofs (done); water quality (done); direct dispatch (done); the floating build menu and L-shaped info bar in both clients (done); region sizes, annexing and a region charter; tile hosts for growing regions | In progress |
 | Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
@@ -178,6 +190,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-03 | **Beta 4, part 2: the new look (UI A)** (PR #20) | The mayor's view in both clients: a full-window map under glass panels, a build rail with flyouts of priced tiles in tabs (one shared menu and icon set), the tool's options along the top, the city's name and modes top right, the L of minimap, panel buttons and the city's numbers in the bottom left, and a floating panel that closes. The side games' screens keep their own layout. [Gate](docs/GATE-BETA4-UI.md) |
 | 2026-11-03 | **Beta 4, part 1: direct dispatch** (PR #20) | Every emergency unit is on the city's streets, driving each leg by the fastest route; both clients draw them as vehicles in their colours and take orders on the map: click, shift-click, box and numbered groups to pick; right-click a place (shift queues more), a call or a unit to follow; hold and go home. Auto-dispatch stays on and sends units from where they stand. [Gate](docs/GATE-BETA4-DISPATCH.md) |
 | 2026-11-03 | **Beta 4, part 3: water quality** (PR #20) | Foul water from raw sewage, industry and the sewage plants' outfalls runs down rivers, over borders (a per-region option) and spreads through lakes and the sea; sewage treatment from none to tertiary on the budget panel; pumps draw it into the taps, and a new water treatment works cleans the mains; smell, unsafe tap water, fewer visitors, boil-water notices and dead fish; a water quality layer in both clients; save format 16. Snow now also thaws by the calendar's season. [Gate](docs/GATE-BETA4-WATER.md) |
 | 2026-11-03 | **Beta 4, part 4: snow** (PR #20) | Snow lies on the ground and the roofs, building up in the day clock's showers and melting with the season, rain and heat; deeper high up and facing north, none on the steep; drawn by the Godot terrain and building shaders and on the web map; save format 15. [Gate](docs/GATE-BETA4-SNOW.md) |

@@ -118,9 +118,9 @@ public partial class Main : Node
         var hud = new CanvasLayer();
         AddChild(hud);
         // The map's own corner, right of the tool column and under the top bar.
-        _status = new Label { Text = $"Connecting to {server}…", Position = new Vector2(ToolController.ColumnWidth + 12, 56) };
-        _hover = new Label { Position = new Vector2(ToolController.ColumnWidth + 12, 80) };
-        var players = new Label { Position = new Vector2(ToolController.ColumnWidth + 12, 104), Modulate = new Color(1, 1, 1, 0.85f) };
+        _status = new Label { Text = $"Connecting to {server}…", Position = new Vector2(ToolController.RailWidth + 12, 56) };
+        _hover = new Label { Position = new Vector2(ToolController.RailWidth + 12, 80) };
+        var players = new Label { Position = new Vector2(ToolController.RailWidth + 12, 104), Modulate = new Color(1, 1, 1, 0.85f) };
         _client.Message += m => { if (m.BodyCase == Protocol.V0.ServerMessage.BodyOneofCase.Presence) { players.Text = PresenceText(m.Presence); if (_panels != null) _panels.Model.Players = m.Presence.Players.Select(p => p.Name).ToList(); } };
         foreach (var l in new[] { _status, _hover, players })
         {

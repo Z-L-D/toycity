@@ -165,7 +165,8 @@ export class Transport {
     this.public = cur.public;
     if (this.pending?.done(this.view)) this.pending = null;
     $('#btn-company').classList.remove('hidden');
-    $('#btn-company').textContent = `🚌 ${this.view.name}`;
+    $('#btn-company').textContent = 'Transit';
+    $('#btn-company').title = `Switch to ${this.view.name}'s own view`;
     this.host.setLines([...this.views.values()].flatMap((x) => (x.view.lines as Msg[]).filter((l) => l.routeCells.length > 1).map((l) => ({
       color: l.color, cells: l.routeCells, buses: l.buses - l.broken, running: l.headwayMinutes > 0,
     }))));

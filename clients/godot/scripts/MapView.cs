@@ -18,8 +18,12 @@ public partial class MapView : Node2D
 
     public MapView(CityMirror city) => _city = city;
 
+    /// <summary>Where Main put it: the minimap goes back there on the side games' screens.</summary>
+    public Node? HomeParent { get; private set; }
+
     public override void _Ready()
     {
+        HomeParent ??= GetParent();
         _sprite = new Sprite2D { Centered = false, TextureFilter = TextureFilterEnum.Nearest };
         AddChild(_sprite);
     }
@@ -72,7 +76,8 @@ public partial class MapView : Node2D
     public (int X, int Y)? CellAt(Vector2 screen)
     {
         if (!Drawn) return null;
-        var p = (screen - Position) / Scale;
+        if (!IsVisibleInTree()) return null;
+        var p = (screen - GlobalPosition) / Scale;
         return p.X >= 0 && p.Y >= 0 && p.X < _city.Width && p.Y < _city.Height ? ((int)p.X, (int)p.Y) : null;
     }
 
@@ -86,8 +91,20 @@ public partial class MapView : Node2D
     }
     float _rightInset = ToolController.SideWidth;
 
+    /// <summary>Fits it again to where it now sits.</summary>
+    public void Refit() { if (Drawn) Fit(); }
+
     void Fit()
     {
+        // In the L's upright (UI A, Beta 4): centred in its frame.
+        if (GetParent() is Control frame)
+        {
+            float fs = Mathf.Min(frame.Size.X, frame.Size.Y) / Mathf.Max(_city.Width, _city.Height);
+            Scale = new Vector2(fs, fs);
+            Position = (frame.Size - new Vector2(_city.Width, _city.Height) * fs) / 2;
+            QueueRedraw();
+            return;
+        }
         var size = GetViewportRect().Size;
         float s = Box / Mathf.Max(_city.Width, _city.Height);
         Scale = new Vector2(s, s);
