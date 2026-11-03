@@ -9,6 +9,10 @@ public sealed partial class World
 {
     /// <summary>How many cells must drain through a cell for it to carry a river.</summary>
     public const int RiverCatchment = 700;
+    /// <summary>Cells of ground draining into a pond or lake for each cell of its water: rain keeps up with this much evaporation.</summary>
+    public const int LakeCatchmentPerCell = 30;
+    /// <summary>The fewest cells of water a pond has.</summary>
+    public const int LakeLeast = 6;
 
     /// <summary>
     /// The water surface of the river on each cell, in steps, or 0 where there's no river. The river's bed lies a
@@ -75,6 +79,8 @@ public sealed partial class World
         var order = new List<int>(n);
         var queue = new PriorityQueue<int, (int, int)>();
         var filled = new int[n];
+        // The level water would stand at to drain from each cell: its own ground, or the lowest rim it must top.
+        var spill = new int[n];
         for (int i = 0; i < n; i++)
         {
             int x = i % width, y = i / width;
@@ -83,6 +89,7 @@ public sealed partial class World
             {
                 receiver[i] = -1;
                 filled[i] = dm[i];
+                spill[i] = dm[i];
                 queue.Enqueue(i, (dm[i], i));
             }
         }
@@ -93,6 +100,7 @@ public sealed partial class World
             for (int i = 1; i < n; i++) if (dm[i] < dm[low]) low = i;
             receiver[low] = -1;
             filled[low] = dm[low];
+            spill[low] = dm[low];
             queue.Enqueue(low, (dm[low], low));
         }
         ReadOnlySpan<int> dx = [0, 1, 0, -1], dy = [-1, 0, 1, 0];
@@ -108,6 +116,7 @@ public sealed partial class World
                 if (receiver[j] != -2) continue;
                 receiver[j] = c;
                 filled[j] = Math.Max(dm[j], filled[c] + 1);
+                spill[j] = Math.Max(dm[j], spill[c]);
                 queue.Enqueue(j, (filled[j], j));
             }
         }
@@ -121,18 +130,70 @@ public sealed partial class World
             if (receiver[c] >= 0) acc[receiver[c]] += acc[c];
         }
 
-        // 3. The surface: down the river, never above the ground nor above where it came from.
+        // Ponds and lakes (version 3): ground the flood had to fill to drain holds water. Each basin (the cells that
+        // drain out over one rim) fills from its lowest ground up, as far as the rain over its catchment keeps up
+        // with: a lake no larger than a thirtieth of the ground draining into it, so a small hollow holds a pond and a
+        // basin with a river through it fills to its rim and spills on. Two steps deep at least, or it's just wet ground.
+        var pond = new byte[n];
+        if (channels >= 3)
+        {
+            var basin = new Dictionary<int, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                int fill = (spill[i] + StepDm / 2) / StepDm;
+                if (fill <= step[i] || step[i] < waterLevel) continue;
+                // Down to where it spills: the first cell the flood didn't have to fill.
+                int at = i, hops = 0;
+                while (at >= 0 && (spill[at] + StepDm / 2) / StepDm > step[at] && hops++ < n) at = receiver[at];
+                if (at < 0) continue;
+                if (!basin.TryGetValue(at, out var cells)) basin[at] = cells = new List<int>();
+                cells.Add(i);
+            }
+            foreach (var (rim, cells) in basin.OrderBy(b => b.Key))
+            {
+                int most = acc[rim] / LakeCatchmentPerCell;
+                if (most < 1) continue;
+                int full = cells.Max(i => (spill[i] + StepDm / 2) / StepDm);
+                cells.Sort((a, b) => step[a] != step[b] ? step[a].CompareTo(step[b]) : a.CompareTo(b));
+                // The highest level whose water (the basin's cells under it) fits.
+                int level = 0;
+                for (int l = step[cells[0]] + 1; l <= full; l++)
+                {
+                    int under = 0;
+                    foreach (int i in cells) if (step[i] < l) under++; else break;
+                    if (under > most) break;
+                    level = l;
+                }
+                // A puddle, not a pond: a hollow of a few cells the rain has worn, or water spread a step deep over a
+                // flat floodplain (under a step and a half deep on average), which the river drains.
+                int wet = 0, depth = 0;
+                foreach (int i in cells) if (step[i] < level) { wet++; depth += level - step[i]; }
+                if (wet < LakeLeast || depth * 2 < wet * 3) continue;
+                foreach (int i in cells) if (step[i] < level) pond[i] = (byte)level;
+            }
+        }
+        // 3. The surface: down the river, never above the ground (or a pond's level) nor above where it came from.
         var surface = start != null ? (byte[])start.Clone() : new byte[n];
         for (int k = order.Count - 1; k >= 0; k--)
         {
             int c = order[k];
             if (acc[c] < RiverCatchment || step[c] < waterLevel) continue;
-            int s = surface[c] == 0 ? step[c] : Math.Min(surface[c], step[c]);
+            int top = Math.Max(step[c], pond[c]);
+            int s = surface[c] == 0 ? top : Math.Min(surface[c], top);
             s = Math.Max(s, waterLevel);
             surface[c] = (byte)s;
             int r = receiver[c];
             if (r >= 0 && step[r] >= waterLevel)
-                surface[r] = surface[r] == 0 ? (byte)Math.Min(s, step[r]) : (byte)Math.Min(surface[r], s);
+                surface[r] = surface[r] == 0 ? (byte)Math.Min(s, Math.Max(step[r], pond[r])) : (byte)Math.Min(surface[r], s);
+        }
+
+        // The rest of each pond: its whole basin under its water, rivers or not.
+        var lake = new bool[n];
+        for (int i = 0; i < n; i++)
+        {
+            if (pond[i] == 0) continue;
+            if (surface[i] < pond[i]) surface[i] = pond[i];
+            lake[i] = true;
         }
 
         if (downstream != null)
@@ -149,14 +210,14 @@ public sealed partial class World
                 corners[k] = (ushort)Math.Min(corners[k], bed);
         }
         // 5. Shape them: banks along the river's smoothed line, wider downstream.
-        if (channels > 0) Channels(corners, width, heightCells, waterLevel, surface, receiver, acc, downstream, channels >= 2, seed, originX, originY);
+        if (channels > 0) Channels(corners, width, heightCells, waterLevel, surface, receiver, acc, downstream, channels >= 2, seed, originX, originY, lake);
         return surface;
     }
 
     /// <summary>How far a river's banks reach past its water, in cells.</summary>
     public const float BankReach = 2f;
-    /// <summary>How new regions' rivers are shaped: 2, channels with banks that meander off the grid.</summary>
-    public const int ChannelsVersion = 2;
+    /// <summary>How new regions' rivers are shaped: 3, channels with banks that meander off the grid, and ponds and lakes where the ground holds water.</summary>
+    public const int ChannelsVersion = 3;
 
     /// <summary>
     /// A river's channel as a creek is in the Flint Hills project: a smoothed line down the valley with a width that
@@ -167,11 +228,12 @@ public sealed partial class World
     /// It only ever cuts.
     /// </summary>
     static void Channels(ushort[] corners, int width, int heightCells, int waterLevel, byte[] surface, int[] receiver, int[] acc, int[]? downstream,
-        bool meander = false, ulong seed = 0, int originX = 0, int originY = 0)
+        bool meander = false, ulong seed = 0, int originX = 0, int originY = 0, bool[]? lake = null)
     {
         int n = width * heightCells, cw = width + 1;
+        // The rivers' own cells: a pond's water stands in its basin already, and its shore is the ground's.
         var river = new List<int>();
-        for (int i = 0; i < n; i++) if (surface[i] != 0) river.Add(i);
+        for (int i = 0; i < n; i++) if (surface[i] != 0 && lake?[i] != true) river.Add(i);
         if (river.Count == 0) return;
 
         // The main stem upstream of each river cell: the river cell flowing into it that carries the most.
@@ -186,6 +248,8 @@ public sealed partial class World
         ReadOnlySpan<float> weight = [1f, 2f, 3f, 4f];
         var px = new float[n];
         var py = new float[n];
+        // A pond's cells stay where they are: a river runs into one at its middle.
+        for (int i = 0; i < n; i++) if (lake?[i] == true) (px[i], py[i]) = (i % width + 0.5f, i / width + 0.5f);
         foreach (int c in river)
         {
             float sx = (c % width + 0.5f) * weight[3], sy = (c / width + 0.5f) * weight[3], sw = weight[3];

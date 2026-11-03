@@ -96,4 +96,44 @@ public class RiverChannelTests(ITestOutputHelper output)
             Assert.True(after > before, "the meanders should move the channel off the drainage line");
         }
     }
+
+    [Fact]
+    public void BasinsTheRainKeepsUpWithHoldPondsAtOneLevel()
+    {
+        // Seed 5 has hollows a river runs through: they hold ponds now, where the old rivers cut a gorge through.
+        var before = World.GenerateGround(5, S, S, channels: 2);
+        var after = World.GenerateGround(5, S, S, channels: 3);
+        var steps = World.StepsFromCorners(after.Corners, S, S);
+        var oldSteps = World.StepsFromCorners(before.Corners, S, S);
+        int pond = 0;
+        var levels = new Dictionary<int, HashSet<int>>();
+        var seen = new bool[S * S];
+        for (int i = 0; i < S * S; i++)
+        {
+            if (after.Rivers[i] <= steps[i] || before.Rivers[i] > oldSteps[i] || seen[i]) continue;
+            // One pond: the new water cells joined to it, each standing at one level.
+            var q = new Queue<int>([i]);
+            var level = new HashSet<int>();
+            seen[i] = true;
+            while (q.TryDequeue(out int c))
+            {
+                pond++;
+                level.Add(after.Rivers[c]);
+                int x = c % S, y = c / S;
+                foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                {
+                    int nx = x + dx, ny = y + dy, j = ny * S + nx;
+                    if (nx < 0 || ny < 0 || nx >= S || ny >= S || seen[j] || after.Rivers[j] <= steps[j] || before.Rivers[j] > oldSteps[j]) continue;
+                    seen[j] = true;
+                    q.Enqueue(j);
+                }
+            }
+            levels[i] = level;
+        }
+        output.WriteLine($"{pond} cells of pond in {levels.Count} pieces; levels {string.Join(", ", levels.Values.Select(l => string.Join("/", l)))}");
+        Assert.True(pond >= World.LakeLeast, "seed 5 should hold a pond");
+        // Most ponds stand at one level; a river running in or out of one may carry its own along the edge.
+        Assert.True(levels.Values.Count(l => l.Count == 1) * 2 >= levels.Count, "a pond's water should stand level");
+        Assert.All(after.Rivers, r => Assert.True(r == 0 || r >= 8));
+    }
 }
