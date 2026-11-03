@@ -56,6 +56,14 @@ From the Beta 4 and Beta 3.2 gate runs (Godot, CI runner with software rendering
 adds a new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
 
+Beta 4, part 6, room to grow ([`docs/screenshots/beta4-room`](docs/screenshots/beta4-room)):
+
+| | |
+| --- | --- |
+| ![Web client, the region map offering the open land east of Halden, with the price and the rectangle it would make](docs/screenshots/beta4-room/web-annex-offer.jpg) | ![Web client, Halden on two tiles after annexing](docs/screenshots/beta4-room/web-annexed-region.jpg) |
+| ![Web client, a careful computer mayor's town next door, for sale at its price](docs/screenshots/beta4-room/web-takeover-offer.jpg) | ![Web client, the one city with both starter towns on its map](docs/screenshots/beta4-room/web-takeover-city.jpg) |
+| ![Web client, the region map with Halden on 2 × 2 tiles](docs/screenshots/beta4-room/web-room-region.jpg) | ![Web client, the city of 2 × 2 tiles](docs/screenshots/beta4-room/web-room-city.jpg) |
+
 Beta 4, part 2, the new look ([`docs/screenshots/beta4-ui`](docs/screenshots/beta4-ui)):
 
 | | |
@@ -179,7 +187,7 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 3 | Regions, cross-border play, federated hosting, emergency services beta | Done |
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
 | Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); light and shadow through the day and night (done); growing regions (done) | Done |
-| Beta 4 | GPU test (done); snow on the ground and roofs (done); water quality (done); direct dispatch (done); the floating build menu and L-shaped info bar in both clients (done); region sizes, annexing and a region charter; tile hosts for growing regions | In progress |
+| Beta 4 | GPU test (done); snow on the ground and roofs (done); water quality (done); direct dispatch (done); the floating build menu and L-shaped info bar in both clients (done); region sizes, annexing, taking in a neighbour by a deal and a region charter (done); tile hosts for growing regions | In progress |
 | Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
@@ -190,6 +198,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-03 | **Beta 4, part 6: room to grow** (PR #20) | Regions from small to huge (huge made a tile at a time), growing regions on a 255-tile frame, and a region charter of who grows the region, who annexes and how big a city may get, changed by the mayors' vote. A city annexes the open land beside it and moves onto its bigger map whole, always a rectangle, at a price rising with its size; a city takes in its neighbour by a deal (its mayor agrees, or a computer mayor sells at its temperament's price), with everything in both. [Gate](docs/GATE-BETA4-ROOM.md) |
 | 2026-11-03 | **Beta 4, part 2: the new look (UI A)** (PR #20) | The mayor's view in both clients: a full-window map under glass panels, a build rail with flyouts of priced tiles in tabs (one shared menu and icon set), the tool's options along the top, the city's name and modes top right, the L of minimap, panel buttons and the city's numbers in the bottom left, and a floating panel that closes. The side games' screens keep their own layout. [Gate](docs/GATE-BETA4-UI.md) |
 | 2026-11-03 | **Beta 4, part 1: direct dispatch** (PR #20) | Every emergency unit is on the city's streets, driving each leg by the fastest route; both clients draw them as vehicles in their colours and take orders on the map: click, shift-click, box and numbered groups to pick; right-click a place (shift queues more), a call or a unit to follow; hold and go home. Auto-dispatch stays on and sends units from where they stand. [Gate](docs/GATE-BETA4-DISPATCH.md) |
 | 2026-11-03 | **Beta 4, part 3: water quality** (PR #20) | Foul water from raw sewage, industry and the sewage plants' outfalls runs down rivers, over borders (a per-region option) and spreads through lakes and the sea; sewage treatment from none to tertiary on the budget panel; pumps draw it into the taps, and a new water treatment works cleans the mains; smell, unsafe tap water, fewer visitors, boil-water notices and dead fish; a water quality layer in both clients; save format 16. Snow now also thaws by the calendar's season. [Gate](docs/GATE-BETA4-WATER.md) |
