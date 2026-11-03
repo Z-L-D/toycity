@@ -286,6 +286,8 @@ export class Renderer {
   private terrainVersion = -1;
   /** The snow the ground was last painted with, in centimetres (Beta 4, part 4), and the dry ground's median height. */
   private snowCm = 0;
+  /** The rivers' flow the ground was painted at: their water stands by it. */
+  private flowPct = 100;
   private snowMedian = 0;
   private blink = false;
 
@@ -351,6 +353,7 @@ export class Renderer {
     c.terrainDirty = [];
     this.terrainVersion = c.terrainVersion;
     this.snowCm = snowCm(c);
+    this.flowPct = c.flowPct;
     this.snowMedian = medianMetres(c);
     if (dirty && this.terrain.width === c.width * K && this.terrain.height === c.height * K && dirty.length < 400) {
       // A few cells changed (a road graded, a pad levelled): redraw just around them.
@@ -419,7 +422,8 @@ export class Renderer {
         const hAt = ground ?? ((x: number, y: number) => blend(at, x, y));
         const h = hAt(fx, fy);
         const near = blend(bankNear, fx, fy);
-        const riverTop = near > 0 ? smoothLevel(fx, fy) - 0.35 : 0;
+        // The water's own surface at today's flow (low after a dry spell, up in a flood).
+        const riverTop = near > 0 ? smoothLevel(fx, fy) : 0;
         const water = near > 0.3 && riverTop > 0 ? h < riverTop : blend(wet, fx, fy) > 0.5;
         // The slope over most of a cell either way, so it doesn't jump at cell edges where the corners' blend bends.
         const D = 0.75;
@@ -479,7 +483,7 @@ export class Renderer {
     ctx.fillRect(0, 0, r.width, r.height);
     if (!c.loaded) return;
     if (this.terrainVersion !== c.terrainVersion) this.rebuildTerrain();
-    else if (snowCm(c) !== this.snowCm) { c.terrainDirty = null; this.rebuildTerrain(); }
+    else if (snowCm(c) !== this.snowCm || c.flowPct !== this.flowPct) { c.terrainDirty = null; this.rebuildTerrain(); }
 
     const s = this.scale;
     // An earthquake shakes the view for its first day or two.

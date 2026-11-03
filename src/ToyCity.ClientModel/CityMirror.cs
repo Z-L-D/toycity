@@ -88,13 +88,25 @@ public sealed class CityMirror
     public bool IsRiver(int i) => Rivers[i] > Heights[i];
 
     /// <summary>
-    /// Each cell's floodwater surface in steps, 0 where dry, from the stats' flood stage: the same rule the server
-    /// uses (World.FloodedCells), so the views show the water the sim damages buildings with.
+    /// Each cell's floodwater surface in steps, 0 where dry, from the stats' river flow: the same rule the server
+    /// uses (RiverFlow.Flooded), so the views show the water the sim damages buildings with.
     /// </summary>
-    public byte[] Flooded => _flooded is { } f && _floodedFor == (FloodStage, TerrainVersion) ? f : (_flooded = FloodedCells(), _floodedFor = (FloodStage, TerrainVersion)).Item1;
+    public byte[] Flooded => _flooded is { } f && _floodedFor == (FlowPct, TerrainVersion) ? f
+        : (_flooded = ToyCity.Sim.RiverFlow.Flooded(Width, Height, Heights, Rivers, WaterLevel, FlowPct), _floodedFor = (FlowPct, TerrainVersion)).Item1;
     byte[]? _flooded;
     (int, int) _floodedFor = (-1, -1);
     public int FloodStage => Stats.FloodStage;
+    /// <summary>How much the rivers carry, as a share of usual (100 from a server before flows).</summary>
+    public int FlowPct => Stats.RiverFlowPct > 0 ? Stats.RiverFlowPct : ToyCity.Sim.RiverFlow.OfStage(Stats.FloodStage);
+
+    /// <summary>How big the water is around each cell (RiverFlow.Sizes), for its depth and rise.</summary>
+    public byte[] WaterSize => _waterSize is { } w && _waterSizeFor == TerrainVersion ? w
+        : (_waterSize = ToyCity.Sim.RiverFlow.Sizes(Width, Height, Heights, Rivers), _waterSizeFor = TerrainVersion).Item1;
+    byte[]? _waterSize;
+    int _waterSizeFor = -1;
+
+    /// <summary>A river or pond cell's water surface in steps at today's flow (RiverFlow.WaterDm), 0 where there's none.</summary>
+    public float WaterSurface(int i) => IsRiver(i) ? ToyCity.Sim.RiverFlow.WaterDm(Rivers[i], WaterSize[i], FlowPct) / 20f : 0f;
 
     /// <summary>
     /// The river beside each cell, for drawing its banks (as the Flint Hills creek's wet bank and floodplain): the
@@ -102,7 +114,7 @@ public sealed class CityMirror
     /// is, 1 on the river falling to 0 at that reach. Both clients colour the banks by how far they stand over that
     /// water, and draw the river's water on past its cells so the ground's own slope makes the shore.
     /// </summary>
-    public (byte[] Level, float[] Near) RiverBanks
+    public (byte[] Level, float[] Near, int[] From) RiverBanks
     {
         get
         {
@@ -110,22 +122,27 @@ public sealed class CityMirror
             return b;
         }
     }
-    (byte[] Level, float[] Near)? _banks;
+    (byte[] Level, float[] Near, int[] From)? _banks;
     int _banksFor = -1;
 
     /// <summary>How far from a river its banks are drawn, in cells.</summary>
     public const int BankCells = 3;
 
-    (byte[], float[]) Banks()
+    /// <summary>The water's surface beside a cell, in steps, at today's flow: the river its bank belongs to's (0 for none).</summary>
+    public float BankWater(int i) => RiverBanks.From[i] is >= 0 and var r ? WaterSurface(r) : 0f;
+
+    (byte[], float[], int[]) Banks()
     {
         int n = N;
         var level = new byte[n];
+        var from = new int[n];
+        Array.Fill(from, -1);
         var near = new float[n];
         var dist = new int[n];
         Array.Fill(dist, int.MaxValue);
         var queue = new Queue<int>();
         for (int i = 0; i < n; i++)
-            if (IsRiver(i)) { level[i] = Rivers[i]; dist[i] = 0; queue.Enqueue(i); }
+            if (IsRiver(i)) { level[i] = Rivers[i]; from[i] = i; dist[i] = 0; queue.Enqueue(i); }
         // Out from the river cells, the lowest river first where two meet, so a bank between a pool and the rapid
         // below takes the lower water.
         while (queue.Count > 0)
@@ -143,41 +160,11 @@ public sealed class CityMirror
                     if (dist[j] == int.MaxValue) queue.Enqueue(j);
                     dist[j] = dist[c] + 1;
                     level[j] = level[c];
+                    from[j] = from[c];
                 }
         }
         for (int i = 0; i < n; i++) near[i] = dist[i] == int.MaxValue ? 0 : Math.Clamp(1f - dist[i] / (BankCells + 1f), 0, 1);
-        return (level, near);
-    }
-
-    byte[] FloodedCells()
-    {
-        const int Reach = 5;
-        int n = N, stage = FloodStage;
-        var water = new byte[n];
-        if (stage <= 0) return water;
-        var dist = new int[n];
-        var queue = new Queue<int>();
-        for (int i = 0; i < n; i++)
-            if (IsRiver(i)) { water[i] = (byte)Math.Min(255, Rivers[i] + stage); queue.Enqueue(i); }
-        int[] dx = { 0, 1, 0, -1 }, dy = { -1, 0, 1, 0 };
-        while (queue.Count > 0)
-        {
-            int c = queue.Dequeue();
-            if (dist[c] >= Reach) continue;
-            int x = c % Width, y = c / Width;
-            for (int k = 0; k < 4; k++)
-            {
-                int nx = x + dx[k], ny = y + dy[k];
-                if (!InBounds(nx, ny)) continue;
-                int j = Idx(nx, ny);
-                if (water[j] != 0 || Heights[j] < WaterLevel || IsRiver(j) || Heights[j] >= water[c]) continue;
-                water[j] = water[c];
-                dist[j] = dist[c] + 1;
-                queue.Enqueue(j);
-            }
-        }
-        for (int i = 0; i < n; i++) if (IsRiver(i)) water[i] = 0;
-        return water;
+        return (level, near, from);
     }
 
     public void ApplyFull(FullState f)

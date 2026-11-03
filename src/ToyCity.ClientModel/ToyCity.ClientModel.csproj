@@ -13,6 +13,7 @@
     <!-- Path grading is shared word for word with the sim, so previews price exactly what the server builds. -->
     <Compile Include="../ToyCity.Sim/PathGrade.cs" Link="Shared/PathGrade.cs" />
     <Compile Include="../ToyCity.Sim/SnowDepth.cs" Link="Shared/SnowDepth.cs" />
+    <Compile Include="../ToyCity.Sim/RiverFlow.cs" Link="Shared/RiverFlow.cs" />
   </ItemGroup>
   <ItemGroup>
     <!-- The UI's icons (Beta 4, part 2), the same file the web client imports. -->

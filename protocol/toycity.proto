@@ -1100,7 +1100,7 @@ message CityStats {
   DisasterSetting disaster_setting = 25;
   int32 transit_boardings = 26;  // a day, from last month's commutes
   string weather = 27;           // today's weather over the city with its icon ("🌧 Heavy rain"); empty when clear
-  int32 flood_stage = 28;        // steps the rivers stand over their usual surface: 0 none, up to 3
+  int32 flood_stage = 28;        // the flood stage: 0 in its banks, up to 3
   // Beta 3.2, two clocks. The calendar is tick/day/month/year; the day clock is in minutes since it started (Monday
   // 00:00 is 0, and it starts at 08:00), moving clock_minutes_per_tick each tick. A day of the day clock lasts an hour
   // at speed 1, half an hour at 2 and ten minutes at 3, so clients can run the hands between ticks.
@@ -1113,6 +1113,7 @@ message CityStats {
   int64 sewage_produced = 34;
   int64 sewage_untreated = 35;
   WaterQuality water_quality = 36;  // Beta 4, part 3
+  int32 river_flow_pct = 37;        // how much the rivers carry, as a share of usual, from the month's rain upstream
 }
 
 // How clean the city's water is (Beta 4, part 3). Foulness runs 0 clean to 255.
@@ -1789,7 +1790,8 @@ message RegionPace {
 }
 
 message RegionFlood {
-  int32 stage = 1;  // steps the rivers stand above their banks' usual level: 0 none .. 3
+  int32 stage = 1;  // the flood stage: 0 in its banks .. 3
+  int32 flow_pct = 2;  // how much the rivers carry, as a share of usual (25..600); 0 in a log from before flows
 }
 
 enum WeatherKind {

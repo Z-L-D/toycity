@@ -61,7 +61,7 @@ public class RegionGateTests
 
         public bool RoadAt(int x, int y) => City.Paths[City.Idx(x, y)] != 0;
 
-        bool Clear(int i) => City.Paths[i] == 0 && City.BuildingAt[i] == 0 && !City.IsWater(i);
+        bool Clear(int i) => City.Paths[i] == 0 && City.BuildingAt[i] == 0 && (!City.IsWater(i) || City.IsRiver(i));  // a road bridges a river
 
         /// <summary>
         /// Plans a road from the town out to the border at row <paramref name="y"/>: from a street along its row to a
@@ -187,7 +187,8 @@ public class RegionGateTests
             var townRows = Enumerable.Range(0, may.City.Width * may.City.Height).Where(i => may.City.Paths[i] != 0).Select(i => i / may.City.Width).Distinct().OrderBy(r => r).ToList();
             // Each attempt plans afresh: a refused one leaves stubs that later plans go around.
             var tried = new HashSet<int>();
-            int affordable = 0;
+            int affordable = 0, unplanned = 0;
+            long cheapest = long.MaxValue;
             for (int attempt = 0; attempt < 6 && row < 0; attempt++)
             {
                 (int Y, (int, int, int) Mine, (int, int, int) Hers, long Worst)? pick = null;
@@ -195,8 +196,9 @@ public class RegionGateTests
                 foreach (int y in townRows.Concat(townRows.Select(r => r + 6)).Concat(Enumerable.Range(4, may.City.Height - 8)).Distinct())
                 {
                     if (y < 4 || y > may.City.Height - 5 || tried.Contains(y)) continue;
-                    if (may.PlanToBorder(3, y) is not { } mine || tess.PlanToBorder(1, y) is not { } hers) continue;
+                    if (may.PlanToBorder(3, y) is not { } mine || tess.PlanToBorder(1, y) is not { } hers) { unplanned++; continue; }
                     long a = may.Price(mine, 3, y), b = tess.Price(hers, 1, y);
+                    cheapest = Math.Min(cheapest, Math.Max(a, b));
                     // A tenth to spare: grading can come out a little dearer than it priced.
                     if (a * 11 / 10 > may.City.Stats.Funds || b * 11 / 10 > tess.City.Stats.Funds) continue;
                     affordable++;
@@ -208,7 +210,7 @@ public class RegionGateTests
                 Console.WriteLine($"GATE row {p.Y} ({affordable} affordable rows; May has {may.City.Stats.Funds:N0}, Tess {tess.City.Stats.Funds:N0}): Toyville {p.Mine}, Westbrook {p.Hers}, priced {p.Worst:N0}, built {built}; May told: {string.Join(" | ", may.Told.TakeLast(3))}; Tess told: {string.Join(" | ", tess.Told.TakeLast(3))}");
                 if (built) row = p.Y;
             }
-            Assert.True(row >= 0, "a road joins Toyville and Westbrook across their border");
+            Assert.True(row >= 0, $"a road joins Toyville and Westbrook across their border ({unplanned} rows with no way to the border, the cheapest of the rest {cheapest:N0}; May has {may.City.Stats.Funds:N0}, Tess {tess.City.Stats.Funds:N0})");
             Console.WriteLine($"GATE border road on row {row}");
             // Homes beside the new road on both sides, so there are people to commute.
             may.Client.Connection.Act(new PAction { Zone = new PaintZone { Area = new Rect { X0 = 3, Y0 = row + 1, X1 = 20, Y1 = row + 3 }, Zone = ZoneKind.ZoneResidential } });

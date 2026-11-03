@@ -184,6 +184,7 @@ public static class Mapping
         s.TransitBoardings = w.TransitBoardings;
         if (w.Weather != WeatherKind.Clear) s.Weather = $"{World.WeatherIcon(w.Weather)} {World.WeatherName(w.Weather, w.WeatherStrength)}";
         s.FloodStage = w.FloodStage;
+        s.RiverFlowPct = w.RiverFlowPct;
         s.WaterQuality = new P.WaterQuality
         {
             Treatment = (int)w.SewageTreatment, FoulPct = w.WaterCells == 0 ? 0 : w.FoulCells * 100 / w.WaterCells, Worst = w.WorstFoul,
@@ -548,7 +549,7 @@ public static class Mapping
                 ForkAction fk => new P.ActionRecord { Tick = l.Tick, By = fk.By, Fork = new P.Fork { Player = fk.Player, HomeName = fk.HomeName } },
                 NeighbourEdgeAction ne => new P.ActionRecord { Tick = l.Tick, By = ne.By, Neighbour = Edge(ne) },
                 WeatherAction wa => new P.ActionRecord { Tick = l.Tick, By = wa.By, Weather = new P.RegionWeather { Kind = (P.WeatherKind)(int)wa.Kind, Strength = wa.Strength } },
-                FloodAction fa => new P.ActionRecord { Tick = l.Tick, By = fa.By, Flood = new P.RegionFlood { Stage = fa.Stage } },
+                FloodAction fa => new P.ActionRecord { Tick = l.Tick, By = fa.By, Flood = new P.RegionFlood { Stage = fa.Stage, FlowPct = fa.FlowPct } },
                 WaterInflowAction wi => new P.ActionRecord { Tick = l.Tick, By = wi.By, Water = new P.RegionWater { X = wi.X, Y = wi.Y, Foul = wi.Foul } },
                 SetPaceAction pa => new P.ActionRecord { Tick = l.Tick, By = pa.By, Pace = new P.RegionPace { DaysPerClockDay = pa.DaysPerClockDay } },
                 CityDealAction cd => new P.ActionRecord
@@ -578,7 +579,7 @@ public static class Mapping
                 : r.Fork != null ? new ForkAction(r.Fork.Player, r.Fork.HomeName)
                 : r.Neighbour != null ? Edge(r.Neighbour)
                 : r.Weather is { } wr ? new WeatherAction((WeatherKind)(int)wr.Kind, wr.Strength)
-                : r.Flood is { } fr ? new FloodAction(fr.Stage)
+                : r.Flood is { } fr ? new FloodAction(fr.Stage, fr.FlowPct)
                 : r.Water is { } wq ? new WaterInflowAction(wq.X, wq.Y, wq.Foul)
                 : r.Pace is { } pr ? new SetPaceAction(pr.DaysPerClockDay)
                 : r.Deal is { } d ? new CityDealAction(d.Id, (DealKind)(int)d.Kind, d.Selling, d.Side, d.Other, d.Amount, d.Price, d.End, d.Why)

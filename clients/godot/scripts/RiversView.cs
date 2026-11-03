@@ -21,15 +21,17 @@ public partial class RiversView : Node3D
 
     public override void _Process(double delta)
     {
-        if (!_city.Loaded || _view.WaterMaterial == null || (_city.TerrainVersion, _city.FloodStage) == _builtFor) return;
-        _builtFor = (_city.TerrainVersion, _city.FloodStage);
+        if (!_city.Loaded || _view.WaterMaterial == null || (_city.TerrainVersion, _city.FlowPct) == _builtFor) return;
+        _builtFor = (_city.TerrainVersion, _city.FlowPct);
         int w = _city.Width, h = _city.Height;
         var flooded = _city.Flooded;
         var level = new float[w * h];
         bool any = false;
         for (int i = 0; i < w * h; i++)
         {
-            level[i] = _city.IsRiver(i) ? _city.Rivers[i] + (_city.FloodStage > 0 ? _city.FloodStage : 0) : flooded[i];
+            // A river's water stands by its flow (the month's rain upstream): low after a dry spell, up in a flood.
+            // The sheet's corners take a third of a step off again.
+            level[i] = _city.IsRiver(i) ? _city.WaterSurface(i) + 0.35f : flooded[i];
             any |= level[i] > 0;
         }
         // The water runs on a cell past its own, at its level, over the banks: the ground hides it where it stands

@@ -1,3 +1,4 @@
+import { flooded, ofStage, sizes, waterDm } from './riverflow';
 import type { Msg } from './net';
 
 export interface Building {
@@ -326,20 +327,20 @@ export class City {
   }
 
   private banksKey = '';
-  private banksCache = { level: new Uint8Array(0), near: new Float32Array(0) };
+  private banksCache = { level: new Float32Array(0), near: new Float32Array(0) };
   /**
-   * The river beside each cell, for drawing its banks (as CityMirror.RiverBanks in the client model): the surface,
-   * in steps, of the nearest river cell within three cells (0 for none), and how near it is, 1 on the river falling to
-   * 0 at that reach.
+   * The river beside each cell, for drawing its banks (as CityMirror.RiverBanks in the client model): the water's
+   * surface, in steps at today's flow, of the nearest river cell within three cells (0 for none), and how near it is,
+   * 1 on the river falling to 0 at that reach.
    */
-  get riverBanks(): { level: Uint8Array; near: Float32Array } {
-    const key = `${this.terrainVersion}:${this.width}:${this.height}`;
+  get riverBanks(): { level: Float32Array; near: Float32Array } {
+    const key = `${this.terrainVersion}:${this.width}:${this.height}:${this.flowPct}`;
     if (key === this.banksKey) return this.banksCache;
     this.banksKey = key;
     const n = this.width * this.height, reach = 3, far = 1 << 30;
-    const level = new Uint8Array(n), near = new Float32Array(n), dist = new Int32Array(n).fill(far);
+    const level = new Uint8Array(n), near = new Float32Array(n), dist = new Int32Array(n).fill(far), from = new Int32Array(n).fill(-1);
     const queue: number[] = [];
-    for (let i = 0; i < n; i++) if (this.isRiver(i)) { level[i] = this.rivers[i]; dist[i] = 0; queue.push(i); }
+    for (let i = 0; i < n; i++) if (this.isRiver(i)) { level[i] = this.rivers[i]; from[i] = i; dist[i] = 0; queue.push(i); }
     for (let q = 0; q < queue.length; q++) {
       const c = queue[q];
       if (dist[c] > reach) continue;
@@ -353,48 +354,43 @@ export class City {
           if (dist[j] === far) queue.push(j);
           dist[j] = dist[c] + 1;
           level[j] = level[c];
+          from[j] = from[c];
         }
     }
     for (let i = 0; i < n; i++) near[i] = dist[i] === far ? 0 : Math.min(1, Math.max(0, 1 - dist[i] / (reach + 1)));
-    return (this.banksCache = { level, near });
+    const water = new Float32Array(n);
+    for (let i = 0; i < n; i++) water[i] = from[i] >= 0 ? this.waterSurface(from[i]) : 0;
+    return (this.banksCache = { level: water, near });
   }
 
-  /** How many steps the rivers stand over their usual surface today: 0 normal, up to 3. */
+  /** How much the rivers carry, as a share of usual, from the month's rain upstream. */
+  get flowPct(): number { return this.stats.riverFlowPct || ofStage(this.floodStage); }
+
+  private sizeKey = '';
+  private sizeCache = new Uint8Array(0);
+  /** How big the water is around each cell (RiverFlow.Sizes), for its depth and rise. */
+  get waterSize(): Uint8Array {
+    const key = `${this.terrainVersion}:${this.width}:${this.height}`;
+    if (key !== this.sizeKey) { this.sizeKey = key; this.sizeCache = sizes(this.width, this.height, this.heights, this.rivers); }
+    return this.sizeCache;
+  }
+
+  /** A river or pond cell's water surface in steps at today's flow, 0 where there's none. */
+  waterSurface(i: number): number {
+    return this.isRiver(i) ? waterDm(this.rivers[i], this.waterSize[i], this.flowPct) / 20 : 0;
+  }
+
+  /** The rivers' flood stage today: 0 in their banks, up to 3. */
   get floodStage(): number { return this.stats.floodStage ?? 0; }
 
   private floodKey = '';
   private floodCells = new Uint8Array(0);
-  /**
-   * Each cell's floodwater surface in steps, or 0 where it's dry, worked out as the server does (World.FloodedCells):
-   * from each river cell outward up to five cells, onto dry ground lower than the river's raised surface.
-   */
+  /** Each cell's floodwater surface in steps, or 0 where it's dry, worked out as the server does (RiverFlow.Flooded). */
   get flooded(): Uint8Array {
-    const stage = this.floodStage, key = `${stage}:${this.terrainVersion}:${this.width}`;
+    const pct = this.flowPct, key = `${pct}:${this.terrainVersion}:${this.width}`;
     if (key === this.floodKey) return this.floodCells;
     this.floodKey = key;
-    const w = this.width, h = this.height, n = w * h, ground = this.heights, river = this.rivers;
-    const water = new Uint8Array(n);
-    this.floodCells = water;
-    if (stage <= 0 || river.length !== n) return water;
-    const dist = new Int32Array(n);
-    const queue: number[] = [];
-    for (let i = 0; i < n; i++) if (river[i] > ground[i]) { water[i] = Math.min(255, river[i] + stage); queue.push(i); }
-    for (let q = 0; q < queue.length; q++) {
-      const c = queue[q];
-      if (dist[c] >= 5) continue;
-      const x = c % w, y = (c / w) | 0;
-      for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
-        const nx = x + dx, ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-        const j = ny * w + nx;
-        if (water[j] || ground[j] < this.waterLevel || river[j] > ground[j] || ground[j] >= water[c]) continue;
-        water[j] = water[c];
-        dist[j] = dist[c] + 1;
-        queue.push(j);
-      }
-    }
-    for (let i = 0; i < n; i++) if (river[i] > ground[i]) water[i] = 0;
-    return water;
+    return (this.floodCells = flooded(this.width, this.height, this.heights, this.rivers, this.waterLevel, pct));
   }
 
   isRoadside(b: Building) {

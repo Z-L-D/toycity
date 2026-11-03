@@ -181,6 +181,8 @@ public partial class CityView : Node3D
     public override void _Process(double delta)
     {
         UpdateDetail();
+        // The rivers rose or fell with the month's rain: their banks' wet band follows the water.
+        if (_city.Loaded && _banksImage != null && _banksFlow != _city.FlowPct) PaintBanks();
         if (_flashUntil < 0) return;
         double now = Time.GetTicksMsec() / 1000.0, left = _flashUntil - now;
         // A slow pulse, fading out over the last second.
@@ -341,14 +343,18 @@ public partial class CityView : Node3D
     /// The rivers' banks, one texel a cell, for the ground's shader: red, the water's surface of the river beside it
     /// in world units; green, how near the river is (CityMirror.RiverBanks).
     /// </summary>
+    int _banksFlow = -1;
+
     void PaintBanks()
     {
         int w = _city.Width, h = _city.Height;
         bool fresh = _banksImage == null || _banksImage.GetWidth() != w || _banksImage.GetHeight() != h;
         if (fresh) _banksImage = Image.CreateEmpty(w, h, false, Image.Format.Rgf);
-        var (level, near) = _city.RiverBanks;
+        var (level, near, _) = _city.RiverBanks;
+        // The water at today's flow, so the wet band follows a river that's low after a dry spell or up in a flood.
         for (int i = 0; i < _city.N; i++)
-            _banksImage!.SetPixel(i % w, i / w, new Color(level[i] > 0 ? (level[i] - 0.35f) * ClassicView.HeightStep : 0, near[i], 0));
+            _banksImage!.SetPixel(i % w, i / w, new Color(level[i] > 0 ? (_city.BankWater(i) - 0.35f) * ClassicView.HeightStep : 0, near[i], 0));
+        _banksFlow = _city.FlowPct;
         if (fresh || _banksTexture == null) _banksTexture = ImageTexture.CreateFromImage(_banksImage);
         else _banksTexture.Update(_banksImage);
         _ground?.SetShaderParameter("river_banks", _banksTexture);
