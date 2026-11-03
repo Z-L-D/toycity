@@ -13,7 +13,7 @@ namespace ToyCity.Emergency;
 /// the city. Nothing stops a player doing badly: ignoring calls, sending the wrong crews, driving into people or
 /// shooting the wrong person all go ahead, and all have consequences.
 /// </summary>
-public sealed class EmergencyGame : ISideGame
+public sealed partial class EmergencyGame : ISideGame
 {
     public const string Id = "emergency";
     public const int StartingCash = 20_000, WagePerCrew = 450, StationStaff = 2;
@@ -87,6 +87,12 @@ public sealed class EmergencyGame : ISideGame
         public int Gear;
         public W.UnitKind Kind;
         public string State = "ready";
+        /// <summary>Direct dispatch (Beta 4): where it stands or is going (-1 at its station), and the leg it's driving.</summary>
+        public int Cell = -1, LegMinutes, FollowId;
+        public long LegStart;
+        public List<int> Leg = new(), Waypoints = new();
+        /// <summary>"" on its own, "posted" sent somewhere by hand, "held", or "following".</summary>
+        public string Order = "";
         /// <summary>The tick a unit back from a call is ready again, or a suspended one is back on the road.</summary>
         public long Until;
     }
@@ -165,6 +171,7 @@ public sealed class EmergencyGame : ISideGame
         if (_rebase) Rebase(input.Turn);
         _tick = input.Turn;
         _clock = input.ClockMinute;
+        _q = city;
         bool turn = input.NewTurn;
         _day = input.Day;
         _month = input.Month;
@@ -179,6 +186,7 @@ public sealed class EmergencyGame : ISideGame
         if (!_crookedOk && Crooked) EndCrooked($"Crooked services were switched off: {_crookedWhy}");
 
         Stations();
+        Drive();
         if (turn) ReturnUnits();
         if (!Playing) foreach (var s in _scenes.ToList()) { s.FinishByCrews(); EndScene(s); }
         foreach (var s in _scenes.Where(s => turn && _tick - s.Touched > SceneIdleDays).ToList())
@@ -288,7 +296,7 @@ public sealed class EmergencyGame : ISideGame
             "crime" => (W.UnitKind.Patrol, c.Severity >= 3 ? 2 : 1, c.Severity >= 2),
             _ => (W.UnitKind.Ambulance, 1, false),
         };
-        var ready = _units.Where(u => u.State == "ready" && OnDuty(u) && Lot(u.LeaseId) != null)
+        var ready = _units.Where(u => u.State == "ready" && u.Order != "held" && OnDuty(u) && Lot(u.LeaseId) != null)
             .OrderBy(u => Distance(u, c)).ThenBy(u => u.Id).ToList();
         var pick = ready.Where(u => u.Kind == need).Take(count).ToList();
         if (pick.Count == 0) return pick;
@@ -304,7 +312,13 @@ public sealed class EmergencyGame : ISideGame
     /// </summary>
     bool OnDuty(Unit u) => !_strike && (_shifts >= 3 || (int)((_tick + u.Id) % 3) < _shifts);
 
-    int Distance(Unit u, Call c) => Lot(u.LeaseId) is { } lot ? Math.Abs(lot.X - c.X) + Math.Abs(lot.Y - c.Y) : int.MaxValue / 2;
+    int Distance(Unit u, Call c)
+    {
+        if (Lot(u.LeaseId) is not { } lot) return int.MaxValue / 2;
+        int at = Where(u);
+        if (at < 0 || _q == null) return Math.Abs(lot.X - c.X) + Math.Abs(lot.Y - c.Y);
+        return Math.Abs(at % _q.Width - c.X) + Math.Abs(at / _q.Width - c.Y);
+    }
 
     static W.UnitKind Needed(string kind) => kind switch { "fire" => W.UnitKind.Engine, "crime" => W.UnitKind.Patrol, _ => W.UnitKind.Ambulance };
 
@@ -344,7 +358,13 @@ public sealed class EmergencyGame : ISideGame
         _responseTimes.Add((_tick, c.Kind, c.Minutes));
         _responseTimes.RemoveAll(r => r.Tick < _tick - 30);
         if (c.District == _slowWalk) Expose(4, $"{_name} has been slow to answer calls in district {c.District + 1}, and people there have noticed.");
-        foreach (var u in units) { u.State = "on call"; u.CallId = c.Id; }
+        int road = NearestRoad(c.X, c.Y, city);
+        foreach (var u in units)
+        {
+            u.State = "on call"; u.CallId = c.Id;
+            u.Order = ""; u.FollowId = 0; u.Waypoints.Clear();
+            if (road >= 0) DriveTo(u, road);
+        }
         if (!Scenes(c)) { c.Status = "rolling"; return; }
         OpenScene(c, units, minutes, city);
     }
@@ -376,23 +396,25 @@ public sealed class EmergencyGame : ISideGame
     {
         var lot = Lot(u.LeaseId);
         if (lot == null) return 30;
-        int road = NearestRoad(c, city);
-        var route = lot.AccessCell >= 0 && road >= 0 ? city.Route(lot.AccessCell, road) : null;
-        int minutes = 2 + (route?.Minutes ?? 10 + (Math.Abs(lot.X - c.X) + Math.Abs(lot.Y - c.Y)) / 2);
+        int road = NearestRoad(c.X, c.Y, city);
+        // From where it is: its station's door, or out on the streets where it was posted (Beta 4).
+        int from = Where(u);
+        var route = from >= 0 && road >= 0 ? from == road ? new StreetRoute(new[] { road }, 0) : city.Route(from, road) : null;
+        int minutes = (u.Cell >= 0 ? 1 : 2) + (route?.Minutes ?? 10 + (Math.Abs(lot.X - c.X) + Math.Abs(lot.Y - c.Y)) / 2);
         // A slow-walked district waits.
         return c.District == _slowWalk ? minutes + 12 : minutes;
     }
 
-    static int NearestRoad(Call c, ICityQueries city)
+    static int NearestRoad(int cx, int cy, ICityQueries city)
     {
         const int r = 4;
-        var area = city.Area(c.X - r, c.Y - r, 2 * r + 1, 2 * r + 1);
+        var area = city.Area(cx - r, cy - r, 2 * r + 1, 2 * r + 1);
         int best = -1, bestD = int.MaxValue;
         for (int i = 0; i < area.Length; i++)
         {
             if (area[i] != CellKind.Road) continue;
-            int x = c.X - r + i % (2 * r + 1), y = c.Y - r + i / (2 * r + 1);
-            int d = Math.Abs(x - c.X) + Math.Abs(y - c.Y);
+            int x = cx - r + i % (2 * r + 1), y = cy - r + i / (2 * r + 1);
+            int d = Math.Abs(x - cx) + Math.Abs(y - cy);
             if (d < bestD) { bestD = d; best = y * city.Width + x; }
         }
         return best;
@@ -445,6 +467,7 @@ public sealed class EmergencyGame : ISideGame
         {
             u.CallId = 0;
             if (u.State != "suspended") { u.State = "on call"; u.Until = _tick + 1; }
+            GoHome(u);
         }
         _responses.Add(new IncidentResponse(c.IncidentId, outcome, text));
         _results.Add(result);
@@ -627,6 +650,7 @@ public sealed class EmergencyGame : ISideGame
 
     public CommandResult Command(string seat, byte[] payload, ICityQueries city)
     {
+        _q = city;
         W.Command cmd;
         try { cmd = W.Command.Parser.ParseFrom(payload); }
         catch (InvalidProtocolBufferException) { return No("The dispatcher didn't understand that."); }
@@ -645,6 +669,8 @@ public sealed class EmergencyGame : ISideGame
                 if (c.Status == "scene" && _scenes.FirstOrDefault(s => s.Id == c.SceneId) is { } opened) opened.Touched = _tick;
                 return Yes;
             }
+            case W.Command.KindOneofCase.Order:
+                return OrderUnits(cmd.Order, city);
             case W.Command.KindOneofCase.Take:
             {
                 var c = _calls.FirstOrDefault(x => x.Id == cmd.Take.CallId);
@@ -804,12 +830,16 @@ public sealed class EmergencyGame : ISideGame
         foreach (var lot in _lots) v.Stations.Add(new W.StationView { LeaseId = lot.LeaseId, Kind = lot.Kind, X = lot.X, Y = lot.Y, Name = $"{Describe(lot.Kind)} at {lot.X},{lot.Y}" });
         foreach (var o in _open) v.OpenStations.Add(new W.OpenStation { BuildingId = o.BuildingId, Kind = o.Kind, X = o.X, Y = o.Y });
         foreach (var u in _units)
-            v.Units.Add(new W.UnitView
+        {
+            var uv = new W.UnitView
             {
                 Id = u.Id, Name = UnitName(u.Id), Kind = u.Kind, StationLeaseId = u.LeaseId, Crew = u.Crew, State = u.State, CallId = u.CallId,
                 BackInDays = u.State == "suspended" ? (int)Math.Max(0, u.Until - _tick) : 0,
                 Gear = { GearOf(u.Gear) },
-            });
+            };
+            FillPosition(u, uv);
+            v.Units.Add(uv);
+        }
         // A unit whose crew is off today shows it.
         foreach (var uv in v.Units) if (uv.State == "ready" && Find(uv.Id) is { } fu && !OnDuty(fu)) uv.State = "off shift";
         v.Shifts = _shifts;
@@ -899,6 +929,8 @@ public sealed class EmergencyGame : ISideGame
         // Beta 3.2: the counts above are turns of the day clock, not calendar days.
         w.Write(DayClock);
         w.Write(_clock);
+        // Beta 4: where each unit is on the streets.
+        SaveDirect(w);
     }
 
     const int DayClock = 0x42320002;
@@ -977,6 +1009,7 @@ public sealed class EmergencyGame : ISideGame
         int nsc = r.ReadInt32(); for (int i = 0; i < nsc; i++) _scandals.Add(r.ReadString());
         _rebase = r.BaseStream.Position >= r.BaseStream.Length || r.ReadInt32() != DayClock;
         if (!_rebase) _clock = r.ReadInt64();
+        if (!_rebase) LoadDirect(r);
     }
 
     static void WriteTerms(BinaryWriter w, LeaseTerms t)

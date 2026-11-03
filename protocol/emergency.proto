@@ -58,7 +58,25 @@ message Command {
     SellUnit sell = 10;
     BuyGear gear = 11;
     Crooked crooked = 12;
+    UnitOrder order = 13;
   }
+}
+
+// Direct dispatch (Beta 4): an order for units out on the city's streets, given on the map. Auto-dispatch still runs
+// on top: a unit sent somewhere by hand stays ready there and answers calls from where it stands, unless it's held.
+//   "go"     drive to the road nearest x, y and wait there; with queue, after the places it's already going to
+//   "scene"  answer call_id (as Dispatch)
+//   "hold"   stop where it is; auto-dispatch leaves it alone until it's given another order
+//   "return" drive back to its station
+//   "follow" keep close behind follow_id
+message UnitOrder {
+  repeated int32 unit_ids = 1;
+  string kind = 2;
+  int32 x = 3;
+  int32 y = 4;
+  int32 call_id = 5;
+  int32 follow_id = 6;
+  bool queue = 7;
 }
 
 // Equipment for one unit: "breathing-gear" (engines), "body-armour" (patrols), "defibrillator" (ambulances).
@@ -220,6 +238,17 @@ message UnitView {
   int32 call_id = 7;
   int32 back_in_days = 8;
   repeated string gear = 9;
+  // Direct dispatch (Beta 4): where it is on the city's streets. While it drives, leg holds the cells of its route,
+  // which it left at the day clock's leg_start minute and takes leg_minutes over; clients ease it along by the clock.
+  // Standing still, cell is where it stands (its station's door when it's home).
+  int32 cell = 10;
+  repeated int32 leg = 11;
+  int64 leg_start = 12;
+  int32 leg_minutes = 13;
+  string order = 14;              // "", "posted" (sent somewhere by hand), "held", "following"
+  repeated int32 waypoints = 15;  // road cells still to go to, in order, after this leg
+  int32 follow_id = 16;
+  int32 home = 17;                // its station's door
 }
 
 message CallView {
