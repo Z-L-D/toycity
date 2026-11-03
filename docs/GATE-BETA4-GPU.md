@@ -64,7 +64,20 @@ run it.
     meaningful.
   - The compatibility renderer doesn't draw contact shadows, bounce light or full lighting, and the report says so.
     A real card on the Forward+ renderer is what this test is for.
-- **CI:** the first CI run's GPU test lines go here once it has run.
+- **CI:** run 41552928265 on the PR's first head was green on every job. Its launcher step printed the following
+  (software OpenGL, so these numbers are no guide to a real card):
+
+  ```
+  GPU Low: 16.2 fps, 1% low 15.0, GPU 57.74 ms, under 30 fps
+  GPU Medium: 11.4 fps, 1% low 10.1, GPU 83.79 ms, under 30 fps
+  GPU High: 7.5 fps, 1% low 6.8, GPU 332.48 ms, under 30 fps
+  GPU Ultra: 7.5 fps, 1% low 7.1, GPU 385.30 ms, under 30 fps
+  GPU High, sun only: 7.5 fps, 1% low 6.8, GPU 294.44 ms, under 30 fps
+  GPU High, bounce light: 7.5 fps, 1% low 6.8, GPU 328.08 ms, under 30 fps
+  GPU High, full: 7.6 fps, 1% low 7.0, GPU 327.27 ms, under 30 fps
+  GPU High at night: 7.5 fps, 1% low 6.8, GPU 350.93 ms, under 30 fps
+  GPU OK
+  ```
 - **Screenshot:** [`docs/screenshots/beta4-gpu`](screenshots/beta4-gpu), the summary panel at the end of a local run.
 
 ## What's next
