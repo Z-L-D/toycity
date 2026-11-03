@@ -27,7 +27,7 @@ public class DirectDispatchTests
 
     /// <summary>Road cells of the town, farthest from a cell first.</summary>
     static List<int> RoadsFarFrom(World w, int from) =>
-        Enumerable.Range(0, w.N).Where(i => w.ProfileAt(i) is { Frontage: true }).OrderByDescending(i => Dist(w, i, from)).ThenBy(i => i).ToList();
+        Enumerable.Range(0, w.N).Where(i => w.ProfileAt(i) is { Frontage: true, Cars: true }).OrderByDescending(i => Dist(w, i, from)).ThenBy(i => i).ToList();
 
     /// <summary>Units of a kind free at their stations, stepping until there are enough (the town's own calls keep them busy at times).</summary>
     static int[] Ready(World w, EW.UnitKind kind, int count)

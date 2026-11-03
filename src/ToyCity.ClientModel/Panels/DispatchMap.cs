@@ -227,11 +227,18 @@ public sealed class TickClock
     long _minute = long.MinValue;
     DateTime _at;
     double _intervalMs = 2000;
+    int _speed = -1;
 
     public long Minute(long clockMinute, int step, int speed, DateTime now) => (long)Exact(clockMinute, step, speed, now);
 
     public double Exact(long clockMinute, int step, int speed, DateTime now)
     {
+        // At a new speed, a day takes as long as the speed says until one has been timed.
+        if (speed != _speed)
+        {
+            _speed = speed;
+            if (speed > 0 && step > 0) _intervalMs = GameClock.ClockDayMs[Math.Min(3, speed)] * (double)step / GameClock.MinutesPerDay;
+        }
         if (clockMinute != _minute)
         {
             if (_minute != long.MinValue && clockMinute > _minute) _intervalMs = Math.Clamp((now - _at).TotalMilliseconds, 100, 120_000);

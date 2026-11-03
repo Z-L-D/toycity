@@ -119,11 +119,11 @@ public partial class DispatchWorld : Node3D
             fwd = fwd.Normalized();
             int k = (int)m.Unit.Kind % Body.Length;
             // Body, a stripe along each side, a darker cab window and a light bar that flashes while it drives.
-            OBox(at, fwd, 0.3f, 0.16f, 0.17f, Body[k]);
-            OBox(at + Vector3.Up * 0.07f, fwd, 0.305f, 0.165f, 0.035f, Stripe[k]);
-            OBox(at + fwd * 0.17f + Vector3.Up * 0.17f, fwd, 0.08f, 0.14f, 0.05f, new Color("#1c2530"));
-            OBox(at + fwd * 0.04f + Vector3.Up * 0.17f, fwd, 0.04f, 0.13f, 0.04f, m.Moving && flash ? new Color("#ff3030") : new Color("#3d8bff"));
-            _drawn.Add((m.Unit.Id, at + Vector3.Up * 0.12f));
+            OBox(at, fwd, 0.38f, 0.2f, 0.22f, Body[k]);
+            OBox(at + Vector3.Up * 0.09f, fwd, 0.385f, 0.205f, 0.045f, Stripe[k]);
+            OBox(at + fwd * 0.22f + Vector3.Up * 0.22f, fwd, 0.1f, 0.17f, 0.06f, new Color("#1c2530"));
+            OBox(at + fwd * 0.05f + Vector3.Up * 0.22f, fwd, 0.05f, 0.16f, 0.05f, m.Moving && flash ? new Color("#ff3030") : new Color("#3d8bff"));
+            _drawn.Add((m.Unit.Id, at + Vector3.Up * 0.15f));
         }
         _solid.SurfaceEnd();
 
@@ -133,7 +133,7 @@ public partial class DispatchWorld : Node3D
         {
             if (!m.Selected) continue;
             var at = Ground(x, y);
-            Ring(at, 0.42f, Picked);
+            Ring(at, 0.5f, Picked);
             // The rest of its route, then the places queued after it.
             var u = m.Unit;
             var cells = new List<int>();

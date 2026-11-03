@@ -5,7 +5,7 @@
 
 /** A day of the day clock at each speed, in real milliseconds. */
 export const CLOCK_DAY_MS = [0, 3_600_000, 1_800_000, 600_000];
-const MINUTES_PER_DAY = 24 * 60;
+export const MINUTES_PER_DAY = 24 * 60;
 export const PACES = [30, 60, 120, 360, 720];
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];

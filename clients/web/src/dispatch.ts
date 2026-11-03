@@ -3,6 +3,7 @@
 // numbered group); and the orders a right-click or a button sends. Auto-dispatch still runs underneath, so these
 // orders sit on top of it. A unit busy with a call can't take one: it's left out and the player is told.
 import type { Msg } from './net';
+import { CLOCK_DAY_MS, MINUTES_PER_DAY } from './clock';
 
 /** Each kind's colour: engines red, patrol cars blue, ambulances white with a green stripe, SWAT dark. */
 export const UNIT_BODY = ['#d8342a', '#2f6fe0', '#f4f4f2', '#232a33'];
@@ -190,8 +191,11 @@ export class TickClock {
   private minute = Number.NEGATIVE_INFINITY;
   private at = 0;
   private interval = 2000;
+  private speed = -1;
 
   now(clockMinute: number, step: number, speed: number, now = performance.now()): number {
+    // At a new speed, a day takes as long as the speed says until one has been timed.
+    if (speed !== this.speed) { this.speed = speed; if (speed > 0 && step > 0) this.interval = CLOCK_DAY_MS[Math.min(3, speed)] * step / MINUTES_PER_DAY; }
     if (clockMinute !== this.minute) {
       if (Number.isFinite(this.minute) && clockMinute > this.minute) this.interval = Math.min(120_000, Math.max(100, now - this.at));
       this.minute = clockMinute; this.at = now;

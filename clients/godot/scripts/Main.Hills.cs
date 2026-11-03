@@ -208,6 +208,8 @@ public partial class Main
         // Direct dispatch (Beta 4, part 1): stations by the town's streets, leased to the service, which the player
         // runs. Every unit is picked with the box and sent across town by a right-click; they drive there by road.
         var em = _panels.Model.Emergency;
+        em.Toast += (t, _) => GD.Print($"HILLS toast: {t}");
+        _client.Message += m => { if (m.Error != null) GD.Print($"HILLS refused: {m.Error.Message}"); if (m.Delta != null) foreach (var n in m.Delta.Notices) GD.Print($"HILLS notice: {n.Text}"); };
         var placedStations = new List<int>();
         foreach (var kind in new[] { "fire-station", "police-station", "clinic" })
         {
@@ -224,6 +226,8 @@ public partial class Main
         if (!em.Mine) _panels.Model.Click("em-claim");
         _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 2 } });
         yield return new GateWait("the service run by the player, with stations to lease", () => em.Mine && em.View!.OpenStations.Count >= placedStations.Count, 120);
+        // Focus: the computer picks who goes to the town's own calls and settles them, so no scene comes up over the map.
+        _panels.Model.Click("em-style:2");
         foreach (var o in em.View!.OpenStations) _client.Connection.Act(new Protocol.V0.Action { Lease = new Protocol.V0.LeaseLot { Game = "emergency", BuildingId = o.BuildingId } });
         yield return new GateWait("units at the stations", () => em.View!.Units.Count(u => u.State == "ready") >= 3, 120);
         _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } });
@@ -232,9 +236,12 @@ public partial class Main
         MountainCheck("units at their stations", ready.All(u => u.Cell == u.Home && u.Home >= 0),
             string.Join(", ", ready.Select(u => $"{u.Name} at {u.Home % c.Width},{u.Home / c.Width}")));
         em.Map.Box(ready.Select(u => u.Id), false);
-        // The street farthest across town from the first station.
+        // The street farthest across town from the first station, among the town's own (the hill works may not join
+        // up with them).
         int home0 = ready[0].Home, w = c.Width;
-        int target = Enumerable.Range(0, c.Paths.Length).Where(i => c.ProfileAt(i) is { Frontage: true } && !c.IsTunnel(i))
+        int bx0 = built.Min(b => b.X) - 1, by0 = built.Min(b => b.Y) - 1, bx1 = built.Max(b => b.X + b.Width), by1 = built.Max(b => b.Y + b.Height);
+        int target = Enumerable.Range(0, c.Paths.Length).Where(i => c.ProfileAt(i) is { Frontage: true, Cars: true } && !c.IsTunnel(i)
+                && i % w >= bx0 && i % w <= bx1 && i / w >= by0 && i / w <= by1)
             .OrderByDescending(i => Math.Abs(i % w - home0 % w) + Math.Abs(i / w - home0 / w)).ThenBy(i => i).First();
         em.Map.RightClick(target % w, target / w, null, false);
         _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 1 } });
@@ -245,17 +252,19 @@ public partial class Main
         _camera.CentreOn((home0 % w + target % w) / 2f + 0.5f, (home0 / w + target / w) / 2f + 0.5f);
         v.Zoom = 3;
         yield return MountainMeasure("classic, units driving out");
-        _camera.ToggleFree();
-        var lead = em.Map.Markers(Math.Max(0, c.Stats.ClockMinute)).OrderByDescending(m => m.Moving).First();
-        Look((float)lead.X, (float)lead.Y, 12, 30, 210);
-        yield return MountainMeasure("free, a fire engine on the street");
-        _camera.ToggleFree();
         _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 3 } });
         yield return new GateWait("the units posted across town", () => em.View!.Units.Where(u => u.Order == "posted").All(u => u.Leg.Count == 0), 120);
         _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } });
+        // Auto-dispatch stays on, so a posted unit may have been sent on to one of the town's calls from there.
         var posted = em.View!.Units.Where(u => u.Order == "posted").ToList();
-        MountainCheck("units posted where they were sent", posted.Count == ready.Count && posted.All(u => Math.Abs(u.Cell % w - target % w) + Math.Abs(u.Cell / w - target / w) <= 4),
-            $"{posted.Count} posted near {target % w},{target / w}: {em.Map.PickedText()}");
+        int called = em.View!.Units.Count(u => ready.Any(r => r.Id == u.Id) && u.State is "on call" or "at scene");
+        MountainCheck("units posted where they were sent", posted.Count > 0 && posted.Count + called == ready.Count && posted.All(u => Math.Abs(u.Cell % w - target % w) + Math.Abs(u.Cell / w - target / w) <= 4),
+            $"{posted.Count} posted near {target % w},{target / w} and {called} sent on to calls: " + string.Join(", ", em.View!.Units.Where(u => ready.Any(r => r.Id == u.Id)).Select(u => $"{u.Name} {em.Map.Doing(u)}")));
+        // The posted units from the free camera, waiting on the street where they were sent.
+        _camera.ToggleFree();
+        Look(target % w + 0.5f, target / w + 0.5f, 7, 32, 210);
+        yield return MountainMeasure("free, units posted on a street");
+        _camera.ToggleFree();
         em.Map.Return();
         em.SetActive(false);
     }
