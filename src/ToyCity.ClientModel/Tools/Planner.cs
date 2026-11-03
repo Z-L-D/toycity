@@ -293,11 +293,11 @@ public static class Planner
             return new PathPlan(rough, 0, null, pct);
         }
         var idx = cells.Select(q => c.Idx(q.X, q.Y)).ToList();
-        // A bridge's deck clears its river by at least a step; a path already there keeps its level, as the server grades it.
+        // A bridge's deck clears its river by half a step; a path already there keeps its level, as the server grades it.
         int Level(int i) => c.PathDecks.Length > i && c.PathDecks[i] > 0 ? c.PathDecks[i] : ToyCity.Sim.PathGrade.CellDmOf(c.Corners, c.Width, i);
-        var h = idx.Select(i => c.Paths[i] != 0 ? Level(i) : c.IsRiver(i) ? (c.Rivers[i] + 1) * 20 : ToyCity.Sim.PathGrade.CellDmOf(c.Corners, c.Width, i)).ToList();
+        var h = idx.Select(i => c.Paths[i] != 0 ? Level(i) : c.IsRiver(i) ? c.Rivers[i] * 20 + 10 : ToyCity.Sim.PathGrade.CellDmOf(c.Corners, c.Width, i)).ToList();
         var fix = idx.Select(i => c.Paths[i] != 0).ToList();
-        var deck = idx.Select(i => c.IsRiver(i) ? (c.Rivers[i] + 1) * 20 : int.MinValue).ToList();
+        var deck = idx.Select(i => c.IsRiver(i) ? c.Rivers[i] * 20 + 10 : int.MinValue).ToList();
         int floor = c.WaterLevel * 20;
         var g = ToyCity.Sim.PathGrade.Grade(h, fix, floor, ToyCity.Sim.PathGrade.MaxDeltaDm(pct), deck);
         if (g == null)

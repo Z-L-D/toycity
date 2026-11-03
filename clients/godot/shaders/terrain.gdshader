@@ -15,6 +15,9 @@ uniform sampler2D cells : filter_nearest, repeat_disable;
 uniform sampler2D overlay : filter_nearest, repeat_disable;
 // Per cell: r earthworks, g soil depth (0 bare rock, 1 eight metres or more), b rock kind / 4.
 uniform sampler2D ground_layers : filter_linear, repeat_disable;
+// The rivers' banks (CityView.PaintBanks): red, the water's surface of the river beside each cell, in world units;
+// green, how near the river is, 1 on it falling to 0 three cells off.
+uniform sampler2D river_banks : filter_linear, repeat_disable;
 uniform bool use_overlay = false;
 // The underground view (Beta 3.2): the ground as a cutaway, dark soil over the rock, with what's under it drawn on top.
 uniform bool underground = false;
@@ -114,6 +117,24 @@ void fragment() {
 	float shore = 1.0 - smoothstep(0.6, 1.6 + mid, metres);
 	ground = mix(ground, sand, shore * (1.0 - rockiness));
 	if (metres < 0.0) ground = mix(bed, deep, clamp(-metres / 8.0, 0.0, 1.0));
+	// A river's banks, as the Flint Hills creek has them: by height over the river's water, a bed of gravel and silt
+	// under it, a dark wet band of mud and cobbles at the waterline, then lusher grass on the floodplain beside it.
+	vec2 rb = texture(river_banks, p / map_size).rg;
+	if (rb.g > 0.01 && metres > 0.0) {
+		float over = (world_pos.y - rb.r) / height_step * 2.0;  // metres over the river's water
+		float cobble = hash(floor(p * 9.0)) * 0.6 + fbm(p * 3.0) * 0.4;
+		vec3 gravel = mix(vec3(0.36, 0.33, 0.28), vec3(0.58, 0.54, 0.46), cobble);
+		vec3 silt = vec3(0.34, 0.30, 0.22);
+		vec3 riverbed = mix(mix(silt, gravel, smoothstep(0.35, 0.65, cobble)), deep, clamp(-over / 5.0, 0.0, 1.0));
+		vec3 wet = mix(silt, gravel, smoothstep(0.45, 0.7, cobble + (mid - 0.5) * 0.4)) * 0.62;
+		vec3 lush = mix(vec3(0.24, 0.38, 0.15), vec3(0.30, 0.43, 0.18), large);
+		float near = smoothstep(0.0, 0.6, rb.g);
+		float wet_band = 1.0 - smoothstep(0.5, 1.3 + 0.6 * mid, over);
+		float plain = (1.0 - smoothstep(2.0, 5.0 + 2.0 * mid, over)) * (1.0 - wet_band) * (1.0 - rockiness) * (1.0 - snowy);
+		ground = mix(ground, lush * (0.9 + 0.2 * fine), plain * near * 0.8);
+		ground = mix(ground, wet, wet_band * near * (1.0 - snowy * 0.5));
+		if (over < 0.0) ground = mix(ground, riverbed, near);
+	}
 	// Fine grain, so close up it reads as ground rather than paint.
 	ground *= 0.9 + 0.2 * fine;
 	if (COLOR.a < 0.5) ground = mix(earth * 0.7, rock_dark, smoothstep(0.3, 0.7, mid)) * (0.85 + 0.15 * fine);

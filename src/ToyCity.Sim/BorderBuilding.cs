@@ -138,7 +138,7 @@ public sealed partial class World
         {
             if (!done.Add(c) || steps[c] >= BorderReach) continue;
             int x = c % Width, y = c / Width;
-            int hc = IsRiver(c) ? River[c] + 1 : Height[c];
+            int hc = IsRiver(c) ? River[c] : Height[c];
             for (int k = 0; k < 4; k++)
             {
                 int nx = x + Dx4[k], ny = y + Dy4[k];
@@ -156,7 +156,7 @@ public sealed partial class World
                 int step = 1;
                 if (link == Link.Road)
                 {
-                    int hj = IsRiver(j) ? River[j] + 1 : Height[j];
+                    int hj = IsRiver(j) ? River[j] : Height[j];
                     bool turn = from[c] >= 0 && j - c != c - from[c];
                     // Climbing means cutting, and cutting rock costs more than soil: thin soil weighs the climb up.
                     int climb = 30 * Math.Abs(hj - hc);

@@ -44,6 +44,8 @@ public partial class CityView : Node3D
     ImageTexture? _madeTexture;
     Image? _groundImage;
     ImageTexture? _groundTexture;
+    Image? _banksImage;
+    ImageTexture? _banksTexture;
     ShaderMaterial? _waterMaterial;
     /// <summary>The water's material, shared with the rivers and floods (RiversView).</summary>
     public ShaderMaterial? WaterMaterial => _waterMaterial;
@@ -332,6 +334,24 @@ public partial class CityView : Node3D
         if (fresh || _groundTexture == null) _groundTexture = ImageTexture.CreateFromImage(_groundImage);
         else _groundTexture.Update(_groundImage);
         _waterMaterial?.SetShaderParameter("ground", _groundTexture);
+        PaintBanks();
+    }
+
+    /// <summary>
+    /// The rivers' banks, one texel a cell, for the ground's shader: red, the water's surface of the river beside it
+    /// in world units; green, how near the river is (CityMirror.RiverBanks).
+    /// </summary>
+    void PaintBanks()
+    {
+        int w = _city.Width, h = _city.Height;
+        bool fresh = _banksImage == null || _banksImage.GetWidth() != w || _banksImage.GetHeight() != h;
+        if (fresh) _banksImage = Image.CreateEmpty(w, h, false, Image.Format.Rgf);
+        var (level, near) = _city.RiverBanks;
+        for (int i = 0; i < _city.N; i++)
+            _banksImage!.SetPixel(i % w, i / w, new Color(level[i] > 0 ? (level[i] - 0.35f) * ClassicView.HeightStep : 0, near[i], 0));
+        if (fresh || _banksTexture == null) _banksTexture = ImageTexture.CreateFromImage(_banksImage);
+        else _banksTexture.Update(_banksImage);
+        _ground?.SetShaderParameter("river_banks", _banksTexture);
     }
 
     void BuildWater()

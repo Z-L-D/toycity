@@ -5,7 +5,8 @@ namespace ToyCity.Godot;
 
 /// <summary>
 /// Rivers and floods (Beta 3.1 part 5): the water over each river cell at its own surface, which steps down the
-/// valley with the river, and the floodwater spread over the low ground beside it while the river is up. Each corner
+/// valley with the river, and the floodwater spread over the low ground beside it while the river is up. It runs a
+/// cell on over the banks, where the ground's slope cuts it off at the shore. Each corner
 /// of the sheet stands at the average of the water cells around it, so the surface runs smoothly from cell to cell
 /// and down rapids. It uses the sea's material, so its colour comes from how deep it is over the ground.
 /// </summary>
@@ -31,6 +32,22 @@ public partial class RiversView : Node3D
             level[i] = _city.IsRiver(i) ? _city.Rivers[i] + (_city.FloodStage > 0 ? _city.FloodStage : 0) : flooded[i];
             any |= level[i] > 0;
         }
+        // The water runs on a cell past its own, at its level, over the banks: the ground hides it where it stands
+        // higher, so the shore is where the bank's slope meets the water, not the cells' edges (as the Flint Hills
+        // creek's ribbon lies over its banks). Not over the sea, nor over lower ground the river would flood.
+        var bank = new float[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int i = _city.Idx(x, y);
+                if (level[i] > 0 || _city.Heights[i] < _city.WaterLevel) continue;
+                float lo = float.MaxValue;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if (_city.InBounds(x + dx, y + dy) && level[_city.Idx(x + dx, y + dy)] is > 0 and var l) lo = Math.Min(lo, l);
+                if (lo < float.MaxValue && _city.Heights[i] >= lo) bank[i] = lo;
+            }
+        for (int i = 0; i < w * h; i++) if (bank[i] > 0) level[i] = bank[i];
         _mesh?.QueueFree();
         _mesh = null;
         if (!any) return;

@@ -396,12 +396,19 @@ export class Renderer {
     };
     // A river's water stands at its surface; the sea's at the water level.
     const surface = (x: number, y: number) => { const i = cell(x, y); return c.isRiver(i) ? c.rivers[i] : c.waterLevel; };
+    // Beside a river, its water and how near it is: the shore is where the ground meets that water, so it follows the
+    // banks' slope rather than the cells' edges, as in the 3D client.
+    const banks = c.riverBanks;
+    const bankLevel = (x: number, y: number) => banks.level[cell(x, y)];
+    const bankNear = (x: number, y: number) => banks.near[cell(x, y)];
     for (let py = 0; py < H; py++)
       for (let px = 0; px < W; px++) {
         const fx = cx0 + (px + 0.5) / K, fy = cy0 + (py + 0.5) / K;
         const hAt = ground ?? ((x: number, y: number) => blend(at, x, y));
         const h = hAt(fx, fy);
-        const water = blend(wet, fx, fy) > 0.5;
+        const near = blend(bankNear, fx, fy);
+        const riverTop = near > 0 ? bankLevel(Math.floor(fx), Math.floor(fy)) - 0.35 : 0;
+        const water = near > 0.3 && riverTop > 0 ? h < riverTop : blend(wet, fx, fy) > 0.5;
         // The slope over most of a cell either way, so it doesn't jump at cell edges where the corners' blend bends.
         const D = 0.75;
         const sx = (hAt(fx + D, fy) - hAt(fx - D, fy)) / (2 * D), sy = (hAt(fx, fy + D) - hAt(fx, fy - D)) / (2 * D);
@@ -411,11 +418,21 @@ export class Renderer {
         const slope = 1 - 1 / Math.sqrt(1 + rise * rise);
         // Patches a few cells across, with a little fine grain in them.
         const g = 0.75 * noise(fx / 3, fy / 3) + 0.25 * grain(cx0 * K + px, cy0 * K + py);
-        const top = surface(Math.floor(fx), Math.floor(fy));
+        const top = near > 0.3 && riverTop > 0 ? riverTop : surface(Math.floor(fx), Math.floor(fy));
         const made = c.made.length ? blend((x: number, y: number) => c.made[cell(x, y)], fx, fy) : 0;
         const soil = c.bedrock.length ? blend(soilAt, fx, fy) : 1;
         const kind = c.rock.length ? c.rock[cell(Math.floor(fx), Math.floor(fy))] : 0;
         let [r, gr, b] = groundColor(water ? Math.min(h, top - 0.01) : Math.max(h, c.waterLevel), c.waterLevel, slope, g, water ? Math.max(0.5, top - h) : 0, made, soil, kind);
+        if (!water && near > 0 && riverTop > 0) {
+          // The river's banks, as the Flint Hills creek has them: a dark wet band of mud and cobbles at the waterline,
+          // then lusher grass on the floodplain.
+          const over = (h - riverTop) * 2;
+          const cobble = grain(cx0 * K + px, cy0 * K + py) * 0.6 + g * 0.4;
+          const wetBand = (1 - smooth(0.5, 1.3 + 0.6 * g, over)) * smooth(0, 0.6, near);
+          const plain = (1 - smooth(2, 5 + 2 * g, over)) * (1 - wetBand) * smooth(0, 0.6, near) * (1 - smooth(0.3, 0.5, slope));
+          [r, gr, b] = mixRGB([r, gr, b], [61 * (0.9 + 0.2 * g), 97 * (0.9 + 0.2 * g), 38], plain * 0.8);
+          [r, gr, b] = mixRGB([r, gr, b], mixRGB([87, 77, 56], [148, 138, 117], smooth(0.45, 0.7, cobble)).map((v) => v * 0.62) as RGB, wetBand);
+        }
         if (!water && this.snowCm > 0) {
           // Lying snow (Beta 4, part 4), as the 3D client spreads it: deeper high up and on north-facing slopes
           // (the ground higher to the south, which is down the map), none where it's too steep to hold.

@@ -235,10 +235,11 @@ public class RegionTests
         var east = r.Found(1, 0, "Eastfield", "Tess");
         r.Run(3);
         var plant = west.Buildings.First(b => b != null && west.TypeOf(b).Id == "coal-plant")!;
-        // A row with dry land from the plant to the border and on into Eastfield.
+        // A row from the plant to the border and on into Eastfield with no sea or lake on it (a line can cross a river).
+        bool Crossable(World w, int i) => !w.IsWater(i) || w.IsRiver(i);
         int y = Enumerable.Range(plant.Y, plant.H).First(yy =>
-            Enumerable.Range(plant.X + plant.W, west.Width - plant.X - plant.W).All(x => !west.IsWater(west.Idx(x, yy)))
-            && Enumerable.Range(0, 12).All(x => !east.IsWater(east.Idx(x, yy))));
+            Enumerable.Range(plant.X + plant.W, west.Width - plant.X - plant.W).All(x => Crossable(west, west.Idx(x, yy)))
+            && Enumerable.Range(0, 12).All(x => Crossable(east, east.Idx(x, yy))));
         west.Enqueue(new PlaceUtilityAction(plant.X + plant.W, y, west.Width - 1, y, UtilityKind.PowerLine));
         west.ApplyPending();
         var westTile = r.TileAt(0, 0)!;

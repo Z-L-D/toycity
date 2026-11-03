@@ -96,6 +96,59 @@ public sealed class CityMirror
     (int, int) _floodedFor = (-1, -1);
     public int FloodStage => Stats.FloodStage;
 
+    /// <summary>
+    /// The river beside each cell, for drawing its banks (as the Flint Hills creek's wet bank and floodplain): the
+    /// surface, in steps, of the nearest river cell within <see cref="BankCells"/> cells (0 for none), and how near it
+    /// is, 1 on the river falling to 0 at that reach. Both clients colour the banks by how far they stand over that
+    /// water, and draw the river's water on past its cells so the ground's own slope makes the shore.
+    /// </summary>
+    public (byte[] Level, float[] Near) RiverBanks
+    {
+        get
+        {
+            if (_banks is not { } b || _banksFor != TerrainVersion) (_banks, _banksFor) = (b = Banks(), TerrainVersion);
+            return b;
+        }
+    }
+    (byte[] Level, float[] Near)? _banks;
+    int _banksFor = -1;
+
+    /// <summary>How far from a river its banks are drawn, in cells.</summary>
+    public const int BankCells = 3;
+
+    (byte[], float[]) Banks()
+    {
+        int n = N;
+        var level = new byte[n];
+        var near = new float[n];
+        var dist = new int[n];
+        Array.Fill(dist, int.MaxValue);
+        var queue = new Queue<int>();
+        for (int i = 0; i < n; i++)
+            if (IsRiver(i)) { level[i] = Rivers[i]; dist[i] = 0; queue.Enqueue(i); }
+        // Out from the river cells, the lowest river first where two meet, so a bank between a pool and the rapid
+        // below takes the lower water.
+        while (queue.Count > 0)
+        {
+            int c = queue.Dequeue();
+            if (dist[c] > BankCells) continue;
+            int x = c % Width, y = c / Width;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int nx = x + dx, ny = y + dy;
+                    if ((dx | dy) == 0 || !InBounds(nx, ny)) continue;
+                    int j = Idx(nx, ny);
+                    if (dist[j] < dist[c] + 1 || dist[j] == dist[c] + 1 && level[j] <= level[c]) continue;
+                    if (dist[j] == int.MaxValue) queue.Enqueue(j);
+                    dist[j] = dist[c] + 1;
+                    level[j] = level[c];
+                }
+        }
+        for (int i = 0; i < n; i++) near[i] = dist[i] == int.MaxValue ? 0 : Math.Clamp(1f - dist[i] / (BankCells + 1f), 0, 1);
+        return (level, near);
+    }
+
     byte[] FloodedCells()
     {
         const int Reach = 5;

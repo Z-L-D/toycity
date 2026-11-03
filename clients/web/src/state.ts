@@ -325,6 +325,40 @@ export class City {
     return this.rivers[i] > this.heights[i];
   }
 
+  private banksKey = '';
+  private banksCache = { level: new Uint8Array(0), near: new Float32Array(0) };
+  /**
+   * The river beside each cell, for drawing its banks (as CityMirror.RiverBanks in the client model): the surface,
+   * in steps, of the nearest river cell within three cells (0 for none), and how near it is, 1 on the river falling to
+   * 0 at that reach.
+   */
+  get riverBanks(): { level: Uint8Array; near: Float32Array } {
+    const key = `${this.terrainVersion}:${this.width}:${this.height}`;
+    if (key === this.banksKey) return this.banksCache;
+    this.banksKey = key;
+    const n = this.width * this.height, reach = 3, far = 1 << 30;
+    const level = new Uint8Array(n), near = new Float32Array(n), dist = new Int32Array(n).fill(far);
+    const queue: number[] = [];
+    for (let i = 0; i < n; i++) if (this.isRiver(i)) { level[i] = this.rivers[i]; dist[i] = 0; queue.push(i); }
+    for (let q = 0; q < queue.length; q++) {
+      const c = queue[q];
+      if (dist[c] > reach) continue;
+      const x = c % this.width, y = Math.floor(c / this.width);
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if ((dx === 0 && dy === 0) || !this.inBounds(nx, ny)) continue;
+          const j = ny * this.width + nx;
+          if (dist[j] < dist[c] + 1 || (dist[j] === dist[c] + 1 && level[j] <= level[c])) continue;
+          if (dist[j] === far) queue.push(j);
+          dist[j] = dist[c] + 1;
+          level[j] = level[c];
+        }
+    }
+    for (let i = 0; i < n; i++) near[i] = dist[i] === far ? 0 : Math.min(1, Math.max(0, 1 - dist[i] / (reach + 1)));
+    return (this.banksCache = { level, near });
+  }
+
   /** How many steps the rivers stand over their usual surface today: 0 normal, up to 3. */
   get floodStage(): number { return this.stats.floodStage ?? 0; }
 
@@ -698,11 +732,11 @@ export function planPath(c: City, profileId: string, surfaceId: string, cells: [
     return { cost: rough, grading: 0, problem: null, pct, ...none };
   }
   const idx = cells.map(([x, y]) => y * c.width + x);
-  // A bridge's deck clears its river by at least a step; a path already there keeps its level.
+  // A bridge's deck clears its river by half a step; a path already there keeps its level.
   const level = (i: number) => (c.pathDecks[i] ? c.pathDecks[i] : cellDm(c, i));
-  const h = idx.map((i) => (c.paths[i] ? level(i) : c.isRiver(i) ? (c.rivers[i] + 1) * 20 : cellDm(c, i)));
+  const h = idx.map((i) => (c.paths[i] ? level(i) : c.isRiver(i) ? c.rivers[i] * 20 + 10 : cellDm(c, i)));
   const fixed = idx.map((i) => !!c.paths[i]);
-  const deck = idx.map((i) => (c.isRiver(i) ? (c.rivers[i] + 1) * 20 : -(1 << 28)));
+  const deck = idx.map((i) => (c.isRiver(i) ? c.rivers[i] * 20 + 10 : -(1 << 28)));
   const floor = c.waterLevel * 20;
   const g = grade(h, fixed, floor, maxDeltaDm(pct), deck);
   if (!g) return { cost: 0, grading: 0, problem: `Too steep: the paths it joins need a ${neededPct(h, fixed)}% climb; this climbs at most ${pct}%`, pct, ...none };

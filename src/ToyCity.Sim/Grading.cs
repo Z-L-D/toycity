@@ -27,6 +27,9 @@ public sealed partial class World
     /// <summary>Whether a cell's corners stay put when a path is graded beside or over it.</summary>
     bool GradeLocked(int i) => BuildingAt[i] != 0 || IsWater(i) || Path[i] != 0;
 
+    /// <summary>The lowest a bridge's deck may stand over a river cell, in dm.</summary>
+    public int DeckDm(int i) => River[i] * StepDm + StepDm / 2;
+
     /// <summary>A path cell's road surface, in dm: its deck on a bridge or in a tunnel, else its ground.</summary>
     public int PathLevelDm(int i) => PathDeck[i] > 0 ? PathDeck[i] : PathGrade.CellDmOf(Corner, Width, i);
 
@@ -41,11 +44,12 @@ public sealed partial class World
         badCell = -1; neededPct = 0;
         int pct = Content.GradePct(profile, surfaceCode);
         var idx = cells.Select(c => Idx(c.X, c.Y)).ToList();
-        // A bridge's deck stands at least a step over the river, higher where the road's grade needs it; the river
-        // keeps its bed. A path already there keeps its level, on a deck or the ground.
-        var h = idx.Select(i => Path[i] != 0 ? PathLevelDm(i) : IsRiver(i) ? (River[i] + 1) * StepDm : PathGrade.CellDmOf(Corner, Width, i)).ToList();
+        // A bridge's deck stands at least half a step over the river's surface (a metre and more over the water),
+        // higher where the road's grade needs it; the river keeps its bed. A path already there keeps its level, on a
+        // deck or the ground.
+        var h = idx.Select(i => Path[i] != 0 ? PathLevelDm(i) : IsRiver(i) ? DeckDm(i) : PathGrade.CellDmOf(Corner, Width, i)).ToList();
         var fix = idx.Select(i => Path[i] != 0).ToList();
-        var deck = idx.Select(i => IsRiver(i) ? (River[i] + 1) * StepDm : int.MinValue).ToList();
+        var deck = idx.Select(i => IsRiver(i) ? DeckDm(i) : int.MinValue).ToList();
         var g = PathGrade.Grade(h, fix, WaterLevel * StepDm, PathGrade.MaxDeltaDm(pct), deck);
         if (g == null)
         {

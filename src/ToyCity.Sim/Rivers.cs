@@ -23,11 +23,13 @@ public sealed partial class World
     /// The ground and its rivers for a map: the generated corners (see <see cref="GenerateCorners"/>) with the
     /// rivers' channels cut into them, and each cell's river surface.
     /// </summary>
-    public static Ground GenerateGround(ulong seed, int width, int heightCells, int waterLevel = 8)
+    /// <param name="channels">Whether the rivers get shaped channels with banks (<see cref="Channels"/>): ground made
+    /// since rivers were reworked does; a region saved before keeps its old rivers.</param>
+    public static Ground GenerateGround(ulong seed, int width, int heightCells, int waterLevel = 8, bool channels = true)
     {
         var corners = GenerateRawCorners(seed, width, heightCells, waterLevel);
         var downstream = new int[width * heightCells];
-        var rivers = CarveRivers(corners, width, heightCells, waterLevel, downstream);
+        var rivers = CarveRivers(corners, width, heightCells, waterLevel, downstream, channels: channels);
         return new Ground(corners, rivers, downstream);
     }
 
@@ -54,7 +56,7 @@ public sealed partial class World
     /// water it brings.</param>
     /// <param name="start">For a growing region's tile: the river's surface where it comes in, which it can't rise above.</param>
     public static byte[] CarveRivers(ushort[] corners, int width, int heightCells, int waterLevel, int[]? downstream = null,
-        Func<int, bool>? edgeOutlet = null, int[]? inflow = null, byte[]? start = null)
+        Func<int, bool>? edgeOutlet = null, int[]? inflow = null, byte[]? start = null, bool channels = true)
     {
         int cw = width + 1, n = width * heightCells;
         var step = StepsFromCorners(corners, width, heightCells);
@@ -144,6 +146,141 @@ public sealed partial class World
             foreach (int k in (ReadOnlySpan<int>)[c, c + 1, c + cw, c + cw + 1])
                 corners[k] = (ushort)Math.Min(corners[k], bed);
         }
+        // 5. Shape them: banks along the river's smoothed line, wider downstream.
+        if (channels) Channels(corners, width, heightCells, waterLevel, surface, receiver, acc, downstream);
         return surface;
+    }
+
+    /// <summary>How far a river's banks reach past its water, in cells.</summary>
+    public const float BankReach = 2f;
+
+    /// <summary>
+    /// A river's channel as a creek is in the Flint Hills project: a smoothed line down the valley with a width that
+    /// grows with the water it carries, a bed, and banks that slope up from the water to the ground. The cells of the
+    /// drainage step down the valley a cell at a time, in a staircase; the line through them is smoothed over a few
+    /// cells each way, and the ground is cut to the channel's cross-section by how far each corner is from it.
+    /// Cells the channel puts under water become the river's too, flowing on with the river cell they lie beside.
+    /// It only ever cuts.
+    /// </summary>
+    static void Channels(ushort[] corners, int width, int heightCells, int waterLevel, byte[] surface, int[] receiver, int[] acc, int[]? downstream)
+    {
+        int n = width * heightCells, cw = width + 1;
+        var river = new List<int>();
+        for (int i = 0; i < n; i++) if (surface[i] != 0) river.Add(i);
+        if (river.Count == 0) return;
+
+        // The main stem upstream of each river cell: the river cell flowing into it that carries the most.
+        var up = new int[n];
+        Array.Fill(up, -1);
+        foreach (int c in river)
+        {
+            int r = receiver[c];
+            if (r >= 0 && surface[r] != 0 && (up[r] < 0 || acc[c] > acc[up[r]] || acc[c] == acc[up[r]] && c < up[r])) up[r] = c;
+        }
+        // The smoothed line: each river cell's centre averaged with the cells three up and three down its river.
+        ReadOnlySpan<float> weight = [1f, 2f, 3f, 4f];
+        var px = new float[n];
+        var py = new float[n];
+        foreach (int c in river)
+        {
+            float sx = (c % width + 0.5f) * weight[3], sy = (c / width + 0.5f) * weight[3], sw = weight[3];
+            int d = c, u = c;
+            for (int k = 2; k >= 0; k--)
+            {
+                d = d >= 0 && receiver[d] >= 0 && surface[receiver[d]] != 0 ? receiver[d] : -1;
+                u = u >= 0 ? up[u] : -1;
+                if (d >= 0) { sx += (d % width + 0.5f) * weight[k]; sy += (d / width + 0.5f) * weight[k]; sw += weight[k]; }
+                if (u >= 0) { sx += (u % width + 0.5f) * weight[k]; sy += (u / width + 0.5f) * weight[k]; sw += weight[k]; }
+            }
+            px[c] = sx / sw;
+            py[c] = sy / sw;
+        }
+
+        // Cut each stretch of the line, from one river cell to the next, into the corners near it; and note for each
+        // cell the stretch nearest its middle.
+        var cut = new int[corners.Length];
+        Array.Fill(cut, int.MaxValue);
+        var near = new float[n];
+        Array.Fill(near, float.MaxValue);
+        var owner = new int[n];
+        Array.Fill(owner, -1);
+        var level = new float[n];
+        foreach (int c in river)
+        {
+            int d = receiver[c];
+            float ax = px[c], ay = py[c], bx, by;
+            if (d >= 0 && surface[d] != 0) (bx, by) = (px[d], py[d]);
+            else if (d >= 0) (bx, by) = (d % width + 0.5f, d / width + 0.5f);  // into the sea
+            else (bx, by) = (ax, ay);
+            float hw = Math.Clamp(0.45f + 0.3f * MathF.Sqrt(acc[c] / (float)RiverCatchment), 0.75f, 2f);
+            // The surface along the stretch, from this cell's to the next's (where it steps down a rapid).
+            float sa = surface[c], sb = d >= 0 && surface[d] != 0 ? surface[d] : surface[c];
+            float reach = hw + BankReach;
+            int x0 = Math.Max(0, (int)MathF.Floor(MathF.Min(ax, bx) - reach)), x1 = Math.Min(width, (int)MathF.Ceiling(MathF.Max(ax, bx) + reach));
+            int y0 = Math.Max(0, (int)MathF.Floor(MathF.Min(ay, by) - reach)), y1 = Math.Min(heightCells, (int)MathF.Ceiling(MathF.Max(ay, by) + reach));
+            for (int y = y0; y <= y1; y++)
+                for (int x = x0; x <= x1; x++)
+                {
+                    float t = Distance(x, y, ax, ay, bx, by, out float along);
+                    if (t >= reach) continue;
+                    float sf = sa + (sb - sa) * along;
+                    float water = sf * StepDm - 0.35f * StepDm, bed = (sf - 1) * StepDm;
+                    // The cross-section: the bed across the middle half, rising to just under the water at the
+                    // channel's edge; a cut bank a step high over the next half cell (so a bridge's deck still
+                    // meets a road along the bank); then the bank, a step up for each cell and a quarter out.
+                    float h = t <= hw * 0.5f ? bed
+                        : t <= hw ? bed + (water - 2 - bed) * (t - hw * 0.5f) / (hw * 0.5f)
+                        : t <= hw + 0.5f ? water - 2 + (StepDm + 2) * (t - hw) / 0.5f
+                        : water + StepDm + (t - hw - 0.5f) * StepDm / 1.25f;
+                    int k = y * cw + x;
+                    cut[k] = Math.Min(cut[k], (int)h);
+                    if (x < width && y < heightCells)
+                    {
+                        float m = Distance(x + 0.5f, y + 0.5f, ax, ay, bx, by, out float mu);
+                        int i = y * width + x;
+                        if (m < near[i] || m == near[i] && c < owner[i]) { near[i] = m; owner[i] = c; level[i] = sa + (sb - sa) * mu; }
+                    }
+                }
+        }
+        for (int k = 0; k < corners.Length; k++)
+            if (cut[k] < corners[k]) corners[k] = (ushort)Math.Max(0, cut[k]);
+
+        // Cells now under the channel's water are the river's, at the river's level beside them, and shallow: a step
+        // deep at most.
+        for (int i = 0; i < n; i++)
+        {
+            int c = owner[i];
+            if (c < 0 || surface[i] != 0) continue;
+            int x = i % width, y = i / width, k = y * cw + x;
+            int step = StepOf(corners[k], corners[k + 1], corners[k + cw + 1], corners[k + cw]);
+            int s = Math.Min((int)MathF.Round(level[i]), step + 1);
+            if (step < waterLevel || step >= s) continue;
+            surface[i] = (byte)s;
+            // It flows on into the river beside it: the nearest of the next few cells down from there no higher than
+            // its own water, the furthest down of those as near, so it doesn't run back upstream.
+            if (downstream != null)
+            {
+                int to = -1, hops = 0;
+                float best = float.MaxValue;
+                for (int at = c; at >= 0 && hops < 64; at = receiver[at] >= 0 && surface[receiver[at]] != 0 ? receiver[at] : -1, hops++)
+                {
+                    if (surface[at] > s) continue;
+                    float ddx = at % width - x, ddy = at / width - y, dd = ddx * ddx + ddy * ddy;
+                    if (dd <= best) { best = dd; to = at; }
+                    else if (to >= 0) break;
+                }
+                if (to < 0) { surface[i] = 0; continue; }
+                downstream[i] = to;
+            }
+        }
+    }
+
+    /// <summary>How far a point is from the stretch of line from a to b, in cells, and how far along it (0 to 1) the nearest point is.</summary>
+    static float Distance(float x, float y, float ax, float ay, float bx, float by, out float t)
+    {
+        float vx = bx - ax, vy = by - ay, l = vx * vx + vy * vy;
+        t = l > 0 ? Math.Clamp(((x - ax) * vx + (y - ay) * vy) / l, 0f, 1f) : 0f;
+        float dx = x - (ax + vx * t), dy = y - (ay + vy * t);
+        return MathF.Sqrt(dx * dx + dy * dy);
     }
 }

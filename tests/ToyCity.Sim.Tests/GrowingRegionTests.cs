@@ -142,8 +142,9 @@ public class GrowingRegionTests(ITestOutputHelper output)
     public void AFixedRegionsGroundIsUnchanged()
     {
         // The growing region's pieces are the fixed region's code with a place in the region: a fixed region still
-        // makes the very same ground (the hash is the one main made before G4).
-        var a = World.GenerateGround(42, 128, 128);
+        // makes the very same ground (the hash is the one main made before G4). A region saved before rivers had
+        // shaped channels makes the same ground it always did.
+        var a = World.GenerateGround(42, 128, 128, channels: false);
         ulong h = 1469598103934665603UL;
         foreach (var v in a.Corners) h = (h ^ v) * 1099511628211UL;
         foreach (var v in a.Rivers) h = (h ^ v) * 1099511628211UL;

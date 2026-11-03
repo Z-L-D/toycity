@@ -81,6 +81,17 @@ public sealed partial class Region : IDisposable
             Tiles[r * cols + c] = new RegionTile { Col = c, Row = r, Seed = TileSeed(seed, c, r) };
     }
 
+    /// <summary>
+    /// Whether the region's rivers have shaped channels with banks. A region saved before they did keeps the rivers
+    /// it was made with, so open land still meets its cities' edges.
+    /// </summary>
+    public bool Channels
+    {
+        get => _channels;
+        set { if (_channels != value) (_channels, _ground, _heights) = (value, null, null); }
+    }
+    bool _channels = true;
+
     /// <summary>A new region of open land. Found cities on it with <see cref="Found"/>.</summary>
     public static Region Create(ContentDb content, string name, ulong seed, int cols = 3, int rows = 3, int tileSize = 128)
     {
@@ -163,7 +174,7 @@ public sealed partial class Region : IDisposable
     public byte[] Rivers => Ground.Rivers;
 
     /// <summary>The whole region's ground, rivers and where each river cell flows. Made on first use.</summary>
-    public World.Ground Ground => _ground ??= PerTile ? GrownFrame() : World.GenerateGround(Seed, Cols * TileSize, Rows * TileSize);
+    public World.Ground Ground => _ground ??= PerTile ? GrownFrame() : World.GenerateGround(Seed, Cols * TileSize, Rows * TileSize, channels: Channels);
     World.Ground? _ground;
 
     /// <summary>The whole region's soil and rock, made over all its ground at once so tiles agree at their borders.</summary>
