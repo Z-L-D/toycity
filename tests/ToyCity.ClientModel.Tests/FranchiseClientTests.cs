@@ -62,7 +62,8 @@ public class FranchiseClientTests : IClassFixture<FranchiseClientTests.Fixture>
         Assert.Contains("invite:transport-2", Links(may.Render()));
         may.Click("invite:transport-2");
         Wait(() => bob.Civic!.Seats.Any(s => s.Id == "transport-2") && bob.Company.Companies.Count == 2, all);
-        Assert.DoesNotContain(may.Civic!.Invitable, g => g.Id == "transport-2");
+        // The mayor's own client hears of it in its turn.
+        Wait(() => may.Civic!.Invitable.All(g => g.Id != "transport-2"), all);
 
         // Ann takes the first company and Bob the rival; each client shows its player's own.
         ann.OpenDialog("seat");
