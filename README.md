@@ -56,6 +56,13 @@ From the Beta 4 and Beta 3.2 gate runs (Godot, CI runner with software rendering
 adds a new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
 
+River shorelines ([`docs/screenshots/beta4-rivers`](docs/screenshots/beta4-rivers)):
+
+| | |
+| --- | --- |
+| ![Godot client (CI, software OpenGL), the mountain city's rivers winding down their valleys in shaped channels](docs/screenshots/beta4-rivers/godot-mountain-rivers.jpg) | ![Web client, the whole map: wide rivers with natural shores around the starter town](docs/screenshots/beta4-rivers/web-river-wide.jpg) |
+| ![Web client, a river reach close up: the shore where the bank meets the water, a wet band and floodplain](docs/screenshots/beta4-rivers/web-river-close.jpg) | ![Web client, a river beside the town](docs/screenshots/beta4-rivers/web-river-mid.jpg) |
+
 Beta 4, part 6, room to grow ([`docs/screenshots/beta4-room`](docs/screenshots/beta4-room)):
 
 | | |
@@ -199,6 +206,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-03 | **River shorelines** (PR #20) | Rivers in shaped channels after the prairie kiosk's Flint Hills creek: a smoothed line, wider as more water feeds it, with a flat bed, sloped sides and a cut bank in place of the one-cell staircase. In both clients the water runs up the bank to a contour shoreline, with wet mud and gravel at the edge and floodplain grass beyond. Bridges sit half a step over the water, and older regions keep their old rivers. [Gate](docs/GATE-RIVERS.md) |
 | 2026-11-03 | **Beta 4, part 7: tile hosts for growing regions** (PR #20) | A tile of a growing region runs on its own host while the region grows around it and cities are founded beside it; a city of several tiles can be hosted apart; a hosted city can't annex or be taken in, and the charter stays with the region's main server. [Gate](docs/GATE-BETA4-TILES.md) |
 | 2026-11-03 | **Beta 4, part 6: room to grow** (PR #20) | Regions from small to huge (huge made a tile at a time), growing regions on a 255-tile frame, and a region charter of who grows the region, who annexes and how big a city may get, changed by the mayors' vote. A city annexes the open land beside it and moves onto its bigger map whole, always a rectangle, at a price rising with its size; a city takes in its neighbour by a deal (its mayor agrees, or a computer mayor sells at its temperament's price), with everything in both. [Gate](docs/GATE-BETA4-ROOM.md) |
 | 2026-11-03 | **Beta 4, part 2: the new look (UI A)** (PR #20) | The mayor's view in both clients: a full-window map under glass panels, a build rail with flyouts of priced tiles in tabs (one shared menu and icon set), the tool's options along the top, the city's name and modes top right, the L of minimap, panel buttons and the city's numbers in the bottom left, and a floating panel that closes. The side games' screens keep their own layout. [Gate](docs/GATE-BETA4-UI.md) |
