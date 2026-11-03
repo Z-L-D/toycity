@@ -854,7 +854,7 @@ public class DisasterTests
     [Fact]
     public void FireSpreadsWithoutCoverageAndFireStationsContainIt()
     {
-        var w = Fixture.Starter(35);
+        var w = Fixture.Starter(36);
         w.Run(365); // day 6: three weeks before coverage is recomputed
         var homes = Homes(w);
         var targets = new[] { homes[0], homes[homes.Count / 2], homes[^1] };

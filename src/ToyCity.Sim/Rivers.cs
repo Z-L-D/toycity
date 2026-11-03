@@ -23,13 +23,13 @@ public sealed partial class World
     /// The ground and its rivers for a map: the generated corners (see <see cref="GenerateCorners"/>) with the
     /// rivers' channels cut into them, and each cell's river surface.
     /// </summary>
-    /// <param name="channels">Whether the rivers get shaped channels with banks (<see cref="Channels"/>): ground made
-    /// since rivers were reworked does; a region saved before keeps its old rivers.</param>
-    public static Ground GenerateGround(ulong seed, int width, int heightCells, int waterLevel = 8, bool channels = true)
+    /// <param name="channels">How the rivers are shaped (<see cref="ChannelsVersion"/>): 0 the old one-cell cut, 1
+    /// channels with banks, 2 with meanders off the grid. A region saved before keeps its old rivers.</param>
+    public static Ground GenerateGround(ulong seed, int width, int heightCells, int waterLevel = 8, int channels = ChannelsVersion)
     {
         var corners = GenerateRawCorners(seed, width, heightCells, waterLevel);
         var downstream = new int[width * heightCells];
-        var rivers = CarveRivers(corners, width, heightCells, waterLevel, downstream, channels: channels);
+        var rivers = CarveRivers(corners, width, heightCells, waterLevel, downstream, channels: channels, seed: seed);
         return new Ground(corners, rivers, downstream);
     }
 
@@ -56,7 +56,8 @@ public sealed partial class World
     /// water it brings.</param>
     /// <param name="start">For a growing region's tile: the river's surface where it comes in, which it can't rise above.</param>
     public static byte[] CarveRivers(ushort[] corners, int width, int heightCells, int waterLevel, int[]? downstream = null,
-        Func<int, bool>? edgeOutlet = null, int[]? inflow = null, byte[]? start = null, bool channels = true)
+        Func<int, bool>? edgeOutlet = null, int[]? inflow = null, byte[]? start = null, int channels = ChannelsVersion,
+        ulong seed = 0, int originX = 0, int originY = 0)
     {
         int cw = width + 1, n = width * heightCells;
         var step = StepsFromCorners(corners, width, heightCells);
@@ -137,8 +138,9 @@ public sealed partial class World
         if (downstream != null)
             for (int i = 0; i < n; i++) downstream[i] = surface[i] == 0 ? -1 : receiver[i] >= 0 && surface[receiver[i]] != 0 ? receiver[i] : -1;
 
-        // 4. Cut the channels: every corner of a river cell down to its bed.
-        for (int i = 0; i < n; i++)
+        // 4. Cut the channels: every corner of a river cell down to its bed. Meandering channels (version 2) are cut
+        // along their own line instead, so the grid's trench doesn't show under them.
+        for (int i = 0; i < n && channels < 2; i++)
         {
             if (surface[i] == 0) continue;
             int bed = Math.Max(0, surface[i] - 1) * StepDm;
@@ -147,12 +149,14 @@ public sealed partial class World
                 corners[k] = (ushort)Math.Min(corners[k], bed);
         }
         // 5. Shape them: banks along the river's smoothed line, wider downstream.
-        if (channels) Channels(corners, width, heightCells, waterLevel, surface, receiver, acc, downstream);
+        if (channels > 0) Channels(corners, width, heightCells, waterLevel, surface, receiver, acc, downstream, channels >= 2, seed, originX, originY);
         return surface;
     }
 
     /// <summary>How far a river's banks reach past its water, in cells.</summary>
     public const float BankReach = 2f;
+    /// <summary>How new regions' rivers are shaped: 2, channels with banks that meander off the grid.</summary>
+    public const int ChannelsVersion = 2;
 
     /// <summary>
     /// A river's channel as a creek is in the Flint Hills project: a smoothed line down the valley with a width that
@@ -162,7 +166,8 @@ public sealed partial class World
     /// Cells the channel puts under water become the river's too, flowing on with the river cell they lie beside.
     /// It only ever cuts.
     /// </summary>
-    static void Channels(ushort[] corners, int width, int heightCells, int waterLevel, byte[] surface, int[] receiver, int[] acc, int[]? downstream)
+    static void Channels(ushort[] corners, int width, int heightCells, int waterLevel, byte[] surface, int[] receiver, int[] acc, int[]? downstream,
+        bool meander = false, ulong seed = 0, int originX = 0, int originY = 0)
     {
         int n = width * heightCells, cw = width + 1;
         var river = new List<int>();
@@ -195,6 +200,30 @@ public sealed partial class World
             px[c] = sx / sw;
             py[c] = sy / sw;
         }
+        // Meanders: the line wanders to either side of the drainage cells, by slow noise over the map (in the region's
+        // own cells, so a river runs on smoothly into the next tile), and each bank's width wobbles on its own.
+        var wobble = new float[n];
+        if (meander)
+        {
+            var mx = new float[n];
+            var my = new float[n];
+            foreach (int c in river)
+            {
+                int d = receiver[c] >= 0 && surface[receiver[c]] != 0 ? receiver[c] : -1, u = up[c];
+                float ax = u >= 0 ? px[u] : px[c], ay = u >= 0 ? py[u] : py[c];
+                float bx = d >= 0 ? px[d] : px[c], by = d >= 0 ? py[d] : py[c];
+                float tx = bx - ax, ty = by - ay, tl = MathF.Sqrt(tx * tx + ty * ty);
+                float hw = HalfWidth(acc[c]);
+                float gx = originX + px[c], gy = originY + py[c];
+                wobble[c] = 0.85f + 0.3f * SmoothNoise(seed ^ 0x5EEDu, gx / 3.5f, gy / 3.5f);
+                if (tl < 1e-3f) { mx[c] = px[c]; my[c] = py[c]; continue; }
+                // Up to half the channel's width, so the drainage cell stays under the water, and less at the sea.
+                float off = (SmoothNoise(seed ^ 0xBE4Du, gx / 7f, gy / 7f) * 2 - 1) * MathF.Min(0.5f * hw + 0.15f, 0.9f);
+                mx[c] = px[c] - ty / tl * off;
+                my[c] = py[c] + tx / tl * off;
+            }
+            foreach (int c in river) { px[c] = mx[c]; py[c] = my[c]; }
+        }
 
         // Cut each stretch of the line, from one river cell to the next, into the corners near it; and note for each
         // cell the stretch nearest its middle.
@@ -212,7 +241,7 @@ public sealed partial class World
             if (d >= 0 && surface[d] != 0) (bx, by) = (px[d], py[d]);
             else if (d >= 0) (bx, by) = (d % width + 0.5f, d / width + 0.5f);  // into the sea
             else (bx, by) = (ax, ay);
-            float hw = Math.Clamp(0.45f + 0.3f * MathF.Sqrt(acc[c] / (float)RiverCatchment), 0.75f, 2f);
+            float hw = HalfWidth(acc[c]) * (meander ? wobble[c] : 1f);
             // The surface along the stretch, from this cell's to the next's (where it steps down a rapid).
             float sa = surface[c], sb = d >= 0 && surface[d] != 0 ? surface[d] : surface[c];
             float reach = hw + BankReach;
@@ -251,6 +280,16 @@ public sealed partial class World
         }
         for (int k = 0; k < corners.Length; k++)
             if (cut[k] < corners[k]) corners[k] = (ushort)Math.Max(0, cut[k]);
+        // A drainage cell the meandering line left on its bank still carries the river: cut it to its bed, as the
+        // old channels were.
+        if (meander)
+            foreach (int i in river)
+            {
+                int k = i / width * cw + i % width;
+                if (StepOf(corners[k], corners[k + 1], corners[k + cw + 1], corners[k + cw]) < surface[i]) continue;
+                int bed = Math.Max(0, surface[i] - 1) * StepDm;
+                foreach (int q in (ReadOnlySpan<int>)[k, k + 1, k + cw, k + cw + 1]) corners[q] = (ushort)Math.Min(corners[q], bed);
+            }
 
         // Cells now under the channel's water are the river's, at the river's level beside them, and shallow: a step
         // deep at most.
@@ -283,6 +322,25 @@ public sealed partial class World
             surface[i] = (byte)s;
             if (downstream != null) downstream[i] = to;
         }
+    }
+
+    /// <summary>A channel's half-width in cells from the cells draining into it: ¾ of a cell for a stream, up to 2.</summary>
+    static float HalfWidth(int acc) => Math.Clamp(0.45f + 0.3f * MathF.Sqrt(acc / (float)RiverCatchment), 0.75f, 2f);
+
+    /// <summary>Smooth value noise in 0..1 at a point, from a seed: the same everywhere for the same seed and point.</summary>
+    static float SmoothNoise(ulong seed, float x, float y)
+    {
+        int x0 = (int)MathF.Floor(x), y0 = (int)MathF.Floor(y);
+        float u = x - x0, v = y - y0;
+        u = u * u * (3 - 2 * u);
+        v = v * v * (3 - 2 * v);
+        float H(int a, int b)
+        {
+            ulong h = seed ^ ((ulong)(uint)a * 0x9E3779B97F4A7C15UL) ^ ((ulong)(uint)b * 0xC2B2AE3D27D4EB4FUL);
+            h ^= h >> 33; h *= 0xFF51AFD7ED558CCDUL; h ^= h >> 33; h *= 0xC4CEB9FE1A85EC53UL; h ^= h >> 33;
+            return (h >> 40) / (float)(1 << 24);
+        }
+        return (H(x0, y0) * (1 - u) + H(x0 + 1, y0) * u) * (1 - v) + (H(x0, y0 + 1) * (1 - u) + H(x0 + 1, y0 + 1) * u) * v;
     }
 
     /// <summary>How far a point is from the stretch of line from a to b, in cells, and how far along it (0 to 1) the nearest point is.</summary>

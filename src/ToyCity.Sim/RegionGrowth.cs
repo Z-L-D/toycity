@@ -269,7 +269,7 @@ public sealed partial class Region
             outlet[i] = inflow[i] == 0 && (open || !any);
         }
         var downstream = new int[s * s];
-        var rivers = World.CarveRivers(corners, s, s, Water, downstream, i => outlet[i], inflow, start, Channels);
+        var rivers = World.CarveRivers(corners, s, s, Water, downstream, i => outlet[i], inflow, start, Channels, Seed, col * s, row * s);
         // The river's cut mustn't move the shared edge.
         for (int k = 0; k < known.Length; k++) if (known[k] >= 0) corners[k] = (ushort)known[k];
 

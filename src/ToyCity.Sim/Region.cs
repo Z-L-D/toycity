@@ -82,15 +82,16 @@ public sealed partial class Region : IDisposable
     }
 
     /// <summary>
-    /// Whether the region's rivers have shaped channels with banks. A region saved before they did keeps the rivers
-    /// it was made with, so open land still meets its cities' edges.
+    /// How the region's rivers were shaped (<see cref="World.ChannelsVersion"/>): 0 for the old one-cell cut, 1 for
+    /// channels with banks, 2 with meanders. A region saved before keeps the rivers it was made with, so open land
+    /// still meets its cities' edges.
     /// </summary>
-    public bool Channels
+    public int Channels
     {
         get => _channels;
         set { if (_channels != value) (_channels, _ground, _heights) = (value, null, null); }
     }
-    bool _channels = true;
+    int _channels = World.ChannelsVersion;
 
     /// <summary>A new region of open land. Found cities on it with <see cref="Found"/>.</summary>
     public static Region Create(ContentDb content, string name, ulong seed, int cols = 3, int rows = 3, int tileSize = 128)

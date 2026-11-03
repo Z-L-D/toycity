@@ -1739,7 +1739,7 @@ message RegionSave {
   repeated RegionVote votes = 15;
   repeated TakeoverOffer takeovers = 16;
   int32 next_takeover = 17;
-  bool channels = 18;        // rivers with shaped channels and banks; a region saved before keeps its old rivers
+  uint32 channels = 18;      // how the rivers were shaped (0 old cut, 1 banks, 2 meanders); was a bool, so true reads as 1
 }
 
 // One tile a growing region has added, with the ground made for it then.

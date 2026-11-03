@@ -34,7 +34,7 @@ public class RiverChannelTests(ITestOutputHelper output)
     {
         foreach (ulong seed in new ulong[] { 3, 42, 77 })
         {
-            var old = World.GenerateGround(seed, S, S, channels: false);
+            var old = World.GenerateGround(seed, S, S, channels: 0);
             var shaped = World.GenerateGround(seed, S, S);
             var (oc, ow) = RiverStats(old);
             var (sc, sw) = RiverStats(shaped);
@@ -57,14 +57,43 @@ public class RiverChannelTests(ITestOutputHelper output)
     public void ARegionKeepsTheRiversItWasMadeWith()
     {
         using var r = Region.Create(Fixture.Content, "Channels", 9, 2, 2, 64);
-        Assert.True(r.Channels);
+        Assert.Equal(World.ChannelsVersion, r.Channels);
         using var back = RegionMapping.Load(Fixture.Content, RegionMapping.Save(r));
-        Assert.True(back.Channels);
+        Assert.Equal(World.ChannelsVersion, back.Channels);
         Assert.Equal(r.Ground.Rivers, back.Ground.Rivers);
         // A region saved before channels keeps its old rivers.
-        r.Channels = false;
+        r.Channels = 0;
         using var older = RegionMapping.Load(Fixture.Content, RegionMapping.Save(r));
-        Assert.False(older.Channels);
-        Assert.Equal(World.GenerateGround(9, 128, 128, channels: false).Rivers, older.Ground.Rivers);
+        Assert.Equal(0, older.Channels);
+        Assert.Equal(World.GenerateGround(9, 128, 128, channels: 0).Rivers, older.Ground.Rivers);
+    }
+
+    [Fact]
+    public void MeandersMoveTheChannelOffTheGridsLines()
+    {
+        // The deepest ground across each river cell, as an offset from the cell's middle: with the old line it sits
+        // on the smoothed drainage, with meanders it wanders to either side.
+        foreach (ulong seed in new ulong[] { 42, 101 })
+        {
+            double Wander(int version)
+            {
+                var g = World.GenerateGround(seed, S, S, channels: version);
+                double sum = 0; int n = 0;
+                for (int i = 0; i < S * S; i++)
+                {
+                    int d = g.Downstream[i];
+                    if (g.Rivers[i] == 0 || d < 0 || d - i is not (1 or -1)) continue;
+                    // A river running east or west: compare the corners above and below its middle.
+                    int x = i % S, y = i / S, top = y * (S + 1) + x, bottom = top + S + 1;
+                    if (y == 0 || y == S - 1) continue;
+                    sum += Math.Abs(g.Corners[top] - g.Corners[bottom]);
+                    n++;
+                }
+                return n == 0 ? 0 : sum / n;
+            }
+            double before = Wander(1), after = Wander(2);
+            output.WriteLine($"seed {seed}: the bed's tilt across a river cell {before:0.0} dm with banks, {after:0.0} dm with meanders");
+            Assert.True(after > before, "the meanders should move the channel off the drainage line");
+        }
     }
 }
