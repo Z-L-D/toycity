@@ -9,6 +9,9 @@ render_mode blend_mix, cull_disabled, depth_draw_opaque;
 uniform sampler2D ground : filter_linear, repeat_disable;  // corner heights in world units, (width + 1) by (height + 1)
 uniform vec2 map_size = vec2(128.0);
 uniform float height_step = 0.125;
+// A map layer over the water as over the ground (Beta 4, part 3: the water quality layer colours the water itself).
+uniform sampler2D overlay : filter_nearest, repeat_disable;
+uniform bool use_overlay = false;
 
 varying vec3 world_pos;
 
@@ -54,6 +57,10 @@ void fragment() {
 	// Foam in a ragged band where it meets the shore.
 	float foam = (1.0 - smoothstep(0.0, 0.7, depth)) * smoothstep(0.45, 0.75, waves(p * 1.5, t * 1.4));
 	col = mix(col, vec3(0.92, 0.95, 0.95), foam * 0.8);
+	if (use_overlay) {
+		vec4 o = texture(overlay, (floor(p) + 0.5) / map_size);
+		col = mix(col, o.rgb, o.a);
+	}
 	ALBEDO = to_linear(col, srgb);
 	// Ripples: the slope of the wave field tips the surface's normal.
 	float e = 0.05, h0 = waves(p, t), hx = waves(p + vec2(e, 0.0), t), hz = waves(p + vec2(0.0, e), t);

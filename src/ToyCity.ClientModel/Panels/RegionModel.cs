@@ -154,6 +154,9 @@ public sealed class RegionModel
                 return;
             }
             case "rg-starter": StarterTown = !StarterTown; _changed(); return;
+            case "rg-water" when State is { } ws:
+                _send(new ClientMessage { RegionWater = new SetRegionWater { Stays = !ws.WaterStays } });
+                return;
             case "rg-founder": FoundComputer = a.Length == 2 ? a[1] : ""; _changed(); return;
             case "rg-takeover" when PickedTile is { Founded: true } t:
                 Pending = $"Taking over {t.Name}…";
@@ -258,7 +261,11 @@ public sealed class RegionModel
         var sb = new System.Text.StringBuilder();
         int cities = s.Tiles.Count(t => t.Founded);
         long pop = s.Tiles.Sum(t => (long)t.Population);
-        sb.Append(Dim($"{Plural(cities, "city").Replace("citys", "cities")} · {Num(pop)} people in the region")).Append("\n\n");
+        sb.Append(Dim($"{Plural(cities, "city").Replace("citys", "cities")} · {Num(pop)} people in the region")).Append('\n');
+        // Beta 4, part 3: the region's option for foul water crossing borders down its rivers.
+        if (s.Cols * s.Rows > 1)
+            sb.Append(Link("rg-water", (s.WaterStays ? "☐" : "☑") + " Rivers carry foul water on into the next city")).Append('\n');
+        sb.Append('\n');
         if (PickedTile is { } p)
         {
             bool here = p.Col == s.HereCol && p.Row == s.HereRow;

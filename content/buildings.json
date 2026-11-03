@@ -652,6 +652,28 @@
       "waterPollution": 0
     },
     {
+      "id": "water-treatment",
+      "name": "Water Treatment Works",
+      "category": "water",
+      "w": 3,
+      "h": 2,
+      "cost": 4000,
+      "maintenance": 150,
+      "jobs": 8,
+      "powerKw": 250,
+      "waterTreat": 12000,
+      "noise": 4,
+      "radius": 0,
+      "color": "#5aa7c8",
+      "waterUse": 0,
+      "garbage": 0,
+      "powerOutKw": 0,
+      "waterOut": 0,
+      "garbageCap": 0,
+      "pollution": 0,
+      "waterPollution": 0
+    },
+    {
       "id": "landfill",
       "name": "Landfill",
       "category": "garbage",

@@ -29,7 +29,11 @@ public sealed partial class World
             int month = Month;
             int melt = Weather == WeatherKind.Heat ? 40 : Weather == WeatherKind.Rain ? 15
                 : month is 12 or 1 or 2 ? 1 : month is 3 or 11 ? 4 : 12;
-            GroundSnowMm = Math.Max(0, GroundSnowMm - Per(melt));
+            // And the calendar's own days thaw it with the season, so a fast calendar doesn't keep a winter's snow
+            // into the summer while the day clock barely moves.
+            // Not while it's still snowing on and off.
+            int thaw = Weather == WeatherKind.Snow || month is 12 or 1 or 2 ? 0 : month is 3 or 11 ? 8 : 40;
+            GroundSnowMm = Math.Max(0, GroundSnowMm - Per(melt) - thaw);
         }
     }
 

@@ -37,7 +37,14 @@ message ClientMessage {
     SetPace pace = 23;
     PinWeather pin_weather = 24;
     GrowRegion grow = 25;
+    SetRegionWater region_water = 26;
   }
+}
+
+// Whether foul water runs on down a river from one city into the next (Beta 4, part 3). The region's host's (an
+// admin's, or the sole mayor's) to set; on unless turned off.
+message SetRegionWater {
+  bool stays = 1;  // true keeps each city's water its own
 }
 
 // Adds a wild tile to a growing region (Beta 3.2, G4), on a side of a tile already in it. Its ground, rivers and rock
@@ -112,7 +119,14 @@ message Action {
     Delink delink = 31;
     OpenTender open_tender = 32;
     SetRoadCrews road_crews = 33;
+    SetTreatment treatment = 34;
   }
+}
+
+// How far the sewage plants treat sewage before letting it into the water (Beta 4, part 3): 0 none (raw sewage out,
+// at a quarter of the upkeep), 1 primary, 2 secondary (the usual), 3 tertiary (the cleanest, and dearest).
+message SetTreatment {
+  int32 level = 1;
 }
 
 // The road crews' budget (Beta 3.2, part 4): 0..200% of their usual, clearing snow and salting ice highways first,
@@ -482,6 +496,7 @@ enum OverlayKind {
   OVERLAY_LITTER = 18;
   OVERLAY_BLIGHT = 19;
   OVERLAY_TRANSIT = 20;
+  OVERLAY_WATER_QUALITY = 21;  // Beta 4, part 3: the water's foulness; on land the worse of its smell and the tap water's
 }
 
 message OverlayRequest {
@@ -570,6 +585,7 @@ message RegionState {
   int32 cross_border = 16;   // people and tons of goods crossing borders in the region each day this month, from the ledgers
   int32 pace = 17;           // Beta 3.2: the region's calendar pace, calendar days per day of the day clock
   bool grows = 18;           // G4: the region grows a tile at a time; wild tiles aren't part of it yet
+  bool water_stays = 19;     // Beta 4: each city's water is its own; foul water doesn't run on down a river into the next
 }
 
 // Go to another host for that city (federated regions): address is its /ws URL.
@@ -877,6 +893,7 @@ message BuildingTypeInfo {
   int32 build_days = 24;   // days from groundbreaking to opening
   int32 water_out = 25;    // a pump's water a day
   int32 sewage_cap = 26;   // a treatment plant's sewage a day (Beta 3.2)
+  int32 water_treat = 27;  // a water treatment works' water cleaned a day (Beta 4, part 3)
 }
 
 // An upgrade a type offers: what it becomes, what it costs and what the building must earn first.
@@ -965,6 +982,17 @@ message CityStats {
   int64 sewage_capacity = 33;
   int64 sewage_produced = 34;
   int64 sewage_untreated = 35;
+  WaterQuality water_quality = 36;  // Beta 4, part 3
+}
+
+// How clean the city's water is (Beta 4, part 3). Foulness runs 0 clean to 255.
+message WaterQuality {
+  int32 treatment = 1;    // the sewage plants' treatment level, as SetTreatment
+  int32 foul_pct = 2;     // of the city's water cells, the share foul enough to smell
+  int32 worst = 3;        // the foulest water in the city
+  int32 worst_tap = 4;    // the foulest tap water any zoned cell gets
+  int32 upkeep_pct = 5;   // the sewage plants' upkeep at this treatment level, percent of their usual
+  string text = 6;        // "12% of the water is foul, the tap water must be boiled, sewage treatment: secondary."
 }
 
 // The state of the roads (Beta 3.2, part 4). Percentages are 0..100. Tiers are 0 highways, 1 roads, 2 streets and
@@ -1575,6 +1603,7 @@ message RegionSave {
   repeated Deal offers = 9;  // deals offered and not yet answered; running ones are in the cities
   bool grows = 10;           // G4: a growing region; its tiles' ground is in grown, since it can't be made again from the seed
   repeated RegionGrownTile grown = 11;
+  bool water_stays = 12;     // Beta 4: foul water doesn't run on from one city into the next
 }
 
 // One tile a growing region has added, with the ground made for it then.
@@ -1608,6 +1637,14 @@ message ActionRecord {
   RegionWeather weather = 11;   // set instead of action: the region's weather over the city changed
   RegionFlood flood = 12;       // set instead of action: the river's flood stage over the city changed
   RegionPace pace = 13;         // set instead of action: the region's calendar pace changed (Beta 3.2)
+  RegionWater water = 14;       // set instead of action: how foul a river coming in from upstream is changed (Beta 4)
+}
+
+// A river coming into the city across a border, and how foul it is there (0 clean .. 255).
+message RegionWater {
+  int32 x = 1;
+  int32 y = 2;
+  int32 foul = 3;
 }
 
 // How many calendar days pass in one day of the day clock: 30, 60, 120, 360 or 720.

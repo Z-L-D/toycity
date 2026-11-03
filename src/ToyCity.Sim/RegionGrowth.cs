@@ -100,6 +100,7 @@ public sealed partial class Region
         _geology = null;
         _heights = null;
         _floodSamples = null;
+        _waterExits = null;
     }
 
     /// <summary>The noise's scale for a growing region: the same as a fixed region of these tiles.</summary>

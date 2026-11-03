@@ -55,7 +55,11 @@ const OVERLAYS: { kind: number; name: string; scheme: OverlayView['scheme'] }[] 
   { kind: 18, name: 'Litter', scheme: 'bad' },
   { kind: 19, name: 'Run-down', scheme: 'bad' },
   { kind: 20, name: 'Transit riders', scheme: 'good' },
+  { kind: 21, name: 'Water quality', scheme: 'bad' },
 ];
+
+/** The sewage plants' treatment levels, as SetTreatment numbers them (Beta 4, part 3). */
+const TREATMENTS = ['None', 'Primary', 'Secondary', 'Tertiary'];
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -1027,6 +1031,10 @@ function renderBudget() {
     <div class="slider"><span>Budget</span><input type="range" min="0" max="200" step="10" value="${s.roads?.crewsPct ?? 100}" id="road-crews"><span>${s.roads?.crewsPct ?? 100}%</span></div>
     ${s.roads?.text ? `<p>${esc(s.roads.text)}</p>` : ''}
     <p class="muted">Crews plough snow and salt ice on the highways first, then roads, then streets, and keep the drains on the bigger roads clear. Less budget, and the streets wait.</p>
+    <h4>Sewage treatment</h4>
+    <div class="row" style="display:flex;gap:6px" id="treatment">${TREATMENTS.map((t, k) => `<button data-treat="${k}" class="${k === (s.waterQuality?.treatment ?? 2) ? 'active' : ''}">${t}</button>`).join('')}</div>
+    ${s.waterQuality?.text ? `<p class="${Number(s.waterQuality.worstTap ?? 0) > 60 || Number(s.waterQuality.foulPct ?? 0) > 10 ? 'warn' : ''}">${esc(s.waterQuality.text)} Plant upkeep ${s.waterQuality.upkeepPct ?? 100}%.</p>` : ''}
+    <p class="muted">What the plants don't take out goes into the nearest water and down the river. None saves three quarters of their upkeep and fouls the river; tertiary is nearly clean and costs half as much again.</p>
     <h4>Loans</h4>
     <div class="row" style="display:flex;gap:6px"><button data-loan="10000">Borrow $10,000</button><button data-loan="50000">Borrow $50,000</button></div>
     <p class="muted">Loans are repaid over about 10 years with 6% yearly interest.</p>`;
@@ -1040,6 +1048,9 @@ function renderBudget() {
   const crews = $<HTMLInputElement>('#road-crews');
   crews.addEventListener('input', () => (crews.nextElementSibling!.textContent = `${crews.value}%`));
   crews.addEventListener('change', () => conn.action({ roadCrews: { percent: Number(crews.value) } }));
+  document.querySelectorAll<HTMLButtonElement>('#tab-budget button[data-treat]').forEach((b) =>
+    b.addEventListener('click', () => conn.action({ treatment: { level: Number(b.dataset.treat) } })),
+  );
   document.querySelectorAll<HTMLButtonElement>('#tab-budget button[data-loan]').forEach((b) =>
     b.addEventListener('click', () => conn.action({ loan: { amount: Number(b.dataset.loan) } })),
   );

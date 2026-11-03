@@ -121,6 +121,40 @@ public class ClockClientTests
     }
 
     [Fact]
+    public void TheMayorSetsTreatmentAndSeesTheWater()
+    {
+        // Beta 4, part 3: water quality, through a real server and the client's panels.
+        using var server = new ServerProcess("""{ "name": "Rivers", "join": "open", "admins": ["Ada"] }""");
+        using var ada = new Player(server.Ws, "Ada");
+        var c = ada.Client.City;
+        Assert.True(c.TypeById["water-treatment"].WaterTreat > 0);
+        Assert.Equal(2, c.Stats.WaterQuality!.Treatment);
+        Assert.Contains("sewage treatment: secondary", c.Stats.WaterQuality.Text);
+
+        // From the budget panel: no treatment, raw sewage out at a quarter of the plants' upkeep.
+        ada.Panels.Open("budget");
+        Assert.Contains("Sewage treatment", ada.Panels.Render());
+        ada.Panels.Click("treat:0");
+        ada.WaitFor(() => c.Stats.WaterQuality?.Treatment == 0, "no treatment");
+        Assert.Equal(25, c.Stats.WaterQuality!.UpkeepPct);
+        Assert.Contains("[b]", ada.Panels.Render());
+
+        // The water quality layer.
+        ada.Panels.Click("overlay:21");
+        ada.WaitFor(() => ada.Panels.Overlay is { } o && (int)o.Kind == 21, "the water quality layer");
+        Assert.Equal("foul", ada.Panels.Overlay!.LegendHigh);
+
+        // The region's option: Bo, not an admin, may not change it; Ada may.
+        using var bo = new Player(server.Ws, "Bo");
+        bo.Client.Connection.Send(new ClientMessage { RegionWater = new SetRegionWater { Stays = true } });
+        bo.WaitFor(() => bo.Errors.Count > 0, "the refusal");
+        Assert.Contains("only this server's admins", bo.Errors[0]);
+        ada.Panels.Region.Click("rg-water");
+        ada.WaitFor(() => ada.Panels.Region.State?.WaterStays == true, "the rivers kept home");
+        Assert.Empty(ada.Errors);
+    }
+
+    [Fact]
     public void TheHandsRunOnBetweenTicksButNotPastTheNext()
     {
         var clock = new GameClock();

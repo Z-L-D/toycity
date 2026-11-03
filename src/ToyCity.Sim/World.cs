@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 15;
+    public const int FormatVersion = 16;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -463,6 +463,8 @@ public sealed partial class World
             w.Write(Subway);
             // Format 15: snow on the ground.
             WriteSnow(w);
+            // Format 16: water quality.
+            WriteWaterQuality(w);
         }
         return ms.ToArray();
     }
@@ -596,6 +598,8 @@ public sealed partial class World
         if (version >= 14) { ReadBytes(r, w.Subway); w.RebuildAccess(); }
         // Format 15 added snow on the ground; an older city starts with none.
         if (version >= 15) w.ReadSnow(r);
+        // Format 16 added water quality; an older city's water is clean until the month's end works it out.
+        w.ReadWaterQuality(r, version);
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
         var demand = (int[])w.Demand.Clone();

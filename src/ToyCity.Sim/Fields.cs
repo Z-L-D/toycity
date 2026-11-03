@@ -44,6 +44,7 @@ public sealed partial class World
             if (t.Noise > 0) Spread(Noise, b.X, b.Y, b.W, b.H, t.Noise, 2, false);
         }
         SpreadSewage();
+        RunWaterQuality();
         for (int i = 0; i < N; i++)
         {
             var p = ProfileAt(i);
@@ -99,6 +100,7 @@ public sealed partial class World
         Add("Pollution", -Pollution[i] / 2);
         Add("Ordinances", (int)Mod(ModKey.LandValue));
         Add("Noise", -Noise[i] / 4);
+        Add("Foul water nearby", -Stench[i] / 6);
         Add("Run-down area", -Blight[i] / 6);
         return Math.Clamp(total, 0, 255);
     }
@@ -143,6 +145,8 @@ public sealed partial class World
                 Add("Traffic", -traffic / 6);
                 Add("Uncollected garbage", -GarbagePenalty);
                 Add("Raw sewage", -SewagePenalty);
+                Add("Foul water nearby", -StenchPenalty(i));
+                Add("Unsafe tap water", -TapPenalty(i));
                 Add("Run-down area", -Blight[i] / 5);
                 Add("Ordinances", (int)Mod(ModKey.DesirabilityR));
                 if (BuildingAtCell(i) is { } home && home.CommuteMinutes > 20) Add("Long commute", -(home.CommuteMinutes - 20) / 2);
@@ -156,6 +160,8 @@ public sealed partial class World
                 Add("Pollution", -Pollution[i] / 3);
                 Add("Uncollected garbage", -GarbagePenalty / 2);
                 Add("Raw sewage", -SewagePenalty / 2);
+                Add("Foul water nearby", -StenchPenalty(i) * 2 / 3);
+                Add("Unsafe tap water", -TapPenalty(i) / 2);
                 Add("Run-down area", -Blight[i] / 8);
                 Add("Ordinances", (int)Mod(ModKey.DesirabilityC));
                 break;

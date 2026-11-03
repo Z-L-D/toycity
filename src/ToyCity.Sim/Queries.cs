@@ -6,7 +6,7 @@ public enum OverlayKind
 {
     None = 0, LandValue = 1, DesirabilityR = 2, DesirabilityC = 3, DesirabilityI = 4, GroundPollution = 5,
     WaterPollution = 6, Power = 7, Water = 8, Traffic = 9, Noise = 10, Police = 11, Fire = 12, Health = 13,
-    Education = 14, Parks = 15, Commute = 16, Elevation = 17, Litter = 18, Blight = 19, Transit = 20,
+    Education = 14, Parks = 15, Commute = 16, Elevation = 17, Litter = 18, Blight = 19, Transit = 20, WaterQuality = 21,
 }
 
 public sealed record WhyReport(int X, int Y, string Subject, string Summary, List<Requirement> Requirements, List<Factor> Factors);
@@ -22,7 +22,7 @@ public sealed partial class World
         var factors = new List<Factor>();
         if (!InBounds(x, y)) return new WhyReport(x, y, "Off the map", "", reqs, factors);
         int i = Idx(x, y);
-        if (IsWater(i)) return new WhyReport(x, y, "Water", "Nothing can be built on water yet.", reqs, factors);
+        if (IsWater(i)) return new WhyReport(x, y, IsRiver(i) ? "River" : "Water", $"{WaterHere(i)} Nothing can be built on water yet.", reqs, factors);
 
         if (RoadsideAt(i).FirstOrDefault() is { } stop) return WhyCivic(stop, x, y);
         if (ProfileAt(i) is { } p)
@@ -82,9 +82,11 @@ public sealed partial class World
         {
             Category.Power => $"Makes {t.PowerOutKw * FundingFactor(b.Funding) / 100:N0} kW. City grid: {PowerDemand:N0} of {PowerCapacity:N0} kW used.",
             Category.Water when t.SewageCap > 0 => b.Powered
-                ? $"Treats up to {t.SewageCap * FundingFactor(b.Funding) / 100:N0} units of sewage a day from the pipes beside it. City: {SewageProduced:N0} made, {SewageCapacity:N0} treated, {SewageUntreated:N0} left raw."
+                ? $"Treats up to {t.SewageCap * FundingFactor(b.Funding) / 100:N0} units of sewage a day from the pipes beside it. City: {SewageProduced:N0} made, {SewageCapacity:N0} treated, {SewageUntreated:N0} left raw. Treatment is {TreatmentNames[(int)SewageTreatment].ToLowerInvariant()}; what's left goes into the nearest water."
                 : "Not treating: a sewage plant needs power.",
-            Category.Water => b.Powered ? $"Pumps {PumpOutput(b):N0} units a day (water pollution here cuts output). City: {WaterDemand:N0} of {WaterCapacity:N0} used."
+            Category.Water when t.WaterTreat > 0 => b.Powered ? $"Cleans up to {t.WaterTreat * FundingFactor(b.Funding) / 100:N0} units of water a day on the mains it stands by. {TapHere(Idx(b.X, b.Y))}"
+                : "Not cleaning: a treatment works needs power.",
+            Category.Water => b.Powered ? $"Pumps {PumpOutput(b):N0} units a day (water pollution here cuts output). It draws water {FoulWord(IntakeFoul(b))}. City: {WaterDemand:N0} of {WaterCapacity:N0} used."
                 : "Not pumping: a pump needs power.",
             Category.Garbage => HasFrontage(b) ? $"Takes {t.GarbageCap * FundingFactor(b.Funding) / 100:N0} units a day. City makes {GarbageProduced:N0}, can handle {GarbageCapacity:N0}."
                 : "Not collecting: garbage trucks need a road next to the landfill.",
@@ -225,6 +227,11 @@ public sealed partial class World
             case OverlayKind.Litter: Array.Copy(Litter, v, N); low = "tidy"; high = "strewn"; break;
             case OverlayKind.Transit: for (int i = 0; i < N; i++) v[i] = (byte)Math.Min(255, Riders[i] * 2); low = "none"; high = "busy"; break;
             case OverlayKind.Blight: Array.Copy(Blight, v, N); low = "kept up"; high = "run down"; break;
+            case OverlayKind.WaterQuality:
+                // The water's own foulness, and on land the worse of its smell and the tap water's.
+                for (int i = 0; i < N; i++)
+                    v[i] = IsWater(i) ? (Foul.Length == N ? Foul[i] : (byte)0) : (byte)Math.Max(Stench[i] / 2, TapFoul.Length == N ? TapFoul[i] : 0);
+                low = "clean"; high = "foul"; break;
             case OverlayKind.Elevation: for (int i = 0; i < N; i++) v[i] = (byte)(Height[i] * 255 / MaxHeight); break;
         }
         return new OverlayResult(kind, v, low, high);

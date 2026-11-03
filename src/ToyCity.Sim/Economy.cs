@@ -52,7 +52,7 @@ public sealed partial class World
         JobsCommercial = jobsC;
         JobsIndustrial = jobsI;
         JobsCivic = jobsCivic;
-        Attraction = (int)Math.Max(0, (attraction + Mod(ModKey.Attraction)) * WeatherTourismPct / 100);
+        Attraction = (int)Math.Max(0, (attraction + Mod(ModKey.Attraction)) * WeatherTourismPct / 100 * WaterTourismPct / 100);
         ComputeDemand();
 
         while (MilestoneIndex < Milestones.Length && pop >= Milestones[MilestoneIndex])
@@ -109,7 +109,9 @@ public sealed partial class World
             var t = TypeOf(b);
             if (!t.Placeable) continue;
             civic.TryGetValue((int)t.Category, out long sum);
-            civic[(int)t.Category] = sum + (long)t.Maintenance * b.Funding / 100;
+            long upkeep = (long)t.Maintenance * b.Funding / 100;
+            if (t.SewageCap > 0) upkeep = upkeep * TreatmentUpkeep / 100;
+            civic[(int)t.Category] = sum + upkeep;
         }
 
         LastBudget.Clear();

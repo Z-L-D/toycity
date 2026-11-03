@@ -181,5 +181,28 @@ public partial class Main
         yield return MountainMeasure("free, snow");
         _camera.ToggleFree();
         _client.Connection.Send(new Protocol.V0.ClientMessage { PinWeather = new Protocol.V0.PinWeather { Kind = Protocol.V0.WeatherKind.WeatherClear } });
+
+        // Water quality (Beta 4, part 3): the sewage plant lets out raw sewage, and the water quality layer shows the
+        // foul water below its outfall. Then back to secondary treatment.
+        _client.Connection.Act(new Protocol.V0.Action { Treatment = new Protocol.V0.SetTreatment { Level = 0 } });
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 3 } });
+        yield return new GateWait("foul water below the outfall", () => c.Stats.WaterQuality is { Treatment: 0, Worst: > 60 }, 300);
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } });
+        _panels.Model.Click("overlay:21");
+        yield return new GateWait("the water quality layer", () => _panels.Model.Overlay is { } o && (int)o.Kind == 21, 30);
+        var layer = _panels.Model.Overlay!.Values.ToByteArray();
+        int worst = Enumerable.Range(0, layer.Length).Where(i => c.IsWater(i)).OrderByDescending(i => layer[i]).ThenBy(i => i).First();
+        var wq = c.Stats.WaterQuality!;
+        MountainCheck("raw sewage fouls the water", wq.Worst > 60 && layer[worst] > 60 && wq.UpkeepPct == 25,
+            $"{wq.Text} Worst {wq.Worst} at {worst % c.Width},{worst / c.Width}; plants' upkeep {wq.UpkeepPct}%");
+        _camera.CentreOn(worst % c.Width + 0.5f, worst / c.Width + 0.5f);
+        v.Zoom = 3;
+        yield return MountainMeasure("classic, water quality");
+        _panels.Model.Click("overlay:0");
+        _camera.ToggleFree();
+        Look(worst % c.Width + 0.5f, worst / c.Width + 0.5f, 24, 26, 200);
+        yield return MountainMeasure("free, the foul river");
+        _camera.ToggleFree();
+        _client.Connection.Act(new Protocol.V0.Action { Treatment = new Protocol.V0.SetTreatment { Level = 2 } });
     }
 }

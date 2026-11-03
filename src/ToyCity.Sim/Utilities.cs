@@ -185,6 +185,7 @@ public sealed partial class World
             anyShort |= shortage;
             Watered[i] = shortage ? (byte)2 : (byte)1;
         }
+        RunTapWater(pipeComp, groups, used);
         if (anyShort && !_waterShortNotified)
             Notices.Add(new SimNotice("Water shortage: demand is more than the pumps supply. Add a pump or fund the ones you have.", "warning"));
         _waterShortNotified = anyShort;

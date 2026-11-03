@@ -43,6 +43,8 @@ public sealed partial class World
             TriggerDisasterAction d => !InBounds(d.X, d.Y) ? offMap : !Def(d.Kind) ? "Unknown disaster." : null,
             SetDisasterSettingAction d => !Def(d.Setting) ? "Unknown setting." : null,
             SetRoadCrewsAction c => c.Percent is < 0 or > 200 ? "Road crews' budget runs from 0% to 200%." : null,
+            SetTreatmentAction t => !Def(t.Level) ? "That isn't a level of sewage treatment." : null,
+            WaterInflowAction f => !InBounds(f.X, f.Y) || f.Foul is < 0 or > 255 ? "That isn't a river coming in." : null,
             SetPaceAction p => !IsPace(p.DaysPerClockDay) ? "That isn't one of the calendar's paces." : null,
             RespondPromptAction => null,
             SetOrdinanceAction o => !Text(o.Id) ? "Unknown ordinance." : null,

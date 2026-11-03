@@ -287,6 +287,7 @@ export class Region {
       <div class="rg-map" style="grid-template-columns:repeat(${box.c1 - box.c0 + 1}, minmax(0, 1fr));grid-template-rows:repeat(${box.r1 - box.r0 + 1}, auto)">${cells}</div>
       <aside class="rg-side">
         <p class="muted">${cities} ${cities === 1 ? 'city' : 'cities'} · ${pop.toLocaleString('en-US')} people in the region</p>
+        ${s.cols * s.rows > 1 ? `<label title="Whether what one city puts in a river reaches the cities downstream. An admin's, or the sole mayor's, to set."><input type="checkbox" id="rg-water" ${s.waterStays ? '' : 'checked'}> Rivers carry foul water on into the next city</label>` : ''}
         ${side}
       </aside>`;
     // Pictures: RGB triples, north up.
@@ -316,6 +317,7 @@ export class Region {
         this.host.conn.send({ mayor: { col: p.col, row: p.row, takeOver: true } });
       });
     }
+    $('#rg-water')?.addEventListener('change', () => this.host.conn.send({ regionWater: { stays: !(s.waterStays ?? false) } }));
     const body = $('#rg-body');
     const on = (sel: string, f: (b: HTMLButtonElement) => void) => body.querySelectorAll<HTMLButtonElement>(sel).forEach((b) => b.addEventListener('click', () => f(b)));
     on('[data-kind]', (b) => { this.offer.kind = Number(b.dataset.kind); this.offer.amount = AMOUNTS[this.offer.kind]; this.render(); });

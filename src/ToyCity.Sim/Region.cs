@@ -302,6 +302,7 @@ public sealed partial class Region : IDisposable
         CheckDeals();
         SendWeather();
         SendFloods();
+        SendWater();
         var sends = new List<(World, NeighbourEdgeAction)>();
         foreach (var t in Tiles)
         {

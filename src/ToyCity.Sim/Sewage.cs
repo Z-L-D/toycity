@@ -90,6 +90,8 @@ public sealed partial class World
         long raw = unsewered;
         for (int g = 0; g < groups; g++) raw += Math.Max(0, made[g] - capacity[g]);
         SewageUntreated = Math.Max(0, raw - SepticCapacity);
+        _sewerMade = made;
+        _sewerCap = capacity;
         for (int i = 0; i < N; i++)
         {
             int g = _sewerReach[i];

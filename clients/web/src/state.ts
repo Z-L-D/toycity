@@ -99,6 +99,8 @@ export interface BuildingType {
   waterOut?: number;
   /** A treatment plant's sewage a day. */
   sewageCap?: number;
+  /** A water treatment works' water cleaned a day (Beta 4, part 3). */
+  waterTreat?: number;
 }
 
 /** Kerb directions by side: north, east, south, west. */

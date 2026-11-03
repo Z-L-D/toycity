@@ -60,4 +60,19 @@ public class SnowTests
         Assert.Equal(0, SnowDepth.At(100, 0, 1.2f, 0));
         Assert.Equal(0, SnowDepth.At(0, 300, 0, 1));
     }
+
+    [Fact]
+    public void ASummerThawsTheSnowEvenOnAFastCalendar()
+    {
+        var w = Fixture.Starter();
+        for (int k = 0; k < 400 && w.Month != 6; k++) w.Step();
+        w.Enqueue(new WeatherAction(WeatherKind.Snow, 3));
+        for (int k = 0; k < 300 && w.GroundSnowMm < 100; k++) w.Step();
+        Assert.True(w.GroundSnowMm >= 100, $"{w.GroundSnowMm} mm");
+        // A year a clock day: the day clock barely moves, but the calendar's days are summer days.
+        w.Enqueue(new SetPaceAction(720));
+        w.Enqueue(new WeatherAction(WeatherKind.Clear, 0));
+        w.Run(10);
+        Assert.Equal(0, w.GroundSnowMm);
+    }
 }

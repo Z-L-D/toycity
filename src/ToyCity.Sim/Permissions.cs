@@ -72,6 +72,8 @@ public sealed partial class World
                 return "Only the region brings the weather.";
             case FloodAction:
                 return "Only the region's rain floods the rivers.";
+            case WaterInflowAction:
+                return "Only the region brings water in from upstream.";
             case CityDealAction:
                 return "Deals are made on the region map, with the neighbour's agreement.";
             case SideGameAction g:

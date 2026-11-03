@@ -18,6 +18,7 @@ public static class RegionMapping
             FormatVersion = RegionFormat, Name = r.Name, Seed = r.Seed, Cols = r.Cols, Rows = r.Rows, TileSize = r.TileSize, Tick = r.Tick,
         };
         s.Grows = r.Grows;
+        s.WaterStays = !r.WaterCrossesBorders;
         foreach (var t in r.Tiles)
             if (r.GrownGround(t.Col, t.Row) is { } g)
             {
@@ -47,6 +48,7 @@ public static class RegionMapping
                 ? s.Grown.Select(g => (g.Col, g.Row, new TileGround(Words(g.Corners), g.Rivers.ToByteArray(), g.Downstream.ToArray(), Words(g.Bedrock), g.Rock.ToByteArray()))).ToList()
                 : null;
             var r = Region.Restore(content, s.Name, s.Seed, s.Cols, s.Rows, s.TileSize, s.Tick, cities, grown);
+            r.WaterCrossesBorders = !s.WaterStays;
             foreach (var o in s.Offers)
                 r.RestoreOffer(new RegionDeal
                 {
@@ -88,7 +90,7 @@ public static class RegionMapping
     public static P.RegionState State(Region r, int hereCol, int hereRow, int speed, Func<RegionTile, IEnumerable<string>> playersIn,
         IDictionary<int, ByteString>? pictures = null)
     {
-        var s = new P.RegionState { Name = r.Name, Cols = r.Cols, Rows = r.Rows, TileSize = r.TileSize, Tick = r.Tick, HereCol = hereCol, HereRow = hereRow, Speed = speed, Grows = r.Grows };
+        var s = new P.RegionState { Name = r.Name, Cols = r.Cols, Rows = r.Rows, TileSize = r.TileSize, Tick = r.Tick, HereCol = hereCol, HereRow = hereRow, Speed = speed, Grows = r.Grows, WaterStays = !r.WaterCrossesBorders };
         for (int i = 0; i < r.Tiles.Length; i++)
         {
             var t = r.Tiles[i];

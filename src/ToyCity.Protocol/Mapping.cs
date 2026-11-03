@@ -25,6 +25,7 @@ public static class Mapping
         P.Action.KindOneofCase.Tax => new SetTaxAction((Zone)(int)a.Tax.Zone, (Level)(int)a.Tax.Wealth, a.Tax.PercentTenths),
         P.Action.KindOneofCase.Funding => new SetFundingAction(a.Funding.BuildingId, a.Funding.Percent),
         P.Action.KindOneofCase.RoadCrews => new SetRoadCrewsAction(a.RoadCrews.Percent),
+        P.Action.KindOneofCase.Treatment => new SetTreatmentAction((Treatment)a.Treatment.Level),
         P.Action.KindOneofCase.Loan => new TakeLoanAction(a.Loan.Amount),
         P.Action.KindOneofCase.Utility => new PlaceUtilityAction(a.Utility.X0, a.Utility.Y0, a.Utility.X1, a.Utility.Y1, (UtilityKind)(int)a.Utility.Kind),
         P.Action.KindOneofCase.Ordinance => new SetOrdinanceAction(a.Ordinance.Id, a.Ordinance.Enact),
@@ -69,6 +70,7 @@ public static class Mapping
         SetTaxAction x => new P.Action { Tax = new P.SetTax { Zone = (P.ZoneKind)(int)x.Zone, Wealth = (P.Wealth)(int)x.Wealth, PercentTenths = x.PercentTenths } },
         SetFundingAction x => new P.Action { Funding = new P.SetFunding { BuildingId = x.BuildingId, Percent = x.Percent } },
         SetRoadCrewsAction x => new P.Action { RoadCrews = new P.SetRoadCrews { Percent = x.Percent } },
+        SetTreatmentAction x => new P.Action { Treatment = new P.SetTreatment { Level = (int)x.Level } },
         TakeLoanAction x => new P.Action { Loan = new P.TakeLoan { Amount = x.Amount } },
         PlaceUtilityAction x => new P.Action { Utility = new P.PlaceUtility { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, Kind = (P.UtilityKind)(int)x.Kind } },
         SetOrdinanceAction x => new P.Action { Ordinance = new P.SetOrdinance { Id = x.Id, Enact = x.Enact } },
@@ -133,7 +135,7 @@ public static class Mapping
                 Unique = t.Unique, Income = t.Income, Attraction = t.Attraction,
                 Transit = t.Transit == TransitKind.None ? "" : t.Transit.ToString().ToLowerInvariant(), Capacity = t.Capacity, Catchment = t.Catchment,
                 Roadside = t.Roadside, LotKind = t.LotKind, Maintenance = t.Maintenance, LeaseRent = t.LeaseRent, BuildDays = t.BuildDays,
-                WaterOut = t.WaterOut, SewageCap = t.SewageCap,
+                WaterOut = t.WaterOut, SewageCap = t.SewageCap, WaterTreat = t.WaterTreat,
                 Upgrades =
                 {
                     t.Upgrades.Select(u => new P.UpgradeInfo
@@ -182,6 +184,11 @@ public static class Mapping
         s.TransitBoardings = w.TransitBoardings;
         if (w.Weather != WeatherKind.Clear) s.Weather = $"{World.WeatherIcon(w.Weather)} {World.WeatherName(w.Weather, w.WeatherStrength)}";
         s.FloodStage = w.FloodStage;
+        s.WaterQuality = new P.WaterQuality
+        {
+            Treatment = (int)w.SewageTreatment, FoulPct = w.WaterCells == 0 ? 0 : w.FoulCells * 100 / w.WaterCells, Worst = w.WorstFoul,
+            WorstTap = w.WorstTap, UpkeepPct = World.TreatmentUpkeepPct[(int)w.SewageTreatment], Text = w.WaterQualityText(),
+        };
         s.ClockMinute = w.ClockMinute;
         s.Pace = w.Pace;
         s.ClockMinutesPerTick = w.ClockMinutesPerTick;
@@ -542,6 +549,7 @@ public static class Mapping
                 NeighbourEdgeAction ne => new P.ActionRecord { Tick = l.Tick, By = ne.By, Neighbour = Edge(ne) },
                 WeatherAction wa => new P.ActionRecord { Tick = l.Tick, By = wa.By, Weather = new P.RegionWeather { Kind = (P.WeatherKind)(int)wa.Kind, Strength = wa.Strength } },
                 FloodAction fa => new P.ActionRecord { Tick = l.Tick, By = fa.By, Flood = new P.RegionFlood { Stage = fa.Stage } },
+                WaterInflowAction wi => new P.ActionRecord { Tick = l.Tick, By = wi.By, Water = new P.RegionWater { X = wi.X, Y = wi.Y, Foul = wi.Foul } },
                 SetPaceAction pa => new P.ActionRecord { Tick = l.Tick, By = pa.By, Pace = new P.RegionPace { DaysPerClockDay = pa.DaysPerClockDay } },
                 CityDealAction cd => new P.ActionRecord
                 {
@@ -571,6 +579,7 @@ public static class Mapping
                 : r.Neighbour != null ? Edge(r.Neighbour)
                 : r.Weather is { } wr ? new WeatherAction((WeatherKind)(int)wr.Kind, wr.Strength)
                 : r.Flood is { } fr ? new FloodAction(fr.Stage)
+                : r.Water is { } wq ? new WaterInflowAction(wq.X, wq.Y, wq.Foul)
                 : r.Pace is { } pr ? new SetPaceAction(pr.DaysPerClockDay)
                 : r.Deal is { } d ? new CityDealAction(d.Id, (DealKind)(int)d.Kind, d.Selling, d.Side, d.Other, d.Amount, d.Price, d.End, d.Why)
                 : r.HostRules != null ? new SetHostRulesAction(r.HostRules.Forbidden.Select(m => (Mechanic)(int)m).ToList())

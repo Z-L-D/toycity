@@ -33,8 +33,11 @@ public sealed partial class PanelModel
         (5, "Pollution", "bad"), (6, "Water pollution", "bad"), (7, "Power", "binary"), (8, "Water", "binary"), (9, "Traffic", "bad"),
         (10, "Noise", "bad"), (11, "Police", "good"), (12, "Fire", "good"), (13, "Health", "good"), (14, "Education", "good"),
         (15, "Parks", "good"), (16, "Commute", "bad"), (17, "Elevation", "good"), (18, "Litter", "bad"), (19, "Run-down", "bad"),
-        (20, "Transit riders", "good"),
+        (20, "Transit riders", "good"), (21, "Water quality", "bad"),
     };
+
+    /// <summary>The sewage plants' treatment levels, as SetTreatment numbers them.</summary>
+    public static readonly string[] TreatmentNames = { "None", "Primary", "Secondary", "Tertiary" };
 
     /// <summary>The panel as BBCode: the open dialog, or else the open tab.</summary>
     public string Render() => Company.Active && Dialog == null ? Company.Render() : Emergency.Active && Dialog == null ? Emergency.Render() : Dialog switch
@@ -562,6 +565,15 @@ public sealed partial class PanelModel
         sb.Append($"Budget  {crew(-50, "−50")} {crew(-10, "−10")}  [b]{crews}%[/b]  {crew(10, "+10")} {crew(50, "+50")}\n");
         if (s.Roads is { Text.Length: > 0 } roads) sb.Append(Esc(roads.Text)).Append('\n');
         sb.Append(Small(Dim("Crews plough snow and salt ice on the highways first, then roads, then streets, and keep the drains on the bigger roads clear. Less budget, and the streets wait."))).Append('\n');
+        sb.Append(H4("Sewage treatment"));
+        int level = s.WaterQuality?.Treatment ?? 2;
+        var levels = new StringBuilder();
+        for (int k = 0; k < TreatmentNames.Length; k++)
+            levels.Append(k == level ? $"[b]{Col(Gold, TreatmentNames[k])}[/b]" : Link($"treat:{k}", TreatmentNames[k])).Append(k < TreatmentNames.Length - 1 ? "  ·  " : "");
+        sb.Append(levels).Append('\n');
+        if (s.WaterQuality is { } wq)
+            sb.Append(Col(wq.WorstTap > 60 || wq.FoulPct > 10 ? Warn : "#d8dee8", Esc(wq.Text))).Append($"  Plant upkeep {wq.UpkeepPct}%.\n");
+        sb.Append(Small(Dim("What the plants don't take out goes into the nearest water and down the river. None saves three quarters of their upkeep and fouls the river; tertiary is nearly clean and costs half as much again."))).Append('\n');
         sb.Append(H4("Loans"));
         sb.Append(Link("loan:10000", "Borrow $10,000")).Append("   ").Append(Link("loan:50000", "Borrow $50,000")).Append('\n');
         sb.Append(Small(Dim("Loans are repaid over about 10 years with 6% yearly interest."))).Append('\n');

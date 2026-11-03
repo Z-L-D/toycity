@@ -157,8 +157,11 @@ public partial class CityView : Node3D
     public void SetOverlay(Image? image)
     {
         _ground!.SetShaderParameter("use_overlay", image != null);
+        _waterMaterial?.SetShaderParameter("use_overlay", image != null);
         if (image == null) return;
-        _ground.SetShaderParameter("overlay", ImageTexture.CreateFromImage(image));
+        var texture = ImageTexture.CreateFromImage(image);
+        _ground.SetShaderParameter("overlay", texture);
+        _waterMaterial?.SetShaderParameter("overlay", texture);
         _ground.SetShaderParameter("map_size", new Vector2(image.GetWidth(), image.GetHeight()));
     }
 

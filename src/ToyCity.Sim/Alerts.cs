@@ -70,6 +70,20 @@ public sealed partial class World
             Add("sewage", "warning", $"Raw sewage: {SewageUntreated:N0} units a day more than the plants and septic tanks take. It fouls the water and lowers desirability by {SewagePenalty}.", at, 1, "water");
         }
 
+        // Beta 4, part 3: foul tap water, and foul water the city smells.
+        if (WorstTap > BoilAt)
+        {
+            int at = Array.FindIndex(TapFoul, v => v == WorstTap);
+            Add("tap-water", WorstTap > SickAt ? "danger" : "warning",
+                $"{(WorstTap > SickAt ? "Tap water is making people ill" : "Boil-water notice")}: the pumps draw foul water. Build a water treatment works on the mains, or move the pumps upstream of the dirt.", at, 1, "water");
+        }
+        if (FoulCells >= 8)
+        {
+            int at = Array.FindIndex(Foul, v => v == WorstFoul);
+            Add("foul-water", "warning",
+                $"Foul water: {FoulCells:N0} cells of the city's water smell ({Math.Max(1, FoulCells * 100 / Math.Max(1, WaterCells))}%). It keeps visitors away and homes beside it empty. Treat the sewage further, or move the dirty industry off the water.", at, 1, "water");
+        }
+
         if (GarbageProduced > GarbageCapacity)
         {
             var dump = Buildings.FirstOrDefault(b => b != null && TypeOf(b).GarbageCap > 0);
