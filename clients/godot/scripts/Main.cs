@@ -364,6 +364,20 @@ public partial class Main : Node
     // The views that set something up first, by their place in the list.
     const int ZoneShot = 8, RoadShot = 9, WhyShot = 10, CompanyShot = 11, BoardShot = 12, SceneShot = 13, ReportShot = 14, RegionShot = 15, FreeShot = 16;
 
+    /// <summary>
+    /// Whether a pick away from the camera's target is something in front of it on the hills: on the line of sight
+    /// in plan, between the camera and the target. A rotation gone wrong picks off that line, or behind.
+    /// </summary>
+    bool InFront((int X, int Y) p, System.Numerics.Vector2 t, Vector2 centre)
+    {
+        var size = GetViewport().GetVisibleRect().Size;
+        var (_, d) = _camera!.View.Ray(centre.X, centre.Y, size.X, size.Y);
+        var h = System.Numerics.Vector2.Normalize(new System.Numerics.Vector2(d.X, d.Z));
+        var off = new System.Numerics.Vector2(p.X + 0.5f - t.X, p.Y + 0.5f - t.Y);
+        float along = System.Numerics.Vector2.Dot(off, h), across = MathF.Abs(off.X * h.Y - off.Y * h.X);
+        return along < 0 && across <= 8;
+    }
+
     /// <summary>The smoke test: once the city is drawn, picking at the screen centre must find it at every rotation.</summary>
     void Smoke(CityMirror c, double delta)
     {
@@ -378,9 +392,9 @@ public partial class Main : Node
             {
                 v.Rotation = r;
                 var t = v.Target;
-                if (_camera.Pick(centre, _view!) is not { } p || Math.Abs(p.X - t.X) > 8 || Math.Abs(p.Y - t.Y) > 8)
+                if (_camera.Pick(centre, _view!) is not { } p || (Math.Abs(p.X - t.X) > 8 || Math.Abs(p.Y - t.Y) > 8) && !InFront(p, t, centre))
                 {
-                    GD.PrintErr($"SMOKE FAILED: rotation {r} picked {_camera.Pick(centre, _view!)?.ToString() ?? "nothing"} at the centre");
+                    GD.PrintErr($"SMOKE FAILED: rotation {r} picked {_camera.Pick(centre, _view!)?.ToString() ?? "nothing"} at the centre, aimed at ({t.X:0}, {t.Y:0})");
                     GetTree().Quit(1);
                     return;
                 }
