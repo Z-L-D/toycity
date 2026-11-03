@@ -28,6 +28,7 @@ public partial class Main : Node
     PanelView? _panels;
     FreeCamera? _free;
     AgentsView? _agents;
+    DispatchWorld? _dispatch3d;
     StreetLabels? _streets;
     RoadsView? _roads;
     StripsView? _strips;
@@ -170,6 +171,8 @@ public partial class Main : Node
         var scene3d = new SceneWorld(pm.Emergency, _view, _camera);
         AddChild(scene3d);
         _panels.Scene3D = scene3d;
+        // The service's units on the streets, commanded directly while its screen is up (Beta 4).
+        AddChild(_dispatch3d = new DispatchWorld(pm.Emergency, _view, _camera));
         _agents = new AgentsView(_client.City, pm, _view);
         AddChild(_agents);
         _streets = new StreetLabels(_client.City, _view);

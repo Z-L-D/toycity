@@ -447,6 +447,7 @@ body.dispatch #em-panel { display: flex; flex-direction: column; min-height: 0; 
 #em-stats .neg { color: var(--bad); }
 #em-tools h4 { margin: 10px 0 4px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
 #em-tools button { display: flex; width: 100%; justify-content: space-between; margin-bottom: 4px; text-align: left; }
+#em-tools .em-picked { margin: 2px 0 6px; font-size: 12px; line-height: 1.35; color: #ffe9a8; }
 #em-tools .tip { font-size: 12px; color: var(--muted); margin: 6px 0; }
 #em-tools .badge { background: #e0533a; color: #fff; border-radius: 8px; padding: 0 6px; font-size: 11px; }
 #em-body { padding: 10px 12px; overflow-y: auto; flex: 1; }

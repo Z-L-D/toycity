@@ -82,6 +82,11 @@ public class DirectDispatchTests
         Assert.True(going.Leg.Count > 1, "it drives a route");
         Assert.True(going.LegMinutes > 0);
         Assert.Equal(target, going.Cell);
+        // It leaves at the next day's minute, so the clients see it drive even when the leg is shorter than a day's step.
+        Assert.Equal(-1, going.LegStart);
+        w.Step();
+        var driving = Unit(w, posted.Id);
+        Assert.True(driving.Leg.Count > 1 && driving.LegStart == w.ClockMinute && driving.LegMinutes > 0, $"{driving.Leg.Count} cells from {driving.LegStart} at {w.ClockMinute}");
         Arrive(w, posted.Id);
         var there = Unit(w, posted.Id);
         Assert.Equal(target, there.Cell);

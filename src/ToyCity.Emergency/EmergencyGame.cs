@@ -171,7 +171,11 @@ public sealed partial class EmergencyGame : ISideGame
         if (_rebase) Rebase(input.Turn);
         _tick = input.Turn;
         _clock = input.ClockMinute;
+        _step = Math.Max(1, input.ClockMinutesPerTick);
         _q = city;
+        _inTick = true;
+        // Legs ordered since the last day leave now, at the minute the clients' clocks run on from.
+        foreach (var u in _units) if (u.Leg.Count > 0 && u.LegStart < 0) u.LegStart = Now;
         bool turn = input.NewTurn;
         _day = input.Day;
         _month = input.Month;
@@ -651,6 +655,7 @@ public sealed partial class EmergencyGame : ISideGame
     public CommandResult Command(string seat, byte[] payload, ICityQueries city)
     {
         _q = city;
+        _inTick = false;
         W.Command cmd;
         try { cmd = W.Command.Parser.ParseFrom(payload); }
         catch (InvalidProtocolBufferException) { return No("The dispatcher didn't understand that."); }

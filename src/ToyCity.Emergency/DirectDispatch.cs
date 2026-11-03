@@ -17,17 +17,34 @@ public sealed partial class EmergencyGame
     /// <summary>The city, for routes, during a tick or a command.</summary>
     ICityQueries? _q;
 
+    /// <summary>
+    /// Whether this is the day's tick rather than a player's command. A leg ordered by command leaves at the next
+    /// tick's minute (its start is -1 until then): the clock jumps a step a day, and a leg that started at the old
+    /// minute would be over before any client saw it move.
+    /// </summary>
+    bool _inTick;
+
+    /// <summary>The day clock's minutes a day, from the city.</summary>
+    int _step = 48;
+
+    /// <summary>
+    /// The minute the clients' clocks start from when they get this day's view: the city's clock moves on a step after
+    /// its side games' day. Units drive by it, so what a client eases along is what the service has.
+    /// </summary>
+    long Now => _clock + _step;
+
     /// <summary>A unit's station door, or -1.</summary>
     int Home(Unit u) => Lot(u.LeaseId)?.AccessCell ?? -1;
 
-    bool Moving(Unit u) => u.Leg.Count > 0 && _clock < u.LegStart + u.LegMinutes;
+    bool Moving(Unit u) => u.Leg.Count > 0 && (u.LegStart < 0 || Now < u.LegStart + u.LegMinutes);
 
     /// <summary>Where a unit is now: along its leg by the clock, where it stands, or its station's door.</summary>
     int Where(Unit u)
     {
+        if (Moving(u) && u.LegStart < 0) return u.Leg[0];
         if (Moving(u))
         {
-            long done = Math.Max(0, _clock - u.LegStart);
+            long done = Math.Max(0, Now - u.LegStart);
             int k = (int)Math.Min(u.Leg.Count - 1, done * (u.Leg.Count - 1) / Math.Max(1, u.LegMinutes));
             return u.Leg[k];
         }
@@ -44,7 +61,7 @@ public sealed partial class EmergencyGame
         if (route == null || route.Cells.Count == 0) return false;
         u.Leg.Clear();
         u.Leg.AddRange(route.Cells);
-        u.LegStart = _clock;
+        u.LegStart = _inTick ? Now : -1;
         u.LegMinutes = Math.Max(1, route.Minutes);
         u.Cell = target;
         return true;
@@ -181,6 +198,7 @@ public sealed partial class EmergencyGame
     void SaveDirect(BinaryWriter w)
     {
         w.Write(DirectMark);
+        w.Write(_step);
         foreach (var u in _units)
         {
             w.Write(u.Cell); w.Write(u.LegStart); w.Write(u.LegMinutes); w.Write(u.FollowId); w.Write(u.Order);
@@ -192,6 +210,7 @@ public sealed partial class EmergencyGame
     void LoadDirect(BinaryReader r)
     {
         if (r.BaseStream.Position >= r.BaseStream.Length || r.ReadInt32() != DirectMark) return;
+        _step = r.ReadInt32();
         foreach (var u in _units)
         {
             u.Cell = r.ReadInt32(); u.LegStart = r.ReadInt64(); u.LegMinutes = r.ReadInt32(); u.FollowId = r.ReadInt32(); u.Order = r.ReadString();

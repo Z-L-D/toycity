@@ -296,4 +296,115 @@ public class EmergencyClientTests : IClassFixture<ServerFixture>
         em.Click("em-tab:reports");
         Assert.Contains("Response, last clock day", em.Render());
     }
+
+    [Fact]
+    public void UnitsDriveAlongTheirLegsAndThePickTakesDirectOrders()
+    {
+        var sent = new List<Command>();
+        var toasts = new List<string>();
+        var em = new EmergencyModel(m => { sent.Add(Command.Parser.ParseFrom(m.Action.SideGame.Payload)); return 0; }, () => { }) { CityWidth = () => 64 };
+        em.Toast += (t, _) => toasts.Add(t);
+        var v = new View { Name = "Rescue", Operator = "manual", Owner = "player" };
+        // An engine driving east along row 10 from x 4 to x 8, leaving at minute 1000 and taking 8 minutes.
+        var engine = new UnitView { Id = 1, Name = "Engine 1", Kind = UnitKind.Engine, State = "ready", Order = "posted", Home = 10 * 64 + 2, Cell = 10 * 64 + 8, LegStart = 1000, LegMinutes = 8 };
+        engine.Leg.AddRange(Enumerable.Range(4, 5).Select(x => 10 * 64 + x));
+        v.Units.Add(engine);
+        v.Units.Add(new UnitView { Id = 2, Name = "Patrol 1", Kind = UnitKind.Patrol, State = "ready", Home = 20 * 64 + 20, Cell = 20 * 64 + 20 });
+        v.Units.Add(new UnitView { Id = 3, Name = "Ambulance 1", Kind = UnitKind.Ambulance, State = "on call", CallId = 7, Home = 30 * 64 + 5, Cell = 25 * 64 + 5 });
+        v.Calls.Add(new CallView { Id = 8, Kind = "crime", X = 40, Y = 40, Status = "waiting" });
+        em.Handle(new SideGameView { Game = EmergencyModel.Game, Seat = "operator", Payload = v.ToByteString() });
+        em.SetActive(true);
+        Assert.True(em.Directing);
+        var map = em.Map;
+
+        // Halfway through its leg it's halfway along, facing east; after it, at its cell.
+        var half = DispatchMap.Position(engine, 1004, 64)!.Value;
+        Assert.Equal((6.5, 10.5, true), (half.X, half.Y, half.Moving));
+        Assert.True(half.Dx > 0);
+        Assert.Equal((8.5, 10.5, false), (DispatchMap.Position(engine, 1100, 64)!.Value.X, DispatchMap.Position(engine, 1100, 64)!.Value.Y, false));
+        Assert.Equal(3, map.Markers(1004).Count);
+        Assert.Equal(1, map.UnitAt(6.4, 10.6, 1004));
+        Assert.Null(map.UnitAt(30, 30, 1004));
+
+        // Picking: a click, a shift-click, a box, a group.
+        map.Click(1, false);
+        map.Click(2, true);
+        Assert.Equal(new[] { 1, 2 }, map.Selected);
+        map.Click(1, true);
+        Assert.Equal(new[] { 2 }, map.Selected);
+        map.Box(new[] { 1, 3 }, true);
+        Assert.Equal(new[] { 2, 1, 3 }, map.Selected);
+        map.SetGroup(4);
+        map.Click(null, false);
+        Assert.Empty(map.Selected);
+        Assert.True(map.RecallGroup(4));
+        Assert.False(map.RecallGroup(5));
+        Assert.Equal(3, map.Selected.Count);
+
+        // A right-click on a street: the free ones go, the ambulance on a call is left out and named.
+        map.RightClick(30, 12, null, queue: false);
+        var go = sent[^1].Order;
+        Assert.Equal(("go", 30, 12, false), (go.Kind, go.X, go.Y, go.Queue));
+        Assert.Equal(new[] { 2, 1 }, go.UnitIds);
+        Assert.Contains("Ambulance 1 is busy", toasts[^1]);
+        map.RightClick(31, 14, null, queue: true);
+        Assert.True(sent[^1].Order.Queue);
+        // On a call: they answer it. On a unit not picked: they follow it.
+        map.RightClick(41, 40, null, false);
+        Assert.Equal(("scene", 8), (sent[^1].Order.Kind, sent[^1].Order.CallId));
+        map.Box(new[] { 2 }, false);
+        map.RightClick(6, 10, 1, false);
+        Assert.Equal(("follow", 1), (sent[^1].Order.Kind, sent[^1].Order.FollowId));
+        Assert.Equal(new[] { 2 }, sent[^1].Order.UnitIds);
+        // Follow by button: the next click names the leader.
+        map.StartFollow();
+        Assert.Contains("Click the unit they should follow", map.Hint());
+        map.Click(1, false);
+        Assert.Equal("follow", sent[^1].Order.Kind);
+        Assert.Equal(new[] { 2 }, map.Selected);
+        map.Hold();
+        Assert.Equal("hold", sent[^1].Order.Kind);
+        map.Return();
+        Assert.Equal("return", sent[^1].Order.Kind);
+        // Only busy units: nothing goes, and the player is told.
+        int count = sent.Count;
+        map.Box(new[] { 3 }, false);
+        map.Hold();
+        Assert.Equal(count, sent.Count);
+        Assert.Contains("busy with a call", toasts[^1]);
+        Assert.Equal("driving out", map.Doing(engine));
+        Assert.Contains("Engine 1 (driving out)", new Func<string>(() => { map.Box(new[] { 1 }, false); return map.PickedText(); })());
+    }
+
+    [Fact]
+    public void OnARealServerADirectOrderReachesTheServiceAndItsAnswerComesBack()
+    {
+        // The test server's city has no stations, so no units: the order is answered with the service's refusal,
+        // which shows it went over the wire, was read and was turned down by the game itself.
+        using var client = new CityClient(_server.Ws, "test-direct");
+        var panel = new PanelModel(client.City, client.Connection.Send);
+        client.Message += panel.Handle;
+        var notices = new List<string>();
+        client.Message += m => { if (m.Delta != null) notices.AddRange(m.Delta.Notices.Select(n => n.Text)); if (m.Error != null) notices.Add(m.Error.Message); };
+        var em = panel.Emergency;
+        var toasts = new List<string>();
+        em.Toast += (t, _) => toasts.Add(t);
+        PollUntil(client, () => client.City.Loaded && em.View != null);
+        if (!em.Mine) panel.Click("em-claim");
+        PollUntil(client, () => em.Mine);
+        em.SetActive(true);
+        Assert.True(em.Directing);
+        Assert.All(em.View!.Units, u => Assert.True(u.Home >= 0, u.Name));
+        em.Map.Box(new[] { 4242 }, false);
+        em.Map.RightClick(5, 5, null, false);
+        // Nobody known is picked, so the client stops it and says why.
+        Assert.Contains("Pick some units first", toasts[^1]);
+        // Sent by hand, past the client's own check.
+        var o = new UnitOrder { Kind = "go", X = 5, Y = 5 };
+        o.UnitIds.Add(4242);
+        client.Connection.Send(new ClientMessage { Action = new ToyCity.Protocol.V0.Action { SideGame = new SideGameCommand { Game = EmergencyModel.Game, Seat = "operator", Payload = new Command { Order = o }.ToByteString() } } });
+        client.Connection.Send(new ClientMessage { Speed = new SetSpeed { Speed = 3 } });
+        try { PollUntil(client, () => notices.Any(n => n.Contains("Pick at least one")), 60); } catch (TimeoutException) { throw new Exception("got: " + string.Join(" | ", notices)); }
+        client.Connection.Send(new ClientMessage { Speed = new SetSpeed { Speed = 0 } });
+    }
 }

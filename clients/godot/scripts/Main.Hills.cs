@@ -204,5 +204,80 @@ public partial class Main
         yield return MountainMeasure("free, the foul river");
         _camera.ToggleFree();
         _client.Connection.Act(new Protocol.V0.Action { Treatment = new Protocol.V0.SetTreatment { Level = 2 } });
+
+        // Direct dispatch (Beta 4, part 1): stations by the town's streets, leased to the service, which the player
+        // runs. Every unit is picked with the box and sent across town by a right-click; they drive there by road.
+        var em = _panels.Model.Emergency;
+        var placedStations = new List<int>();
+        foreach (var kind in new[] { "fire-station", "police-station", "clinic" })
+        {
+            var t = c.TypeById[kind];
+            foreach (var (px, py) in StationSpots(c, t.Width, t.Height, tx, ty, placedStations).Take(10))
+            {
+                _client.Connection.Act(new Protocol.V0.Action { Building = new Protocol.V0.PlaceBuilding { X = px, Y = py, TypeId = kind } });
+                int at = c.Idx(px, py);
+                int frames = 0;
+                yield return new GateWait($"a {kind} placed", () => c.BuildingAt[at] != 0 || ++frames > 120, 30);
+                if (c.BuildingAt[at] != 0) { placedStations.Add(at); break; }
+            }
+        }
+        if (!em.Mine) _panels.Model.Click("em-claim");
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 2 } });
+        yield return new GateWait("the service run by the player, with stations to lease", () => em.Mine && em.View!.OpenStations.Count >= placedStations.Count, 120);
+        foreach (var o in em.View!.OpenStations) _client.Connection.Act(new Protocol.V0.Action { Lease = new Protocol.V0.LeaseLot { Game = "emergency", BuildingId = o.BuildingId } });
+        yield return new GateWait("units at the stations", () => em.View!.Units.Count(u => u.State == "ready") >= 3, 120);
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } });
+        em.SetActive(true);
+        var ready = em.View!.Units.Where(u => u.State == "ready").ToList();
+        MountainCheck("units at their stations", ready.All(u => u.Cell == u.Home && u.Home >= 0),
+            string.Join(", ", ready.Select(u => $"{u.Name} at {u.Home % c.Width},{u.Home / c.Width}")));
+        em.Map.Box(ready.Select(u => u.Id), false);
+        // The street farthest across town from the first station.
+        int home0 = ready[0].Home, w = c.Width;
+        int target = Enumerable.Range(0, c.Paths.Length).Where(i => c.ProfileAt(i) is { Frontage: true } && !c.IsTunnel(i))
+            .OrderByDescending(i => Math.Abs(i % w - home0 % w) + Math.Abs(i / w - home0 / w)).ThenBy(i => i).First();
+        em.Map.RightClick(target % w, target / w, null, false);
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 1 } });
+        yield return new GateWait("the units driving", () => em.View!.Units.Any(u => u.Order == "posted" && u.Leg.Count > 1 && u.LegStart >= 0), 60);
+        var driving = em.View!.Units.Where(u => u.Order == "posted" && u.Leg.Count > 1).ToList();
+        MountainCheck("units drive by road", driving.Count > 0 && driving.All(u => u.Leg.All(cell => c.Paths[cell] != 0)),
+            $"{driving.Count} of {ready.Count} on the road: " + string.Join(", ", driving.Select(u => $"{u.Name} {u.Leg.Count} cells in {u.LegMinutes} min")));
+        _camera.CentreOn((home0 % w + target % w) / 2f + 0.5f, (home0 / w + target / w) / 2f + 0.5f);
+        v.Zoom = 3;
+        yield return MountainMeasure("classic, units driving out");
+        _camera.ToggleFree();
+        var lead = em.Map.Markers(Math.Max(0, c.Stats.ClockMinute)).OrderByDescending(m => m.Moving).First();
+        Look((float)lead.X, (float)lead.Y, 12, 30, 210);
+        yield return MountainMeasure("free, a fire engine on the street");
+        _camera.ToggleFree();
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 3 } });
+        yield return new GateWait("the units posted across town", () => em.View!.Units.Where(u => u.Order == "posted").All(u => u.Leg.Count == 0), 120);
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } });
+        var posted = em.View!.Units.Where(u => u.Order == "posted").ToList();
+        MountainCheck("units posted where they were sent", posted.Count == ready.Count && posted.All(u => Math.Abs(u.Cell % w - target % w) + Math.Abs(u.Cell / w - target / w) <= 4),
+            $"{posted.Count} posted near {target % w},{target / w}: {em.Map.PickedText()}");
+        em.Map.Return();
+        em.SetActive(false);
+    }
+
+    /// <summary>Spots for a station by the streets, near a point and away from the stations already placed.</summary>
+    static IEnumerable<(int X, int Y)> StationSpots(ClientModel.CityMirror c, int bw, int bh, float nx, float ny, List<int> placed)
+    {
+        var list = new List<(int X, int Y, float D)>();
+        for (int y = 2; y < c.Height - bh - 2; y++)
+            for (int x = 2; x < c.Width - bw - 2; x++)
+            {
+                bool ok = true, road = false;
+                for (int yy = y; yy < y + bh && ok; yy++)
+                    for (int xx = x; xx < x + bw && ok; xx++) { int i = c.Idx(xx, yy); ok = !c.IsWater(i) && c.BuildingAt[i] == 0 && c.Paths[i] == 0; }
+                if (!ok) continue;
+                for (int yy = y - 1; yy <= y + bh && !road; yy++)
+                    for (int xx = x - 1; xx <= x + bw && !road; xx++)
+                        if ((xx < x || xx >= x + bw || yy < y || yy >= y + bh) && (xx == x - 1 || xx == x + bw) != (yy == y - 1 || yy == y + bh) && c.ProfileAt(c.Idx(xx, yy)) is { Frontage: true }) road = true;
+                if (!road) continue;
+                float near = Math.Abs(x - nx) + Math.Abs(y - ny), apart = placed.Count == 0 ? 0 : placed.Min(p => Math.Abs(p % c.Width - x) + Math.Abs(p / c.Width - y));
+                list.Add((x, y, near - Math.Min(apart, 20)));
+            }
+        return list.OrderBy(s => s.D).ThenBy(s => s.Y).ThenBy(s => s.X).Select(s => (s.X, s.Y));
     }
 }

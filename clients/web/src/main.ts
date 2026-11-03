@@ -8,6 +8,7 @@ import { TalkBack } from './talkback';
 import { Seats } from './seats';
 import { Transport } from './transport';
 import { Emergency } from './emergency';
+import { TickClock } from './dispatch';
 import { Region } from './region';
 
 // ---------------------------------------------------------------------------
@@ -228,6 +229,9 @@ const conn = new Connection({
 
 // Both clocks, the hands running on between ticks (Beta 3.2).
 const gameClock = new GameClock();
+/** The minute units drive by: smooth across each day's step (Beta 4, direct dispatch). */
+const unitClock = new TickClock();
+const unitMinute = () => unitClock.now(Number(city.stats.clockMinute ?? 0), city.stats.clockMinutesPerTick ?? 0, city.stats.speed ?? 0);
 
 function updateClock() {
   const s = city.stats;
@@ -435,6 +439,16 @@ function updateHints() {
 // ---------------------------------------------------------------------------
 
 let panning: { sx: number; sy: number; ox: number; oy: number } | null = null;
+/** Direct dispatch: a left press on the map (a click, or a box once dragged) and where a right press began. */
+let unitPress: { sx: number; sy: number; moved: boolean } | null = null;
+let rightFrom: { sx: number; sy: number } | null = null;
+
+/** The unit under a screen point, as drawn: within its marker, or a cell and a half. */
+function unitUnder(sx: number, sy: number): number | null {
+  if (!emergency) return null;
+  const reach = Math.max(1.5, 12 / renderer.scale);
+  return emergency.map.unitAt((sx - renderer.offX) / renderer.scale, (sy - renderer.offY) / renderer.scale, unitMinute(), reach);
+}
 
 function localXY(e: MouseEvent) {
   const r = canvas.getBoundingClientRect();
@@ -711,8 +725,10 @@ canvas.addEventListener('mousedown', (e) => {
   const { sx, sy } = localXY(e);
   if (e.button === 2 || e.button === 1) {
     panning = { sx, sy, ox: renderer.offX, oy: renderer.offY };
+    if (e.button === 2) rightFrom = { sx, sy };
     return;
   }
+  if (e.button === 0 && emergency?.directing) { unitPress = { sx, sy, moved: false }; return; }
   if (e.button !== 0 || !city.loaded) return;
   const cell = renderer.cellAt(sx, sy);
   if (transport?.company) { if (city.inBounds(cell.x, cell.y)) transport.mapClick(cell.x, cell.y); return; }
@@ -753,6 +769,11 @@ canvas.addEventListener('mousedown', (e) => {
 });
 window.addEventListener('mousemove', (e) => {
   const { sx, sy } = localXY(e);
+  if (unitPress) {
+    unitPress.moved ||= Math.abs(sx - unitPress.sx) + Math.abs(sy - unitPress.sy) > 6;
+    if (unitPress.moved) { renderer.unitBox = { x0: unitPress.sx, y0: unitPress.sy, x1: sx, y1: sy }; dirty = true; }
+    return;
+  }
   if (panning) {
     followCam = false;
     renderer.offX = panning.ox + (sx - panning.sx);
@@ -764,6 +785,27 @@ window.addEventListener('mousemove', (e) => {
   if (e.target === canvas || drag) updatePreview(renderer.cellAt(sx, sy), sx, sy);
 });
 window.addEventListener('mouseup', (e) => {
+  if (unitPress && e.button === 0 && emergency) {
+    const { sx, sy } = localXY(e);
+    if (unitPress.moved) {
+      const x0 = Math.min(unitPress.sx, sx), x1 = Math.max(unitPress.sx, sx), y0 = Math.min(unitPress.sy, sy), y1 = Math.max(unitPress.sy, sy);
+      emergency.map.box(renderer.shownUnits.filter((u) => { const p = renderer.unitScreen(u); return p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1; }).map((u) => u.id), e.shiftKey);
+    } else emergency.map.click(unitUnder(sx, sy), e.shiftKey);
+    unitPress = null;
+    renderer.unitBox = null;
+    emergency.mapChanged();
+    dirty = true;
+    return;
+  }
+  if (e.button === 2 && rightFrom) {
+    const { sx, sy } = localXY(e);
+    // A right click without a drag sends the picked units; a drag only pans.
+    if (emergency?.directing && Math.abs(sx - rightFrom.sx) + Math.abs(sy - rightFrom.sy) < 6) {
+      const cell = renderer.cellAt(sx, sy);
+      if (city.inBounds(cell.x, cell.y)) { emergency.map.rightClick(cell.x, cell.y, unitUnder(sx, sy), e.shiftKey); emergency.mapChanged(); dirty = true; }
+    }
+    rightFrom = null;
+  }
   if (panning && (e.button === 2 || e.button === 1)) { panning = null; return; }
   if (e.button !== 0 || !drag) return;
   const { sx, sy } = localXY(e);
@@ -798,6 +840,7 @@ window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   // The company's and the service's screens have their own tools; only the shared keys (pause, speed, panning) work there.
   if (transport?.company || emergency?.active) {
+    if (emergency?.mapKey(e)) { dirty = true; return; }
     if (k === ' ') { e.preventDefault(); conn.send({ speed: { speed: city.stats.speed === 0 ? 1 : 0 } }); }
     else if (k >= '1' && k <= '3') conn.send({ speed: { speed: Number(k) } });
     return;
@@ -1381,6 +1424,8 @@ emergency = new Emergency({
   conn, jumpTo, toast, cityWidth: () => city.width,
   clock: () => ({ month: city.stats.month ?? 0, day: city.stats.day ?? 0, year: city.stats.year ?? 0, speed: city.stats.speed ?? 0, text: gameClock.text(city.stats) }),
   setCalls: (calls) => { renderer.calls = calls; dirty = true; },
+  minute: unitMinute,
+  setUnits: (units) => { renderer.units = units; if (!units) renderer.shownUnits = []; dirty = true; },
   onModeChange: (on) => {
     if (on && transport?.company) transport.setMode(false);
     drag = null;

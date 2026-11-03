@@ -35,7 +35,7 @@ public sealed partial class PanelModel
         Company = new CompanyModel(city, send, Changed) { Me = () => Me() };
         Company.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Company.JumpTo += (x, y) => JumpTo?.Invoke(x, y);
-        Emergency = new EmergencyModel(send, Changed) { Me = () => Me() };
+        Emergency = new EmergencyModel(send, Changed) { Me = () => Me(), CityWidth = () => city.Width > 0 ? city.Width : 128 };
         Region = new RegionModel(send, Changed) { Me = () => Me() };
         Emergency.Toast += (t, sev) => Toast?.Invoke(t, sev);
         Emergency.JumpTo += (x, y) => JumpTo?.Invoke(x, y);

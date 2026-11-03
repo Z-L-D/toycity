@@ -1,3 +1,4 @@
+import { PICKED, UNIT_BODY, UNIT_STRIPE, type UnitMarker } from './dispatch';
 import { type MapLight, litShare } from './daylight';
 import { City, lCells, SIDE_DX, SIDE_DY, stripPoints } from './state';
 import type { Building, BuildingType } from './state';
@@ -273,6 +274,12 @@ export class Renderer {
    * those still waiting for units pulsing.
    */
   calls: { x: number; y: number; icon: string; waiting: boolean; scene: boolean }[] | null = null;
+  /** Set while the service's screen is up: its units where they are this frame (Beta 4, direct dispatch). */
+  units: (() => UnitMarker[]) | null = null;
+  /** A box being dragged over the map to pick units, in screen pixels. */
+  unitBox: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  /** The units as last drawn, for picking by screen point or box. */
+  shownUnits: UnitMarker[] = [];
   /** What the neighbouring cities show across each side: roads, power lines and pipes, with their names. */
   borders: { side: number; name: string; paths: number[]; power: number[]; pipes: number[] }[] = [];
   private terrain: HTMLCanvasElement = document.createElement('canvas');
@@ -289,6 +296,7 @@ export class Renderer {
     if (this.flash && this.flash.until > performance.now()) return true;
     if (this.followed !== null) return true;
     if (this.calls?.some((c) => c.waiting)) return true;
+    if (this.units && (this.shownUnits.some((u) => u.moving || u.picked) || this.unitBox)) return true;
     if ((this.company || this.showRoutes) && this.busLines.some((l) => l.buses > 0) && this.city.stats.speed > 0) return true;
     return this.showAgents && this.agents.length > 0 && this.city.stats.speed > 0;
   }
@@ -475,6 +483,7 @@ export class Renderer {
       this.drawBorders(px, py);
       if (this.company) this.drawCompany(px, py, r.width, r.height);
       if (this.calls) this.drawCalls(px, py, r.width, r.height);
+      if (this.units) this.drawUnits(px, py);
       if (this.company || this.showRoutes) this.drawBusLines(px, py);
       if (!this.company) this.drawAgents(px, py, x0, y0, x1, y1);
       if (this.light && !this.company) this.drawLight(this.light, x0, y0, x1, y1, px, py);
@@ -677,6 +686,84 @@ export class Renderer {
     ctx.textAlign = 'start';
     ctx.textBaseline = 'alphabetic';
   }
+
+  /** The service's units: a little vehicle in its colours, facing the way it drives, ringed when picked. */
+  private drawUnits(px: (x: number) => number, py: (y: number) => number) {
+    const ctx = this.ctx;
+    const s = this.scale;
+    const w = this.city.width;
+    this.shownUnits = this.units!();
+    // Units standing on the same spot fan out around it, so each can be seen and clicked.
+    const spots = new Map<string, number>();
+    for (const u of this.shownUnits) {
+      if (u.moving) continue;
+      const key = `${Math.floor(u.x)},${Math.floor(u.y)}`;
+      const n = spots.get(key) ?? 0;
+      spots.set(key, n + 1);
+      if (n > 0) { const a = n * 2.4; u.x += Math.cos(a) * 0.28 * Math.min(2, 1 + n / 6); u.y += Math.sin(a) * 0.28 * Math.min(2, 1 + n / 6); }
+    }
+    const labelled = new Set<string>();
+    // The picked units' routes first, under the vehicles: what's left to drive, then the places queued after.
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255,225,77,0.8)';
+    for (const u of this.shownUnits) {
+      if (!u.route.length) continue;
+      ctx.beginPath();
+      ctx.moveTo(px(u.x), py(u.y));
+      for (const c of u.route) ctx.lineTo(px(c % w + 0.5), py(Math.floor(c / w) + 0.5));
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    const len = Math.max(14, s * 1.1), wid = Math.max(8, s * 0.6);
+    for (const u of this.shownUnits) {
+      const x = px(u.x), y = py(u.y);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(Math.atan2(u.dy, u.dx));
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(-len / 2 + 1.5, -wid / 2 + 1.5, len, wid);
+      ctx.fillStyle = UNIT_BODY[u.kind] ?? '#888';
+      ctx.fillRect(-len / 2, -wid / 2, len, wid);
+      ctx.fillStyle = UNIT_STRIPE[u.kind] ?? '#fff';
+      ctx.fillRect(-len / 2, -wid * 0.12, len, wid * 0.24);
+      // A light bar on the cab, flashing while it drives.
+      const flash = u.moving && Math.floor(performance.now() / 220) % 2 === 0;
+      ctx.fillStyle = flash ? '#ff4040' : '#5aa0ff';
+      ctx.fillRect(len * 0.12, -wid / 2, len * 0.14, wid);
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-len / 2 + 0.5, -wid / 2 + 0.5, len - 1, wid - 1);
+      ctx.restore();
+      if (u.picked) {
+        ctx.beginPath();
+        ctx.arc(x, y, len * 0.75, 0, Math.PI * 2);
+        ctx.strokeStyle = PICKED;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        const spot = `${Math.round(u.x)},${Math.round(u.y)}`;
+        if (s >= 6 && !labelled.has(spot)) {
+          labelled.add(spot);
+          ctx.font = '11px sans-serif';
+          ctx.fillStyle = '#fff';
+          ctx.textAlign = 'center';
+          ctx.fillText(u.name, x, y - len * 0.85);
+          ctx.textAlign = 'start';
+        }
+      }
+    }
+    if (this.unitBox) {
+      const b = this.unitBox;
+      ctx.fillStyle = 'rgba(255,225,77,0.12)';
+      ctx.fillRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
+      ctx.strokeStyle = PICKED;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(Math.min(b.x0, b.x1) + 0.5, Math.min(b.y0, b.y1) + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
+    }
+  }
+
+  /** A unit's screen point, as last drawn. */
+  unitScreen(u: UnitMarker): { x: number; y: number } { return { x: this.offX + u.x * this.scale, y: this.offY + u.y * this.scale }; }
 
   private drawCompany(px: (x: number) => number, py: (y: number) => number, w: number, h: number) {
     const ctx = this.ctx;

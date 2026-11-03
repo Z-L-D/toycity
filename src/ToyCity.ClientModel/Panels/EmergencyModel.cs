@@ -51,7 +51,17 @@ public sealed class EmergencyModel
     readonly Dictionary<int, HashSet<int>> _picks = new();
     double _clock;
 
-    public EmergencyModel(Func<ClientMessage, uint> send, System.Action changed) => (_send, _changed) = (send, changed);
+    public EmergencyModel(Func<ClientMessage, uint> send, System.Action changed)
+    {
+        (_send, _changed) = (send, changed);
+        Map = new DispatchMap(() => View, Command, (t, sev) => Toast?.Invoke(t, sev)) { Width = () => CityWidth() };
+    }
+
+    /// <summary>Direct dispatch on the city map (Beta 4): the units on the streets, the player's pick and orders.</summary>
+    public DispatchMap Map { get; }
+
+    /// <summary>Whether the map takes direct orders: the service's screen is up, the player runs it, and no scene is on show.</summary>
+    public bool Directing => Active && Mine && (Scene == null || SceneHidden);
 
     public Func<string> Me { get; set; } = () => "player";
     public View? View { get; private set; }
@@ -228,6 +238,9 @@ public sealed class EmergencyModel
             case "em-take": Command(new Command { Take = new TakeScene { CallId = I(1) } }); return;
             case "em-watch": LeaveScene(); SceneId = I(1); break;
             case "em-board": LeaveScene(); break;
+            case "em-unit":
+                if (a[1] == "hold") Map.Hold(); else if (a[1] == "home") Map.Return(); else if (a[1] == "follow") Map.StartFollow();
+                break;
             case "em-leave": Command(new Command { Leave = new LeaveScene { SceneId = SceneId } }); return;
             case "em-run": Running = !Running; break;
             case "em-order": Current = Enum.Parse<Order>(a[1]); break;
@@ -541,6 +554,7 @@ public sealed class EmergencyModel
         if (Scene == null)
         {
             list.Add(("Board", Tabs.Select(t => ($"em-tab:{t.Id}", t.Id == "calls" && Waiting > 0 ? $"{t.Name} ({Waiting} waiting)" : t.Name, t.Id == Tab)).ToList()));
+            if (Mine) list.Add(("Units on the map", UnitTools()));
             return list;
         }
         var scene = new List<(string, string, bool)> { ("em-board", "← Return to calls", false) };
@@ -549,7 +563,41 @@ public sealed class EmergencyModel
         else if (Mine) { scene.Add(("em-run", Running ? "⏸ Hold" : "▶ Run", !Running)); scene.Add(("em-leave", "Hand to crews", false)); }
         list.Add(("Scene", scene));
         if (Mine && !SceneOver) list.Add(("Orders", Orders().Select(o => ($"em-order:{o}", o.ToString(), o == Current)).ToList()));
+        if (Mine && SceneHidden) list.Add(("Units on the map", UnitTools()));
         return list;
+    }
+
+    List<(string, string, bool)> UnitTools() => new()
+    {
+        ("em-unit:hold", "Hold (H)", false),
+        ("em-unit:home", "Go home (G)", false),
+        ("em-unit:follow", "Follow (F)", Map.PickingLeader),
+    };
+
+    /// <summary>Under the units' buttons: who is picked and what to do next.</summary>
+    public string UnitText => $"{Map.PickedText()}\n{Map.Hint()}";
+
+    /// <summary>The pick on the map changed: the tools say so.</summary>
+    public void MapChanged() => _changed();
+
+    /// <summary>Keys on the map while directing: H hold, G go home, F follow, ctrl+number a group, a number picks it.</summary>
+    public bool MapKey(string key, bool ctrl)
+    {
+        if (!Directing) return false;
+        key = key.ToLowerInvariant();
+        if (key.Length == 1 && key[0] is >= '1' and <= '9')
+        {
+            int n = key[0] - '0';
+            if (ctrl) Map.SetGroup(n);
+            else if (!Map.RecallGroup(n)) return false;
+        }
+        else if (key == "h") Map.Hold();
+        else if (key == "g") Map.Return();
+        else if (key == "f") Map.StartFollow();
+        else if (key == "escape" && (Map.Selected.Count > 0 || Map.PickingLeader)) Map.Box(Array.Empty<int>(), false);
+        else return false;
+        _changed();
+        return true;
     }
 
     /// <summary>The board's page, or the scene's news, for the panel on the right of the service's screen.</summary>

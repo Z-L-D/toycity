@@ -5,6 +5,7 @@
 // in Settings decide how much the crews do alone.
 import { span } from './clock';
 import { decodeEmergencyView, encodeEmergencyCommand, type Connection, type Msg } from './net';
+import { DispatchMap, type UnitMarker } from './dispatch';
 
 export interface EmergencyHost {
   conn: Connection;
@@ -18,6 +19,10 @@ export interface EmergencyHost {
   onModeChange?(on: boolean): void;
   /** Marks the service's calls on the city map while its screen is up, or clears them (null). */
   setCalls?(calls: { x: number; y: number; icon: string; waiting: boolean; scene: boolean }[] | null): void;
+  /** The day clock's minute now, run on between the city's ticks, to ease units along their legs. */
+  minute?(): number;
+  /** Draws the service's units on the city map while its screen is up (a source read each frame), or stops (null). */
+  setUnits?(units: (() => UnitMarker[]) | null): void;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -99,7 +104,11 @@ export class Emergency {
   /** Units ticked for each call, before Send. */
   private picks = new Map<number, Set<number>>();
 
+  /** Direct dispatch on the city map (Beta 4): the units on the streets, the player's pick and its orders. */
+  readonly map: DispatchMap;
+
   constructor(private readonly host: EmergencyHost) {
+    this.map = new DispatchMap(() => this.view, (c) => this.command(c), (t, sev) => this.host.toast(t, sev), () => this.host.cityWidth?.() ?? 128);
     $('#btn-emergency').addEventListener('click', () => this.setMode(true));
     $('#em-city').addEventListener('click', () => this.setMode(false));
     document.querySelectorAll<HTMLButtonElement>('#em-speed button').forEach((b) =>
@@ -174,6 +183,27 @@ export class Emergency {
     this.render();
   }
 
+  /** Whether the city map takes direct orders: the service's screen is up, the player runs it, no scene in the way. */
+  get directing(): boolean { return this.active && this.mine && (!this.shown || this.sceneHidden); }
+
+  /** The pick or what it's doing changed on the map: the tools say so. */
+  mapChanged() { if (this.active) this.renderTools(); }
+
+  /** Keys on the map while directing: H hold, G go home, F follow, ctrl+number a group, a number picks it. */
+  mapKey(e: KeyboardEvent): boolean {
+    if (!this.directing) return false;
+    const k = e.key.toLowerCase();
+    if (e.ctrlKey && k >= '1' && k <= '9') { this.map.setGroup(Number(k)); e.preventDefault(); }
+    else if (!e.ctrlKey && k >= '1' && k <= '9' && this.map.hasGroup(Number(k))) this.map.recallGroup(Number(k));
+    else if (k === 'h') this.map.hold();
+    else if (k === 'g') this.map.goHome();
+    else if (k === 'f') this.map.startFollow();
+    else if (k === 'escape' && (this.map.picked.length || this.map.pickingLeader)) this.map.box([], false);
+    else return false;
+    this.mapChanged();
+    return true;
+  }
+
   private get me() { return this.host.conn.player || 'player'; }
   private get mine() { return this.view?.operator === 'manual' && this.view.owner === this.me; }
   /** Calls waiting for someone to send units. */
@@ -208,6 +238,7 @@ export class Emergency {
     this.host.setCalls?.(this.active && v ? (v.calls as Msg[]).filter((c) => c.status !== 'done').map((c) => ({
       x: c.x, y: c.y, icon: KIND_ICON[c.kind] ?? '•', waiting: c.status === 'waiting' || c.status === 'proposed', scene: c.status === 'scene',
     })) : null);
+    this.host.setUnits?.(this.active && v ? () => this.map.markers(this.host.minute?.() ?? 0) : null);
     if (!this.active) return;
     this.renderTop();
     this.renderTools();
@@ -249,6 +280,14 @@ export class Emergency {
       html += '<h4>Board</h4>' + (['calls', 'units', 'reports', 'settings', 'log'] as EmTab[]).map((t) =>
         btn(`tab:${t}`, `${t[0].toUpperCase() + t.slice(1)}${t === 'calls' && w ? ` <span class="badge">${w}</span>` : ''}`, t === this.tab)).join('');
       if (!this.mine && !this.pending) html += '<p class="tip">The computer runs the service. Run it yourself (top bar) to send units and command scenes.</p>';
+      if (this.mine) {
+        const m = this.map;
+        html += `<h4>Units on the map</h4><p class="em-picked">${esc(m.pickedText())}</p>`;
+        html += btn('hold', 'Hold (H)', false, "They stay where they are, and the computer won't send them anywhere")
+          + btn('home', 'Go home (G)', false, 'Back to their stations; the computer sends them again from there')
+          + btn('follow', 'Follow (F)', m.pickingLeader, 'Then click the unit they should follow');
+        html += `<p class="tip">${esc(m.hint())}</p>`;
+      }
     } else {
       html += '<h4>Scene</h4>' + btn('board', '← Return to calls');
       html += this.sceneHidden ? btn('scene', 'Back to the scene') : btn('locate', '📍 Where is this?', false, 'Put the scene aside and show the city around it');
@@ -342,6 +381,9 @@ export class Emergency {
       case 'take': this.command({ take: { callId: n } }); this.host.toast('Taking the scene: it opens when the crews arrive.'); break;
       case 'watch': this.ended = null; this.sceneId = n; this.selected = []; this.sceneHidden = false; this.render(); break;
       case 'board': this.toBoard(); break;
+      case 'hold': this.map.hold(); this.renderTools(); break;
+      case 'home': this.map.goHome(); this.renderTools(); break;
+      case 'follow': this.map.startFollow(); this.renderTools(); break;
       case 'locate': {
         const s = this.shown;
         const c = s && (this.view!.calls as Msg[]).find((x) => x.id === s.callId);

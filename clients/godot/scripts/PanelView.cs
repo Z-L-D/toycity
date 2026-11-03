@@ -448,6 +448,8 @@ public partial class PanelView : CanvasLayer
             return;
         }
         if (e is not InputEventKey { Pressed: true, Echo: false } k) return;
+        // Direct dispatch's keys on the map: H hold, G go home, F follow, ctrl+number a group, a number picks it.
+        if (Model.Emergency.Directing && Model.Emergency.MapKey(OS.GetKeycodeString(k.Keycode), k.CtrlPressed)) { GetViewport().SetInputAsHandled(); return; }
         switch (k.Keycode)
         {
             case Key.P: _side!.Visible = !_side.Visible; break;
@@ -573,7 +575,10 @@ public partial class PanelView : CanvasLayer
                 _emToolList.AddChild(b);
             }
         }
-        if (em.Scene != null && em.Mine && !em.SceneOver)
+        if (em.Directing)
+            _emToolList.AddChild(new Label { Text = em.UnitText, AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                LabelSettings = new LabelSettings { FontSize = 11, FontColor = UiTheme.Muted } });
+        if (em.Scene != null && em.Mine && !em.SceneOver && !em.SceneHidden)
             _emToolList.AddChild(new Label { Text = em.OrderHint, AutowrapMode = TextServer.AutowrapMode.WordSmart,
                 LabelSettings = new LabelSettings { FontSize = 11, FontColor = UiTheme.Muted } });
         if (em.View != null && em.Scene == null && !em.Mine && em.Pending == null)
