@@ -62,6 +62,7 @@ Rivers, round 2: meanders, rain-fed rivers, the river brush and dams ([`docs/scr
 | --- | --- |
 | ![Web client, a dam across a river and the reservoir filled behind it](docs/screenshots/beta4-rivers/web-dam-reservoir.jpg) | ![Web client, the river brush digging a channel 48 m wide from a river](docs/screenshots/beta4-rivers/web-river-preview.jpg) |
 | ![Web client, a river in flood after weeks of storms](docs/screenshots/beta4-rivers/web-flow-flood.jpg) | ![Web client, the same reach low after a heatwave](docs/screenshots/beta4-rivers/web-flow-low.jpg) |
+| ![Godot client (CI, software OpenGL), a dam across a mountain river and its reservoir](docs/screenshots/beta4-rivers/godot-dam-reservoir.jpg) | ![Godot client, the dam close up](docs/screenshots/beta4-rivers/godot-dam-close.jpg) |
 
 River shorelines ([`docs/screenshots/beta4-rivers`](docs/screenshots/beta4-rivers)):
 

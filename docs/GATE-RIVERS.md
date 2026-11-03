@@ -154,7 +154,9 @@ as the sim damages buildings with.
 | ![Web, the dam tool's preview across a river, with its cost](screenshots/beta4-rivers/web-dam-preview.jpg) | ![Web, the reservoir filled behind the dam](screenshots/beta4-rivers/web-dam-reservoir.jpg) |
 | ![Web, the river brush's preview, 48 m wide](screenshots/beta4-rivers/web-river-preview.jpg) | ![Web, the dug channel joined to the river](screenshots/beta4-rivers/web-river-dug.jpg) |
 | ![Web, the river in flood after weeks of storms, at six times its usual flow](screenshots/beta4-rivers/web-flow-flood.jpg) | ![Web, the same reach low after a heatwave, at a third of its flow](screenshots/beta4-rivers/web-flow-low.jpg) |
-| ![Web, the mountain city (seed 40) after the fix: no straight strips of water](screenshots/beta4-rivers/web-mountain-rivers.jpg) | |
+| ![Godot (CI, software OpenGL), the mountain city's rivers and ponds after the fix](screenshots/beta4-rivers/godot-mountain-valley.jpg) | ![Web, the mountain city (seed 40) after the fix: no straight strips of water](screenshots/beta4-rivers/web-mountain-rivers.jpg) |
+| ![Godot, a dam across a mountain river and its reservoir of 1,203 cells](screenshots/beta4-rivers/godot-dam-reservoir.jpg) | ![Godot, the dam close up: the reservoir held behind the concrete wall](screenshots/beta4-rivers/godot-dam-close.jpg) |
+| ![Godot, a river dug by the brush from a mountain river](screenshots/beta4-rivers/godot-river-dug.jpg) | |
 
 ## Trade-offs to watch
 
