@@ -506,6 +506,9 @@ body.dispatch #em-panel { display: flex; flex-direction: column; min-height: 0; 
 .rg-tile.wild.can:hover { border-color: #4a7fe0; }
 .rg-tile.wild.picked { border-color: #f0c030; }
 .rg-plus { font-size: 2.4em; color: #4a7fe0; }
+.rg-tile.open .rg-plus { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 1.8em; color: #8fb4ff; text-shadow: 0 1px 4px #000; pointer-events: none; }
+.rg-tile.annex { border-color: #4a7fe088; }
+.rg-why { color: #e0a040; font-size: 0.9em; }
 .rg-tile.here { border-color: #4a7fe0; }
 .rg-tile.picked { border-color: #f0c030; }
 .rg-tile:hover { border-color: #ffffff88; }

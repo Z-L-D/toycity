@@ -143,10 +143,16 @@ public partial class RegionScreen : CanvasLayer
                 TextureFilter = CanvasItem.TextureFilterEnum.Nearest,
             };
             if (!t.Founded) b.Modulate = new Color(0.8f, 0.8f, 0.8f);
-            var label = new Label { Text = (t.Weather.Length > 0 ? t.Weather.Split(' ')[0] + " " : "") + (t.Founded ? (t.Computer.Length > 0 ? "🤖 " : "") + t.Name + (t.Players.Count > 0 ? $"  👤{t.Players.Count}" : "") : ""), Position = new Vector2(6, 4) };
+            // A city of several tiles: each tile shows its part, and the name sits on the top-left one.
+            var (fc, fr, _, _) = RegionModel.Footprint(t);
+            bool anchor = fc == c && fr == r;
+            bool annex = !t.Founded && _model.AnnexAt(t) is { Why.Length: 0 };
+            if (annex) b.TooltipText += " · your city can annex it";
+            var label = new Label { Text = (t.Weather.Length > 0 && anchor ? t.Weather.Split(' ')[0] + " " : "") + (t.Founded && anchor ? (t.Computer.Length > 0 ? "🤖 " : "") + t.Name + (t.Players.Count > 0 ? $"  👤{t.Players.Count}" : "") : annex ? "⊕ annex" : ""), Position = new Vector2(6, 4) };
+            if (annex) label.AddThemeColorOverride("font_color", UiTheme.Accent);
             label.AddThemeColorOverride("font_outline_color", Colors.Black);
             label.AddThemeConstantOverride("outline_size", 4);
-            if (t.Col == s.HereCol && t.Row == s.HereRow) label.AddThemeColorOverride("font_color", UiTheme.Accent);
+            if (fc == s.HereCol && fr == s.HereRow) label.AddThemeColorOverride("font_color", UiTheme.Accent);
             b.AddChild(label);
             b.Pressed += () => _model.Click($"rg-pick:{c}:{r}");
             b.GuiInput += e =>
@@ -154,7 +160,7 @@ public partial class RegionScreen : CanvasLayer
                 if (e is InputEventMouseButton { DoubleClick: true, ButtonIndex: MouseButton.Left }) { _model.Click($"rg-pick:{c}:{r}"); _model.Click("rg-go"); }
             };
             _grid.AddChild(b);
-            _tiles.Add((b, c, r));
+            _tiles.Add((b, fc, fr));
         }
         _sideShown = -1;
     }

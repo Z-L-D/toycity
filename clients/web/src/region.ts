@@ -88,6 +88,10 @@ export class Region {
     if (this.pending.startsWith('Adding') && (this.tile(this.picked.col, this.picked.row)?.wild === false
       || body.votes.some((v: Msg) => v.kind === 1 && v.col === this.picked!.col && v.row === this.picked!.row))) this.pending = '';
     if (/^(Charter|Voting)/.test(this.pending)) this.pending = '';
+    // A tile a city has annexed: the city is picked whole, from its top-left tile.
+    const pt = this.tile(this.picked.col, this.picked.row);
+    if (pt?.founded && (pt.cityCols ?? 0) * (pt.cityRows ?? 0) > 1) this.picked = { col: pt.cityCol, row: pt.cityRow };
+    if (this.pending.startsWith('Anne') && (pt?.founded || body.votes.some((v: Msg) => v.kind === 2 && v.toCol === pt?.col && v.toRow === pt?.row))) this.pending = '';
     this.host.onRegion(body);
     this.render();
   }
@@ -130,6 +134,41 @@ export class Region {
     };
   }
 
+  /** The tiles a city spans, from its top-left tile; one tile for open land. */
+  private span(t: Msg): { anchor: boolean; cols: number; rows: number } {
+    if (!t.founded || (t.cityCols ?? 0) <= 1 && (t.cityRows ?? 0) <= 1) return { anchor: true, cols: 1, rows: 1 };
+    return { anchor: t.col === t.cityCol && t.row === t.cityRow, cols: Math.max(1, t.cityCols), rows: Math.max(1, t.cityRows) };
+  }
+
+  private annex(t: Msg, vote: boolean) {
+    this.pending = vote ? 'Annex: asking the mayors…' : 'Annexing the land: moving the city onto its bigger map…';
+    this.render();
+    this.host.conn.send({ annex: { col: t.col, row: t.row } });
+  }
+
+  /** The open land a city could annex, as the side panel shows it for a picked tile of it. */
+  private annexHtml(p: Msg): string {
+    const s = this.state!;
+    const a = (s.annex ?? []).find((x: Msg) => x.col === p.col && x.row === p.row);
+    const home = s.tiles.find((h: Msg) => h.col === s.hereCol && h.row === s.hereRow);
+    if (!a || !home?.founded) return '';
+    const rule = s.charter?.annex ?? 1;
+    const mine = home.mayor === this.host.conn.player;
+    const asked = s.votes.some((v: Msg) => v.kind === 2 && v.toCol === p.col && v.toRow === p.row);
+    const ask = rule === 1 && !this.admin() && s.voters.length > 1;
+    const may = this.admin() || (mine && rule !== 0);
+    const takes = a.toCols * a.toRows - Math.max(1, home.cityCols || 1) * Math.max(1, home.cityRows || 1);
+    const ruleText = ['By the region\'s charter only the server\'s admins annex land.', 'By the region\'s charter, annexing goes to a vote of the mayors: more than half must agree.', `By the region's charter, ${esc(home.name)}'s mayor can annex land beside it.`][rule];
+    return `<h4>Annex for ${esc(home.name)}</h4>
+      <p class="muted">${esc(home.name)} would take ${takes === 1 ? 'this tile' : `${takes} tiles (a city is always a rectangle)`} and be
+        <b>${a.toCols} × ${a.toRows} tiles</b>. Everything in it moves onto the bigger map as it stands; the new land comes with its ground, rivers and rock.</p>
+      <table class="kv"><tr><td>Price</td><td>${money(a.price)}</td></tr><tr><td>Treasury</td><td>${money(home.funds)}</td></tr></table>
+      <p class="muted">${ruleText}</p>
+      ${a.why ? `<p class="rg-why">${esc(a.why)}</p>`
+        : asked ? '<p class="muted">The mayors are voting on it now (below).</p>'
+        : may ? `<div class="actions"><button id="rg-annex" class="active">${ask ? 'Ask the mayors to let it annex' : `Annex for ${money(a.price)}`}</button></div>` : ''}`;
+  }
+
   private grow(t: Msg) {
     this.pending = 'Adding a tile to the region: making its ground…';
     this.render();
@@ -154,8 +193,13 @@ export class Region {
   /** The side of this city a tile lies on (0 north, 1 east, 2 south, 3 west), or -1 when it isn't next door. */
   private sideOf(t: Msg): number {
     const s = this.state!;
-    const dc = t.col - s.hereCol, dr = t.row - s.hereRow;
-    return dc === 0 && dr === -1 ? 0 : dc === 1 && dr === 0 ? 1 : dc === 0 && dr === 1 ? 2 : dc === -1 && dr === 0 ? 3 : -1;
+    const home = this.tile(s.hereCol, s.hereRow);
+    if (!home) return -1;
+    // Cities of several tiles: the sides meet where their rectangles touch.
+    const box = (x: Msg) => { const sp = this.span(x); return { c: x.founded && sp.cols * sp.rows > 1 ? x.cityCol : x.col, r: x.founded && sp.cols * sp.rows > 1 ? x.cityRow : x.row, w: sp.cols, h: sp.rows }; };
+    const a = box(home), b = box(t);
+    const cols = b.c < a.c + a.w && b.c + b.w > a.c, rows = b.r < a.r + a.h && b.r + b.h > a.r;
+    return cols && b.r + b.h === a.r ? 0 : rows && b.c === a.c + a.w ? 1 : cols && b.r === a.r + a.h ? 2 : rows && b.c + b.w === a.c ? 3 : -1;
   }
 
   private deal(op: number, id: number, what: string) {
@@ -278,21 +322,29 @@ export class Region {
     const inRegion = s.tiles.filter((t: Msg) => !t.wild).length;
     const size = s.grows ? `${inRegion} ${inRegion === 1 ? 'tile' : 'tiles'}, growing` : `${s.cols} × ${s.rows} tiles`;
     $('#rg-title').innerHTML = `🗺 <b>${esc(s.name)}</b> <span class="muted">${MONTHS[month]} ${year} · ${size}${speedNote}</span>`;
-    const pop = s.tiles.reduce((n: number, t: Msg) => n + t.population, 0);
-    const cities = s.tiles.filter((t: Msg) => t.founded).length;
+    // A city of several tiles counts once, by its top-left tile.
+    const towns = s.tiles.filter((t: Msg) => t.founded && this.span(t).anchor);
+    const pop = towns.reduce((n: number, t: Msg) => n + t.population, 0);
+    const cities = towns.length;
     const box = this.shown();
-    const cells = s.tiles.filter((t: Msg) => t.col >= box.c0 && t.col <= box.c1 && t.row >= box.r0 && t.row <= box.r1).map((t: Msg) => {
+    const annexAt = (t: Msg) => (s.annex ?? []).find((a: Msg) => a.col === t.col && a.row === t.row);
+    const cells = s.tiles.filter((t: Msg) => t.col >= box.c0 && t.col <= box.c1 && t.row >= box.r0 && t.row <= box.r1)
+      // A city of several tiles is drawn once, from its top-left tile, across all of them.
+      .filter((t: Msg) => !t.founded || this.span(t).anchor).map((t: Msg) => {
       const here = t.col === s.hereCol && t.row === s.hereRow;
       const picked = this.picked?.col === t.col && this.picked?.row === t.row;
-      const at = `grid-column:${t.col - box.c0 + 1};grid-row:${t.row - box.r0 + 1}`;
+      const sp = this.span(t);
+      const at = `grid-column:${t.col - box.c0 + 1} / span ${sp.cols};grid-row:${t.row - box.r0 + 1} / span ${sp.rows}${sp.cols * sp.rows > 1 ? `;aspect-ratio:${sp.cols}/${sp.rows}` : ''}`;
       if (t.wild) {
         const can = this.canGrow(t);
         return `<button class="rg-tile wild${can ? ' can' : ''}${picked ? ' picked' : ''}" data-col="${t.col}" data-row="${t.row}" style="${at}"
           title="${can ? 'Wild land: add it to the region' : 'Wild land'}">${can ? '<span class="rg-plus">＋</span>' : ''}</button>`;
       }
-      return `<button class="rg-tile${t.founded ? '' : ' open'}${here ? ' here' : ''}${picked ? ' picked' : ''}" data-col="${t.col}" data-row="${t.row}"
-        style="${at}" title="${esc(t.name)}">
-        <canvas width="${PICTURE}" height="${PICTURE}"></canvas>
+      const ax = !t.founded && annexAt(t);
+      return `<button class="rg-tile${t.founded ? '' : ' open'}${here ? ' here' : ''}${picked ? ' picked' : ''}${ax && !ax.why ? ' annex' : ''}" data-col="${t.col}" data-row="${t.row}"
+        style="${at}" title="${esc(t.founded ? t.name : ax ? (ax.why ? 'Open land' : `Open land: ${s.tiles.find((h: Msg) => h.col === s.hereCol && h.row === s.hereRow)?.name ?? 'your city'} can annex it`) : 'Open land')}">
+        <canvas width="${PICTURE * sp.cols}" height="${PICTURE * sp.rows}"></canvas>
+        ${ax && !ax.why ? '<span class="rg-plus">⊕</span>' : ''}
         ${t.weather ? `<span class="rg-weather" title="${esc(t.weather)}">${esc(t.weather.split(' ')[0])}</span>` : ''}
         <span class="rg-label">${t.computer ? '🤖 ' : ''}${esc(t.founded ? t.name : '')}${t.players.length ? ` <span class="rg-who">👤${t.players.length}</span>` : ''}</span>
       </button>`;
@@ -305,6 +357,7 @@ export class Region {
         side = `<h3>${esc(p.name)}</h3>
           <table class="kv">
             <tr><td>Mayor</td><td>${esc(p.mayor || 'nobody')}${p.computer ? ` <span class="muted">· ${esc(p.computer)}</span>` : ''}</td></tr>
+            ${this.span(p).cols * this.span(p).rows > 1 ? `<tr><td>Size</td><td>${this.span(p).cols} × ${this.span(p).rows} tiles</td></tr>` : ''}
             <tr><td>Population</td><td>${p.population.toLocaleString('en-US')}</td></tr>
             <tr><td>Treasury</td><td>${money(p.funds)}</td></tr>
             <tr><td>Here now</td><td>${p.players.length ? p.players.map(esc).join(', ') : 'nobody'}</td></tr>
@@ -316,7 +369,8 @@ export class Region {
           </div>
           ${p.computer ? '<div class="actions"><button id="rg-takeover">Take over this city</button> <span class="muted">and play it yourself</span></div>'
             : p.mayor === this.host.conn.player ? `<div class="actions"><span class="muted">Hand it to a computer mayor:</span>
-                <button data-hand="growth">growth-hungry</button> <button data-hand="green">green</button> <button data-hand="careful">careful</button></div>` : ''}`;
+                <button data-hand="growth">growth-hungry</button> <button data-hand="green">green</button> <button data-hand="careful">careful</button></div>` : ''}
+          ${here && (s.annex ?? []).some((a: Msg) => !a.why) ? '<p class="muted">Room to grow: pick the open land beside it, marked ⊕, to annex it.</p>' : ''}`;
       } else if (p.wild) {
         const rule = s.charter?.grow ?? 2;
         const asked = s.votes.some((v: Msg) => v.kind === 1 && v.col === p.col && v.row === p.row);
@@ -339,7 +393,8 @@ export class Region {
             <option value="green">A green computer</option><option value="careful">A careful computer</option>
           </select>
           <p class="muted">A computer mayor plays its city on autopilot and answers deals by its temperament. Admins only.</p>
-          <div class="actions"><button id="rg-found" class="active">Found a city here</button></div>`;
+          <div class="actions"><button id="rg-found" class="active">Found a city here</button></div>
+          ${this.annexHtml(p)}`;
       }
     }
     side += this.dealsHtml(p);
@@ -358,12 +413,18 @@ export class Region {
       b.addEventListener('click', () => { this.picked = { col: t.col, row: t.row }; this.counterId = 0; this.render(); });
       if (t.wild) return;
       const ctx = b.querySelector('canvas')!.getContext('2d')!;
-      const img = ctx.createImageData(PICTURE, PICTURE);
-      const px = t.picture as Uint8Array;
-      for (let i = 0; i < PICTURE * PICTURE; i++) {
-        img.data[i * 4] = px[i * 3]; img.data[i * 4 + 1] = px[i * 3 + 1]; img.data[i * 4 + 2] = px[i * 3 + 2]; img.data[i * 4 + 3] = 255;
+      const sp = this.span(t);
+      // Each of the city's tiles brings its own part of the picture.
+      for (let dr = 0; dr < sp.rows; dr++) for (let dc = 0; dc < sp.cols; dc++) {
+        const part = this.tile(t.col + dc, t.row + dr);
+        const px = part?.picture as Uint8Array | undefined;
+        if (!px || px.length < PICTURE * PICTURE * 3) continue;
+        const img = ctx.createImageData(PICTURE, PICTURE);
+        for (let i = 0; i < PICTURE * PICTURE; i++) {
+          img.data[i * 4] = px[i * 3]; img.data[i * 4 + 1] = px[i * 3 + 1]; img.data[i * 4 + 2] = px[i * 3 + 2]; img.data[i * 4 + 3] = 255;
+        }
+        ctx.putImageData(img, dc * PICTURE, dr * PICTURE);
       }
-      ctx.putImageData(img, 0, 0);
       b.addEventListener('dblclick', () => { if (t.founded && !(t.col === s.hereCol && t.row === s.hereRow)) this.goTo(t); });
     });
     if (p) {
@@ -372,6 +433,7 @@ export class Region {
       $('#rg-window')?.addEventListener('click', () => this.ownWindow(p));
       $('#rg-found')?.addEventListener('click', () => this.found(p));
       $('#rg-grow')?.addEventListener('click', () => this.grow(p));
+      $('#rg-annex')?.addEventListener('click', () => this.annex(p, (s.charter?.annex ?? 1) === 1 && !this.admin() && s.voters.length > 1));
       $('#rg-offer')?.addEventListener('click', () => this.sendOffer(p));
       $('#rg-takeover')?.addEventListener('click', () => {
         this.pending = `Taking over ${p.name}…`;

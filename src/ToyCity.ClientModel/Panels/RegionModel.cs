@@ -6,7 +6,7 @@ namespace ToyCity.ClientModel.Panels;
 /// <summary>
 /// The region map's screen, with no engine types: the latest <see cref="RegionState"/>, the tile picked, what the
 /// player is waiting on, and what each link does. While <see cref="Active"/> it replaces the city's whole interface.
-/// Links: rg-open, rg-close, rg-pick:COL:ROW, rg-go, rg-found, rg-grow, rg-starter, rg-founder[:T], rg-window, rg-takeover, rg-hand:T; deals: rg-kind:K, rg-sell, rg-amt:±,
+/// Links: rg-open, rg-close, rg-pick:COL:ROW, rg-go, rg-found, rg-grow, rg-annex, rg-starter, rg-founder[:T], rg-window, rg-takeover, rg-hand:T; deals: rg-kind:K, rg-sell, rg-amt:±,
 /// rg-price:±, rg-offer, rg-accept:ID, rg-counter:ID, rg-decline:ID, rg-end:ID; the charter (Beta 4): rg-charter, rg-ch-grow:R,
 /// rg-ch-annex:R, rg-ch-max:N, rg-ch-send, rg-ch-cancel, rg-vote:ID:yes|no.
 /// </summary>
@@ -102,6 +102,10 @@ public sealed class RegionModel
                 if (Pending.StartsWith("Deal:") || Pending.StartsWith("Taking over") || Pending.StartsWith("Handing")) Pending = "";
                 if (Pending.StartsWith("Adding") && (PickedTile is { Wild: false } || m.Region.Votes.Any(v => v.Kind == VoteKind.VoteGrow && v.Col == Picked?.Col && v.Row == Picked?.Row))) Pending = "";
                 if (Pending.StartsWith("Charter") || Pending.StartsWith("Voting")) Pending = "";
+                // A tile a city has annexed: the city is picked whole, from its top-left tile.
+                var pt = PickedTile;
+                if (pt is { Founded: true } && pt.CityCols * pt.CityRows > 1) Picked = (pt.CityCol, pt.CityRow);
+                if (Pending.StartsWith("Anne") && (pt?.Founded == true || m.Region.Votes.Any(v => v.Kind == VoteKind.VoteAnnex && v.ToCol == pt?.Col && v.ToRow == pt?.Row))) Pending = "";
                 MapVersion++;
                 _changed();
                 break;
@@ -143,7 +147,8 @@ public sealed class RegionModel
             case "rg-open": SetActive(true); return;
             case "rg-close": SetActive(false); return;
             case "rg-pick" when a.Length == 3 && int.TryParse(a[1], out int c) && int.TryParse(a[2], out int r):
-                Picked = (c, r);
+                // A city of several tiles is picked as a whole, by its top-left tile.
+                Picked = TileAt(c, r) is { Founded: true, CityCols: > 0 } pt && pt.CityCols * pt.CityRows > 1 ? (pt.CityCol, pt.CityRow) : (c, r);
                 CounterId = 0;
                 _changed();
                 return;
@@ -156,6 +161,11 @@ public sealed class RegionModel
             case "rg-grow" when PickedTile is { } t && CanGrow(t):
                 Pending = "Adding a tile to the region: making its ground…";
                 _send(new ClientMessage { Grow = new GrowRegion { Col = t.Col, Row = t.Row } });
+                _changed();
+                return;
+            case "rg-annex" when PickedTile is { Founded: false, Wild: false } t && AnnexAt(t) is { Why.Length: 0 }:
+                Pending = AnnexAsks ? "Annex: asking the mayors…" : "Annexing the land: moving the city onto its bigger map…";
+                _send(new ClientMessage { Annex = new AnnexRequest { Col = t.Col, Row = t.Row } });
                 _changed();
                 return;
             case "rg-found" when PickedTile is { Founded: false, Wild: false } t:
@@ -242,9 +252,23 @@ public sealed class RegionModel
     /// <summary>The side of this city a tile lies on (0 north, 1 east, 2 south, 3 west), or -1 when it isn't next door.</summary>
     public int SideOf(RegionTileState t)
     {
-        if (State is not { } s) return -1;
-        return (t.Col - s.HereCol, t.Row - s.HereRow) switch { (0, -1) => 0, (1, 0) => 1, (0, 1) => 2, (-1, 0) => 3, _ => -1 };
+        if (Here is not { } home) return -1;
+        // Cities of several tiles: the sides meet where their rectangles touch.
+        var (ac, ar, aw, ah) = Footprint(home);
+        var (bc, br, bw, bh) = Footprint(t);
+        bool cols = bc < ac + aw && bc + bw > ac, rows = br < ar + ah && br + bh > ar;
+        return cols && br + bh == ar ? 0 : rows && bc == ac + aw ? 1 : cols && br == ar + ah ? 2 : rows && bc + bw == ac ? 3 : -1;
     }
+
+    /// <summary>The tiles a city covers, from its top-left tile; one tile for land with no city.</summary>
+    public static (int Col, int Row, int Cols, int Rows) Footprint(RegionTileState t) =>
+        t.Founded && t.CityCols * t.CityRows > 1 ? (t.CityCol, t.CityRow, t.CityCols, t.CityRows) : (t.Col, t.Row, 1, 1);
+
+    /// <summary>The city this player is in could annex this open land: the rectangle it would make and the price.</summary>
+    public AnnexOption? AnnexAt(RegionTileState t) => State?.Annex.FirstOrDefault(x => x.Col == t.Col && x.Row == t.Row);
+
+    /// <summary>Annexing goes to a vote of the mayors, as the charter has it, for this player.</summary>
+    bool AnnexAsks => State is { } s && (s.Charter?.Annex ?? CharterRule.CharterVote) == CharterRule.CharterVote && !Admin() && s.Voters.Count > 1;
 
     public static string KindNoun(DealKind k) => k switch
     {
@@ -288,8 +312,10 @@ public sealed class RegionModel
     {
         if (State is not { } s) return Dim("Loading the region…");
         var sb = new System.Text.StringBuilder();
-        int cities = s.Tiles.Count(t => t.Founded);
-        long pop = s.Tiles.Sum(t => (long)t.Population);
+        // A city of several tiles counts once, by its top-left tile.
+        var towns = s.Tiles.Where(t => t.Founded && Footprint(t) is var f && f.Col == t.Col && f.Row == t.Row).ToList();
+        int cities = towns.Count;
+        long pop = towns.Sum(t => (long)t.Population);
         sb.Append(Dim($"{Plural(cities, "city").Replace("citys", "cities")} · {Num(pop)} people in the region")).Append('\n');
         // Beta 4, part 3: the region's option for foul water crossing borders down its rivers.
         if (s.Cols * s.Rows > 1)
@@ -304,6 +330,7 @@ public sealed class RegionModel
                 sb.Append(Table(new[]
                 {
                     ("Mayor", Esc(p.Mayor.Length > 0 ? p.Mayor : "nobody") + (p.Computer.Length > 0 ? Dim($" · {Esc(p.Computer)}") : "")),
+                    ("Size", p.CityCols * p.CityRows > 1 ? $"{p.CityCols} × {p.CityRows} tiles" : "one tile"),
                     ("Population", Num(p.Population)),
                     ("Treasury", Money(p.Funds)),
                     ("Here now", p.Players.Count > 0 ? Esc(string.Join(", ", p.Players)) : Dim("nobody")),
@@ -315,6 +342,7 @@ public sealed class RegionModel
                 else if (p.Mayor == Me())
                     sb.Append("\n").Append(Dim("Hand it to a computer mayor: ")).Append(Link("rg-hand:growth", "growth-hungry")).Append(" · ")
                       .Append(Link("rg-hand:green", "green")).Append(" · ").Append(Link("rg-hand:careful", "careful"));
+                if (here && s.Annex.Any(x => x.Why.Length == 0)) sb.Append("\n\n").Append(Dim("Room to grow: pick the open land beside it, marked ⊕, to annex it."));
             }
             else if (p.Wild)
             {
@@ -347,12 +375,36 @@ public sealed class RegionModel
                     sb.Append(FoundComputer == key ? $"[b]{label}[/b]" : Link(key.Length > 0 ? $"rg-founder:{key}" : "rg-founder", label)).Append("  ");
                 sb.Append("\n").Append(Dim("A computer mayor plays its city on autopilot and answers deals by its temperament. Admins only.")).Append("\n\n");
                 sb.Append(Link("rg-found", "Found a city here"));
+                RenderAnnex(sb, s, p);
             }
         }
         RenderDeals(sb, s);
         RenderCharter(sb, s);
         if (Pending.Length > 0) sb.Append("\n\n").Append(Col(Warn, "⏳ " + Esc(Pending.StartsWith("Deal: ") ? Pending[6..] : Pending)));
         return sb.ToString();
+    }
+
+    /// <summary>Annexing a picked tile of open land for the city this player is in: the rectangle, the price, the rule.</summary>
+    void RenderAnnex(System.Text.StringBuilder sb, RegionState s, RegionTileState p)
+    {
+        if (AnnexAt(p) is not { } a || Here is not { Founded: true } home) return;
+        var (_, _, hw, hh) = Footprint(home);
+        int takes = a.ToCols * a.ToRows - hw * hh;
+        var rule = s.Charter?.Annex ?? CharterRule.CharterVote;
+        sb.Append("\n\n").Append(H3($"Annex for {Esc(home.Name)}"));
+        sb.Append(Dim($"{Esc(home.Name)} would take {(takes == 1 ? "this tile" : $"{takes} tiles (a city is always a rectangle)")} and be ")).Append($"[b]{a.ToCols} × {a.ToRows} tiles[/b]")
+          .Append(Dim(". Everything in it moves onto the bigger map as it stands; the new land comes with its ground, rivers and rock.")).Append('\n');
+        sb.Append(Table(new[] { ("Price", Money(a.Price)), ("Treasury", Money(home.Funds)) })).Append('\n');
+        sb.Append(Dim(rule switch
+        {
+            CharterRule.CharterAdmins => "By the region's charter only the server's admins annex land.",
+            CharterRule.CharterVote => "By the region's charter, annexing goes to a vote of the mayors: more than half must agree.",
+            _ => $"By the region's charter, {Esc(home.Name)}'s mayor can annex land beside it.",
+        })).Append("\n\n");
+        bool may = Admin() || (home.Mayor == Me() && rule != CharterRule.CharterAdmins);
+        if (a.Why.Length > 0) sb.Append(Col(Warn, Esc(a.Why)));
+        else if (s.Votes.Any(v => v.Kind == VoteKind.VoteAnnex && v.ToCol == p.Col && v.ToRow == p.Row)) sb.Append(Dim("The mayors are voting on it now (below)."));
+        else if (may) sb.Append(Link("rg-annex", AnnexAsks ? "Ask the mayors to let it annex" : $"Annex for {Money(a.Price)}"));
     }
 
     /// <summary>

@@ -166,6 +166,40 @@ public class GrowingRegionClientTests : IDisposable
         tess.WaitFor(() => tess.Region.State!.MaxCitySide == 2, "May's charter");
         Assert.Empty(may.Errors);
         Assert.Empty(tess.Errors);
+
+        // Room to grow: Eastwick annexes the open land east of it. Under the charter that's a vote, and May's yes
+        // carries it; Eastwick moves onto a map of two tiles, and both tiles say so.
+        tess.Panels.Click($"rg-pick:{c + 1}:{c}");
+        tess.Panels.Click("rg-go");
+        tess.WaitFor(() => tess.Client.City.Stats.CityName == "Eastwick" && tess.Region.State!.HereCol == c + 1, "Tess in Eastwick");
+        Assert.Equal(64, tess.Client.City.Width);
+        tess.Panels.Click("rg-open");
+        tess.Panels.Click($"rg-pick:{c + 2}:{c}");
+        var option = tess.Region.AnnexAt(tess.Region.PickedTile!);
+        Assert.NotNull(option);
+        Assert.Equal("", option!.Why);
+        Assert.Equal((c + 1, c, 2, 1), (option.ToCol, option.ToRow, option.ToCols, option.ToRows));
+        Assert.Contains("Annex for Eastwick", tess.Region.Render());
+        Assert.Contains("rg-annex", tess.Region.Render());
+        tess.Panels.Click("rg-annex");
+        may.WaitFor(() => may.Region.State!.Votes is { Count: 1 } vs && vs[0].Kind == VoteKind.VoteAnnex, "the annex vote");
+        Assert.Contains("Eastwick annexing", may.Region.State!.Votes[0].Text);
+        may.Panels.Click($"rg-vote:{may.Region.State!.Votes[0].Id}:yes");
+        tess.WaitFor(() => tess.Client.City.Width == 128 && tess.Region.TileAt(c + 2, c) is { Founded: true, CityCols: 2 }, "Eastwick on two tiles");
+        Assert.Equal(64, tess.Client.City.Height);
+        Assert.Equal("Eastwick", tess.Region.TileAt(c + 2, c)!.Name);
+        Assert.Equal((c + 1, c), (tess.Region.State!.HereCol, tess.Region.State.HereRow));
+        // Picking either tile picks the city; May's Firstford is next door, on Eastwick's west side.
+        tess.Panels.Click($"rg-pick:{c + 2}:{c}");
+        Assert.Equal((c + 1, c), tess.Region.Picked);
+        Assert.Contains("2 × 1 tiles", tess.Region.Render());
+        Assert.Equal(3, tess.Region.SideOf(tess.Region.TileAt(c, c)!));
+        // And it plays on: Tess builds roads on the new land (the region's seed is random, so some may meet water).
+        for (int y = 8; y < 64; y += 8)
+            tess.Client.Connection.Act(new ToyCity.Protocol.V0.Action { Path = new PlacePath { X0 = 70, Y0 = y, X1 = 120, Y1 = y, ProfileId = "road" } });
+        tess.WaitFor(() => Enumerable.Range(64, 64).Any(x => Enumerable.Range(1, 7).Any(k => tess.Client.City.Paths[k * 8 * 128 + x] != 0)), "a road on the new land");
+        Assert.Empty(tess.Errors);
+        Assert.Empty(may.Errors);
     }
 
     /// <summary>A seed whose first tile has a river running off one of its sides, and that side.</summary>
