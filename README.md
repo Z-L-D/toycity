@@ -63,6 +63,7 @@ Beta 4, part 6, room to grow ([`docs/screenshots/beta4-room`](docs/screenshots/b
 | ![Web client, the region map offering the open land east of Halden, with the price and the rectangle it would make](docs/screenshots/beta4-room/web-annex-offer.jpg) | ![Web client, Halden on two tiles after annexing](docs/screenshots/beta4-room/web-annexed-region.jpg) |
 | ![Web client, a careful computer mayor's town next door, for sale at its price](docs/screenshots/beta4-room/web-takeover-offer.jpg) | ![Web client, the one city with both starter towns on its map](docs/screenshots/beta4-room/web-takeover-city.jpg) |
 | ![Web client, the region map with Halden on 2 × 2 tiles](docs/screenshots/beta4-room/web-room-region.jpg) | ![Web client, the city of 2 × 2 tiles](docs/screenshots/beta4-room/web-room-city.jpg) |
+| ![Godot client (CI, software OpenGL), the staged city of 2 × 2 tiles, its two towns at the lower left and the annexed hills beyond](docs/screenshots/beta4-room/godot-view-1-classic-r1-z1.jpg) | ![Godot client (CI), the region map: Halden named on its top-left tile, and the price of growing to 3 × 2](docs/screenshots/beta4-room/godot-view-19-region.jpg) |
 
 Beta 4, part 2, the new look ([`docs/screenshots/beta4-ui`](docs/screenshots/beta4-ui)):
 

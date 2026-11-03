@@ -80,10 +80,20 @@ to form a square", and a neighbour joins only by a deal.
   - Ostby, a careful computer mayor's town next door, selling for $41,000 (about its treasury, which comes along), and
     the city with both starter towns on its map.
   - The staged city of 2 × 2 tiles on the region map and in the city view.
-- **Godot:** see CI below.
+- **CI** (run on b43102e, every job green): the staging tool printed the same four lines as above. The Godot client
+  then joined the staged server and passed its smoke check on the 256 × 256 map (`SMOKE OK 256x256 picking=4/4`).
+  - Shots: [the city](screenshots/beta4-room/godot-view-1-classic-r1-z1.jpg), [the region map](screenshots/beta4-room/godot-view-19-region.jpg)
+    and [the contact sheet](screenshots/beta4-room/godot-sheet.jpg).
+  - The camera starts between the two towns, over the annexed hills. The region map names Halden on its top-left tile
+    and prices growing west to 3 × 2 at $150,000.
+  - The smoke check used to want the pick at the screen centre to land within 8 cells of the camera's target. Here a
+    rise in front of the target caught it at one rotation, so a pick on the line of sight in front of the target now
+    counts too.
 
 ## Known limits
 
+- The Godot region map draws a city of several tiles tile by tile, with its name on the top-left tile; the web map
+  draws it as one picture.
 - Each side of a city borders at most one other city. A city can't grow along a side that would then touch two.
 - A city that has annexed or taken in a neighbour can't be replayed from its founding: its log starts again at the
   move. Saves are unaffected.
