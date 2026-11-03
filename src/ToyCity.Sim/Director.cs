@@ -425,14 +425,14 @@ public sealed partial class World
         w.Write(Prompts.Count);
         foreach (var p in Prompts)
         {
-            w.Write(p.Id); w.Write(p.Event); w.Write((byte)p.Kind); w.Write(p.X); w.Write(p.Y);
+            w.Write(p.Id); w.Write(p.Event); w.Write((byte)p.Kind); w.Write(CX(p.X)); w.Write(CY(p.Y));
             w.Write(p.Created); w.Write(p.Deadline); w.Write(p.Resolved);
             w.Write(p.Petitioner); w.Write(p.Text); w.Write(p.ResultText); w.Write((byte)p.Status);
         }
         w.Write(ActiveEffects.Count);
         foreach (var e in ActiveEffects) { w.Write(e.Event); w.Write(e.Yes); w.Write(e.Until); }
         w.Write(Headlines.Count);
-        foreach (var h in Headlines) { w.Write(h.Seq); w.Write(h.Tick); w.Write(h.Text); w.Write(h.Severity); w.Write(h.X); w.Write(h.Y); }
+        foreach (var h in Headlines) { w.Write(h.Seq); w.Write(h.Tick); w.Write(h.Text); w.Write(h.Severity); w.Write(h.X < 0 ? h.X : CX(h.X)); w.Write(h.Y < 0 ? h.Y : CY(h.Y)); }
     }
 
     void ReadDirector(BinaryReader r)

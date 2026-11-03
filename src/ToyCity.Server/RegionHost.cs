@@ -140,6 +140,65 @@ public sealed partial class RegionHost : IDisposable
     }
 
     /// <summary>
+    /// Why this player can't annex that land for the city they're in, as the region's charter has it, or null. With
+    /// <paramref name="vote"/> set, the region's mayors vote on it first. Caller holds every gate.
+    /// </summary>
+    string? CantAnnex(Client c, RegionTile here, int col, int row, out bool vote)
+    {
+        vote = false;
+        var a = here.Anchor ?? here;
+        if (_links.ElementAtOrDefault(a.Row * _region.Cols + a.Col) != null) return $"{a.Name} runs on its own host: a city hosted apart can't annex land.";
+        if (_region.CantAnnex(a, col, row) is { } why) return why;
+        if (c.Admin) return null;
+        bool mine = a.Mayor == c.Player;
+        switch (_region.Charter.Annex)
+        {
+            case CharterRule.Admins: return "This region's charter lets only the server's admins annex land.";
+            case CharterRule.Anyone when mine: return null;
+            case CharterRule.Vote when mine:
+                vote = _region.Voters().Count > 1;
+                return null;
+            default: return $"Only {a.Name}'s mayor can annex land for it.";
+        }
+    }
+
+    /// <summary>
+    /// A city annexes the land beside it: its host lets everyone go, the region puts the city on its bigger map, and a
+    /// new host takes them back in. Caller holds every gate.
+    /// </summary>
+    List<(Client, P.ServerMessage)> Annexed(RegionTile city, int col, int row, string by)
+    {
+        var a = city.Anchor ?? city;
+        int oldIdx = a.Row * _region.Cols + a.Col;
+        var list = new List<(Client, P.ServerMessage)>();
+        var oldHost = _cities[oldIdx];
+        var moving = oldHost?.Clients.ToList() ?? new List<Client>();
+        foreach (var cl in moving) list.AddRange(oldHost!.Leave(cl));
+        string name = a.Name;
+        var w = _region.Annex(a, col, row);
+        var anchor = _region.TileOf(w)!;
+        _cities[oldIdx] = null;
+        oldHost?.Dispose();
+        var (nc, nr, ncols, nrows) = _region.Footprint(anchor);
+        for (int r = nr; r < nr + nrows; r++)
+        for (int k = nc; k < nc + ncols; k++)
+            _pictures.Remove(r * _region.Cols + k);
+        OpenCities();
+        var host = _cities[anchor.Row * _region.Cols + anchor.Col]!;
+        foreach (var cl in moving)
+        {
+            var (mine, others) = host.Join(cl);
+            list.AddRange(mine.Select(m => (cl, m)));
+            list.AddRange(others);
+        }
+        string who = by == a.Mayor ? "" : $" ({by})";
+        list.AddRange(Cities.Where(h => h != host).SelectMany(h => h.Notice($"{name} annexed the land beside it{who}: it's {ncols} × {nrows} tiles now.", "info")));
+        list.AddRange(host.Deltas(forceAlerts: true));
+        list.AddRange(RegionIfChanged(force: true));
+        return list;
+    }
+
+    /// <summary>
     /// A player asks for a new charter: an admin's takes effect now; a mayor's goes to a vote (or takes effect, when
     /// they're the only mayor). Caller holds every gate.
     /// </summary>
@@ -161,11 +220,11 @@ public sealed partial class RegionHost : IDisposable
     }
 
     /// <summary>Opens a vote, and tells the region. Caller holds every gate.</summary>
-    List<(Client, P.ServerMessage)> Asked(Client c, VoteKind kind, int col, int row, RegionCharter? charter, out string? why)
+    List<(Client, P.ServerMessage)> Asked(Client c, VoteKind kind, int col, int row, RegionCharter? charter, out string? why, int toCol = -1, int toRow = -1)
     {
         why = null;
         RegionVote v;
-        try { v = _region.Ask(kind, c.Player, col, row, charter); }
+        try { v = _region.Ask(kind, c.Player, col, row, charter, toCol, toRow); }
         catch (InvalidOperationException e) { why = e.Message; return new(); }
         var list = Cities.SelectMany(city => city.Notice($"{c.Player} asks the region's mayors to vote on {_region.Describe(v)}. Open the region map to vote.", "info")).ToList();
         list.AddRange(DecideVotes());
@@ -194,6 +253,13 @@ public sealed partial class RegionHost : IDisposable
                     if (_region.CantGrow(v.Col, v.Row) is { } why)
                         list.AddRange(Cities.SelectMany(city => city.Notice($"The region's mayors agreed {what}, but it can't be added now: {why}", "info")));
                     else list.AddRange(Grown(v.Col, v.Row, "A vote of the mayors"));
+                    break;
+                case VoteKind.Annex:
+                    if (_region.TileAt(v.Col, v.Row) is not { Founded: true } at) break;
+                    if (_links.ElementAtOrDefault((at.Anchor ?? at).Row * _region.Cols + (at.Anchor ?? at).Col) != null
+                        || _region.CantAnnex(at.Anchor ?? at, v.ToCol, v.ToRow) is { } no)
+                        list.AddRange(Cities.SelectMany(city => city.Notice($"The region's mayors agreed {what}, but it can't be done now.", "info")));
+                    else list.AddRange(Annexed(at, v.ToCol, v.ToRow, "a vote of the mayors"));
                     break;
             }
         }
@@ -270,11 +336,14 @@ public sealed partial class RegionHost : IDisposable
     void OpenCities()
     {
         for (int i = 0; i < _region.Tiles.Length; i++)
-            if (_region.Tiles[i].City != null && _cities[i] == null && _links.ElementAtOrDefault(i) == null)
+            if (_region.Tiles[i].IsAnchor && _cities[i] == null && _links.ElementAtOrDefault(i) == null)
                 _cities[i] = new SimHost(_content, _saveDir, _log, _host, _accounts, this, _region.Tiles[i]);
     }
 
     IEnumerable<SimHost> Cities => _cities.Where(c => c != null).Select(c => c!);
+
+    /// <summary>Where a tile's city is kept: at its top-left tile, for a city of several.</summary>
+    int Slot(RegionTile t) { var a = t.Anchor ?? t; return a.Row * _region.Cols + a.Col; }
 
     /// <summary>Runs <paramref name="f"/> holding the region's gate and every city's, in tile order.</summary>
     T WithAll<T>(Func<T> f)
@@ -298,7 +367,7 @@ public sealed partial class RegionHost : IDisposable
     /// <summary>The city a new connection lands in: the one asked for, else one the player is mayor of, else the first.</summary>
     SimHost Landing(string player, (int Col, int Row)? asked)
     {
-        if (asked is { } a && _region.TileAt(a.Col, a.Row) is { } t && _cities[t.Row * _region.Cols + t.Col] is { } wanted) return wanted;
+        if (asked is { } a && _region.TileAt(a.Col, a.Row) is { } t && _cities[Slot(t)] is { } wanted) return wanted;
         return Cities.FirstOrDefault(c => c.Tile.Mayor == player) ?? Cities.First();
     }
 
@@ -423,7 +492,7 @@ public sealed partial class RegionHost : IDisposable
     {
         if (Following) return FollowerState();
         var s = RegionMapping.State(_region, here.Col, here.Row, _speed,
-            t => _cities[t.Row * _region.Cols + t.Col]?.Clients.Where(c => c.SignedIn).Select(c => c.Player).Distinct().OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            t => _cities[Slot(t)]?.Clients.Where(c => c.SignedIn).Select(c => c.Player).Distinct().OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
                  ?? Enumerable.Empty<string>(),
             _pictures);
         s.SpeedSetBy = _speedBy;
@@ -443,7 +512,7 @@ public sealed partial class RegionHost : IDisposable
     {
         var list = new List<(Client, P.ServerMessage)>();
         string sig = $"{_speed}/{_speedBy}/{_region.Tick / World.DaysPerMonth}/{string.Join(",", _region.Deals.Select(d => $"{d.Id}{(d.Active ? "+" : "?")}"))}/{string.Join(",", _region.Tiles.Where(t => !t.Wild).Select(t => _region.WeatherAt(t, _region.Tick)))}/" + string.Join(",", _region.Tiles.Where(t => !t.Wild).Select(t =>
-            $"{t.Name}:{t.Mayor}:{string.Join("/", t.City?.NextDoor.Select(n => n?.Sig ?? "") ?? Enumerable.Empty<string>())}:{string.Join("+", _cities[t.Row * _region.Cols + t.Col]?.Clients.Select(c => c.Player).Distinct().OrderBy(n => n, StringComparer.Ordinal) ?? Enumerable.Empty<string>())}"));
+            $"{t.Name}:{t.Mayor}:{string.Join("/", t.City?.NextDoor.Select(n => n?.Sig ?? "") ?? Enumerable.Empty<string>())}:{string.Join("+", _cities[Slot(t)]?.Clients.Select(c => c.Player).Distinct().OrderBy(n => n, StringComparer.Ordinal) ?? Enumerable.Empty<string>())}"));
         sig += $"/{_waiting}/{_stopped}/{string.Join(",", _links.Where(l => l != null).Select(l => $"{l!.Index}:{l.Address}"))}";
         sig += $"/{_region.Charter}/{string.Join(",", _region.Votes.Select(v => $"{v.Id}:{v.Yes.Count}:{v.No.Count}"))}";
         if (!force && sig == _regionSig) return list;
@@ -746,6 +815,21 @@ public sealed partial class RegionHost : IDisposable
                 });
                 break;
             }
+            case P.ClientMessage.BodyOneofCase.Annex:
+            {
+                var an = msg.Annex;
+                broadcast = WithAll(() =>
+                {
+                    if (c.Tile is not { } here) { reply = SimHost.Error(msg.Seq, "Open a city first."); return null; }
+                    if (CantAnnex(c, here, an.Col, an.Row, out bool vote) is { } why) { reply = SimHost.Error(msg.Seq, why); return null; }
+                    var a = here.Anchor ?? here;
+                    if (!vote) return Annexed(a, an.Col, an.Row, c.Player);
+                    var list = Asked(c, VoteKind.Annex, a.Col, a.Row, null, out var no, an.Col, an.Row);
+                    if (no != null) reply = SimHost.Error(msg.Seq, no);
+                    return list;
+                });
+                break;
+            }
             case P.ClientMessage.BodyOneofCase.Charter:
                 broadcast = WithAll(() =>
                 {
@@ -770,7 +854,7 @@ public sealed partial class RegionHost : IDisposable
                 {
                     var t = _region.TileAt(g.Col, g.Row);
                     if (t == null || !t.Founded) { reply = SimHost.Error(msg.Seq, "There's no city there yet. Found one first."); return (null, null); }
-                    int at = t.Row * _region.Cols + t.Col;
+                    int at = Slot(t);
                     // A city another host runs, or one of this host's asked for from a tile host: go there.
                     if (_links[at] is { } link && link != (c.RemoteTile is { } rt ? _links[rt.Row * _region.Cols + rt.Col] : null))
                         return (new List<P.ServerMessage> { new() { Redirect = new P.Redirect { Address = link.Address, Col = t.Col, Row = t.Row } } }, null);

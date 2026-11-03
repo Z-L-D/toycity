@@ -49,9 +49,9 @@ public sealed partial class World
         foreach (var s in Strips)
         {
             w.Write(s.Code); w.Write(s.Curved);
-            w.Write(s.X0); w.Write(s.Y0); w.Write(s.X1); w.Write(s.Y1); w.Write(s.CX); w.Write(s.CY);
+            w.Write(CX(s.X0)); w.Write(CY(s.Y0)); w.Write(CX(s.X1)); w.Write(CY(s.Y1)); w.Write(CX(s.CX)); w.Write(CY(s.CY));
             w.Write(s.Cells.Length);
-            foreach (var c in s.Cells) w.Write(c);
+            foreach (var c in s.Cells) w.Write(CI(c));
         }
     }
 

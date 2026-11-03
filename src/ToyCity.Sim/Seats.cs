@@ -208,7 +208,7 @@ public sealed partial class World
                 w.Write(a.Funds); w.Write(a.Debt); w.Write(a.HeadlineSeq);
                 foreach (var t in a.TaxTenths) w.Write(t);
                 w.Write(a.Civic.Count);
-                foreach (var c in a.Civic) { w.Write(c.Id); w.Write(c.Type); w.Write(c.X); w.Write(c.Y); }
+                foreach (var c in a.Civic) { w.Write(c.Id); w.Write(c.Type); w.Write(CX(c.X)); w.Write(CY(c.Y)); }
                 WriteNotes(w, a.Notes);
             }
             w.Write(s.Report != null);
@@ -222,10 +222,10 @@ public sealed partial class World
         }
     }
 
-    static void WriteNotes(BinaryWriter w, IReadOnlyList<AwayNote> notes)
+    void WriteNotes(BinaryWriter w, IReadOnlyList<AwayNote> notes)
     {
         w.Write(notes.Count);
-        foreach (var n in notes) { w.Write(n.Tick); w.Write(n.Text); w.Write(n.X); w.Write(n.Y); }
+        foreach (var n in notes) { w.Write(n.Tick); w.Write(n.Text); w.Write(n.X < 0 ? n.X : CX(n.X)); w.Write(n.Y < 0 ? n.Y : CY(n.Y)); }
     }
 
     static List<AwayNote> ReadNotes(BinaryReader r)

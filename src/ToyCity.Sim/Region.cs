@@ -15,6 +15,14 @@ public sealed class RegionTile
     /// someone adds it.</summary>
     public bool Wild;
 
+    /// <summary>
+    /// The tile at the top-left of this tile's city: itself for a city of one tile, or the corner of a city that has
+    /// annexed land (Beta 4, part 6) and spans several. Null on open land.
+    /// </summary>
+    public RegionTile? Anchor;
+    /// <summary>True on the one tile each city is counted from: loops over the region's cities visit only these.</summary>
+    public bool IsAnchor => City != null && Anchor == this;
+
     public bool Founded => City != null;
     public string Name => City?.Name ?? "Open land";
     /// <summary>Who holds the mayor's seat; empty while the tile is open land.</summary>
@@ -91,6 +99,7 @@ public sealed partial class Region : IDisposable
         var r = new Region(city.Content, city.Name, city.Seed, 1, 1, city.Width, city.Tick);
         r.Tiles[0].Seed = city.Seed;
         r.Tiles[0].City = city;
+        r.Tiles[0].Anchor = r.Tiles[0];
         return r;
     }
 
@@ -98,8 +107,9 @@ public sealed partial class Region : IDisposable
     /// <param name="grown">For a growing region: each tile added so far, with its ground. Null for a fixed region.</param>
     /// <param name="tileByTile">A fixed region too big to make at once (huge): its tiles' ground, made so far, is in
     /// <paramref name="grown"/>. Null to go by its size, for one with nothing saved; a save says which it was.</param>
+    /// <param name="at">Where each city's top-left tile is, from a save; without it, the tile with the city's seed.</param>
     public static Region Restore(ContentDb content, string name, ulong seed, int cols, int rows, int tileSize, long tick, IEnumerable<World> cities,
-        IEnumerable<(int Col, int Row, TileGround Ground)>? grown = null, bool? tileByTile = null)
+        IEnumerable<(int Col, int Row, TileGround Ground)>? grown = null, bool? tileByTile = null, Func<World, (int Col, int Row)?>? at = null)
     {
         var r = new Region(content, name, seed, cols, rows, tileSize, tick);
         if (tileByTile ?? (grown == null && MadeTileByTile(cols, rows, tileSize))) r.BeTileByTile();
@@ -108,10 +118,18 @@ public sealed partial class Region : IDisposable
             foreach (var (col, row, g) in grown) r.RestoreGrown(col, row, g);
         foreach (var w in cities)
         {
-            var t = r.TileOf(w) ?? throw new InvalidDataException($"{w.Name} isn't on a tile of {name}");
+            var t = (at?.Invoke(w) is { } p ? r.TileAt(p.Col, p.Row) : r.TileOf(w)) ?? throw new InvalidDataException($"{w.Name} isn't on a tile of {name}");
             if (w.Tick != tick) throw new InvalidDataException($"{w.Name} is on day {w.Tick}, the region on day {tick}");
-            if (t.Wild) throw new InvalidDataException($"{w.Name} stands on land that isn't part of {name}");
-            t.City = w;
+            if (w.Width % tileSize != 0 || w.HeightCells % tileSize != 0) throw new InvalidDataException($"{w.Name} isn't a whole number of tiles");
+            for (int dr = 0; dr < w.HeightCells / tileSize; dr++)
+            for (int dc = 0; dc < w.Width / tileSize; dc++)
+            {
+                var part = r.TileAt(t.Col + dc, t.Row + dr) ?? throw new InvalidDataException($"{w.Name} runs off the edge of {name}");
+                if (part.Wild) throw new InvalidDataException($"{w.Name} stands on land that isn't part of {name}");
+                if (part.City != null) throw new InvalidDataException($"{w.Name} overlaps {part.Name}");
+                part.City = w;
+                part.Anchor = t;
+            }
         }
         r.RestoreDeals();
         return r;
@@ -126,10 +144,14 @@ public sealed partial class Region : IDisposable
 
     public RegionTile? TileAt(int col, int row) => col >= 0 && row >= 0 && col < Cols && row < Rows ? Tiles[row * Cols + col] : null;
 
-    /// <summary>The tile a city stands on, found by its seed (each tile's is different).</summary>
-    public RegionTile? TileOf(World w) => Tiles.FirstOrDefault(t => t.City == w) ?? Tiles.FirstOrDefault(t => t.Seed == w.Seed);
+    /// <summary>The tile a city is counted from (its top-left), or for a city not here yet the tile with its seed.</summary>
+    public RegionTile? TileOf(World w) => Tiles.FirstOrDefault(t => t.City == w)?.Anchor ?? Tiles.FirstOrDefault(t => t.Seed == w.Seed);
 
-    public IEnumerable<World> Cities => Tiles.Where(t => t.City != null).Select(t => t.City!);
+    /// <summary>Each city once, from its top-left tile.</summary>
+    public IEnumerable<World> Cities => Anchors.Select(t => t.City!);
+
+    /// <summary>The tile each city is counted from, in tile order.</summary>
+    public IEnumerable<RegionTile> Anchors => Tiles.Where(t => t.IsAnchor);
 
     /// <summary>The region's ground over its box (<see cref="BoxCols"/> by <see cref="BoxRows"/> tiles), row-major in steps. Made on first use.</summary>
     public byte[] Heights => _heights ??= World.StepsFromCorners(Corners, BoxCols * TileSize, BoxRows * TileSize);
@@ -200,7 +222,7 @@ public sealed partial class Region : IDisposable
         if (t == null) return "There is no such tile in this region.";
         if (t.Wild) return "That land isn't part of the region yet: add it to the region first.";
         if (t.Founded) return $"{t.Name} is already there.";
-        return null;
+        return CrowdsASide(col, row, null);
     }
 
     /// <summary>
@@ -223,6 +245,7 @@ public sealed partial class Region : IDisposable
         if (computer is { } st) w.Enqueue(new SetSeatAction(Seat.Mayor, mayor, OperatorLevel.Autopilot, st) { By = mayor });
         w.ApplyPending();
         t.City = w;
+        t.Anchor = t;
         return w;
     }
 
@@ -230,6 +253,7 @@ public sealed partial class Region : IDisposable
     public World ReplayTile(RegionTile t, long untilTick)
     {
         var w = t.City ?? throw new InvalidOperationException("nothing to replay on open land");
+        if (w.Width != TileSize || w.HeightCells != TileSize) throw new InvalidOperationException($"{w.Name} has annexed land: it replays from its last save, not its founding");
         var fresh = World.CreateTile(Content, t.Seed, TileSize, w.Name, TileCorners(t.Col, t.Row), w.FoundedTick, TileRivers(t.Col, t.Row), TileGeology(t.Col, t.Row), w.FoundedClocks);
         return World.Replay(fresh, w.Log, untilTick);
     }
@@ -285,12 +309,12 @@ public sealed partial class Region : IDisposable
     /// </summary>
     public string? Unbalanced()
     {
-        foreach (var t in Tiles)
+        foreach (var t in Anchors)
         {
-            if (t.City is not { } w) continue;
+            var w = t.City!;
             for (int side = 0; side < 4; side++)
             {
-                if (Across(t, side)?.City is not { } n) continue;
+                if (NeighbourOn(t, side)?.City is not { } n) continue;
                 var a = w.Flows[side];
                 var b = n.Flows[World.Opposite(side)];
                 if (a.CommuteOut != b.CommuteIn || a.CommuteIn != b.CommuteOut || a.ShoppersOut != b.ShoppersIn || a.ShoppersIn != b.ShoppersOut
@@ -324,12 +348,13 @@ public sealed partial class Region : IDisposable
         SendFloods();
         SendWater();
         var sends = new List<(World, NeighbourEdgeAction)>();
-        foreach (var t in Tiles)
+        var edges = new Dictionary<(World, int), NeighbourEdgeAction>();
+        foreach (var t in Anchors)
         {
-            if (t.City is not { } w) continue;
+            var w = t.City!;
             for (int side = 0; side < 4; side++)
             {
-                var a = Across(t, side)?.City is { } n ? n.EdgeOut(World.Opposite(side)) : new NeighbourEdgeAction(side, "", "", Array.Empty<int>(), Array.Empty<int>(), Array.Empty<int>());
+                var a = EdgeIn(t, side, edges);
                 if (w.EdgeDiffers(a)) sends.Add((w, a));
             }
         }
@@ -346,7 +371,7 @@ public sealed partial class Region : IDisposable
     {
         ulong h = (ulong)Tick * 0x9E3779B97F4A7C15UL;
         foreach (var t in Tiles)
-            if (t.City != null || Cols <= MaxSide) h = (h ^ (t.City?.StateHash() ?? 0)) * 0x100000001B3UL + (ulong)(t.Row * Cols + t.Col);
+            if (t.IsAnchor || (t.City == null && Cols <= MaxSide)) h = (h ^ (t.City?.StateHash() ?? 0)) * 0x100000001B3UL + (ulong)(t.Row * Cols + t.Col);
         return h;
     }
 

@@ -390,22 +390,22 @@ public sealed partial class World
         {
             w.Write(FormatVersion);
             w.Write(Content.Fingerprint);
-            w.Write(Width); w.Write(HeightCells); w.Write(WaterLevel); w.Write(Seed); w.Write(Name); w.Write(Tick);
+            w.Write(_shift?.NewW ?? Width); w.Write(_shift?.NewH ?? HeightCells); w.Write(WaterLevel); w.Write(Seed); w.Write(Name); w.Write(Tick);
             Rng.Write(w);
-            w.Write(Height); WriteU16(w, Corner); w.Write(River); w.Write(FloodStage); w.Write(ZoneCode); WriteU16(w, Path); w.Write(PowerLine); w.Write(WaterPipe); WriteI32(w, BuildingAt);
-            w.Write(Powered); w.Write(Watered); w.Write(LandValue);
-            WriteI16(w, DesR); WriteI16(w, DesC); WriteI16(w, DesI);
-            w.Write(Pollution); w.Write(WaterPollution); w.Write(Noise); w.Write(Traffic);
-            WriteI32(w, Trips); WriteI32(w, TravelCost); w.Write(WaterDistance);
-            foreach (var c in Coverage) w.Write(c);
-            w.Write(Litter); w.Write(Blight); WriteI32(w, Riders); w.Write(TransitBoardings);
+            WC(w, Height); WK(w, Corner); WC(w, River); w.Write(FloodStage); WC(w, ZoneCode); WC(w, Path); WC(w, PowerLine); WC(w, WaterPipe); WC(w, BuildingAt);
+            WC(w, Powered); WC(w, Watered); WC(w, LandValue);
+            WC(w, DesR); WC(w, DesC); WC(w, DesI);
+            WC(w, Pollution); WC(w, WaterPollution); WC(w, Noise); WC(w, Traffic);
+            WC(w, Trips); WC(w, TravelCost); WC(w, WaterDistance);
+            foreach (var c in Coverage) WC(w, c);
+            WC(w, Litter); WC(w, Blight); WC(w, Riders); w.Write(TransitBoardings);
 
             w.Write(Buildings.Count);
             foreach (var b in Buildings)
             {
                 w.Write(b != null);
                 if (b == null) continue;
-                w.Write(b.Type); w.Write(b.X); w.Write(b.Y); w.Write(b.W); w.Write(b.H); w.Write(b.Side);
+                w.Write(b.Type); w.Write(CX(b.X)); w.Write(CY(b.Y)); w.Write(b.W); w.Write(b.H); w.Write(b.Side);
                 w.Write(b.Funding); w.Write(b.Condition); w.Write(b.Abandoned); w.Write(b.ConstructionLeft);
                 w.Write(b.UnmetMonths); w.Write(b.GoodMonths); w.Write(b.Powered); w.Write(b.Watered);
                 w.Write(b.Workers); w.Write(b.Employed); w.Write(b.CommuteMinutes); w.Write(b.Graffiti); w.Write(b.BurningDays); w.Write(b.Riders);
@@ -416,11 +416,11 @@ public sealed partial class World
                 {
                     w.Write(a.SiteId); w.Write(a.Count); w.Write(a.Minutes);
                     w.Write(a.PathCells.Length);
-                    foreach (var c in a.PathCells) w.Write(c);
+                    foreach (var c in a.PathCells) w.Write(CI(c));
                     w.Write(a.RideCells.Length);
-                    foreach (var c in a.RideCells) w.Write(c);
+                    foreach (var c in a.RideCells) w.Write(CL(c));
                     w.Write(a.Stops.Length);
-                    foreach (var c in a.Stops) w.Write(c);
+                    foreach (var c in a.Stops) w.Write(CI(c));
                     w.Write(a.LineLegs.Length);
                     foreach (var c in a.LineLegs) w.Write(c);
                 }
@@ -433,7 +433,7 @@ public sealed partial class World
             w.Write(LastBudget.Count);
             foreach (var (label, amount) in LastBudget) { w.Write(label); w.Write(amount); }
             w.Write(EducationIndex); w.Write(MilestoneIndex);
-            w.Write(EdgeCapacity); w.Write(EdgeCell);
+            w.Write(EdgeCapacity); w.Write(CI(EdgeCell));
             // Utility totals from the last tick: queries and demand limits read them before the next tick measures again.
             w.Write(PowerCapacity); w.Write(PowerDemand); w.Write(WaterCapacity); w.Write(WaterDemand);
             w.Write(GarbageCapacity); w.Write(GarbageProduced);
@@ -450,17 +450,17 @@ public sealed partial class World
             WriteDeals(w);
             WriteRegionState(w);
             WriteStrips(w);
-            w.Write(PathSurface);
-            WriteU16(w, PathDeck);
-            w.Write(Made);
-            WriteU16(w, Bedrock);
-            w.Write(Rock);
+            WC(w, PathSurface);
+            WC(w, PathDeck);
+            WC(w, Made);
+            WK(w, Bedrock);
+            WC(w, Rock);
             WriteClock(w);
             WriteRoadWeather(w);
             // Format 13: the sewers' reach and totals from the last tick.
-            w.Write(Sewered); w.Write(SewageCapacity); w.Write(SewageProduced); w.Write(SewageUntreated);
+            WC(w, Sewered); w.Write(SewageCapacity); w.Write(SewageProduced); w.Write(SewageUntreated);
             // Format 14: the subway tunnels.
-            w.Write(Subway);
+            WC(w, Subway);
             // Format 15: snow on the ground.
             WriteSnow(w);
             // Format 16: water quality.

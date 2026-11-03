@@ -134,7 +134,7 @@ public sealed partial class World
         w.Write(Tenders.Count);
         foreach (var t in Tenders)
         {
-            w.Write(t.Id); w.Write(t.District); w.Write(t.Months); w.Write(t.Tick); w.Write(t.Closes); w.Write(t.Until);
+            w.Write(t.Id); w.Write(DI(t.District)); w.Write(t.Months); w.Write(t.Tick); w.Write(t.Closes); w.Write(t.Until);
             w.Write((byte)t.Status); w.Write(t.Winner); w.Write(t.Amount); w.Write(t.Exclusive);
             w.Write(t.Bids.Count);
             foreach (var (g, b) in t.Bids) { w.Write(g); w.Write(b); }

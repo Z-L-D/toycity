@@ -33,7 +33,7 @@ public static class RegionMapping
                 gt.Downstream.AddRange(g.Downstream);
                 s.Grown.Add(gt);
             }
-        foreach (var t in r.Tiles.Where(t => t.City != null))
+        foreach (var t in r.Anchors)
             s.Cities.Add(new P.RegionSavedCity { Col = t.Col, Row = t.Row, Save = ByteString.CopyFrom(Mapping.Save(t.City!)) });
         foreach (var d in r.Deals.Where(d => !d.Active)) s.Offers.Add(Deal(r, d));
         return s.ToByteArray();
@@ -46,11 +46,17 @@ public static class RegionMapping
         var cities = new List<World>();
         try
         {
-            foreach (var c in s.Cities) cities.Add(Mapping.Load(content, c.Save.ToByteArray()));
+            var at = new Dictionary<World, (int, int)>();
+            foreach (var c in s.Cities)
+            {
+                var w = Mapping.Load(content, c.Save.ToByteArray());
+                cities.Add(w);
+                at[w] = (c.Col, c.Row);
+            }
             var grown = s.Grows || s.TileByTile
                 ? s.Grown.Select(g => (g.Col, g.Row, new TileGround(Words(g.Corners), g.Rivers.ToByteArray(), g.Downstream.ToArray(), Words(g.Bedrock), g.Rock.ToByteArray()))).ToList()
                 : null;
-            var r = Region.Restore(content, s.Name, s.Seed, s.Cols, s.Rows, s.TileSize, s.Tick, cities, grown, s.TileByTile);
+            var r = Region.Restore(content, s.Name, s.Seed, s.Cols, s.Rows, s.TileSize, s.Tick, cities, grown, s.TileByTile, w => at.TryGetValue(w, out var p) ? p : null);
             r.WaterCrossesBorders = !s.WaterStays;
             if (s.Charter != null) r.Charter = Charter(s.Charter);
             foreach (var v in s.Votes) r.RestoreVote(Vote(v));
@@ -130,6 +136,11 @@ public static class RegionMapping
             var pic = pictures != null && pictures.TryGetValue(i, out var p) ? p : ByteString.CopyFrom(Picture(r, t));
             if (pictures != null) pictures[i] = pic;
             var ts = new P.RegionTileState { Col = t.Col, Row = t.Row, Founded = t.Founded, Name = t.Name, Mayor = t.Mayor, Picture = pic, Unsurveyed = Unsurveyed(r, t) };
+            if (t.Founded)
+            {
+                var (fc, fr, fcs, frs) = r.Footprint(t);
+                (ts.CityCol, ts.CityRow, ts.CityCols, ts.CityRows) = (fc, fr, fcs, frs);
+            }
             if (t.City is { } w)
             {
                 ts.Population = w.Population;
@@ -141,10 +152,25 @@ public static class RegionMapping
             s.Tiles.Add(ts);
         }
         // Across each side of this city: what the neighbour shows there, for markers on the map's edge.
-        if (r.TileAt(hereCol, hereRow) is { } here)
+        if (r.TileAt(hereCol, hereRow) is { City: not null } here)
+        {
             for (int side = 0; side < 4; side++)
-                if (r.Across(here, side)?.City is { } n)
+                if (r.NeighbourOn(here, side)?.City is { } n)
                     s.Borders.Add(Mapping.Edge(n.EdgeOut(World.Opposite(side))));
+            // What annexing each open tile around it would take.
+            var (hc, hr, hcs, hrs) = r.Footprint(here);
+            for (int row = hr - 1; row <= hr + hrs; row++)
+            for (int col = hc - 1; col <= hc + hcs; col++)
+            {
+                if (r.TileAt(col, row) is not { Founded: false, Wild: false }) continue;
+                var to = r.AnnexRect(here, col, row);
+                s.Annex.Add(new P.AnnexOption
+                {
+                    Col = col, Row = row, ToCol = to.Col, ToRow = to.Row, ToCols = to.Cols, ToRows = to.Rows,
+                    Price = r.AnnexPrice(here, to), Why = r.CantAnnex(here, col, row) ?? "",
+                });
+            }
+        }
         if (r.TileAt(hereCol, hereRow) is { } at)
         {
             int me = at.Row * r.Cols + at.Col;
@@ -224,6 +250,9 @@ public static class RegionMapping
         }
         var heights = w?.Height ?? r.TileHeights(t.Col, t.Row);
         int water = w?.WaterLevel ?? 8;
+        // A city of several tiles: this tile's part of its map.
+        int wide = w?.Width ?? s, ox = 0, oy = 0;
+        if (w != null && t.Anchor is { } a) (ox, oy) = ((t.Col - a.Col) * s, (t.Row - a.Row) * s);
         var px = new byte[n * n * 3];
         for (int py = 0; py < n; py++)
         for (int pxl = 0; pxl < n; pxl++)
@@ -233,7 +262,7 @@ public static class RegionMapping
             for (int y = py * step; y < (py + 1) * step; y++)
             for (int x = pxl * step; x < (pxl + 1) * step; x++)
             {
-                int i = y * s + x;
+                int i = (y + oy) * wide + x + ox;
                 int k = w == null ? 0 : w.BuildingAt[i] != 0 ? 3 : w.Path[i] != 0 ? 2 : w.ZoneCode[i] != 0 ? 1 : 0;
                 if (k > rank) { rank = k; best = i; }
             }

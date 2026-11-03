@@ -246,7 +246,7 @@ public sealed partial class RegionHost
             case P.ClientMessage.BodyOneofCase.Speed or P.ClientMessage.BodyOneofCase.Pace or P.ClientMessage.BodyOneofCase.PinWeather or P.ClientMessage.BodyOneofCase.RegionWater or P.ClientMessage.BodyOneofCase.Save or P.ClientMessage.BodyOneofCase.Load
                 or P.ClientMessage.BodyOneofCase.NewCity or P.ClientMessage.BodyOneofCase.NewRegion or P.ClientMessage.BodyOneofCase.FoundCity
                 or P.ClientMessage.BodyOneofCase.GoTo or P.ClientMessage.BodyOneofCase.Deal or P.ClientMessage.BodyOneofCase.Mayor
-                or P.ClientMessage.BodyOneofCase.Grow or P.ClientMessage.BodyOneofCase.Charter or P.ClientMessage.BodyOneofCase.Vote:
+                or P.ClientMessage.BodyOneofCase.Grow or P.ClientMessage.BodyOneofCase.Charter or P.ClientMessage.BodyOneofCase.Vote or P.ClientMessage.BodyOneofCase.Annex:
                 if (_leader == null) { await SimHost.SendAsync(c, SimHost.Error(msg.Seq, "The region's host can't be reached just now.")); return true; }
                 await SendLeaderAsync(new P.LinkMessage { Forward = new P.LinkForward { Conn = c.Conn, Player = c.Player, Admin = c.Admin, Message = msg } });
                 return true;

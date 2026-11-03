@@ -345,9 +345,9 @@ public sealed partial class World : IDisposable
         ReadIncidents(r);
     }
 
-    static void WriteIncident(BinaryWriter w, Incident i)
+    void WriteIncident(BinaryWriter w, Incident i)
     {
-        w.Write(i.Id); w.Write(i.Kind); w.Write(i.X); w.Write(i.Y); w.Write(i.Source); w.Write(i.Cause); w.Write(i.Severity); w.Write(i.Text);
+        w.Write(i.Id); w.Write(i.Kind); w.Write(CX(i.X)); w.Write(CY(i.Y)); w.Write(i.Source); w.Write(i.Cause); w.Write(i.Severity); w.Write(i.Text);
     }
 
     static Incident ReadIncident(BinaryReader r) =>

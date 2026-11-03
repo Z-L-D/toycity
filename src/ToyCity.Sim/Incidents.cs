@@ -186,8 +186,15 @@ public sealed partial class World
     {
         w.Write(_openIncidents.Count);
         foreach (var (inc, tick) in _openIncidents.Values) { WriteIncident(w, inc); w.Write(tick); }
-        w.Write(_crimeHeat.Length);
-        foreach (var h in _crimeHeat) w.Write(h);
+        // Heat is by district: on a bigger map, each district's moves to where the district went.
+        var heat = _crimeHeat;
+        if (_shift is { } s && heat.Length == DistrictCount)
+        {
+            heat = new int[((s.NewW + DistrictSize - 1) / DistrictSize) * ((s.NewH + DistrictSize - 1) / DistrictSize)];
+            for (int d = 0; d < _crimeHeat.Length; d++) heat[DI(d)] = _crimeHeat[d];
+        }
+        w.Write(heat.Length);
+        foreach (var h in heat) w.Write(h);
     }
 
     void ReadIncidents(BinaryReader r)

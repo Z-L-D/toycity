@@ -278,7 +278,7 @@ public sealed partial class World
         w.Write(Disasters.Count);
         foreach (var d in Disasters)
         {
-            w.Write(d.Id); w.Write((byte)d.Kind); w.Write(d.X); w.Write(d.Y); w.Write(d.Dx); w.Write(d.Dy);
+            w.Write(d.Id); w.Write((byte)d.Kind); w.Write(d.X + (_shift?.Dx ?? 0)); w.Write(d.Y + (_shift?.Dy ?? 0)); w.Write(d.Dx); w.Write(d.Dy);
             w.Write(d.DaysLeft); w.Write(d.Started); w.Write(d.Destroyed); w.Write(d.Damaged);
         }
     }

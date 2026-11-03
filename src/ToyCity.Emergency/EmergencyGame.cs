@@ -13,7 +13,7 @@ namespace ToyCity.Emergency;
 /// the city. Nothing stops a player doing badly: ignoring calls, sending the wrong crews, driving into people or
 /// shooting the wrong person all go ahead, and all have consequences.
 /// </summary>
-public sealed partial class EmergencyGame : ISideGame
+public sealed partial class EmergencyGame : ISideGame, IRelocatable
 {
     public const string Id = "emergency";
     public const int StartingCash = 20_000, WagePerCrew = 450, StationStaff = 2;
@@ -875,6 +875,24 @@ public sealed partial class EmergencyGame : ISideGame
             v.Crooked = new W.CrookedView { Strike = _strike, Exposed = _exposed, SlowWalk = -1, Racket = -1, LookAway = -1 };
         }
         return v.ToByteArray();
+    }
+
+    /// <summary>
+    /// The city has grown onto a bigger map (Beta 4, part 6): calls, scenes and units on the streets move with it.
+    /// What the city sends each day (lots) comes again on the next.
+    /// </summary>
+    public void Relocate(Func<int, int> cell, Func<int, int> district, int dx, int dy)
+    {
+        foreach (var c in _calls) { c.X += dx; c.Y += dy; c.District = district(c.District); }
+        foreach (var sc in _scenes) { sc.OriginX += dx; sc.OriginY += dy; }
+        foreach (var u in _units)
+        {
+            u.Cell = cell(u.Cell);
+            for (int k = 0; k < u.Leg.Count; k++) u.Leg[k] = cell(u.Leg[k]);
+            for (int k = 0; k < u.Waypoints.Count; k++) u.Waypoints[k] = cell(u.Waypoints[k]);
+        }
+        for (int i = 0; i < _lots.Count; i++) { var l = _lots[i]; _lots[i] = l with { X = l.X + dx, Y = l.Y + dy, AccessCell = cell(l.AccessCell), DistrictId = district(l.DistrictId) }; }
+        for (int i = 0; i < _open.Count; i++) { var o = _open[i]; _open[i] = o with { X = o.X + dx, Y = o.Y + dy, AccessCell = cell(o.AccessCell), DistrictId = district(o.DistrictId) }; }
     }
 
     public void Save(BinaryWriter w)

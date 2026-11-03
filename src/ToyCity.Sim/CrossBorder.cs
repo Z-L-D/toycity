@@ -90,8 +90,10 @@ public sealed partial class World
     void WriteRegionState(BinaryWriter w)
     {
         w.Write((byte)Weather); w.Write(WeatherStrength);
-        w.Write(Departures.Count);
-        foreach (var d in Departures)
+        // Storms leaving across a side go with the old sides.
+        var leaving = _shift == null ? Departures : new();
+        w.Write(leaving.Count);
+        foreach (var d in leaving)
         {
             w.Write((byte)d.Kind); w.Write(d.Side); w.Write(d.K); w.Write(d.Dx); w.Write(d.Dy); w.Write(d.DaysLeft); w.Write(d.Tick);
         }

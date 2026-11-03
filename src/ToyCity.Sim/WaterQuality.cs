@@ -335,10 +335,12 @@ public sealed partial class World
     void WriteWaterQuality(BinaryWriter w)
     {
         w.Write((byte)SewageTreatment);
-        w.Write(Foul.Length == N ? Foul : new byte[N]);
-        w.Write(TapFoul.Length == N ? TapFoul : new byte[N]);
-        w.Write(Inflow.Count);
-        foreach (var (i, v) in Inflow) { w.Write(i); w.Write(v); }
+        WC(w, Foul.Length == N ? Foul : new byte[N]);
+        WC(w, TapFoul.Length == N ? TapFoul : new byte[N]);
+        // Rivers coming in across a side: the region tells them again on a bigger map.
+        var inflow = _shift == null ? Inflow : new SortedDictionary<int, byte>();
+        w.Write(inflow.Count);
+        foreach (var (i, v) in inflow) { w.Write(i); w.Write(v); }
     }
 
     void ReadWaterQuality(BinaryReader r, int version)
@@ -380,6 +382,15 @@ public sealed partial class Region
     /// <summary>Each place a river runs over a border: the tile and cell it leaves, and the tile and cell it comes in at.</summary>
     List<(int From, int FromCell, int To, int ToCell)>? _waterExits;
 
+    /// <summary>A cell of a tile, as a cell of the city on it: a city of several tiles holds each at its place.</summary>
+    public (World City, int Cell) CityCell(RegionTile t, int tileCell)
+    {
+        var w = t.City!;
+        var a = t.Anchor ?? t;
+        int s = TileSize, x = tileCell % s + (t.Col - a.Col) * s, y = tileCell / s + (t.Row - a.Row) * s;
+        return (w, y * w.Width + x);
+    }
+
     List<(int From, int FromCell, int To, int ToCell)> WaterExits()
     {
         if (_waterExits != null) return _waterExits;
@@ -405,12 +416,16 @@ public sealed partial class Region
     {
         if (Tiles.Length < 2) return;
         var coming = new SortedDictionary<(int Tile, int Cell), int>();
-        foreach (var (from, fromCell, to, toCell) in WaterExits())
+        foreach (var (from, fromTileCell, to, toTileCell) in WaterExits())
         {
             if (Tiles[to].City is not { } dest) continue;
+            // A river running between two tiles of one city stays inside it.
+            if (Tiles[from].City == dest) continue;
+            var (_, toCell) = CityCell(Tiles[to], toTileCell);
             int foul = 0;
-            if (WaterCrossesBorders && Tiles[from].City is { } src && src.Foul.Length == src.N) foul = src.Foul[fromCell];
-            coming[(to, toCell)] = Math.Max(coming.GetValueOrDefault((to, toCell)), foul);
+            if (WaterCrossesBorders && Tiles[from].City is { } src && src.Foul.Length == src.N) foul = src.Foul[CityCell(Tiles[from], fromTileCell).Cell];
+            int at = Tiles[to].Anchor!.Row * Cols + Tiles[to].Anchor!.Col;
+            coming[(at, toCell)] = Math.Max(coming.GetValueOrDefault((at, toCell)), foul);
         }
         foreach (var ((tile, cell), foul) in coming)
         {

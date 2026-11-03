@@ -271,6 +271,16 @@ public interface ISideGame
 }
 
 /// <summary>
+/// A side game that can follow its city when the city's map grows (Beta 4, part 6: annexing). Every cell index it
+/// keeps is passed through <c>cell</c>, every district through <c>district</c>, and every x and y moved by dx and dy.
+/// (Beta 4, part 6.) A game that can't (one hosted in another process) blocks the city from growing.
+/// </summary>
+public interface IRelocatable
+{
+    void Relocate(Func<int, int> cell, Func<int, int> district, int dx, int dy);
+}
+
+/// <summary>
 /// Thrown by a side game hosted in another process when it doesn't answer a tick or a command by the city's deadline.
 /// The call never happened on either side: the host puts the game back as it was. The city logs the miss, so replays
 /// skip the same call.

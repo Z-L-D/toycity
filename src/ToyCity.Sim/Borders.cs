@@ -137,7 +137,8 @@ public sealed partial class World
     {
         for (int s = 0; s < 4; s++)
         {
-            var n = NextDoor[s];
+            // On a bigger map the sides are new: the region tells them again.
+            var n = _shift == null ? NextDoor[s] : null;
             w.Write(n != null);
             if (n == null) continue;
             w.Write(n.Name); w.Write(n.Mayor); w.Write(n.Sig);

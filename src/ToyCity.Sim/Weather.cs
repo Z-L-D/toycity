@@ -144,9 +144,9 @@ public sealed partial class Region
     {
         // A lone city has no region sky of its own, only one its host pins; let go, it clears.
         bool lone = Tiles.Length < 2 && PinnedWeather == null;
-        foreach (var t in Tiles)
+        foreach (var t in Anchors)
         {
-            if (t.City is not { } w) continue;
+            var w = t.City!;
             var (k, s) = lone ? (WeatherKind.Clear, 0) : WeatherAt(t, Tick);
             if (k != w.Weather || s != w.WeatherStrength) w.Enqueue(new WeatherAction(k, s));
         }

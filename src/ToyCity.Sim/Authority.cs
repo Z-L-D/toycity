@@ -182,13 +182,13 @@ public sealed partial class World
         w.Write(Standings.Count);
         foreach (var s in Standings)
         {
-            w.Write(s.GameId); w.Write(s.District); w.Write(s.Rating); w.Write(s.Target); w.Write(s.Statue);
+            w.Write(s.GameId); w.Write(DI(s.District)); w.Write(s.Rating); w.Write(s.Target); w.Write(s.Statue);
             w.Write(s.ExclusiveUntil); w.Write(s.BribeBanUntil); w.Write(s.Incidents);
         }
         w.Write(_authorityResults.Count);
         foreach (var (id, r) in _authorityResults)
         {
-            w.Write(id); w.Write(r.Kind); w.Write(r.DistrictId); w.Write(r.Ok); w.Write(r.Cost); w.Write(r.Text); w.Write(r.Rating);
+            w.Write(id); w.Write(r.Kind); w.Write(DI(r.DistrictId)); w.Write(r.Ok); w.Write(r.Cost); w.Write(r.Text); w.Write(r.Rating);
         }
         WriteConsent(w);
         WriteTenders(w);

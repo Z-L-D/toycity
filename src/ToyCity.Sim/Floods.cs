@@ -187,11 +187,14 @@ public sealed partial class Region
     void SendFloods()
     {
         if (Tiles.Length < 2) return;
+        // A city of several tiles floods as its wettest tile does.
+        var stage = new Dictionary<World, int>();
         for (int k = 0; k < Tiles.Length; k++)
         {
             if (Tiles[k].City is not { } w) continue;
-            int s = FloodStageAt(k, Tick);
-            if (s != w.FloodStage) w.Enqueue(new FloodAction(s));
+            stage[w] = Math.Max(stage.GetValueOrDefault(w), FloodStageAt(k, Tick));
         }
+        foreach (var t in Anchors)
+            if (stage.GetValueOrDefault(t.City!) is var s && s != t.City!.FloodStage) t.City!.Enqueue(new FloodAction(s));
     }
 }

@@ -15,7 +15,7 @@ namespace ToyCity.Transport;
 /// the way the train takes. Two companies can run in one city and bid against each other for district franchises.
 /// It plays itself when nobody runs it (caretaker or autopilot), and takes commands from its owner when someone does.
 /// </summary>
-public sealed class TransportGame : ISideGame
+public sealed class TransportGame : ISideGame, IRelocatable
 {
     /// <summary>The city's first transit company, and the rival a mayor can invite in.</summary>
     public const string Id = "transport", RivalId = "transport-2";
@@ -1072,6 +1072,31 @@ public sealed class TransportGame : ISideGame
             foreach (var l in v.Lines) { l.ThisMonth = null; l.LastMonth = null; }
         }
         return v.ToByteArray();
+    }
+
+    /// <summary>
+    /// The city has grown onto a bigger map (Beta 4, part 6): routes, signals and held cells move with it, and every
+    /// line is routed again. What the city sends each day (lots, crossings, tenders) comes again on the next.
+    /// </summary>
+    public void Relocate(Func<int, int> cell, Func<int, int> district, int dx, int dy)
+    {
+        foreach (var l in _lines) { l.RouteCells = l.RouteCells.Select(cell).ToArray(); l.RouteDirty = true; }
+        var signals = _signals.ToList();
+        _signals.Clear();
+        foreach (var (c, k) in signals) _signals[cell(c)] = k;
+        var reserved = _reserved.ToList();
+        _reserved.Clear();
+        foreach (var (c, m) in reserved) _reserved[cell(c)] = m;
+        for (int i = 0; i < _lots.Count; i++) { var l = _lots[i]; _lots[i] = l with { X = l.X + dx, Y = l.Y + dy, AccessCell = cell(l.AccessCell), DistrictId = district(l.DistrictId) }; }
+        for (int i = 0; i < _open.Count; i++) { var o = _open[i]; _open[i] = o with { X = o.X + dx, Y = o.Y + dy, AccessCell = cell(o.AccessCell), DistrictId = district(o.DistrictId) }; }
+        for (int i = 0; i < _districts.Count; i++) { var d = _districts[i]; _districts[i] = d with { Id = district(d.Id), X0 = d.X0 + dx, Y0 = d.Y0 + dy, X1 = d.X1 + dx, Y1 = d.Y1 + dy }; }
+        for (int i = 0; i < _buying.Count; i++) _buying[i] = _buying[i] with { DistrictId = district(_buying[i].DistrictId) };
+        var bought = _bought.ToList();
+        _bought.Clear();
+        foreach (var (d, b) in bought) _bought[district(d)] = b;
+        for (int i = 0; i < _tenders.Count; i++) _tenders[i] = _tenders[i] with { DistrictId = district(_tenders[i].DistrictId) };
+        for (int i = 0; i < _franchises.Count; i++) _franchises[i] = _franchises[i] with { DistrictId = district(_franchises[i].DistrictId) };
+        _crossings.Clear();
     }
 
     public void Save(BinaryWriter w)

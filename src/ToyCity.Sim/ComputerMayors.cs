@@ -110,7 +110,7 @@ public sealed partial class Region
             AnswerByRules(d, t, w);
         }
         if (Tick % World.DaysPerMonth != 0) return;
-        foreach (var t in Tiles)
+        foreach (var t in Anchors)
         {
             if (t.City is not { ComputerMayor: true } w) continue;
             foreach (var kind in new[] { DealKind.Power, DealKind.Water, DealKind.Garbage })
@@ -123,7 +123,7 @@ public sealed partial class Region
                 for (int side = 0; side < 4; side++)
                 {
                     if (CantOffer(t, side, kind, amount, price) != null) continue;
-                    var n = Across(t, side)!.City!;
+                    var n = NeighbourOn(t, side)!.City!;
                     // Only from a neighbour with that much to spare, as far as anyone can see.
                     if (n.Spare(kind) < amount) continue;
                     var offer = Offer(t, side, kind, amount, price, selling: false);

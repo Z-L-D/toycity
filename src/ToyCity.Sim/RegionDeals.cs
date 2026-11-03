@@ -33,13 +33,14 @@ public sealed partial class Region
     /// <summary>Most of one kind of deal a border carries at once, either way.</summary>
     public const int MaxDealsPerKind = 1;
 
-    int Index(RegionTile t) => t.Row * Cols + t.Col;
+    /// <summary>A city's index: its top-left tile's, whichever of its tiles is given.</summary>
+    int Index(RegionTile t) { var a = t.Anchor ?? t; return a.Row * Cols + a.Col; }
 
     /// <summary>The side of the seller's city its buyer is on.</summary>
     public int DealSide(RegionDeal d)
     {
         var s = Tiles[d.Seller];
-        for (int side = 0; side < 4; side++) if (Across(s, side) == Tiles[d.Buyer]) return side;
+        for (int side = 0; side < 4; side++) if (NeighbourOn(s, side) == Tiles[d.Buyer]) return side;
         return -1;
     }
 
@@ -47,11 +48,12 @@ public sealed partial class Region
     public string? CantOffer(RegionTile from, int side, DealKind kind, int amount, int price)
     {
         if (from.City is not { } w) return "There's no city here.";
-        if (side is < 0 or > 3 || Across(from, side)?.City is not { } n) return "There's no neighbouring city on that side.";
+        from = from.Anchor ?? from;
+        if (side is < 0 or > 3 || NeighbourOn(from, side)?.City is not { } n) return "There's no neighbouring city on that side.";
         if (!Enum.IsDefined(kind)) return "That isn't a kind of deal.";
         if (amount is <= 0 or > 1_000_000) return "Say how much.";
         if (price is < 0 or > 1_000_000) return "That price is out of range.";
-        int other = Index(Across(from, side)!), me = Index(from);
+        int other = Index(NeighbourOn(from, side)!), me = Index(from);
         if (Deals.Count(d => d.Kind == kind && ((d.Seller == me && d.Buyer == other) || (d.Seller == other && d.Buyer == me))) >= MaxDealsPerKind)
             return $"There's already a {World.DealNoun(kind)} deal with {n.Name}, offered or running.";
         if (w.DealCrossing(kind, side) < 0)
@@ -71,7 +73,8 @@ public sealed partial class Region
     public RegionDeal Offer(RegionTile from, int side, DealKind kind, int amount, int price, bool selling)
     {
         if (CantOffer(from, side, kind, amount, price) is { } why) throw new InvalidOperationException(why);
-        int me = Index(from), other = Index(Across(from, side)!);
+        from = from.Anchor ?? from;
+        int me = Index(from), other = Index(NeighbourOn(from, side)!);
         var d = new RegionDeal
         {
             Id = NextDealId++, Kind = kind, Amount = amount, Price = price, OfferedBySeller = selling,
@@ -173,12 +176,12 @@ public sealed partial class Region
     /// <summary>Puts back running deals from the cities after a load; offers come from the save.</summary>
     void RestoreDeals()
     {
-        foreach (var t in Tiles)
+        foreach (var t in Anchors)
         {
-            if (t.City is not { } w) continue;
+            var w = t.City!;
             foreach (var cd in w.Deals.Where(x => x.Selling))
             {
-                if (Across(t, cd.Side) is not { City: not null } other || Deals.Any(x => x.Id == cd.Id)) continue;
+                if (NeighbourOn(t, cd.Side) is not { City: not null } other || Deals.Any(x => x.Id == cd.Id)) continue;
                 Deals.Add(new RegionDeal { Id = cd.Id, Kind = cd.Kind, Seller = Index(t), Buyer = Index(other), Amount = cd.Amount, Price = cd.Price, Active = true, OfferedBySeller = true });
             }
             foreach (var cd in w.Deals) NextDealId = Math.Max(NextDealId, cd.Id + 1);
