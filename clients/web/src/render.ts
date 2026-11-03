@@ -141,6 +141,30 @@ function groundColor(h: number, water: number, slope: number, g: number, depth: 
   return [c[0] * f, c[1] * f, c[2] * f];
 }
 
+/** As SnowDepth.At in the sim: the snow at a place from the city's depth on level ground at its median height. */
+export function snowAt(groundMm: number, metresAboveMedian: number, slope: number, northness: number): number {
+  if (groundMm <= 0) return 0;
+  const height = Math.min(2, Math.max(0.5, 1 + metresAboveMedian / 400));
+  const shade = 1 + 0.35 * Math.min(1, Math.max(-1, northness));
+  const hold = 1 - Math.min(1, Math.max(0, (slope - 0.6) / 0.4));
+  return groundMm * height * shade * hold;
+}
+
+/** The city's snow on level ground, to the centimetre: the map's ground is painted again when it changes. */
+function snowCm(c: City): number {
+  return Math.round(((c.stats.roads as { snowMm?: number } | undefined)?.snowMm ?? 0) / 10);
+}
+
+/** The median height of the city's dry ground, in metres above the water. */
+function medianMetres(c: City): number {
+  const counts = new Array<number>(256).fill(0);
+  let dry = 0;
+  for (let i = 0; i < c.heights.length; i++) if (!c.isWater(i)) { counts[c.heights[i]]++; dry++; }
+  let seen = 0;
+  for (let h = 0; h < 256; h++) if ((seen += counts[h]) * 2 >= dry) return (h - c.waterLevel) * 2;
+  return 0;
+}
+
 function overlayColor(v: number, scheme: OverlayView['scheme']): string | null {
   if (scheme === 'binary') return v === 0 ? 'rgba(200,40,40,0.45)' : v < 200 ? 'rgba(240,170,30,0.5)' : 'rgba(60,200,90,0.35)';
   if (v === 0 && scheme !== 'diverging') return null;
@@ -253,6 +277,9 @@ export class Renderer {
   borders: { side: number; name: string; paths: number[]; power: number[]; pipes: number[] }[] = [];
   private terrain: HTMLCanvasElement = document.createElement('canvas');
   private terrainVersion = -1;
+  /** The snow the ground was last painted with, in centimetres (Beta 4, part 4), and the dry ground's median height. */
+  private snowCm = 0;
+  private snowMedian = 0;
   private blink = false;
 
   /** True while something on the map moves, so the frame loop keeps drawing. */
@@ -315,6 +342,8 @@ export class Renderer {
     const dirty = c.terrainDirty;
     c.terrainDirty = [];
     this.terrainVersion = c.terrainVersion;
+    this.snowCm = snowCm(c);
+    this.snowMedian = medianMetres(c);
     if (dirty && this.terrain.width === c.width * K && this.terrain.height === c.height * K && dirty.length < 400) {
       // A few cells changed (a road graded, a pad levelled): redraw just around them.
       for (const i of dirty) this.paintTerrain((i % c.width) - 1, ((i / c.width) | 0) - 1, (i % c.width) + 1, ((i / c.width) | 0) + 1);
@@ -379,6 +408,14 @@ export class Renderer {
         const soil = c.bedrock.length ? blend(soilAt, fx, fy) : 1;
         const kind = c.rock.length ? c.rock[cell(Math.floor(fx), Math.floor(fy))] : 0;
         let [r, gr, b] = groundColor(water ? Math.min(h, top - 0.01) : Math.max(h, c.waterLevel), c.waterLevel, slope, g, water ? Math.max(0.5, top - h) : 0, made, soil, kind);
+        if (!water && this.snowCm > 0) {
+          // Lying snow (Beta 4, part 4), as the 3D client spreads it: deeper high up and on north-facing slopes
+          // (the ground higher to the south, which is down the map), none where it's too steep to hold.
+          const north = rise > 0.02 ? sy / Math.hypot(sx, sy) : 0;
+          const mm = snowAt(this.snowCm * 10, (h - c.waterLevel) * 2 - this.snowMedian, rise, north);
+          const lying = smooth(0.15, 0.6, Math.min(1, Math.max(0, (mm - 3) / 37)) + (g - 0.5) * 0.5);
+          [r, gr, b] = mixRGB([r, gr, b], SNOW, lying);
+        }
         if (!water) {
           // Hillshade: light from the north-west, as the sun stands in the 3D view.
           const lit = Math.max(0.55, Math.min(1.35, 1 - (sx + sy) * 0.18));
@@ -405,6 +442,7 @@ export class Renderer {
     ctx.fillRect(0, 0, r.width, r.height);
     if (!c.loaded) return;
     if (this.terrainVersion !== c.terrainVersion) this.rebuildTerrain();
+    else if (snowCm(c) !== this.snowCm) { c.terrainDirty = null; this.rebuildTerrain(); }
 
     const s = this.scale;
     // An earthquake shakes the view for its first day or two.

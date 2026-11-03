@@ -34,6 +34,14 @@ sky_colour={
 "type": "color",
 "value": Color(0.48, 0.66, 0.88, 1)
 }
+snow_mm={
+"type": "float",
+"value": 0.0
+}
+snow_median_y={
+"type": "float",
+"value": 0.0
+}
 sun_colour={
 "type": "color",
 "value": Color(1, 0.97, 0.92, 1)

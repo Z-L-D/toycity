@@ -981,6 +981,7 @@ message RoadWeather {
   string text = 8;                // "Snow on the streets, wet roads"; empty on a dry day
   int32 stay_home_pct = 9;        // commuters staying home
   string weather_kind = 10;       // "rain", "snow", "ice", "heat", "wind" or "" for clear
+  int32 snow_mm = 11;             // Beta 4, part 4: snow on open level ground at the city's median height, in mm
 }
 
 message BudgetLine {

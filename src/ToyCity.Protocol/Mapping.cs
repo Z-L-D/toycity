@@ -188,7 +188,7 @@ public static class Mapping
         s.Roads = new P.RoadWeather
         {
             Falling = w.Falling, Wet = w.RoadWet / 10, Mud = w.RoadMud / 10, CrewsPct = w.RoadCrewFunding, Text = w.RoadWeatherText(),
-            StayHomePct = w.StayHomePct, WeatherKind = w.Weather == WeatherKind.Clear ? "" : w.Weather.ToString().ToLowerInvariant(),
+            StayHomePct = w.StayHomePct, SnowMm = w.GroundSnowMm, WeatherKind = w.Weather == WeatherKind.Clear ? "" : w.Weather.ToString().ToLowerInvariant(),
         };
         for (int t = 0; t < World.Tiers; t++) { s.Roads.Cover.Add(w.RoadCover[t] / 10); s.Roads.Ice.Add(w.RoadIce[t]); s.Roads.Banked.Add(w.RoadBanked[t] / 10); }
         foreach (var d in w.Disasters)

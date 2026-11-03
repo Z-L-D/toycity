@@ -156,5 +156,30 @@ public partial class Main
         }
         _graphics = _graphics with { TimeOfDay = ClientModel.Daylight.Pin("Noon") };
         ApplyGraphics();
+
+        // Snow (Beta 4, part 4): a blizzard over the town until the snow lies on the ground and the roofs.
+        _client.Connection.Send(new Protocol.V0.ClientMessage { PinWeather = new Protocol.V0.PinWeather { Kind = Protocol.V0.WeatherKind.WeatherSnow, Strength = 3 } });
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 3 } });
+        yield return new GateWait("snow lying", () => ClientModel.SnowCover.GroundMm(c) >= 100, 300);
+        _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 0 } });
+        float median = ClientModel.SnowCover.MedianMetres(c);
+        int dry = 0, white = 0;
+        for (int y = 0; y < c.Height; y++)
+            for (int x = 0; x < c.Width; x++)
+            {
+                if (c.IsWater(c.Idx(x, y))) continue;
+                dry++;
+                if (ClientModel.SnowCover.Whiteness(ClientModel.SnowCover.AtCell(c, x, y, median)) >= 0.5f) white++;
+            }
+        MountainCheck("snow on the ground", white * 2 >= dry,
+            $"{ClientModel.SnowCover.GroundMm(c)} mm on level ground at the median height ({median:0} m above the water); {white:N0} of {dry:N0} dry cells white; {c.Stats.Roads?.Text}");
+        _camera.CentreOn(tx, ty);
+        v.Zoom = 3;
+        yield return MountainMeasure("classic, snow");
+        _camera.ToggleFree();
+        Look(tx, ty, 34, 18, 210);
+        yield return MountainMeasure("free, snow");
+        _camera.ToggleFree();
+        _client.Connection.Send(new Protocol.V0.ClientMessage { PinWeather = new Protocol.V0.PinWeather { Kind = Protocol.V0.WeatherKind.WeatherClear } });
     }
 }

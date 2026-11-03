@@ -12,5 +12,6 @@
   <ItemGroup>
     <!-- Path grading is shared word for word with the sim, so previews price exactly what the server builds. -->
     <Compile Include="../ToyCity.Sim/PathGrade.cs" Link="Shared/PathGrade.cs" />
+    <Compile Include="../ToyCity.Sim/SnowDepth.cs" Link="Shared/SnowDepth.cs" />
   </ItemGroup>
 </Project>

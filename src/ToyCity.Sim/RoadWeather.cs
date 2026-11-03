@@ -301,6 +301,8 @@ public sealed partial class World
         for (int t = 0; t < Tiers; t++)
             if (RoadCover[t] >= 100) parts.Add($"{(RoadIce[t] ? "ice" : "snow")} on the {TierNames[t]}");
         if (FloodStage > 0) parts.Add("flooded roads by the river");
+        // Beta 4, part 4: the snow lying on the ground.
+        if (GroundSnowMm >= 20) parts.Add($"{GroundSnowMm / 10} cm of snow lying");
         if (parts.Count == 0) return "";
         string text = string.Join(", ", parts);
         return char.ToUpperInvariant(text[0]) + text[1..];

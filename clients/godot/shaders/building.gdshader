@@ -4,14 +4,18 @@
 //   b  graffiti, 0 to 1: tags on the lower walls
 //   a  flags: 1 burning, 2 abandoned, 4 crumbling, in the whole part; the share of windows lit at night times 0.9
 //      in the fraction (Beta 3.2, 6.4)
-// The project's global `night` (0 day to 1 full dark) turns the lit windows on.
+// The project's global `night` (0 day to 1 full dark) turns the lit windows on. Snow lies on the roofs (Beta 4, part
+// 4) by the globals `snow_mm` and `snow_median_y`, as on level ground at the roof's height (see terrain.gdshader).
 shader_type spatial;
 render_mode cull_back;
 
 varying vec3 local;
 varying vec4 life;
+varying float world_y;
 
 global uniform float night;
+global uniform float snow_mm;
+global uniform float snow_median_y;
 
 const float VOXEL = 1.0 / 32.0;
 
@@ -31,6 +35,7 @@ vec3 to_linear(vec3 c, bool srgb_out) {
 void vertex() {
 	local = VERTEX;
 	life = INSTANCE_CUSTOM;
+	world_y = (MODEL_MATRIX * vec4(VERTEX, 1.0)).y;
 }
 
 void fragment() {
@@ -60,6 +65,13 @@ void fragment() {
 		c = to_linear(vec3(hash(cell + 1.0), hash(cell + 2.0), hash(cell + 3.0)) * 0.8 + 0.2, OUTPUT_IS_SRGB);
 	if (abandoned) c = mix(vec3(dot(c, vec3(0.3, 0.59, 0.11))), c, 0.35) * 0.7;
 	if (crumbling) c = mix(c, vec3(0.6, 0.57, 0.5), 0.5);
+	// Snow on the roofs and ledges: every upward face, unless it's burning; a little thinner than on the ground,
+	// from the warmth inside, and patchy voxel by voxel while it's thin.
+	if (snow_mm > 0.0 && n.y > 0.7 && !burning) {
+		float mm = 0.8 * snow_mm * clamp(1.0 + (world_y - snow_median_y) * 16.0 / 400.0, 0.5, 2.0);
+		float white = clamp((mm - 3.0) / 37.0, 0.0, 1.0);
+		c = mix(c, to_linear(vec3(0.92, 0.93, 0.96), OUTPUT_IS_SRGB), step(r, white * 1.1));
+	}
 	ALBEDO = c;
 	ROUGHNESS = 0.95;
 	// Night (6.4): windows in rows a storey apart on the walls, some of them lit, warm or cool by the room.

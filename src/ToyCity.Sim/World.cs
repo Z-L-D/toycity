@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 14;
+    public const int FormatVersion = 15;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -327,6 +327,7 @@ public sealed partial class World
         RunFloods();
         // Showers, mud, snow and ice on the roads, and the crews clearing them, by the day clock.
         RunRoadWeather();
+        RunSnow();
         UpdateStats();
         // The city's own calls come on the day clock too, so a dispatcher hears them at one rate an hour whatever the
         // calendar's pace.
@@ -460,6 +461,8 @@ public sealed partial class World
             w.Write(Sewered); w.Write(SewageCapacity); w.Write(SewageProduced); w.Write(SewageUntreated);
             // Format 14: the subway tunnels.
             w.Write(Subway);
+            // Format 15: snow on the ground.
+            WriteSnow(w);
         }
         return ms.ToArray();
     }
@@ -591,6 +594,8 @@ public sealed partial class World
         w._sewageNotified = w.SewageUntreated > 0;
         // Format 14 added subways; an older city has none.
         if (version >= 14) { ReadBytes(r, w.Subway); w.RebuildAccess(); }
+        // Format 15 added snow on the ground; an older city starts with none.
+        if (version >= 15) w.ReadSnow(r);
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
         var demand = (int[])w.Demand.Clone();

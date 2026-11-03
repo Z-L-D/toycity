@@ -4,6 +4,9 @@
 // Noise in world space breaks every material up so no two cells look alike. Over it go the city's marks, one texel a
 // cell (cells): a zone's light tint on empty zoned land, and the roads until they have their own shapes. Then the map
 // layers: a data overlay (one texel a cell), the selected cell, and an area pulsing for what an alert is about.
+// Lying snow (Beta 4, part 4) comes from the project's globals `snow_mm`, the city's depth on open level ground at
+// its median height, and `snow_median_y`, that height in world units: spread as SnowDepth.At does, deeper on high
+// ground and on slopes facing north, none on ground too steep to hold it, and patchy while it's thin.
 // COLOR.a is 0 on the map's side walls and the skirts under chunk edges: those are bare soil.
 shader_type spatial;
 render_mode cull_disabled;
@@ -21,6 +24,8 @@ uniform vec4 flash_rect = vec4(-1.0);  // x0, y0, x1, y1 in cells, inclusive
 uniform float flash_strength = 0.0;
 uniform float water_y = -1000.0;     // the water's surface, in world units
 uniform float height_step = 0.125;   // one height step (2 m), in world units
+global uniform float snow_mm;
+global uniform float snow_median_y;
 
 varying vec3 world_pos;
 varying vec3 world_normal;
@@ -93,6 +98,18 @@ void fragment() {
 	// Snow above about 300 m, where it can lie.
 	float snowy = smoothstep(280.0, 340.0, metres + (large - 0.5) * 60.0) * (1.0 - smoothstep(0.35, 0.6, slope));
 	ground = mix(ground, snow, snowy);
+	// Lying snow: a world unit is a 16 m cell across and 16 m up, so the normal gives the true grade.
+	if (snow_mm > 0.0 && metres > 0.0) {
+		float above = (world_pos.y - snow_median_y) * 16.0;
+		float hn = length(world_normal.xz);
+		float grade = hn / max(world_normal.y, 0.05);
+		float northness = hn > 0.01 ? -world_normal.z / hn : 0.0;
+		float mm = snow_mm * clamp(1.0 + above / 400.0, 0.5, 2.0) * (1.0 + 0.35 * northness) * (1.0 - clamp((grade - 0.6) / 0.4, 0.0, 1.0));
+		float white = clamp((mm - 3.0) / 37.0, 0.0, 1.0);
+		float lying = smoothstep(0.15, 0.6, white + (mid - 0.5) * 0.5 + (fine - 0.5) * 0.1);
+		ground = mix(ground, snow * (0.94 + 0.06 * large), lying);
+		snowy = max(snowy, lying);
+	}
 	// The shore: sand for the first metre and a half, then the bed darkening with depth.
 	float shore = 1.0 - smoothstep(0.6, 1.6 + mid, metres);
 	ground = mix(ground, sand, shore * (1.0 - rockiness));

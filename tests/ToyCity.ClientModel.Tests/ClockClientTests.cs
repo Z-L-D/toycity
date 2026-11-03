@@ -97,6 +97,30 @@ public class ClockClientTests
     }
 
     [Fact]
+    public void SnowLiesOnTheGroundUnderABlizzard()
+    {
+        // Beta 4, part 4: snow on the ground, through a real server.
+        using var server = new ServerProcess("""{ "name": "Drifts", "join": "open", "admins": ["Ada"] }""");
+        using var ada = new Player(server.Ws, "Ada");
+        var c = ada.Client.City;
+        Assert.Equal(0, SnowCover.GroundMm(c));
+        ada.Client.Connection.Send(new ClientMessage { Speed = new SetSpeed { Speed = 3 } });
+        ada.Client.Connection.Send(new ClientMessage { PinWeather = new PinWeather { Kind = WeatherKind.WeatherSnow, Strength = 3 } });
+        ada.WaitFor(() => SnowCover.GroundMm(c) >= 40, "snow lying", 120);
+        Assert.Empty(ada.Errors);
+        Assert.Contains("of snow lying", c.Stats.Roads!.Text);
+        // Spread over the ground: on gentle dry ground at the city's median height, close to the city's depth.
+        float median = SnowCover.MedianMetres(c);
+        int flat = Enumerable.Range(0, c.Width * c.Height).First(i =>
+            !c.IsWater(i) && (c.Heights[i] - c.WaterLevel) * 2 == (int)median && i % c.Width is > 0 and < 127 && i / c.Width is > 0 and < 127
+            && new[] { i - 1, i + 1, i - c.Width, i + c.Width }.All(j => Math.Abs(c.Heights[j] - c.Heights[i]) <= 1));
+        float there = SnowCover.AtCell(c, flat % c.Width, flat / c.Width, median);
+        Assert.InRange(there, SnowCover.GroundMm(c) * 0.6f, SnowCover.GroundMm(c) * 1.4f);
+        Assert.True(SnowCover.Whiteness(there) > 0);
+        Assert.Equal(0, SnowCover.AtCell(c, -1, 0, median));
+    }
+
+    [Fact]
     public void TheHandsRunOnBetweenTicksButNotPastTheNext()
     {
         var clock = new GameClock();

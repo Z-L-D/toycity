@@ -114,7 +114,7 @@ jobs:
           ! grep -n "SHADER ERROR" -A3 mountains.log
       - name: Hills, the Beta 3.2 gate (a hillside town, a rock cut, a tunnel and stairs, software OpenGL)
         run: |
-          xvfb-run -a -s "-screen 0 1600x900x24" timeout 900 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
+          xvfb-run -a -s "-screen 0 1600x900x24" timeout 1200 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
             --path clients/godot -- --hills "$PWD/hills.json" --graphics High --shots "$PWD/hills-shots" 2>&1 | tee hills.log
           { echo '### Hills: the Beta 3.2 gate (CI runner, software OpenGL)'; echo; grep '^HILLS ' hills.log | sed 's/^HILLS //'; } >> "$GITHUB_STEP_SUMMARY"
           grep -q "HILLS OK" hills.log

@@ -21,6 +21,9 @@ public partial class Main
     /// <summary>The light last applied, for the gate and the panels.</summary>
     public Light LightNow { get; private set; }
     Light _skyFor;
+    byte[]? _snowHeightsFor;
+    int _snowFrames;
+    float _snowMedianY;
 
     global::Godot.Environment MakeEnvironment()
     {
@@ -91,6 +94,14 @@ public partial class Main
         }
         _env.GlowEnabled = l.Night > 0.2f && _graphics.Lighting != LightQuality.Simple;
         RenderingServer.GlobalShaderParameterSet("night", l.Night);
+        // Lying snow (Beta 4, part 4): the city's depth and its median height, for the ground and the roofs.
+        if (!ReferenceEquals(_snowHeightsFor, c.Heights) || ++_snowFrames > 600)
+        {
+            (_snowHeightsFor, _snowFrames) = (c.Heights, 0);
+            _snowMedianY = (c.WaterLevel - 0.35f + SnowCover.MedianMetres(c) / 2) * ClassicView.HeightStep;
+        }
+        RenderingServer.GlobalShaderParameterSet("snow_mm", (float)SnowCover.GroundMm(c));
+        RenderingServer.GlobalShaderParameterSet("snow_median_y", _snowMedianY);
         _buses?.SetNight(l.Night);
         UpdateLens();
     }

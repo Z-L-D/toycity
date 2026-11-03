@@ -8,7 +8,9 @@ life sim) to lots in the city for live joined play.
 This repository is working on **Beta 4**, the last beta before the release candidate. Its first part is a **GPU
 test**: one command (or a double-click on Windows) builds the game, starts a server of its own, and measures each
 graphics preset and lighting level on the hill town on your own graphics card, then writes a report of frame rates,
-1% lows, GPU time and draw calls (see [GPU test](#gpu-test) below). The rest of Beta 4 is planned: snow, water
+1% lows, GPU time and draw calls (see [GPU test](#gpu-test) below). **Snow** now lies on the ground and the roofs:
+it builds up in the day clock's snow showers and melts with the season, rain and heat. Both clients spread it the
+same way, deeper on high ground and on north-facing slopes and gone from the steep. The rest of Beta 4 is planned: water
 quality, direct dispatch, the new floating build menu and L-shaped info bar, region sizes and annexing, and tile hosts
 for growing regions.
 
@@ -44,6 +46,15 @@ to play; the web client stays as the debug and admin client.
 From the Beta 4 and Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release
 adds a new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
+
+Beta 4, part 4, snow ([`docs/screenshots/beta4-snow`](docs/screenshots/beta4-snow)):
+
+| | |
+| --- | --- |
+| ![Godot, the hill town under snow from the free camera](docs/screenshots/beta4-snow/godot-snow-free.jpg) | ![Godot, the hill town under snow from the classic camera](docs/screenshots/beta4-snow/godot-snow-classic.jpg) |
+| Godot (local hill gate run): 10 cm after a blizzard, on the fields, the roofs and the hills; the rock faces stay bare | Classic camera: snow on every roof and ledge, the streets ploughed |
+| ![Web map before the blizzard](docs/screenshots/beta4-snow/web-no-snow-map.jpg) | ![Web map after the blizzard](docs/screenshots/beta4-snow/web-snow-map.jpg) |
+| Web client: the hill town's map before the blizzard | The same map under 12 cm: white on the gentle ground, bare on the steep, thinner on the south-facing slopes |
 
 Beta 4, part 5, the GPU test ([`docs/screenshots/beta4-gpu`](docs/screenshots/beta4-gpu)):
 
@@ -134,7 +145,7 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 3 | Regions, cross-border play, federated hosting, emergency services beta | Done |
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
 | Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); light and shadow through the day and night (done); growing regions (done) | Done |
-| Beta 4 | GPU test (done); snow on the ground and roofs; water quality; direct dispatch; the floating build menu and L-shaped info bar in both clients; region sizes, annexing and a region charter; tile hosts for growing regions | In progress |
+| Beta 4 | GPU test (done); snow on the ground and roofs (done); water quality; direct dispatch; the floating build menu and L-shaped info bar in both clients; region sizes, annexing and a region charter; tile hosts for growing regions | In progress |
 | Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
@@ -145,6 +156,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-03 | **Beta 4, part 4: snow** (PR #20) | Snow lies on the ground and the roofs, building up in the day clock's showers and melting with the season, rain and heat; deeper high up and facing north, none on the steep; drawn by the Godot terrain and building shaders and on the web map; save format 15. [Gate](docs/GATE-BETA4-SNOW.md) |
 | 2026-11-03 | **Beta 4, part 5: GPU test** (PR #20) | `--gpu-test` measures each graphics preset, each lighting level and night on the hill town, with frame rate, 1% lows, GPU and CPU time, draw calls and triangles, writes a Markdown and JSON report and shows a summary; launchers for Windows (double-click) and Linux start a test server of their own. [Gate](docs/GATE-BETA4-GPU.md) |
 | 2026-11-02 | **Beta 3.2, part 7: growing regions** (PR #19) | A region that starts as one tile and adds land on any side, each new tile's ground, rivers and rock made then to carry on from its neighbours; new land is open for any player to found a city on; both clients' region maps show the wild land around the region to add. [Gate](docs/GATE-BETA3-2-REGIONS.md) |
 | 2026-11-02 | **Beta 3.2, part 6: light and shadow** (PR #18) | The sun follows the day clock and the month, golden hour and night, haze and grey skies by the weather, lit windows, street lights and bus lights at night, sky reflections on the water, contact shadows and bounce light by preset, tilt-shift while querying, a time-of-day pin, and day and night on the web map. [Gate](docs/GATE-BETA3-2-LIGHT.md) |
