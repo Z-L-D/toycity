@@ -86,7 +86,13 @@ public sealed partial class World
                 if (InBounds(cx + dx, cy + dy)) cells.Add(Idx(cx + dx, cy + dy));
         }
         foreach (int i in cells.OrderBy(i => i))
-            if (!GradeLocked(i)) DeriveHeights(i % Width, i / Width, i % Width, i / Width);
+        {
+            if (GradeLocked(i)) continue;
+            // A road's cut beside a river or pond stays dry.
+            bool dry = !IsRiver(i);
+            DeriveHeights(i % Width, i / Width, i % Width, i / Width);
+            if (dry && IsRiver(i)) River[i] = 0;
+        }
     }
 
     /// <summary>What earthworks cost: a step of earth moved per cell.</summary>

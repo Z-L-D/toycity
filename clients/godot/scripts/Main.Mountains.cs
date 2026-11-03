@@ -114,12 +114,14 @@ public partial class Main
         // The sites come from what the client sees; the server may still turn one down, so a few are tried.
         _client.Connection.Act(new Protocol.V0.Action { Loan = new Protocol.V0.TakeLoan { Amount = 200_000 } });
         _client.Connection.Send(new Protocol.V0.ClientMessage { Speed = new Protocol.V0.SetSpeed { Speed = 1 } });
-        var sites = ToyCity.ClientModel.Tools.DamSites.Find(c, 4).OrderBy(s => Math.Abs(s.Pool - 1200)).Take(8).ToList();
+        const int rise = 4;
+        // A reservoir big enough to read from the air first.
+        var sites = ToyCity.ClientModel.Tools.DamSites.Find(c, rise).OrderBy(s => s.Pool < 300).ThenBy(s => Math.Abs(s.Pool - 1200)).Take(8).ToList();
         ToyCity.ClientModel.Tools.DamSites.Site? dam = null;
         foreach (var s in sites)
         {
             int had = c.Dams.Count(d => d != 0);
-            _client.Connection.Act(new Protocol.V0.Action { Dam = new Protocol.V0.PlaceDam { X0 = s.X0, Y0 = s.Y0, X1 = s.X1, Y1 = s.Y1, Rise = 3 } });
+            _client.Connection.Act(new Protocol.V0.Action { Dam = new Protocol.V0.PlaceDam { X0 = s.X0, Y0 = s.Y0, X1 = s.X1, Y1 = s.Y1, Rise = rise } });
             double waited = 0;
             yield return new GateWait("a dam", () => c.Dams.Count(d => d != 0) > had || (waited += GetProcessDeltaTime()) > 4, 30);
             if (c.Dams.Count(d => d != 0) > had) { dam = s; break; }
@@ -137,7 +139,11 @@ public partial class Main
             int pool = c.DamHeld.Count(h => h == ToyCity.Sim.RiverFlow.Reservoir);
             GD.Print($"{Tag} a dam at {wall.X0},{wall.Y0} to {wall.X1},{wall.Y1}: its reservoir {pool} cells");
             float dx = (wall.X0 + wall.X1) / 2f + 0.5f, dy = (wall.Y0 + wall.Y1) / 2f + 0.5f;
-            Look(dx, dy, 60, 24, 160);
+            // Between the dam and the middle of its water, so both are in view.
+            var held = Enumerable.Range(0, c.DamHeld.Length).Where(i => c.DamHeld[i] == ToyCity.Sim.RiverFlow.Reservoir).ToList();
+            float rx = held.Count > 0 ? (float)held.Average(i => i % c.Width) + 0.5f : dx, ry = held.Count > 0 ? (float)held.Average(i => i / c.Width) + 0.5f : dy;
+            float wx = (dx + rx) / 2, wy = (dy + ry) / 2;
+            Look(wx, wy, 60, 24, 160);
             yield return MountainMeasure("free, a dam and its reservoir");
             Look(dx, dy, 22, 20, 340);
             yield return MountainMeasure("free, a dam close up");

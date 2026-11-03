@@ -56,6 +56,13 @@ From the Beta 4 and Beta 3.2 gate runs (Godot, CI runner with software rendering
 adds a new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
 
+Rivers, round 2: meanders, rain-fed rivers, the river brush and dams ([`docs/screenshots/beta4-rivers`](docs/screenshots/beta4-rivers)):
+
+| | |
+| --- | --- |
+| ![Web client, a dam across a river and the reservoir filled behind it](docs/screenshots/beta4-rivers/web-dam-reservoir.jpg) | ![Web client, the river brush digging a channel 48 m wide from a river](docs/screenshots/beta4-rivers/web-river-preview.jpg) |
+| ![Web client, a river in flood after weeks of storms](docs/screenshots/beta4-rivers/web-flow-flood.jpg) | ![Web client, the same reach low after a heatwave](docs/screenshots/beta4-rivers/web-flow-low.jpg) |
+
 River shorelines ([`docs/screenshots/beta4-rivers`](docs/screenshots/beta4-rivers)):
 
 | | |
@@ -206,6 +213,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-03 | **Rivers, round 2** (PR #20) | Rivers meander off the grid and fill ponds and lakes in the basins the rain keeps up with. Their level follows the last month's rain upstream, from a low trickle after a dry season to floods after weeks of storms. A river brush digs new channels at a chosen width and depth. Dams hold a river up to 16 m, with a reservoir that keeps its level and a river below that neither floods nor runs dry, and a hydro plant at a dam's foot makes power from the fall. [Gate](docs/GATE-RIVERS.md) |
 | 2026-11-03 | **River shorelines** (PR #20) | Rivers in shaped channels after the prairie kiosk's Flint Hills creek: a smoothed line, wider as more water feeds it, with a flat bed, sloped sides and a cut bank in place of the one-cell staircase. In both clients the water runs up the bank to a contour shoreline, with wet mud and gravel at the edge and floodplain grass beyond. Bridges sit half a step over the water, and older regions keep their old rivers. [Gate](docs/GATE-RIVERS.md) |
 | 2026-11-03 | **Beta 4, part 7: tile hosts for growing regions** (PR #20) | A tile of a growing region runs on its own host while the region grows around it and cities are founded beside it; a city of several tiles can be hosted apart; a hosted city can't annex or be taken in, and the charter stays with the region's main server. [Gate](docs/GATE-BETA4-TILES.md) |
 | 2026-11-03 | **Beta 4, part 6: room to grow** (PR #20) | Regions from small to huge (huge made a tile at a time), growing regions on a 255-tile frame, and a region charter of who grows the region, who annexes and how big a city may get, changed by the mayors' vote. A city annexes the open land beside it and moves onto its bigger map whole, always a rectangle, at a price rising with its size; a city takes in its neighbour by a deal (its mayor agrees, or a computer mayor sells at its temperament's price), with everything in both. [Gate](docs/GATE-BETA4-ROOM.md) |

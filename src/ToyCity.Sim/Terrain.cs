@@ -62,7 +62,12 @@ public sealed partial class World
     {
         if (cells.Count == 0) return;
         FloodGroundChanged();
-        foreach (var (i, h) in cells) Height[i] = (byte)h;
+        // Ground cut down beside a river or pond stays dry: only the river brush and dams make water.
+        foreach (var (i, h) in cells)
+        {
+            if (River[i] != 0 && River[i] <= Height[i] && River[i] > h) River[i] = 0;
+            Height[i] = (byte)h;
+        }
         int cw = Width + 1;
         var done = new HashSet<int>();
         foreach (var (i, _) in cells)

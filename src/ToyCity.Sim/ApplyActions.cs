@@ -508,7 +508,13 @@ public sealed partial class World
             // Levelled and sloped ground is earthworks (Beta 3.2): it's drawn as grassed banks, not rock.
             if (a.Mode is TerraformMode.Level or TerraformMode.Slope) MarkMade(c % cw, c / cw);
         }
+        // Ground cut down beside a river or pond stays dry: only the river brush and dams make water.
+        var dry = new List<int>();
+        for (int y = Math.Max(0, ey0 - 1); y <= Math.Min(HeightCells - 1, ey1 + 1); y++)
+        for (int x = Math.Max(0, ex0 - 1); x <= Math.Min(Width - 1, ex1 + 1); x++)
+            if (River[Idx(x, y)] != 0 && !IsRiver(Idx(x, y))) dry.Add(Idx(x, y));
         DeriveHeights(ex0 - 1, ey0 - 1, ex1 + 1, ey1 + 1);
+        foreach (int i in dry) if (IsRiver(i)) River[i] = 0;
         foreach (int i in cells)
             if (IsWater(i)) { ZoneCode[i] = 0; PowerLine[i] = 0; }
         RecomputeWaterDistance();

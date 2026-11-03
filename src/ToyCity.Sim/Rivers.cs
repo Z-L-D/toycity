@@ -130,46 +130,94 @@ public sealed partial class World
             if (receiver[c] >= 0) acc[receiver[c]] += acc[c];
         }
 
-        // Ponds and lakes (version 3): ground the flood had to fill to drain holds water. Each basin (the cells that
-        // drain out over one rim) fills from its lowest ground up, as far as the rain over its catchment keeps up
+        // Ponds and lakes (version 3): ground the flood had to fill to drain holds water. Each basin fills from its lowest ground up, as far as the rain over its catchment keeps up
         // with: a lake no larger than a thirtieth of the ground draining into it, so a small hollow holds a pond and a
         // basin with a river through it fills to its rim and spills on. Two steps deep at least, or it's just wet ground.
         var pond = new byte[n];
         if (channels >= 3)
         {
-            var basin = new Dictionary<int, List<int>>();
-            for (int i = 0; i < n; i++)
+            // Each hollow is the ground the flood had to fill, joined side to side: one basin, however many cells its
+            // water leaves the hollow by. (Grouped by the cell each drains out over, a hollow split into the strips
+            // of the drainage tree, and each strip filled on its own: a lake one cell wide, standing over dry ground.)
+            // Its water never stands over lower ground at its edge, or it would run out there.
+            int Fill(int i) => (spill[i] + StepDm / 2) / StepDm;
+            bool Hollow(int i) => Fill(i) > step[i] && step[i] >= waterLevel;
+            var group = new int[n];
+            Array.Fill(group, -1);
+            var basins = new List<List<int>>();
+            var bq = new Queue<int>();
+            for (int s0 = 0; s0 < n; s0++)
             {
-                int fill = (spill[i] + StepDm / 2) / StepDm;
-                if (fill <= step[i] || step[i] < waterLevel) continue;
-                // Down to where it spills: the first cell the flood didn't have to fill.
-                int at = i, hops = 0;
-                while (at >= 0 && (spill[at] + StepDm / 2) / StepDm > step[at] && hops++ < n) at = receiver[at];
-                if (at < 0) continue;
-                if (!basin.TryGetValue(at, out var cells)) basin[at] = cells = new List<int>();
-                cells.Add(i);
-            }
-            foreach (var (rim, cells) in basin.OrderBy(b => b.Key))
-            {
-                int most = acc[rim] / LakeCatchmentPerCell;
-                if (most < 1) continue;
-                int full = cells.Max(i => (spill[i] + StepDm / 2) / StepDm);
-                cells.Sort((a, b) => step[a] != step[b] ? step[a].CompareTo(step[b]) : a.CompareTo(b));
-                // The highest level whose water (the basin's cells under it) fits.
-                int level = 0;
-                for (int l = step[cells[0]] + 1; l <= full; l++)
+                if (group[s0] >= 0 || !Hollow(s0)) continue;
+                var cells = new List<int>();
+                group[s0] = basins.Count;
+                bq.Enqueue(s0);
+                while (bq.Count > 0)
                 {
-                    int under = 0;
-                    foreach (int i in cells) if (step[i] < l) under++; else break;
-                    if (under > most) break;
+                    int c = bq.Dequeue();
+                    cells.Add(c);
+                    int x = c % width, y = c / width;
+                    for (int k = 0; k < 4; k++)
+                    {
+                        int nx = x + dx[k], ny = y + dy[k];
+                        if (nx < 0 || ny < 0 || nx >= width || ny >= heightCells) continue;
+                        int j = ny * width + nx;
+                        if (group[j] >= 0 || !Hollow(j)) continue;
+                        group[j] = basins.Count;
+                        bq.Enqueue(j);
+                    }
+                }
+                basins.Add(cells);
+            }
+            var mark = new int[n];
+            int pass = 0;
+            for (int g = 0; g < basins.Count; g++)
+            {
+                var cells = basins[g];
+                // The rain it gathers: what drains out over the busiest cell its water leaves by.
+                int gathered = 0;
+                foreach (int i in cells)
+                    if (receiver[i] >= 0 && group[receiver[i]] != g) gathered = Math.Max(gathered, acc[receiver[i]]);
+                int most = gathered / LakeCatchmentPerCell;
+                if (most < 1) continue;
+                // Its rim: the lowest any of its cells drains out at (the flood's tree has them a little apart).
+                int full = int.MaxValue, low = cells[0];
+                foreach (int i in cells) full = Math.Min(full, Fill(i));
+                foreach (int i in cells) if (step[i] < step[low] || step[i] == step[low] && i < low) low = i;
+                // The highest level whose water (the ground under it joined to the lowest cell) fits.
+                int level = 0;
+                List<int> wetCells = [];
+                for (int l = step[low] + 1; l <= full; l++)
+                {
+                    pass++;
+                    var under = new List<int> { low };
+                    mark[low] = pass;
+                    bool leaks = false;
+                    for (int h = 0; h < under.Count && under.Count <= most && !leaks; h++)
+                    {
+                        int c = under[h], x = c % width, y = c / width;
+                        for (int k = 0; k < 4; k++)
+                        {
+                            int nx = x + dx[k], ny = y + dy[k];
+                            if (nx < 0 || ny < 0 || nx >= width || ny >= heightCells) continue;
+                            int j = ny * width + nx;
+                            if (mark[j] == pass || step[j] >= l) continue;
+                            // Lower ground outside the hollow: the water would run out over it.
+                            if (group[j] != g) { leaks = true; break; }
+                            mark[j] = pass;
+                            under.Add(j);
+                        }
+                    }
+                    if (leaks || under.Count > most) break;
                     level = l;
+                    wetCells = under;
                 }
                 // A puddle, not a pond: a hollow of a few cells the rain has worn, or water spread a step deep over a
                 // flat floodplain (under a step and a half deep on average), which the river drains.
-                int wet = 0, depth = 0;
-                foreach (int i in cells) if (step[i] < level) { wet++; depth += level - step[i]; }
-                if (wet < LakeLeast || depth * 2 < wet * 3) continue;
-                foreach (int i in cells) if (step[i] < level) pond[i] = (byte)level;
+                int depth = 0;
+                foreach (int i in wetCells) depth += level - step[i];
+                if (wetCells.Count < LakeLeast || depth * 2 < wetCells.Count * 3) continue;
+                foreach (int i in wetCells) pond[i] = (byte)level;
             }
         }
         // 3. The surface: down the river, never above the ground (or a pond's level) nor above where it came from.
@@ -211,6 +259,29 @@ public sealed partial class World
         }
         // 5. Shape them: banks along the river's smoothed line, wider downstream.
         if (channels > 0) Channels(corners, width, heightCells, waterLevel, surface, receiver, acc, downstream, channels >= 2, seed, originX, originY, lake);
+        // 6. On a steep run the channel down to the next cell cuts below this one's water: it would stand as a block
+        // over its bed. A river (not a pond) is a step deep at most over the ground it ends up on, and still never
+        // climbs downstream.
+        if (channels >= 3)
+        {
+            var bed = StepsFromCorners(corners, width, heightCells);
+            for (int i = 0; i < n; i++)
+                if (surface[i] != 0 && !lake[i] && bed[i] >= waterLevel && surface[i] > bed[i] + 1) surface[i] = (byte)(bed[i] + 1);
+            // Down the way each cell flows on (a bank cell into the river beside it), until nothing changes: a cell
+            // lowered under its bed is dry ground with the river's line through it, as anywhere it ran shallow.
+            for (bool changed = true, first = true; changed; first = false)
+            {
+                changed = false;
+                for (int k = order.Count - 1; k >= 0; k--)
+                {
+                    int c = order[k], d = downstream != null ? downstream[c] : receiver[c] >= 0 && surface[receiver[c]] != 0 ? receiver[c] : -1;
+                    if (surface[c] == 0 || d < 0 || surface[d] == 0 || lake[d] || surface[d] <= surface[c]) continue;
+                    surface[d] = surface[c];
+                    changed = true;
+                }
+                if (!first && !changed) break;
+            }
+        }
         return surface;
     }
 
