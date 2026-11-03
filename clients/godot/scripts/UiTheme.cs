@@ -153,7 +153,7 @@ public static class UiTheme
     // ---------------------------------------------------------------------------------------------------------
     // The UI overhaul, variation A (Beta 4, part 2): glass panels floating over the map, a blue accent, gold prices.
 
-    public static readonly Color Glass = new(14 / 255f, 19 / 255f, 31 / 255f, 0.86f), GlassLine = new(1, 1, 1, 0.09f),
+    public static readonly Color Glass = new(14 / 255f, 19 / 255f, 31 / 255f, 0.93f), GlassLine = new(1, 1, 1, 0.09f),
         UiAccent = new("#3e6fd1"), Gold = new("#f3c94a"), Soft = new("#c9d2e3"), Label2 = new("#7d889e");
 
     /// <summary>A glass panel over the map, with a soft shadow.</summary>
