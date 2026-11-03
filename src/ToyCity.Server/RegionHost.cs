@@ -147,7 +147,7 @@ public sealed partial class RegionHost : IDisposable
     {
         vote = false;
         var a = here.Anchor ?? here;
-        if (_links.ElementAtOrDefault(a.Row * _region.Cols + a.Col) != null) return $"{a.Name} runs on its own host: a city hosted apart can't annex land.";
+        if (_links.ElementAtOrDefault(a.Row * _region.Cols + a.Col) != null) return $"{a.Name} runs on its own host: a city hosted apart can't annex, take in a neighbour or be taken in.";
         if (_region.CantAnnex(a, col, row) is { } why) return why;
         if (c.Admin) return null;
         bool mine = a.Mayor == c.Player;
@@ -578,6 +578,13 @@ public sealed partial class RegionHost : IDisposable
         // The wire carries only some of a growing region's tiles: find each linked one by where it is.
         for (int i = 0; i < _links.Length; i++)
             if (_links[i] is { } l && s.Tiles.FirstOrDefault(x => x.Col == i % _region.Cols && x.Row == i / _region.Cols) is { } ts) ts.Address = l.Address;
+        // A city on its own host can't annex, take in a neighbour or be taken in (Beta 4, part 7).
+        const string Apart = "runs on its own host: a city hosted apart can't annex, take in a neighbour or be taken in.";
+        bool hosted = _links.ElementAtOrDefault(Slot(here)) != null;
+        foreach (var a in s.Annex) if (hosted && a.Why.Length == 0) a.Why = $"{here.Name} {Apart}";
+        foreach (var o in s.TakeoverOptions)
+            if (o.Why.Length == 0 && (hosted || _links.ElementAtOrDefault(o.Row * _region.Cols + o.Col) != null))
+                o.Why = $"{(hosted ? here.Name : _region.TileAt(o.Col, o.Row)!.Name)} {Apart}";
         return s;
     }
 

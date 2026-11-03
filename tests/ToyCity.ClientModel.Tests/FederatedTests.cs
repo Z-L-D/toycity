@@ -1,5 +1,7 @@
 using ToyCity.ClientModel.Panels;
 using ToyCity.Protocol.V0;
+using FedPlayer = ToyCity.ClientModel.Tests.FederatedTests.Player;
+using CharterRule = ToyCity.Protocol.V0.CharterRule;
 
 namespace ToyCity.ClientModel.Tests;
 
@@ -11,7 +13,7 @@ namespace ToyCity.ClientModel.Tests;
 [Collection(nameof(FederatedTests))]
 public class FederatedTests
 {
-    sealed class Player : IDisposable
+    internal sealed class Player : IDisposable
     {
         public readonly CityClient Client;
         public readonly PanelModel Panels;
@@ -20,7 +22,7 @@ public class FederatedTests
         public Player(Uri ws, string name)
         {
             Client = new CityClient(ws, "test");
-            Panels = new PanelModel(Client.City, Client.Connection.Send) { Me = () => name };
+            Panels = new PanelModel(Client.City, Client.Connection.Send) { Me = () => name, Admin = () => Client.Connection.Admin };
             Client.Message += Panels.Handle;
             Client.Message += m => { lock (Seen) Seen.Add(m); };
             WaitFor(() => Client.Connection.SignInNeeded, "the welcome");
@@ -106,6 +108,89 @@ public class FederatedTests
             throw new Exception($"{e.Message}\n{reports}\nREGION HOST:\n{leader.Output}\nWESTBROOK:\n{west.Output}\nEASTFIELD:\n{east.Output}", e);
         }
         finally { east.Dispose(); }
+    }
+}
+
+/// <summary>
+/// Beta 4, part 7: a tile of a growing region on its own host. The region grows around it, a neighbour is founded
+/// beside it, the region's charter changes from the tile host and stays with the region's host, and a hosted city can't
+/// annex or be taken in.
+/// </summary>
+[Collection(nameof(FederatedTests))]
+public class GrowingTileHostTests
+{
+    const string Key = "sekrit";
+
+    [Fact]
+    public void ATileOfAGrowingRegionRunsOnItsOwnHost()
+    {
+        using var leader = new ServerProcess($$"""{ "name": "Fed", "join": "open", "linkKey": "{{Key}}", "takeOverSeconds": 4, "fastDayMs": 20 }""");
+        ServerProcess? east = null;
+        try
+        {
+            using var may = new FedPlayer(leader.Ws, "May");
+            may.Panels.Click("dialog:new");
+            may.Panels.SetInput("Firstford");
+            may.Panels.Click("grow");
+            may.Panels.Click("size:64");
+            may.Panels.Click("new-ok");
+            may.WaitFor(() => may.Client.City.Stats.CityName == "Firstford" && may.Region is { Grows: true, TileSize: 64 }, "the growing region");
+            int c = may.Region.HereCol;
+            may.Client.Connection.Send(new ClientMessage { Grow = new GrowRegion { Col = c + 1, Row = c } });
+            may.WaitFor(() => may.Region.Tiles.Any(t => t.Col == c + 1 && t.Row == c && !t.Wild), "the east tile");
+            may.Client.Connection.Send(new ClientMessage { FoundCity = new FoundCity { Col = c + 1, Row = c, Name = "Eastwick", StarterTown = true } });
+            may.WaitFor(() => may.Region.Tiles.Any(t => t.Col == c + 1 && t.Row == c && t.Founded), "Eastwick");
+            // Eastwick annexes the land north of it, so its host runs a city of two tiles, named by its lower one.
+            may.Client.Connection.Send(new ClientMessage { Grow = new GrowRegion { Col = c + 1, Row = c - 1 } });
+            may.WaitFor(() => may.Region.Tiles.Any(t => t.Col == c + 1 && t.Row == c - 1 && !t.Wild), "the tile north of Eastwick");
+            may.Client.Connection.Send(new ClientMessage { GoTo = new GoToCity { Col = c + 1, Row = c } });
+            may.WaitFor(() => may.Client.City.Stats.CityName == "Eastwick", "May in Eastwick");
+            may.Client.Connection.Send(new ClientMessage { Annex = new AnnexRequest { Col = c + 1, Row = c - 1 } });
+            may.WaitFor(() => may.Client.City.Height == 128, "Eastwick on two tiles");
+            may.Client.Connection.Send(new ClientMessage { GoTo = new GoToCity { Col = c, Row = c } });
+            may.WaitFor(() => may.Client.City.Stats.CityName == "Firstford", "May back in Firstford");
+
+            east = new ServerProcess(null, $"--tile-host ws://127.0.0.1:{leader.Port}/tile-link --tile {c + 1},{c} --link-key {Key} --public ws://127.0.0.1:{{port}}/ws");
+            may.WaitFor(() => may.Region.Tiles.Single(t => t.Col == c + 1 && t.Row == c - 1).Address.Length > 0, "Eastwick's host on the map");
+            may.Client.Connection.Send(new ClientMessage { Speed = new SetSpeed { Speed = 3 } });
+            long start = may.Region.Tick;
+            may.WaitFor(() => may.Region.Tick >= start + 40, "the days going by", 120);
+            Assert.Equal("", may.Region.Stopped);
+
+            // The region grows around the hosted tile, and a city is founded beside it.
+            may.Client.Connection.Send(new ClientMessage { Grow = new GrowRegion { Col = c + 1, Row = c + 1 } });
+            may.WaitFor(() => may.Region.Tiles.Any(t => t.Col == c + 1 && t.Row == c + 1 && !t.Wild), "the tile south of Eastwick");
+            may.Client.Connection.Send(new ClientMessage { FoundCity = new FoundCity { Col = c + 1, Row = c + 1, Name = "Southby", StarterTown = true, Computer = "green" } });
+            may.WaitFor(() => may.Region.Tiles.Any(t => t.Col == c + 1 && t.Row == c + 1 && t.Founded), "Southby");
+            start = may.Region.Tick;
+            may.WaitFor(() => may.Region.Tick >= start + 40, "the region carrying on", 120);
+            Assert.Equal("", may.Region.Stopped);
+
+            // A player on Eastwick's host sees the grown region and its charter, and asks for a new charter: the
+            // region's host keeps it.
+            using var tess = new FedPlayer(east.Ws, "Tess");
+            Assert.Equal("Eastwick", tess.Client.City.Stats.CityName);
+            Assert.Equal((64, 128), (tess.Client.City.Width, tess.Client.City.Height));
+            long tessDay = tess.Client.City.Stats.Tick;
+            tess.WaitFor(() => tess.Client.City.Stats.Tick > tessDay + 3, "Eastwick's days go by on its host");
+            tess.WaitFor(() => tess.Region.Tiles.Any(t => t.Name == "Southby"), "Southby on Tess's map");
+            Assert.True(tess.Region.Grows);
+            Assert.NotNull(tess.Region.Charter);
+            // Eastwick, on its own host, can't annex or be taken in.
+            Assert.All(tess.Region.Annex, a => Assert.Contains("own host", a.Why));
+            may.Client.Connection.Send(new ClientMessage { Takeover = new TakeoverRequest { Op = TakeoverRequest.Types.Op.Offer, Col = c + 1, Row = c - 1, Price = 1000 } });
+            may.WaitFor(() => { lock (may.Seen) return may.Seen.Any(m => m.Error != null && m.Error.Message.Contains("own host")); }, "the refusal");
+            // An admin's charter from the tile host is set on the region's host.
+            may.Client.Connection.Send(new ClientMessage { Charter = new SetCharter { Charter = new RegionCharter { Grow = CharterRule.CharterAdmins, Annex = CharterRule.CharterAdmins, MaxCitySide = 2 } } });
+            tess.WaitFor(() => tess.Region.Charter.MaxCitySide == 2, "the charter on Tess's map");
+            may.WaitFor(() => may.Region.Charter.MaxCitySide == 2, "the charter on May's map");
+        }
+        catch (Exception e)
+        {
+            string reports = Directory.Exists(leader.Saves) ? string.Join("\n", Directory.GetFiles(leader.Saves, "desync-*.txt").Select(File.ReadAllText)) : "";
+            throw new Exception($"{e.Message}\n{reports}\nREGION HOST:\n{leader.Output}\nEASTWICK:\n{east?.Output}", e);
+        }
+        finally { east?.Dispose(); }
     }
 }
 

@@ -765,6 +765,8 @@ message TileWelcome {
   int64 tick = 7;
   bytes save = 8;       // the city as the region host has it: a SaveGame
   string leader_address = 9;  // where players reach the region host's /ws, if it knows
+  int32 city_col = 10;  // Beta 4: the city's top-left tile (a city may span several tiles)
+  int32 city_row = 11;
 }
 
 message DayStart {

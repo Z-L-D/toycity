@@ -332,7 +332,8 @@ public sealed partial class RegionHost
         lock (_gate)
             return WithAll(() =>
             {
-                var t = _region.TileAt(hello.Col, hello.Row);
+                // Any tile of a city of several tiles names the city: it's kept at its top-left tile.
+                var t = _region.TileAt(hello.Col, hello.Row) is { } at ? at.Anchor ?? at : null;
                 if (t?.City is not { } w) return (No("There's no city on that tile. Found one first."), new List<(Client, P.ServerMessage)>());
                 int i = IndexOf(t);
                 if (_links[i] is { Dead: false }) return (No($"{t.Name} already has a tile host."), new List<(Client, P.ServerMessage)>());
@@ -363,6 +364,7 @@ public sealed partial class RegionHost
                 {
                     Name = _region.Name, Seed = _region.Seed, Cols = _region.Cols, Rows = _region.Rows, TileSize = _region.TileSize, Tick = _region.Tick,
                     Save = ByteString.CopyFrom(Mapping.Save(w)), LeaderAddress = _host.PublicAddress,
+                    CityCol = t.Col, CityRow = t.Row,
                 };
                 return (welcome, list);
             });

@@ -178,7 +178,10 @@ public sealed partial class RegionHost
         }
         if (w.LeaderAddress.Length > 0) _leaderAddress = w.LeaderAddress;
         var city = Mapping.Load(_content, w.Save.ToByteArray());
-        var region = Region.Restore(_content, w.Name, w.Seed, w.Cols, w.Rows, w.TileSize, w.Tick, new[] { city });
+        // The tile host knows only its own city: the rest of the region (open land, wild land, the charter) is the
+        // region host's, and reaches this one's players by the region host's map.
+        var region = Region.Restore(_content, w.Name, w.Seed, w.Cols, w.Rows, w.TileSize, w.Tick, new[] { city },
+            at: _ => (w.CityCol, w.CityRow));
         region.Follower = true;
         var outbox = WithAll(() =>
         {
