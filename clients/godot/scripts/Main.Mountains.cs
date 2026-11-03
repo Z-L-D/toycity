@@ -25,7 +25,7 @@ public partial class Main
     readonly List<(string Check, bool Ok, string Seen)> _mountainChecks = new();
     int _mountainShot;
 
-    bool Scripted => _bench != null || _gateFile != null || _togetherFile != null || _mountainFile != null;
+    bool Scripted => _bench != null || _gateFile != null || _togetherFile != null || _mountainFile != null || _gpuDir != null;
 
     /// <summary>The Beta 3.2 gate's hill run (--hills FILE) rather than the mountains: the same measuring, its own steps.</summary>
     bool _hills;

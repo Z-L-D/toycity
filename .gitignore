@@ -8,3 +8,4 @@ saves/
 .idea/
 TestResults/
 vox-placeholders/
+/gpu-test/

@@ -5,7 +5,14 @@ simulation runs as a headless, authoritative server; front ends only draw it and
 Later phases link side games (transport, emergency services, hospital, zoo, theme park, farm,
 life sim) to lots in the city for live joined play.
 
-This repository is at **Beta 3.2, part 7: growing regions**, the last part of Beta 3.2. A region can start as one
+This repository is working on **Beta 4**, the last beta before the release candidate. Its first part is a **GPU
+test**: one command (or a double-click on Windows) builds the game, starts a server of its own, and measures each
+graphics preset and lighting level on the hill town on your own graphics card, then writes a report of frame rates,
+1% lows, GPU time and draw calls (see [GPU test](#gpu-test) below). The rest of Beta 4 is planned: snow, water
+quality, direct dispatch, the new floating build menu and L-shaped info bar, region sizes and annexing, and tile hosts
+for growing regions.
+
+Beta 3.2 ended with **part 7: growing regions**. A region can start as one
 tile and grow: add land on any side of it, and the new tile's ground, rivers and rock are made then, carrying on from
 the tiles beside it, so hills, coasts and rivers run on across the seam. Each new tile joins as open land that you or
 any other player can found a city on; a mayor can add the land beside their own city. **Part 6: light and shadow** made the sun follow the day clock along its path for the
@@ -34,9 +41,16 @@ to play; the web client stays as the debug and admin client.
 
 ## Screenshots
 
-From the Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release adds a
-new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
+From the Beta 4 and Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release
+adds a new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
+
+Beta 4, part 5, the GPU test ([`docs/screenshots/beta4-gpu`](docs/screenshots/beta4-gpu)):
+
+![The GPU test's summary over the hill town](docs/screenshots/beta4-gpu/godot-gpu-test-summary.jpg)
+
+The summary at the end of a GPU test, here on the CI runner's software renderer (so its frame rates are no guide to a
+real graphics card). The full report, per view, is written beside it as Markdown and JSON.
 
 Part 7, growing regions ([`docs/screenshots/beta3-2-regions`](docs/screenshots/beta3-2-regions)):
 
@@ -120,7 +134,8 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 3 | Regions, cross-border play, federated hosting, emergency services beta | Done |
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
 | Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); light and shadow through the day and night (done); growing regions (done) | Done |
-| Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | Next |
+| Beta 4 | GPU test (done); snow on the ground and roofs; water quality; direct dispatch; the floating build menu and L-shaped info bar in both clients; region sizes, annexing and a region charter; tile hosts for growing regions | In progress |
+| Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
 | 1.x | Holidays and seasonal events across the city and every side game, on the shared calendar | |
@@ -130,6 +145,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-03 | **Beta 4, part 5: GPU test** (PR #20) | `--gpu-test` measures each graphics preset, each lighting level and night on the hill town, with frame rate, 1% lows, GPU and CPU time, draw calls and triangles, writes a Markdown and JSON report and shows a summary; launchers for Windows (double-click) and Linux start a test server of their own. [Gate](docs/GATE-BETA4-GPU.md) |
 | 2026-11-02 | **Beta 3.2, part 7: growing regions** (PR #19) | A region that starts as one tile and adds land on any side, each new tile's ground, rivers and rock made then to carry on from its neighbours; new land is open for any player to found a city on; both clients' region maps show the wild land around the region to add. [Gate](docs/GATE-BETA3-2-REGIONS.md) |
 | 2026-11-02 | **Beta 3.2, part 6: light and shadow** (PR #18) | The sun follows the day clock and the month, golden hour and night, haze and grey skies by the weather, lit windows, street lights and bus lights at night, sky reflections on the water, contact shadows and bounce light by preset, tilt-shift while querying, a time-of-day pin, and day and night on the web map. [Gate](docs/GATE-BETA3-2-LIGHT.md) |
 | 2026-11-02 | **Beta 3.2, part 5: subways** (PR #17) | Subway tunnels laid under anything at $150 a cell, subway stations over or beside them, a subway yard, Metro lines run by the bus company, subways drawn red in both clients' underground views. [Gate](docs/GATE-BETA3-2-SUBWAYS.md) |
@@ -162,6 +178,15 @@ dotnet run --project src/ToyCity.Server
 # 3. Play: open clients/godot in Godot 4.7.2 .NET and press F5
 #    (or open http://localhost:5180 for the web debug and admin client)
 ```
+
+### GPU test
+
+To measure the game on your own graphics card, set `GODOT` to your Godot 4.7.2 .NET executable and run the GPU
+test: on Windows double-click `tools/gpu-test/gpu-test.cmd`, on Linux or macOS run `tools/gpu-test/gpu-test.sh`. It
+builds the game, starts a test server of its own on port 5189 with an empty save folder (your own cities aren't
+touched), and holds three views of the hill town under each preset, each lighting level and at night, about three
+minutes in all. The report lands in `gpu-test/` at the top of the repository. See
+[docs/GATE-BETA4-GPU.md](docs/GATE-BETA4-GPU.md).
 
 See [docs/BETA1.md](docs/BETA1.md) for the Godot client's controls, command-line options and frame budget.
 

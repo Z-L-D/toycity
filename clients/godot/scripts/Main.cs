@@ -13,6 +13,7 @@ namespace ToyCity.Godot;
 /// --gate FILE to found the server's benchmark city and play the Alpha 3 loop on it, measuring as it goes;
 /// --together FILE to play the Beta 2 gate's live session as the mayor of a dedicated server, with three scripted
 /// players beside it, and write its checks to FILE;
+/// --gpu-test DIR to measure each graphics setup on the hill town and write a report into DIR (Main.GpuTest.cs);
 /// --graphics PRESET (Low, Medium, High, Ultra) to use a preset for this run instead of the saved options;
 /// --user NAME --password PASSWORD to sign in to a dedicated server without the sign-in panel (with --new-account,
 /// making the account first).
@@ -76,6 +77,9 @@ public partial class Main : Node
             if (args[i] == "--password" && i + 1 < args.Length) password = args[++i];
             if (args[i] == "--new-account") newAccount = true;
             if (args[i] == "--tile" && i + 1 < args.Length) _tile = args[++i];
+            if (args[i] == "--gpu-test" && i + 1 < args.Length) _gpuDir = args[++i];
+            if (args[i] == "--gpu-hold" && i + 1 < args.Length) _gpuHold = double.Parse(args[++i], System.Globalization.CultureInfo.InvariantCulture);
+            if (args[i] == "--gpu-quit") _gpuQuit = true;
         }
         if (!Uri.TryCreate(server, UriKind.Absolute, out var uri)) uri = new Uri(server = "ws://localhost:5180/ws");
         // --tile COL,ROW opens one city of the region: its own window, as the region map's "Own window" starts it.
@@ -268,6 +272,7 @@ public partial class Main : Node
             Gate(delta);
         }
         else if (_mountainFile != null) Mountains(delta);
+        else if (_gpuDir != null) { if (!_gpuDone) GpuTest(delta); }
         else if (_togetherFile != null)
         {
             if (_together == null) TogetherStart();

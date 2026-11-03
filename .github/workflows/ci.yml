@@ -119,6 +119,13 @@ jobs:
           { echo '### Hills: the Beta 3.2 gate (CI runner, software OpenGL)'; echo; grep '^HILLS ' hills.log | sed 's/^HILLS //'; } >> "$GITHUB_STEP_SUMMARY"
           grep -q "HILLS OK" hills.log
           ! grep -n "SHADER ERROR" -A3 hills.log
+      - name: GPU test, through its Linux launcher (software OpenGL, so the numbers are not a real GPU's)
+        run: |
+          GODOT="$GODOT_BIN" GODOT_ARGS="--rendering-method gl_compatibility --rendering-driver opengl3" GPU_TEST_ARGS="--gpu-hold 1 --gpu-quit" \
+            xvfb-run -a -s "-screen 0 1600x900x24" timeout 900 tools/gpu-test/gpu-test.sh "$PWD/gpu-test" 2>&1 | tee gpu-test.log
+          grep -q "GPU OK" gpu-test.log
+          ! grep -n "SHADER ERROR" -A3 gpu-test.log
+          { echo '### GPU test (CI runner, software OpenGL)'; echo; cat gpu-test/gpu-test-*.md | sed -n '/^## Each setup/,/^## Each view/p' | head -n -1; } >> "$GITHUB_STEP_SUMMARY"
       - name: Together, the Beta 2 gate (four players on a dedicated server, software OpenGL)
         run: |
           mkdir -p together && echo '{ "name": "Together town", "join": "open" }' > together/host.json
@@ -177,6 +184,8 @@ jobs:
             hills.json
             hills.log
             hills-sheet.jpg
+            gpu-test/
+            gpu-test.log
             mountain-sheet.jpg
             mountains.json
             mountains.log
