@@ -221,8 +221,15 @@ public sealed class TogetherRun : IDisposable
         Dan.Panel.Click("em-tab:settings");
         Dan.Panel.Click("em-style:1");
         yield return new GateWait("scene command", () => Dan.Em.View!.Style == Emergency.Wire.CommandStyle.SceneCommand, 30);
-        if (!Dan.Em.View!.PickResponders) Dan.Panel.Click("em-switch:pick");
-        yield return new GateWait("Dan picks responders", () => Dan.Em.View!.PickResponders, 30);
+        // The switch is sent as the setting it should become (from the view Dan has), so sending it again is safe:
+        // it goes again every few seconds until his view shows it, in case a view from before crossed it.
+        var asked = DateTime.MinValue;
+        yield return new GateWait("Dan picks responders", () =>
+        {
+            if (Dan.Em.View!.PickResponders) return true;
+            if (DateTime.UtcNow - asked > TimeSpan.FromSeconds(3)) { Dan.Panel.Click("em-switch:pick"); asked = DateTime.UtcNow; }
+            return false;
+        }, 30);
         // Two patrols won't keep up with the town's crime: Dan buys two more from the Units tab.
         Dan.Panel.Click("em-tab:units");
         var police = Dan.Em.View!.Stations.First(st => st.Kind == "police-station");
