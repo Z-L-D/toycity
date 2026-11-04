@@ -102,6 +102,9 @@ public partial class Main
         }
         RenderingServer.GlobalShaderParameterSet("snow_mm", (float)SnowCover.GroundMm(c));
         RenderingServer.GlobalShaderParameterSet("snow_median_y", _snowMedianY);
+        // The trees' leaves turn with the calendar (Beta 4.1).
+        if (_monthPin > 0) RenderingServer.GlobalShaderParameterSet("month", _monthPin);
+        else if (c.Stats.Month > 0) RenderingServer.GlobalShaderParameterSet("month", c.Stats.Month + (Math.Max(1, c.Stats.Day) - 1) / 30f);
         _buses?.SetNight(l.Night);
         UpdateLens();
     }

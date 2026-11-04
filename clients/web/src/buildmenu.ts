@@ -4,7 +4,7 @@
 import type { City, BuildingType, Profile } from './state';
 import icons from '../../../content/ui-icons.json';
 
-export type ItemKind = 'zone' | 'dezone' | 'path' | 'utility' | 'building' | 'terraform' | 'river' | 'dam' | 'disaster' | 'bulldoze';
+export type ItemKind = 'zone' | 'dezone' | 'path' | 'utility' | 'building' | 'terraform' | 'river' | 'dam' | 'trees' | 'disaster' | 'bulldoze';
 
 export interface BuildItem {
   name: string;
@@ -18,6 +18,8 @@ export interface BuildItem {
   utility?: number;
   terraform?: number;
   disaster?: number;
+  /** The tree planter's plant kind (Beta 4.1): 0 what suits the ground, 1 broadleaf, 2 conifers, 5 orchard. */
+  treeKind?: number;
   /** Why it can't be picked yet ("Reach 2,000 people"), or "" when it can. */
   locked: string;
 }
@@ -28,6 +30,9 @@ export interface BuildCategory { id: string; name: string; icon: string; key: st
 export const DENSITY_NAMES = ['Low density', 'Medium density', 'High density'];
 export const TERRAFORM_NAMES = ['Raise', 'Lower', 'Level', 'Smooth', 'Even slope'];
 export const DISASTER_NAMES = ['Fire', 'Tornado', 'Earthquake', 'Clockwork Colossus'];
+/** The tree planter's choices and the plant kind each plants (Planner.TreeChoices). */
+export const TREE_CHOICES: [string, number][] = [['Trees', 0], ['Broadleaf', 1], ['Conifers', 2], ['Orchard', 5]];
+export const TREES_PER_CELL = 12;
 
 /** An icon from the shared set, as an inline SVG. */
 export function icon(name: string, size = 20): string {
@@ -138,6 +143,7 @@ export function menuFor(c: City): BuildCategory[] {
     groups: [
       { name: 'Terraform', items: TERRAFORM_NAMES.map((n, k) => ({ name: n, price: '', icon: 'land', kind: 'terraform' as const, terraform: k, locked: '' })) },
       { name: 'Water', items: [{ name: 'River', price: '', icon: 'water', kind: 'river', locked: '' }, { name: 'Dam', price: '', icon: 'water', kind: 'dam', locked: '' }] },
+      { name: 'Plants', items: TREE_CHOICES.map(([n, k]) => ({ name: n, price: `$${TREES_PER_CELL} / cell`, icon: 'parks', kind: 'trees' as const, treeKind: k, locked: '' })) },
     ],
   });
   menu.push({

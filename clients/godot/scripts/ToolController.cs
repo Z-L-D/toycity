@@ -439,6 +439,10 @@ public partial class ToolController : Node
                 Choice(new[] { "16 m", "32 m", "48 m", "64 m", "80 m" }, State.RiverWidth - 1, k => State.RiverWidth = k + 1, tips: Enumerable.Range(1, 5).Select(k => $"{k} cell{(k > 1 ? "s" : "")} wide").ToArray());
                 Choice(new[] { "2 m", "4 m", "6 m", "8 m" }, State.RiverDepth - 1, k => State.RiverDepth = k + 1, tips: Enumerable.Range(1, 4).Select(k => $"{k} step{(k > 1 ? "s" : "")} deep").ToArray());
                 break;
+            case ToolKind.Trees:
+                Named("parks", "Tree planter", $"${Planner.TreesPerCell} / cell");
+                Choice(Planner.TreeChoices.Select(k => k.Name).ToArray(), Math.Max(0, System.Array.FindIndex(Planner.TreeChoices, k => k.Kind == State.TreeKind)), k => State.TreeKind = Planner.TreeChoices[k].Kind);
+                break;
             case ToolKind.Dam:
                 Named("water", "Dam");
                 Choice(Enumerable.Range(1, 8).Select(k => $"{2 * k} m").ToArray(), State.DamRise - 1, k => State.DamRise = k + 1, tips: Enumerable.Range(1, 8).Select(k => $"Holds the river {2 * k} m over its level").ToArray());
@@ -543,6 +547,7 @@ public partial class ToolController : Node
             ToolKind.Terraform => new[] { ("Drag", $"{Planner.TerraformNames[(int)State.Terraform].ToLowerInvariant()} area"), ("Esc", "cancel") },
             ToolKind.River => new[] { ("Drag", "dig a river from where its water starts"), ("Esc", "cancel") },
             ToolKind.Dam => new[] { ("Drag", "wall a river, bank to bank"), ("Esc", "cancel") },
+            ToolKind.Trees => new[] { ("Drag", "plant trees on open land"), ("Esc", "cancel") },
             _ => new[] { ("Click", $"start a {Planner.DisasterNames[(int)State.Disaster].ToLowerInvariant()} here"), ("Esc", "cancel") },
         };
         var common = new[] { (", .", "rotate"), ("Wheel", "zoom"), ("Right-drag", "pan"), ("T / Y", "top-down / side"), ("Space", "pause"), ("P / M / U", "panel / commuters / pipes") };

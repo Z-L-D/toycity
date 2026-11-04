@@ -12,6 +12,8 @@ public sealed record BuildItem(string Name, string Price, string Icon, ToolKind 
     public UtilityKind Utility { get; init; } = UtilityKind.UtilityPowerLine;
     public TerraformMode Terraform { get; init; } = TerraformMode.TerraformRaise;
     public DisasterKind Disaster { get; init; } = DisasterKind.DisasterFire;
+    /// <summary>The tree planter's plant kind (Beta 4.1).</summary>
+    public int TreeKind { get; init; }
     /// <summary>Why it can't be picked yet ("Reach 2,000 people"), or "" when it can.</summary>
     public string Locked { get; init; } = "";
 }
@@ -82,6 +84,7 @@ public sealed class BuildMenu
             case ToolKind.Building: s.BuildingTypeId = i.Type; break;
             case ToolKind.Terraform: s.Terraform = i.Terraform; break;
             case ToolKind.Disaster: s.Disaster = i.Disaster; break;
+            case ToolKind.Trees: s.TreeKind = i.TreeKind; break;
         }
     }
 
@@ -94,6 +97,7 @@ public sealed class BuildMenu
         ToolKind.Building => i.Type == s.BuildingTypeId,
         ToolKind.Terraform => i.Terraform == s.Terraform,
         ToolKind.Disaster => i.Disaster == s.Disaster,
+        ToolKind.Trees => i.TreeKind == s.TreeKind,
         _ => true,
     };
 
@@ -165,6 +169,7 @@ public sealed class BuildMenu
             {
                 new BuildGroup("Terraform", TerraformNames.Select((n, k) => new BuildItem(n, "", "land", ToolKind.Terraform) { Terraform = (TerraformMode)k }).ToList()),
                 new BuildGroup("Water", new List<BuildItem> { new("River", "", "water", ToolKind.River), new("Dam", "", "water", ToolKind.Dam) }),
+                new BuildGroup("Plants", Planner.TreeChoices.Select(k => new BuildItem(k.Name, $"${Planner.TreesPerCell} / cell", "parks", ToolKind.Trees) { TreeKind = k.Kind }).ToList()),
             }));
         menu.Add(new BuildCategory("disasters", "Disasters", "disasters", "K", "Set one loose on your own city.",
             new[] { new BuildGroup("Disasters", DisasterNames.Select((n, k) => new BuildItem(n, "", "disasters", ToolKind.Disaster) { Disaster = (DisasterKind)k }).ToList()) }));

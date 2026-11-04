@@ -26,6 +26,10 @@ project/assembly_name="ToyCity.Godot"
 
 [shader_globals]
 
+month={
+"type": "float",
+"value": 6.0
+}
 night={
 "type": "float",
 "value": 0.0

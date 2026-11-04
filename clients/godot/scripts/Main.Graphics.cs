@@ -62,6 +62,7 @@ public partial class Main
             if (!g.CityLife) life.Visible = false;
         }
         if (g.CityLife) _agents!.Visible = true;
+        _trees!.Detail = g.Detail;
         var (start, budget) = g.Shapes;
         _view!.SetShapes(g.FullTerrain, start, budget);
         ApplyLighting();
