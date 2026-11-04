@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 18;
+    public const int FormatVersion = 19;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -185,6 +185,8 @@ public sealed partial class World
         Subway = new byte[N];
         Dam = new byte[N];
         RiverBefore = new byte[N];
+        Plant = new byte[N];
+        Canopy = new byte[N];
         LandValue = new byte[N];
         DesR = new short[N];
         DesC = new short[N];
@@ -215,6 +217,7 @@ public sealed partial class World
         w.Funds = content.StartingFunds;
         w.GenerateTerrain();
         w.RecomputeWaterDistance();
+        w.GeneratePlants(seed, 0, 0);
         w.RunMonthly();
         w.RunUtilities();
         w.UpdateStats();
@@ -225,7 +228,7 @@ public sealed partial class World
     /// Founds a city on a region tile: the ground is the region's, cut out for this tile, and the calendar starts on
     /// the region's day so every tile shares one clock.
     /// </summary>
-    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick, byte[]? rivers = null, (ushort[] Bedrock, byte[] Rock)? geology = null, (long Minute, int Pace)? clock = null)
+    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick, byte[]? rivers = null, (ushort[] Bedrock, byte[] Rock)? geology = null, (long Minute, int Pace)? clock = null, (ulong Seed, int Ox, int Oy)? plantFrame = null)
     {
         if (size is not (64 or 128 or 256)) throw new ArgumentOutOfRangeException(nameof(size), "size must be 64, 128 or 256");
         if (corners.Length != (size + 1) * (size + 1)) throw new ArgumentException("corners must cover the tile", nameof(corners));
@@ -239,6 +242,9 @@ public sealed partial class World
         if (geology is { } g) { g.Bedrock.CopyTo(w.Bedrock, 0); g.Rock.CopyTo(w.Rock, 0); }
         else w.GenerateGeology();
         w.RecomputeWaterDistance();
+        // The region's woods, in its own coordinates, so they carry on over the borders; without them, this tile's own.
+        var pf = plantFrame ?? (seed, 0, 0);
+        w.GeneratePlants(pf.Seed, pf.Ox, pf.Oy);
         w.RunMonthly();
         w.RunUtilities();
         w.UpdateStats();
@@ -330,6 +336,8 @@ public sealed partial class World
         // Showers, mud, snow and ice on the roads, and the crews clearing them, by the day clock.
         RunRoadWeather();
         RunSnow();
+        // Whatever was built over trees today has taken them.
+        TrimPlants();
         UpdateStats();
         // The city's own calls come on the day clock too, so a dispatcher hears them at one rate an hour whatever the
         // calendar's pace.
@@ -359,6 +367,7 @@ public sealed partial class World
             RunDirector();
             RollDisaster();
             RunLifeEvents();
+            RunRegrowth();
         }
         UpdateOrdinances();
         RunNeighborConnections();
@@ -473,6 +482,8 @@ public sealed partial class World
             w.Write(RiverFlowPct);
             // Format 18: dams, and the rivers' levels before their reservoirs.
             WC(w, Dam); WC(w, RiverBefore);
+            // Format 19: the plant layer.
+            WC(w, Plant); WC(w, Canopy);
         }
         return ms.ToArray();
     }
@@ -612,6 +623,9 @@ public sealed partial class World
         w.RiverFlowPct = version >= 17 ? r.ReadInt32() : FlowOfStage(w.FloodStage);
         // Format 18 added dams; an older city has none.
         if (version >= 18) { ReadBytes(r, w.Dam); ReadBytes(r, w.RiverBefore); }
+        // Format 19 added the plant layer; an older city gets the woods its ground would have had, cleared where it's built.
+        if (version >= 19) { ReadBytes(r, w.Plant); ReadBytes(r, w.Canopy); }
+        else { w.RecomputeWaterDistance(); w.PlantOldSave(); }
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
         var demand = (int[])w.Demand.Clone();

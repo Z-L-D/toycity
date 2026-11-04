@@ -88,6 +88,14 @@ public sealed class CityMirror
     public bool IsRiver(int i) => Rivers[i] > Heights[i];
     /// <summary>Each cell's dam crest in steps, 0 for none (river brush and dams).</summary>
     public byte[] Dams = Array.Empty<byte>();
+    /// <summary>Each cell's plant kind * 16 + tree crowns 0..8 (Beta 4.1): see <see cref="PlantKindAt"/> and <see cref="CanopyAt"/>.</summary>
+    public byte[] Plants = Array.Empty<byte>();
+    /// <summary>What grows on a cell: 0 none, 1 broadleaf, 2 conifer, 3 scrub, 4 reeds, 5 orchard.</summary>
+    public int PlantKindAt(int i) => Plants[i] >> 4;
+    /// <summary>Tree crowns on a cell, 0 (open) to 8 (a closed wood).</summary>
+    public int CanopyAt(int i) => Plants[i] & 15;
+    /// <summary>Bumped whenever any cell's plants change, so views rebuild their trees.</summary>
+    public int PlantsVersion;
     /// <summary>What the dams do to each river cell (RiverFlow.Held): 2 a reservoir, 1 the river below a dam.</summary>
     public byte[] DamHeld => _held is { } h && _heldFor == TerrainVersion ? h
         : (_held = ToyCity.Sim.RiverFlow.Held(Width, Height, Heights, Rivers, Dams), _heldFor = TerrainVersion).Item1;
@@ -184,6 +192,8 @@ public sealed class CityMirror
         Heights = f.Heights.ToByteArray();
         Rivers = f.Rivers.Length == Width * Height ? f.Rivers.ToByteArray() : new byte[Width * Height];
         Dams = f.Dams.Length == Width * Height ? f.Dams.ToByteArray() : new byte[Width * Height];
+        Plants = f.Plants.Length == Width * Height ? f.Plants.ToByteArray() : new byte[Width * Height];
+        PlantsVersion++;
         var cb = f.Corners.Span;
         Corners = new ushort[(Width + 1) * (Height + 1)];
         if (cb.Length == Corners.Length * 2)
@@ -250,7 +260,7 @@ public sealed class CityMirror
         // A delta can reach a new connection before its full state (the tick was on its way as the player joined):
         // the full state that follows holds all of it.
         if (!Loaded) return;
-        bool terrain = d.Corners.Count > 0, roads = false;
+        bool terrain = d.Corners.Count > 0, roads = false, plants = false;
         foreach (var c in d.Corners)
         {
             if (c.Index < 0 || c.Index >= Corners.Length) continue;
@@ -278,6 +288,7 @@ public sealed class CityMirror
             if (Rivers[i] != c.River || Dams[i] != c.Dam) terrain = true;
             Rivers[i] = (byte)c.River;
             Dams[i] = (byte)c.Dam;
+            if (Plants[i] != c.Plant) { Plants[i] = (byte)c.Plant; plants = true; }
             Made[i] = (byte)(c.Made ? 1 : 0);
             PowerLines[i] = (byte)(c.PowerLine ? 1 : 0);
             WaterPipes[i] = (byte)(c.WaterPipe ? 1 : 0);
@@ -310,6 +321,7 @@ public sealed class CityMirror
             roads = true;
         }
         if (terrain) TerrainVersion++;
+        if (plants) PlantsVersion++;
         if (terrain || roads) RoadVersion++;
         Version++;
     }

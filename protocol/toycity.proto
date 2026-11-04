@@ -234,6 +234,7 @@ message Action {
     SetTreatment treatment = 34;
     DigRiver dig_river = 35;
     PlaceDam dam = 36;
+    PlantTrees plant_trees = 37;
   }
 }
 
@@ -246,6 +247,13 @@ message DigRiver {
   int32 y1 = 4;
   int32 width = 5;
   int32 depth = 6;
+}
+
+// The tree planter (Beta 4.1, part 1): plants an area's open land with trees, kind 0 for what suits each cell's
+// ground, 1 broadleaf, 2 conifer, 3 scrub, 4 reeds, 5 orchard.
+message PlantTrees {
+  Rect area = 1;
+  int32 kind = 2;
 }
 
 // A dam along a straight line across a river, holding its water rise (1..8) steps over the river there.
@@ -1194,6 +1202,7 @@ message FullState {
   bytes rock = 20;          // one byte per cell: the rock under it, 1 shale, 2 sandstone, 3 limestone, 4 granite
   bytes subways = 21;       // one byte per cell: 1 where a subway tunnel runs under it (Beta 3.2)
   bytes dams = 22;          // one byte per cell: a dam's crest in steps, 0 for none (river brush and dams)
+  bytes plants = 23;        // one byte per cell (Beta 4.1): the plant kind * 16 + tree crowns 0..8 (see PlantTrees.kind)
 }
 
 // An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
@@ -1223,6 +1232,7 @@ message CellUpdate {
   bool subway = 10;   // a subway tunnel runs under it (Beta 3.2)
   int32 river = 11;   // the river surface in steps, 0 for none (the river brush and dams change it)
   int32 dam = 12;     // a dam's crest in steps, 0 for none
+  int32 plant = 13;   // the plant kind * 16 + tree crowns 0..8 (Beta 4.1)
 }
 
 message TickDelta {

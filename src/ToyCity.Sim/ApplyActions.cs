@@ -20,6 +20,7 @@ public sealed partial class World
             case TerraformAction a: ApplyTerraform(a); break;
             case DigRiverAction a: ApplyDigRiver(a); break;
             case PlaceDamAction a: ApplyPlaceDam(a); break;
+            case PlantTreesAction a: ApplyPlantTrees(a); break;
             case SetTaxAction a:
                 if (a.Zone != Zone.None) TaxTenths[((int)a.Zone - 1) * 3 + (int)a.Wealth] = Math.Clamp(a.PercentTenths, 0, 200);
                 break;
@@ -368,10 +369,12 @@ public sealed partial class World
         foreach (var id in doomed) cost += Content.BulldozeCostPerCell * Buildings[id]!.W * Buildings[id]!.H;
         var dams = new List<List<int>>();
         if (!a.Underground) cost += DamsIn(x0, y0, x1, y1, out dams);
+        if (!a.Underground) cost += TreesIn(x0, y0, x1, y1);
         if (!Spend(cost, r.X0, r.Y0)) return;
         ForgetBusRoutes();
         foreach (var id in doomed) RemoveBuilding(Buildings[id]!);
         RemoveDams(dams);
+        if (!a.Underground) ClearTrees(x0, y0, x1, y1);
         for (int y = y0; y <= y1; y++)
         for (int x = x0; x <= x1; x++)
         {

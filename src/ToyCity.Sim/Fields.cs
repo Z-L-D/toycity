@@ -54,6 +54,9 @@ public sealed partial class World
             Spread(Noise, x, y, 1, 1, noise, 2, true); // paths don't stack: a grid is as loud as its loudest road
             if (p.Cars && Traffic[i] > 16) Spread(Pollution, x, y, 1, 1, Traffic[i] / 8, 1, false);
         }
+        // Trees take up some of the air's pollution: a closed wood around a cell about a fifth of a busy road's.
+        for (int i = 0; i < N; i++)
+            if (Pollution[i] > 0) Pollution[i] = (byte)Math.Max(0, Pollution[i] - GreeneryAt(i) / 20);
     }
 
     public static Service? ServiceOf(Category c) => c switch
@@ -94,6 +97,7 @@ public sealed partial class World
         Add("Elevation", Math.Min(20, (Height[i] - WaterLevel) * 2));
         if (WaterDistance[i] <= 4) Add("Near water", (5 - WaterDistance[i]) * 6);
         Add("Parks", Coverage[(int)Service.Parks][i] / 4);
+        Add("Trees", Math.Min(12, GreeneryAt(i) / 8));
         Add("Police", Coverage[(int)Service.Police][i] / 12);
         Add("Health care", Coverage[(int)Service.Health][i] / 12);
         Add("Schools", Coverage[(int)Service.Education][i] / 12);
@@ -137,6 +141,7 @@ public sealed partial class World
             case Zone.Residential:
                 Add("Land value", lv / 2);
                 Add("Parks", Coverage[(int)Service.Parks][i] / 6);
+                Add("Trees", Math.Min(8, GreeneryAt(i) / 12));
                 Add("Schools", Coverage[(int)Service.Education][i] / 10);
                 Add("Health care", Coverage[(int)Service.Health][i] / 10);
                 Add("Police", Coverage[(int)Service.Police][i] / 10);

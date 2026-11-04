@@ -24,6 +24,7 @@ public static class Mapping
         P.Action.KindOneofCase.Terraform => new TerraformAction(Rect(a.Terraform.Area), (TerraformMode)(int)a.Terraform.Mode),
         P.Action.KindOneofCase.DigRiver => new DigRiverAction(a.DigRiver.X0, a.DigRiver.Y0, a.DigRiver.X1, a.DigRiver.Y1, a.DigRiver.Width, a.DigRiver.Depth),
         P.Action.KindOneofCase.Dam => new PlaceDamAction(a.Dam.X0, a.Dam.Y0, a.Dam.X1, a.Dam.Y1, a.Dam.Rise),
+        P.Action.KindOneofCase.PlantTrees => new PlantTreesAction(Rect(a.PlantTrees.Area), (PlantKind)a.PlantTrees.Kind),
         P.Action.KindOneofCase.Tax => new SetTaxAction((Zone)(int)a.Tax.Zone, (Level)(int)a.Tax.Wealth, a.Tax.PercentTenths),
         P.Action.KindOneofCase.Funding => new SetFundingAction(a.Funding.BuildingId, a.Funding.Percent),
         P.Action.KindOneofCase.RoadCrews => new SetRoadCrewsAction(a.RoadCrews.Percent),
@@ -71,6 +72,7 @@ public static class Mapping
         TerraformAction x => new P.Action { Terraform = new P.Terraform { Area = Rect(x.Area), Mode = (P.TerraformMode)(int)x.Mode } },
         DigRiverAction x => new P.Action { DigRiver = new P.DigRiver { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, Width = x.Width, Depth = x.Depth } },
         PlaceDamAction x => new P.Action { Dam = new P.PlaceDam { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, Rise = x.Rise } },
+        PlantTreesAction x => new P.Action { PlantTrees = new P.PlantTrees { Area = Rect(x.Area), Kind = (int)x.Kind } },
         SetTaxAction x => new P.Action { Tax = new P.SetTax { Zone = (P.ZoneKind)(int)x.Zone, Wealth = (P.Wealth)(int)x.Wealth, PercentTenths = x.PercentTenths } },
         SetFundingAction x => new P.Action { Funding = new P.SetFunding { BuildingId = x.BuildingId, Percent = x.Percent } },
         SetRoadCrewsAction x => new P.Action { RoadCrews = new P.SetRoadCrews { Percent = x.Percent } },
@@ -236,7 +238,7 @@ public static class Mapping
         {
             Width = w.Width, Height = w.HeightCells, WaterLevel = w.WaterLevel,
             Heights = ByteString.CopyFrom(w.Height), Corners = ByteString.CopyFrom(CornerBytes(w)), Rivers = ByteString.CopyFrom(w.River), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)), PathSurfaces = ByteString.CopyFrom(w.PathSurface), PathDecks = ByteString.CopyFrom(U16Bytes(w.PathDeck)), MadeGround = ByteString.CopyFrom(w.Made), Bedrock = ByteString.CopyFrom(U16Bytes(w.Bedrock)), Rock = ByteString.CopyFrom(w.Rock),
-            PowerLines = ByteString.CopyFrom(w.PowerLine), WaterPipes = ByteString.CopyFrom(w.WaterPipe), Subways = ByteString.CopyFrom(w.Subway), Dams = ByteString.CopyFrom(w.Dam),
+            PowerLines = ByteString.CopyFrom(w.PowerLine), WaterPipes = ByteString.CopyFrom(w.WaterPipe), Subways = ByteString.CopyFrom(w.Subway), Dams = ByteString.CopyFrom(w.Dam), Plants = ByteString.CopyFrom(PlantBytes(w)),
             Stats = Stats(w, speed), Catalog = Catalog(w.Content), Seed = w.Seed,
         };
         foreach (var b in w.Buildings) if (b != null) f.Buildings.Add(Building(w, b));
@@ -533,6 +535,14 @@ public static class Mapping
     // Saves
     // ------------------------------------------------------------------
 
+    /// <summary>Each cell's plant kind * 16 + tree crowns, as FullState.plants and CellUpdate.plant carry it.</summary>
+    public static byte[] PlantBytes(World w)
+    {
+        var b = new byte[w.N];
+        for (int i = 0; i < w.N; i++) b[i] = (byte)(w.Plant[i] * 16 + w.Canopy[i]);
+        return b;
+    }
+
     public static byte[] Save(World w)
     {
         var s = new P.SaveGame
@@ -608,7 +618,7 @@ public sealed class DeltaTracker
 {
     byte[] _heights = Array.Empty<byte>(), _zones = Array.Empty<byte>(), _lines = Array.Empty<byte>(), _pipes = Array.Empty<byte>(), _subways = Array.Empty<byte>(), _surfaces = Array.Empty<byte>();
     ushort[] _decks = Array.Empty<ushort>();
-    byte[] _made = Array.Empty<byte>(), _rivers = Array.Empty<byte>(), _dams = Array.Empty<byte>();
+    byte[] _made = Array.Empty<byte>(), _rivers = Array.Empty<byte>(), _dams = Array.Empty<byte>(), _plants = Array.Empty<byte>();
     ushort[] _paths = Array.Empty<ushort>(), _corners = Array.Empty<ushort>(), _bedrock = Array.Empty<ushort>();
     int _strips;
     readonly Dictionary<int, P.BuildingState> _buildings = new();
@@ -626,6 +636,7 @@ public sealed class DeltaTracker
         _made = (byte[])w.Made.Clone();
         _rivers = (byte[])w.River.Clone();
         _dams = (byte[])w.Dam.Clone();
+        _plants = Mapping.PlantBytes(w);
         _paths = (ushort[])w.Path.Clone();
         _corners = (ushort[])w.Corner.Clone();
         _bedrock = (ushort[])w.Bedrock.Clone();
@@ -646,9 +657,11 @@ public sealed class DeltaTracker
         }
         for (int i = 0; i < w.N; i++)
         {
-            if (_heights[i] == w.Height[i] && _zones[i] == w.ZoneCode[i] && _paths[i] == w.Path[i] && _surfaces[i] == w.PathSurface[i] && _decks[i] == w.PathDeck[i] && _made[i] == w.Made[i] && _lines[i] == w.PowerLine[i] && _pipes[i] == w.WaterPipe[i] && _subways[i] == w.Subway[i] && _rivers[i] == w.River[i] && _dams[i] == w.Dam[i]) continue;
-            _heights[i] = w.Height[i]; _zones[i] = w.ZoneCode[i]; _paths[i] = w.Path[i]; _lines[i] = w.PowerLine[i]; _pipes[i] = w.WaterPipe[i]; _subways[i] = w.Subway[i]; _surfaces[i] = w.PathSurface[i]; _decks[i] = w.PathDeck[i]; _made[i] = w.Made[i]; _rivers[i] = w.River[i]; _dams[i] = w.Dam[i];
-            d.Cells.Add(new P.CellUpdate { Index = i, Height = w.Height[i], Zone = w.ZoneCode[i], Path = w.Path[i], PowerLine = w.PowerLine[i] != 0, WaterPipe = w.WaterPipe[i] != 0, Subway = w.Subway[i] != 0, Surface = w.PathSurface[i], Deck = w.PathDeck[i], Made = w.Made[i] != 0, River = w.River[i], Dam = w.Dam[i] });
+            byte plant = (byte)(w.Plant[i] * 16 + w.Canopy[i]);
+            if (_plants[i] == plant &&
+                _heights[i] == w.Height[i] && _zones[i] == w.ZoneCode[i] && _paths[i] == w.Path[i] && _surfaces[i] == w.PathSurface[i] && _decks[i] == w.PathDeck[i] && _made[i] == w.Made[i] && _lines[i] == w.PowerLine[i] && _pipes[i] == w.WaterPipe[i] && _subways[i] == w.Subway[i] && _rivers[i] == w.River[i] && _dams[i] == w.Dam[i]) continue;
+            _heights[i] = w.Height[i]; _zones[i] = w.ZoneCode[i]; _paths[i] = w.Path[i]; _lines[i] = w.PowerLine[i]; _pipes[i] = w.WaterPipe[i]; _subways[i] = w.Subway[i]; _surfaces[i] = w.PathSurface[i]; _decks[i] = w.PathDeck[i]; _made[i] = w.Made[i]; _rivers[i] = w.River[i]; _dams[i] = w.Dam[i]; _plants[i] = plant;
+            d.Cells.Add(new P.CellUpdate { Index = i, Height = w.Height[i], Zone = w.ZoneCode[i], Path = w.Path[i], PowerLine = w.PowerLine[i] != 0, WaterPipe = w.WaterPipe[i] != 0, Subway = w.Subway[i] != 0, Surface = w.PathSurface[i], Deck = w.PathDeck[i], Made = w.Made[i] != 0, River = w.River[i], Dam = w.Dam[i], Plant = plant });
         }
         for (int i = 0; i < w.Corner.Length; i++)
         {
