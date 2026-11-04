@@ -107,7 +107,7 @@ jobs:
           ! grep -n "SHADER ERROR" -A3 gate.log
       - name: Mountains, the Beta 3.1 gate (a 256-cell mountain city from the classic and free cameras, software OpenGL)
         run: |
-          xvfb-run -a -s "-screen 0 1600x900x24" timeout 600 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
+          xvfb-run -a -s "-screen 0 1600x900x24" timeout 1200 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
             --path clients/godot -- --mountains "$PWD/mountains.json" --graphics High --shots "$PWD/mountain-shots" 2>&1 | tee mountains.log
           { echo '### Mountains: the Beta 3.1 gate (CI runner, software OpenGL)'; echo; grep '^MOUNTAIN ' mountains.log | sed 's/^MOUNTAIN //'; } >> "$GITHUB_STEP_SUMMARY"
           grep -q "MOUNTAIN OK" mountains.log

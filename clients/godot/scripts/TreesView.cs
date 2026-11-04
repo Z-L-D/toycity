@@ -17,7 +17,7 @@ public partial class TreesView : Node3D
     const int Square = 32;
     readonly CityMirror _city;
     readonly CityView _view;
-    readonly Dictionary<(int Kind, int Sx, int Sy), MultiMeshInstance3D> _batches = new();
+    readonly Dictionary<(int Kind, int Sx, int Sy), MultiMeshInstance3D> _batches = new(), _farBatches = new();
     readonly Mesh?[] _meshes = new Mesh?[6], _farMeshes = new Mesh?[6];
     bool _far;
     // Each batch's crowns (the headless renderer keeps no instance counts of its own).
@@ -33,13 +33,14 @@ public partial class TreesView : Node3D
     public BuildingDetail Detail { set => _detail = value; }
 
     /// <summary>
-    /// Far from the camera (classic zoom 0 to 2, or the free camera high up) each plant is a handful of triangles: a
-    /// crown without its trunk, and no reeds at all, so a whole wooded map stays cheap.
+    /// Far from the camera (classic zoom 0 to 2, or the free camera high up), and in squares away from it, a quarter
+    /// of the crowns are drawn, each bigger and a handful of triangles, with no reeds and no shadows, so a whole wooded
+    /// map stays cheap.
     /// </summary>
     public bool Far { set => _far = value; }
 
     // Close up, only the squares near the camera draw full trees; the rest keep the cheap shapes.
-    const float NearReach = 56f;
+    const float NearReach = 40f;
     readonly Dictionary<(int Kind, int Sx, int Sy), bool> _near = new();
 
     void PickShapes()
@@ -55,13 +56,15 @@ public partial class TreesView : Node3D
         }
         foreach (var (key, mmi) in _batches)
         {
+            _farBatches.TryGetValue(key, out var far);
             float cx = (key.Sx + 0.5f) * Square, cz = (key.Sy + 0.5f) * Square;
             float dx = Math.Max(0, Math.Abs(eye.X - cx) - Square / 2f), dz = Math.Max(0, Math.Abs(eye.Z - cz) - Square / 2f);
             bool near = !_far && cam != null && dx * dx + dz * dz + eye.Y * eye.Y * 0.25f < NearReach * NearReach;
             if (_near.TryGetValue(key, out var was) && was == near) continue;
             _near[key] = near;
-            mmi.Multimesh.Mesh = (near ? _meshes : _farMeshes)[key.Kind];
-            mmi.Visible = near || key.Kind != TreeLayout.Reeds;
+            // Near, every crown in its full shape; far, a quarter of them as cheap shapes, each bigger, and no reeds.
+            mmi.Visible = near;
+            if (far != null) far.Visible = !near && key.Kind != TreeLayout.Reeds;
         }
     }
 
@@ -84,14 +87,25 @@ public partial class TreesView : Node3D
     {
         if (!_city.Loaded || _city.Plants.Length != _city.Width * _city.Height) return;
         PickShapes();
-        bool all = _drawn.Length != _city.Plants.Length || _city.TerrainVersion != _terrainFor || _detail != _drawnDetail;
-        if (!all && _city.PlantsVersion == _plantsFor) return;
+        bool all = _drawn.Length != _city.Plants.Length || _detail != _drawnDetail;
+        bool ground = _city.TerrainVersion != _terrainFor;
+        if (!all && !ground && _city.PlantsVersion == _plantsFor) return;
         int sw = (_city.Width + Square - 1) / Square, sh = (_city.Height + Square - 1) / Square;
         var dirty = new HashSet<(int, int)>();
+        // The ground moved (a road graded, a dam, the river brush): only the squares whose corners changed stand their
+        // trees again, so a big wooded map doesn't redo every crown for each edit.
+        var heights = SquareHeights(sw, sh);
+        if (!all && ground && _squareHeights.Length == heights.Length)
+            for (int k = 0; k < heights.Length; k++)
+                if (heights[k] != _squareHeights[k]) dirty.Add((k % sw, k / sw));
+        if (_squareHeights.Length != heights.Length) all = true;
+        _squareHeights = heights;
         if (all)
         {
             foreach (var b in _batches.Values) b.QueueFree();
+            foreach (var b in _farBatches.Values) b.QueueFree();
             _batches.Clear();
+            _farBatches.Clear();
             _counts.Clear();
             _near.Clear();
             for (int sy = 0; sy < sh; sy++) for (int sx = 0; sx < sw; sx++) dirty.Add((sx, sy));
@@ -103,36 +117,64 @@ public partial class TreesView : Node3D
         (_plantsFor, _terrainFor, _drawnDetail) = (_city.PlantsVersion, _city.TerrainVersion, _detail);
         System.Array.Copy(_city.Plants, _drawn, _drawn.Length);
         var spots = new List<TreeSpot>();
+        var farSpots = new List<TreeSpot>();
         foreach (var (sx, sy) in dirty)
         {
             spots.Clear();
+            farSpots.Clear();
             for (int y = sy * Square; y < Math.Min(_city.Height, (sy + 1) * Square); y++)
                 for (int x = sx * Square; x < Math.Min(_city.Width, (sx + 1) * Square); x++)
+                {
                     TreeLayout.Spots(x, y, _city.Width, _city.Plants[_city.Idx(x, y)], _detail, spots);
-            for (int kind = 1; kind <= 5; kind++) Fill(kind, sx, sy, spots);
+                    TreeLayout.Spots(x, y, _city.Width, _city.Plants[_city.Idx(x, y)], BuildingDetail.Low, farSpots);
+                }
+            for (int kind = 1; kind <= 5; kind++)
+            {
+                _counts[(kind, sx, sy)] = Fill(_batches, _meshes, kind, sx, sy, spots, true);
+                Fill(_farBatches, _farMeshes, kind, sx, sy, farSpots, false);
+            }
         }
         Crowns = 0;
         foreach (var n in _counts.Values) Crowns += n;
     }
 
-    void Fill(int kind, int sx, int sy, List<TreeSpot> spots)
+    long[] _squareHeights = System.Array.Empty<long>();
+
+    /// <summary>A hash of each square's corner heights, its edges included.</summary>
+    long[] SquareHeights(int sw, int sh)
+    {
+        var h = new long[sw * sh];
+        for (int sy = 0; sy < sh; sy++)
+            for (int sx = 0; sx < sw; sx++)
+            {
+                long acc = 17;
+                for (int y = sy * Square; y <= Math.Min(_city.Height, (sy + 1) * Square); y++)
+                    for (int x = sx * Square; x <= Math.Min(_city.Width, (sx + 1) * Square); x++)
+                        acc = acc * 31 + (long)(_city.CornerSteps(x, y) * 20);
+                h[sy * sw + sx] = acc;
+            }
+        return h;
+    }
+
+    /// <summary>Fills one batch, near or far, with a kind's crowns in a square; returns how many.</summary>
+    int Fill(Dictionary<(int Kind, int Sx, int Sy), MultiMeshInstance3D> batches, Mesh?[] meshes, int kind, int sx, int sy, List<TreeSpot> spots, bool nearSet)
     {
         int n = 0;
         foreach (var s in spots) if (s.Kind == kind) n++;
-        _counts[(kind, sx, sy)] = n;
-        if (!_batches.TryGetValue((kind, sx, sy), out var mmi))
+        if (!batches.TryGetValue((kind, sx, sy), out var mmi))
         {
-            if (n == 0) return;
+            if (n == 0) return 0;
             mmi = new MultiMeshInstance3D
             {
-                Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, Mesh = _farMeshes[kind] },
-                Visible = kind != TreeLayout.Reeds,
+                Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, Mesh = meshes[kind] },
+                Visible = false,
                 MaterialOverride = _materials[kind],
-                // Reeds and scrub are too low to throw a shadow worth its cost.
-                CastShadow = kind is TreeLayout.Reeds or TreeLayout.Scrub ? GeometryInstance3D.ShadowCastingSetting.Off : GeometryInstance3D.ShadowCastingSetting.On,
+                // Only near trees throw shadows: far off they're too small to see, and every shadow pass would draw the
+                // whole map's woods again. Reeds and scrub are too low to throw one worth its cost.
+                CastShadow = nearSet && kind is not (TreeLayout.Reeds or TreeLayout.Scrub) ? GeometryInstance3D.ShadowCastingSetting.On : GeometryInstance3D.ShadowCastingSetting.Off,
             };
             AddChild(mmi);
-            _batches[(kind, sx, sy)] = mmi;
+            batches[(kind, sx, sy)] = mmi;
             _near.Remove((kind, sx, sy));
         }
         var mm = mmi.Multimesh;
@@ -146,6 +188,7 @@ public partial class TreesView : Node3D
             k++;
         }
         mm.VisibleInstanceCount = n;
+        return n;
     }
 
     // ---- The plants' shapes, in cells (16 m): a broadleaf tree about 14 m tall, a conifer 18 m. ----
@@ -161,7 +204,8 @@ public partial class TreesView : Node3D
             case TreeLayout.Broadleaf:
                 Cylinder(st, 0.025f, 0.018f, 0f, 0.42f, 5, Bark, 0f, 0.4f);
                 Blob(st, new Vector3(0, 0.6f, 0), new Vector3(0.24f, 0.22f, 0.24f), new Color(0.26f, 0.42f, 0.17f), 0.45f, 1f);
-                Blob(st, new Vector3(0.06f, 0.48f, 0.02f), new Vector3(0.18f, 0.14f, 0.17f), new Color(0.24f, 0.4f, 0.15f), 0.35f, 0.8f);
+                // The lower crown is mostly hidden under the upper: a plain one will do.
+                Blob(st, new Vector3(0.06f, 0.48f, 0.02f), new Vector3(0.18f, 0.14f, 0.17f), new Color(0.24f, 0.4f, 0.15f), 0.35f, 0.8f, split: false);
                 break;
             case TreeLayout.Conifer:
                 Cylinder(st, 0.03f, 0.015f, 0f, 0.3f, 5, Bark, 0f, 0.25f);

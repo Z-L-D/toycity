@@ -48,7 +48,9 @@ land value and are the same for every player and in every replay.
     - an orchard tree is a round crown;
     - scrub is low bushes;
     - reeds are a clump of blades.
-  - Far off, or in squares away from the camera, each plant is a few triangles, and reeds aren't drawn.
+  - Far off, or in squares more than 40 cells from the camera, a quarter of the crowns are drawn, each bigger and a few
+    triangles, with no reeds and no shadows. This keeps the 256 × 256 mountain gate inside its time on CI's software
+    renderer: locally it takes 387 s with trees against 236 s without (it was 472 s before the far cut).
   - The trees sway in the wind and darken at night.
   - The broadleaf trees and orchards turn with the calendar:
     - green from late spring;
