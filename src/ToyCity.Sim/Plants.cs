@@ -75,8 +75,8 @@ public sealed partial class World
 
     void PlantsChanged() => _greenery = null;
 
-    /// <summary>Whether a cell can hold plants at all: dry land with nothing built on it.</summary>
-    bool CanGrow(int i) => !IsWater(i) && BuildingAt[i] == 0 && Path[i] == 0 && Dam[i] == 0;
+    /// <summary>Whether a cell can hold plants at all: dry land with nothing built or farmed on it.</summary>
+    bool CanGrow(int i) => !IsWater(i) && BuildingAt[i] == 0 && Path[i] == 0 && Dam[i] == 0 && Farm[i] == 0;
 
     /// <summary>Every step: whatever was built over trees, or flooded, has taken them.</summary>
     void TrimPlants()

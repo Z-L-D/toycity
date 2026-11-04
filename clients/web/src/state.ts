@@ -143,6 +143,8 @@ export class City {
   dams = new Uint8Array(0);
   /** Each cell's plant kind * 16 + tree crowns 0..8 (Beta 4.1, part 1). */
   plants = new Uint8Array(0);
+  /** Each cell's farm (Beta 4.1, part 2), as farms.ts unpacks it. */
+  farms = new Uint8Array(0);
   buildingAt = new Int32Array(0);
   buildings = new Map<number, Building>();
   stats: Msg = {};
@@ -174,6 +176,7 @@ export class City {
     this.rivers = f.rivers?.length === n ? new Uint8Array(f.rivers) : new Uint8Array(n);
     this.dams = f.dams?.length === n ? new Uint8Array(f.dams) : new Uint8Array(n);
     this.plants = f.plants?.length === n ? new Uint8Array(f.plants) : new Uint8Array(n);
+    this.farms = f.farms?.length === n ? new Uint8Array(f.farms) : new Uint8Array(n);
     const cb = f.corners as Uint8Array | undefined;
     const nc = (this.width + 1) * (this.height + 1);
     this.corners = new Uint16Array(cb?.length === 2 * nc ? nc : 0);
@@ -236,6 +239,7 @@ export class City {
       this.rivers[i] = c.river ?? 0;
       if (i < this.dams.length) this.dams[i] = c.dam ?? 0;
       if (i < this.plants.length) this.plants[i] = c.plant ?? 0;
+      if (i < this.farms.length) this.farms[i] = c.farm ?? 0;
     }
     for (const id of d.removedBuildings as number[]) this.removeBuilding(id);
     for (const b of d.buildings as Building[]) {

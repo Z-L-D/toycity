@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 19;
+    public const int FormatVersion = 20;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -187,6 +187,7 @@ public sealed partial class World
         RiverBefore = new byte[N];
         Plant = new byte[N];
         Canopy = new byte[N];
+        Farm = new byte[N];
         LandValue = new byte[N];
         DesR = new short[N];
         DesC = new short[N];
@@ -210,7 +211,7 @@ public sealed partial class World
     }
 
     /// <summary>Creates a new city with generated terrain.</summary>
-    public static World Create(ContentDb content, ulong seed, int size = 128, string name = "New City")
+    public static World Create(ContentDb content, ulong seed, int size = 128, string name = "New City", bool farms = false)
     {
         if (size is not (64 or 128 or 256)) throw new ArgumentOutOfRangeException(nameof(size), "size must be 64, 128 or 256");
         var w = new World(content, size, size, seed, name);
@@ -218,6 +219,7 @@ public sealed partial class World
         w.GenerateTerrain();
         w.RecomputeWaterDistance();
         w.GeneratePlants(seed, 0, 0);
+        if (farms) w.GenerateFarms(seed, 0, 0);
         w.RunMonthly();
         w.RunUtilities();
         w.UpdateStats();
@@ -228,7 +230,7 @@ public sealed partial class World
     /// Founds a city on a region tile: the ground is the region's, cut out for this tile, and the calendar starts on
     /// the region's day so every tile shares one clock.
     /// </summary>
-    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick, byte[]? rivers = null, (ushort[] Bedrock, byte[] Rock)? geology = null, (long Minute, int Pace)? clock = null, (ulong Seed, int Ox, int Oy)? plantFrame = null)
+    public static World CreateTile(ContentDb content, ulong seed, int size, string name, ushort[] corners, long tick, byte[]? rivers = null, (ushort[] Bedrock, byte[] Rock)? geology = null, (long Minute, int Pace)? clock = null, (ulong Seed, int Ox, int Oy)? plantFrame = null, bool farms = false)
     {
         if (size is not (64 or 128 or 256)) throw new ArgumentOutOfRangeException(nameof(size), "size must be 64, 128 or 256");
         if (corners.Length != (size + 1) * (size + 1)) throw new ArgumentException("corners must cover the tile", nameof(corners));
@@ -245,6 +247,7 @@ public sealed partial class World
         // The region's woods, in its own coordinates, so they carry on over the borders; without them, this tile's own.
         var pf = plantFrame ?? (seed, 0, 0);
         w.GeneratePlants(pf.Seed, pf.Ox, pf.Oy);
+        if (farms) w.GenerateFarms(pf.Seed, pf.Ox, pf.Oy);
         w.RunMonthly();
         w.RunUtilities();
         w.UpdateStats();
@@ -337,6 +340,7 @@ public sealed partial class World
         RunRoadWeather();
         RunSnow();
         // Whatever was built over trees today has taken them.
+        TrimFarms();
         TrimPlants();
         UpdateStats();
         // The city's own calls come on the day clock too, so a dispatcher hears them at one rate an hour whatever the
@@ -484,6 +488,8 @@ public sealed partial class World
             WC(w, Dam); WC(w, RiverBefore);
             // Format 19: the plant layer.
             WC(w, Plant); WC(w, Canopy);
+            // Format 20: farm country.
+            WC(w, Farm); w.Write(FarmCountry);
         }
         return ms.ToArray();
     }
@@ -626,6 +632,8 @@ public sealed partial class World
         // Format 19 added the plant layer; an older city gets the woods its ground would have had, cleared where it's built.
         if (version >= 19) { ReadBytes(r, w.Plant); ReadBytes(r, w.Canopy); }
         else { w.RecomputeWaterDistance(); w.PlantOldSave(); }
+        // Format 20 added farms; an older city has none.
+        if (version >= 20) { ReadBytes(r, w.Farm); w.FarmCountry = r.ReadBoolean(); w.FarmsChanged(); }
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
         var demand = (int[])w.Demand.Clone();
@@ -639,8 +647,8 @@ public sealed partial class World
     public ulong StateHash() => XxHash64.HashToUInt64(Snapshot());
 
     /// <summary>Rebuilds a city from its seed, size and action log. Used to verify determinism.</summary>
-    public static World Replay(ContentDb content, ulong seed, int size, string name, IReadOnlyList<LoggedAction> log, long untilTick)
-        => Replay(Create(content, seed, size, name), log, untilTick);
+    public static World Replay(ContentDb content, ulong seed, int size, string name, IReadOnlyList<LoggedAction> log, long untilTick, bool farms = false)
+        => Replay(Create(content, seed, size, name, farms), log, untilTick);
 
     /// <summary>Plays a log forward on a freshly made city (a lone one, or a region tile from <see cref="CreateTile"/>).</summary>
     public static World Replay(World w, IReadOnlyList<LoggedAction> log, long untilTick)

@@ -32,6 +32,7 @@ public partial class Main : Node
     StreetLabels? _streets;
     RoadsView? _roads;
     TreesView? _trees;
+    FarmsView? _farms;
     StripsView? _strips;
     UndergroundView? _underground;
     int _underBuildings = -1;
@@ -185,6 +186,7 @@ public partial class Main : Node
         AddChild(new BorderView(_client.City, _view));
         AddChild(new RiversView(_client.City, _view));
         AddChild(_trees = new TreesView(_client.City, _view));
+        AddChild(_farms = new FarmsView(_client.City, _view));
         AddChild(_roads = new RoadsView(_client.City, _view));
         AddChild(_strips = new StripsView(_client.City, _view));
         AddChild(_underground = new UndergroundView(_client.City, _view));
@@ -317,7 +319,7 @@ public partial class Main : Node
         // The underground view (Beta 3.2): the buildings, roads and traffic go, the ground turns to a cutaway, and the
         // mains, sewers and tunnels show beneath it.
         _view.Underground = under;
-        _roads!.Visible = _strips!.Visible = _trees!.Visible = !under;
+        _roads!.Visible = _strips!.Visible = _trees!.Visible = _farms!.Visible = !under;
         _agents!.Visible = !under && _graphics.CityLife;
         bool built = c.Buildings.Count != _underBuildings;
         _underBuildings = c.Buildings.Count;
@@ -416,7 +418,7 @@ public partial class Main : Node
                 GetTree().Quit(1);
                 return;
             }
-            GD.Print($"SMOKE OK {c.Width}x{c.Height} buildings={c.Buildings.Count} tick={c.Stats.Tick} picking=4/4 trees={_trees!.Crowns} on {wooded} cells");
+            GD.Print($"SMOKE OK {c.Width}x{c.Height} buildings={c.Buildings.Count} tick={c.Stats.Tick} picking=4/4 trees={_trees!.Crowns} on {wooded} cells farmsteads={_farms!.Farmsteads}");
             if (_shots == null || DisplayServer.GetName() == "headless") { GetTree().Quit(0); return; }
             DirAccess.MakeDirRecursiveAbsolute(_shots);
             _shot = 0;

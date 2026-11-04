@@ -28,6 +28,11 @@ uniform float flash_strength = 0.0;
 uniform float water_y = -1000.0;     // the water's surface, in world units
 uniform float height_step = 0.125;   // one height step (2 m), in world units
 global uniform float snow_mm;
+global uniform float month;
+// Farm country (Beta 4.1, part 2), a texel a cell: r what (1 field, 2 track, 3 farmstead) / 3, g a field's crop / 7,
+// b a track's directions (1 east-west, 2 north-south) / 3, a 1 where a field's rows run north-south.
+uniform sampler2D farms : filter_nearest, repeat_disable;
+uniform bool has_farms = false;
 global uniform float snow_median_y;
 
 varying vec3 world_pos;
@@ -61,6 +66,26 @@ float fbm(vec2 p) {
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+}
+
+// Each crop's colour at the middle of each month, January to December: wheat (sown in autumn), corn, soybeans, hay,
+// canola. Bare earth between, stubble after the harvest. The web map has the same table (clients/web/src/farms.ts).
+const vec3 CROPS[60] = vec3[60](
+	vec3(0.36, 0.40, 0.25), vec3(0.37, 0.42, 0.25), vec3(0.34, 0.47, 0.21), vec3(0.31, 0.50, 0.19), vec3(0.36, 0.52, 0.20), vec3(0.72, 0.64, 0.32),
+	vec3(0.78, 0.68, 0.40), vec3(0.70, 0.63, 0.44), vec3(0.42, 0.34, 0.24), vec3(0.40, 0.37, 0.25), vec3(0.37, 0.42, 0.25), vec3(0.36, 0.40, 0.25),
+	vec3(0.55, 0.48, 0.35), vec3(0.50, 0.43, 0.31), vec3(0.42, 0.34, 0.23), vec3(0.40, 0.32, 0.22), vec3(0.41, 0.38, 0.24), vec3(0.27, 0.42, 0.16),
+	vec3(0.20, 0.37, 0.13), vec3(0.22, 0.38, 0.14), vec3(0.60, 0.55, 0.32), vec3(0.68, 0.58, 0.38), vec3(0.58, 0.50, 0.36), vec3(0.55, 0.48, 0.35),
+	vec3(0.50, 0.43, 0.32), vec3(0.47, 0.40, 0.29), vec3(0.42, 0.34, 0.23), vec3(0.41, 0.33, 0.23), vec3(0.42, 0.36, 0.24), vec3(0.33, 0.47, 0.19),
+	vec3(0.28, 0.45, 0.17), vec3(0.30, 0.46, 0.18), vec3(0.70, 0.63, 0.27), vec3(0.52, 0.40, 0.24), vec3(0.50, 0.43, 0.32), vec3(0.50, 0.43, 0.32),
+	vec3(0.42, 0.44, 0.28), vec3(0.42, 0.45, 0.28), vec3(0.38, 0.48, 0.24), vec3(0.34, 0.51, 0.21), vec3(0.34, 0.53, 0.21), vec3(0.50, 0.53, 0.28),
+	vec3(0.40, 0.50, 0.23), vec3(0.52, 0.53, 0.30), vec3(0.38, 0.49, 0.24), vec3(0.38, 0.47, 0.25), vec3(0.41, 0.45, 0.28), vec3(0.42, 0.44, 0.28),
+	vec3(0.40, 0.36, 0.25), vec3(0.38, 0.40, 0.24), vec3(0.32, 0.46, 0.19), vec3(0.34, 0.50, 0.19), vec3(0.86, 0.78, 0.20), vec3(0.45, 0.48, 0.22),
+	vec3(0.66, 0.60, 0.40), vec3(0.42, 0.34, 0.23), vec3(0.36, 0.42, 0.22), vec3(0.33, 0.45, 0.21), vec3(0.36, 0.42, 0.24), vec3(0.40, 0.38, 0.25));
+
+vec3 crop_colour(int crop, float m) {
+	float t = m - 1.5;
+	float i0 = mod(floor(t), 12.0), i1 = mod(i0 + 1.0, 12.0);
+	return mix(CROPS[crop * 12 + int(i0)], CROPS[crop * 12 + int(i1)], fract(t));
 }
 
 void fragment() {
@@ -98,6 +123,35 @@ void fragment() {
 	vec3 bank = mix(meadow * 0.92, dry, 0.25 + 0.3 * mid);
 	bank = mix(bank, earth, smoothstep(0.25, 0.55, slope) * (0.35 + 0.4 * fine));
 	ground = mix(ground, bank, made * (1.0 - bare) * smoothstep(0.08, 0.25, slope));
+	// Farm country: fields in rows by crop and season, farm tracks, farmsteads' yards.
+	if (has_farms) {
+		vec2 cell = floor(p);
+		vec4 farm = texture(farms, (cell + 0.5) / map_size);
+		int what = int(round(farm.r * 3.0));
+		vec2 f = fract(p);
+		if (what == 1) {
+			int crop = int(round(farm.g * 7.0));
+			vec3 field = crop_colour(crop, month);
+			// The rows: a ridge every two metres, plain on bare earth and in a crop that's up.
+			float along = farm.a > 0.5 ? p.x : p.y;
+			float rows = 0.5 + 0.5 * sin(along * 6.2831853 * 8.0);
+			field *= 0.9 + 0.14 * rows + 0.08 * (fine - 0.5) + 0.06 * (mid - 0.5);
+			ground = mix(ground, field, 0.94);
+		} else if (what == 2) {
+			int dirs = int(round(farm.b * 3.0));
+			float d = 1.0;
+			if ((dirs & 1) != 0) d = min(d, abs(f.y - 0.5));
+			if ((dirs & 2) != 0) d = min(d, abs(f.x - 0.5));
+			vec3 dirt = mix(vec3(0.50, 0.42, 0.31), vec3(0.58, 0.51, 0.40), fine);
+			// Two wheel ruts down a track about five metres wide, a grass verge either side.
+			float track = 1.0 - smoothstep(0.13, 0.17, d);
+			float ruts = (1.0 - smoothstep(0.02, 0.04, abs(d - 0.07))) * 0.25;
+			ground = mix(ground, dirt * (1.0 - ruts), track);
+		} else if (what == 3) {
+			vec3 yard = mix(vec3(0.52, 0.48, 0.40), vec3(0.40, 0.44, 0.26), smoothstep(0.4, 0.7, mid + (fine - 0.5) * 0.3));
+			ground = mix(ground, yard, 0.85);
+		}
+	}
 	// Snow above about 300 m, where it can lie.
 	float snowy = smoothstep(280.0, 340.0, metres + (large - 0.5) * 60.0) * (1.0 - smoothstep(0.35, 0.6, slope));
 	ground = mix(ground, snow, snowy);

@@ -1624,6 +1624,7 @@ $('#btn-new').addEventListener('click', () => {
     <label>Seed (blank for random)</label><input type="number" name="seed" min="1">
     <label>Map size</label><select name="size"><option value="64">Small (64 × 64, 1 km)</option><option value="128" selected>Medium (128 × 128, 2 km)</option><option value="256">Large (256 × 256, 4 km)</option></select>
     <label><input type="checkbox" name="starter"> Start with a small working town</label>
+    <label><input type="checkbox" name="farms" checked> Farm country: the fertile low ground already farmed</label>
     <label><input type="checkbox" name="benchmark"> Benchmark city: 256 × 256, every block built (a single city)</label>
     <div class="actions"><button value="cancel">Cancel</button><button value="ok" class="active">Start</button></div>`;
   dlg.onclose = () => {
@@ -1633,12 +1634,12 @@ $('#btn-new').addEventListener('click', () => {
       const n = Number(fd.get('tiles'));
       const grows = fd.get('kind') === 'grow';
       busy('Making the region…', 'new');
-      conn.send({ newRegion: { name: `${String(fd.get('name') || 'New')} Region`, cityName: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), cols: n, rows: n, tileSize: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', grows,
+      conn.send({ newRegion: { name: `${String(fd.get('name') || 'New')} Region`, cityName: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), cols: n, rows: n, tileSize: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', grows, farms: fd.get('farms') === 'on',
         charter: { grow: Number(fd.get('chGrow')), annex: Number(fd.get('chAnnex')), maxCitySide: 0 } } });
       return;
     }
     busy(fd.get('benchmark') === 'on' ? 'Building the benchmark city…' : 'Making the city…', 'new');
-    conn.send({ newCity: { name: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), size: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', benchmark: fd.get('benchmark') === 'on' } });
+    conn.send({ newCity: { name: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), size: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', benchmark: fd.get('benchmark') === 'on', farms: fd.get('farms') === 'on' } });
   };
   dlg.showModal();
 });

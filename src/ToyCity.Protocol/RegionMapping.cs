@@ -39,6 +39,7 @@ public static class RegionMapping
         foreach (var o in r.Takeovers) s.Takeovers.Add(Takeover(r, o));
         s.NextTakeover = r.NextTakeoverId;
         s.Channels = (uint)r.Channels;
+        s.Farms = r.Farms;
         return s.ToByteArray();
     }
 
@@ -62,6 +63,7 @@ public static class RegionMapping
             var r = Region.Restore(content, s.Name, s.Seed, s.Cols, s.Rows, s.TileSize, s.Tick, cities, grown, s.TileByTile, w => at.TryGetValue(w, out var p) ? p : null);
             r.WaterCrossesBorders = !s.WaterStays;
             r.Channels = (int)s.Channels;
+            r.Farms = s.Farms;
             if (s.Charter != null) r.Charter = Charter(s.Charter);
             foreach (var v in s.Votes) r.RestoreVote(Vote(v));
             foreach (var o in s.Takeovers)

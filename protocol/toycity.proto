@@ -664,6 +664,7 @@ message NewCityRequest {
   int32 size = 3;  // 64, 128 or 256 cells per side
   bool starter_town = 4;  // lay out a small working town to explore
   bool benchmark = 5;  // the benchmark city: 256 cells a side with every dry block built up (ignores size and starter_town)
+  bool farms = 6;      // Beta 4.1: farm country, the fertile low ground already farmed
 }
 
 // Beta 3: founds a city on an open tile of this region. The founder is its mayor. The reply is the new RegionState;
@@ -695,6 +696,7 @@ message NewRegionRequest {
   string city_name = 7;  // the middle tile's city
   bool grows = 8;        // G4: start as one tile of wild land's wide frame, and grow (cols and rows are ignored)
   RegionCharter charter = 9;  // Beta 4: who may grow it and annex; unset is any mayor grows, annexing by vote
+  bool farms = 10;            // Beta 4.1: farm country, each city founded with its fertile low ground already farmed
 }
 
 // Moves this connection to another founded city of the region. The server answers with that city's FullState and
@@ -1203,6 +1205,8 @@ message FullState {
   bytes subways = 21;       // one byte per cell: 1 where a subway tunnel runs under it (Beta 3.2)
   bytes dams = 22;          // one byte per cell: a dam's crest in steps, 0 for none (river brush and dams)
   bytes plants = 23;        // one byte per cell (Beta 4.1): the plant kind * 16 + tree crowns 0..8 (see PlantTrees.kind)
+  bytes farms = 24;         // one byte per cell (Beta 4.1, part 2): 0 none; low 2 bits 1 field, 2 farm track, 3 farmstead;
+                            // bits 2-4 a field's crop (0 wheat, 1 corn, 2 soybeans, 3 hay, 4 canola); bit 5 rows run north-south
 }
 
 // An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
@@ -1233,6 +1237,7 @@ message CellUpdate {
   int32 river = 11;   // the river surface in steps, 0 for none (the river brush and dams change it)
   int32 dam = 12;     // a dam's crest in steps, 0 for none
   int32 plant = 13;   // the plant kind * 16 + tree crowns 0..8 (Beta 4.1)
+  int32 farm = 14;    // as in FullState.farms
 }
 
 message TickDelta {
@@ -1777,6 +1782,7 @@ message RegionSave {
   repeated TakeoverOffer takeovers = 16;
   int32 next_takeover = 17;
   uint32 channels = 18;      // how the rivers were shaped (0 old cut, 1 banks, 2 meanders); was a bool, so true reads as 1
+  bool farms = 19;           // Beta 4.1: farm country
 }
 
 // One tile a growing region has added, with the ground made for it then.

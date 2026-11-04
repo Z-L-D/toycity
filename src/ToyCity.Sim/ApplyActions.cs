@@ -374,7 +374,7 @@ public sealed partial class World
         ForgetBusRoutes();
         foreach (var id in doomed) RemoveBuilding(Buildings[id]!);
         RemoveDams(dams);
-        if (!a.Underground) ClearTrees(x0, y0, x1, y1);
+        if (!a.Underground) { ClearTrees(x0, y0, x1, y1); ClearFarms(x0, y0, x1, y1); }
         for (int y = y0; y <= y1; y++)
         for (int x = x0; x <= x1; x++)
         {

@@ -96,6 +96,10 @@ public sealed class CityMirror
     public int CanopyAt(int i) => Plants[i] & 15;
     /// <summary>Bumped whenever any cell's plants change, so views rebuild their trees.</summary>
     public int PlantsVersion;
+    /// <summary>Each cell's farm (Beta 4.1, part 2), packed as the sim's FarmLand: field, track or farmstead, crop and rows.</summary>
+    public byte[] Farms = Array.Empty<byte>();
+    /// <summary>Bumped whenever any cell's farm changes.</summary>
+    public int FarmsVersion;
     /// <summary>What the dams do to each river cell (RiverFlow.Held): 2 a reservoir, 1 the river below a dam.</summary>
     public byte[] DamHeld => _held is { } h && _heldFor == TerrainVersion ? h
         : (_held = ToyCity.Sim.RiverFlow.Held(Width, Height, Heights, Rivers, Dams), _heldFor = TerrainVersion).Item1;
@@ -194,6 +198,8 @@ public sealed class CityMirror
         Dams = f.Dams.Length == Width * Height ? f.Dams.ToByteArray() : new byte[Width * Height];
         Plants = f.Plants.Length == Width * Height ? f.Plants.ToByteArray() : new byte[Width * Height];
         PlantsVersion++;
+        Farms = f.Farms.Length == Width * Height ? f.Farms.ToByteArray() : new byte[Width * Height];
+        FarmsVersion++;
         var cb = f.Corners.Span;
         Corners = new ushort[(Width + 1) * (Height + 1)];
         if (cb.Length == Corners.Length * 2)
@@ -260,7 +266,7 @@ public sealed class CityMirror
         // A delta can reach a new connection before its full state (the tick was on its way as the player joined):
         // the full state that follows holds all of it.
         if (!Loaded) return;
-        bool terrain = d.Corners.Count > 0, roads = false, plants = false;
+        bool terrain = d.Corners.Count > 0, roads = false, plants = false, farms = false;
         foreach (var c in d.Corners)
         {
             if (c.Index < 0 || c.Index >= Corners.Length) continue;
@@ -289,6 +295,7 @@ public sealed class CityMirror
             Rivers[i] = (byte)c.River;
             Dams[i] = (byte)c.Dam;
             if (Plants[i] != c.Plant) { Plants[i] = (byte)c.Plant; plants = true; }
+            if (Farms.Length == Plants.Length && Farms[i] != c.Farm) { Farms[i] = (byte)c.Farm; farms = true; }
             Made[i] = (byte)(c.Made ? 1 : 0);
             PowerLines[i] = (byte)(c.PowerLine ? 1 : 0);
             WaterPipes[i] = (byte)(c.WaterPipe ? 1 : 0);
@@ -322,6 +329,7 @@ public sealed class CityMirror
         }
         if (terrain) TerrainVersion++;
         if (plants) PlantsVersion++;
+        if (farms) FarmsVersion++;
         if (terrain || roads) RoadVersion++;
         Version++;
     }

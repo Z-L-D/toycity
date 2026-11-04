@@ -135,6 +135,7 @@ public sealed partial class World
             if (b != null && b.Operating && TypeOf(b).Income > 0) dealIncome += TypeOf(b).Income;
         Line("Deals and reward lots", dealIncome);
         Line("Transit fares", TransitFares());
+        Line("Farm rates", FarmRates());
         foreach (var d in Deals) BookDeal(d, Line);
         foreach (var (cat, amount) in civic) Line(BudgetLabel((Category)cat), -amount);
         if (Debt > 0)
