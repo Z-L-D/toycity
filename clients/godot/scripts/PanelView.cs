@@ -132,6 +132,7 @@ public partial class PanelView : CanvasLayer
     /// <summary>The Graphics button: Main opens the options.</summary>
     public event System.Action? GraphicsPressed;
     public event System.Action? RadarPressed;
+    public event System.Action? EditorPressed;
 
     Button Btn(string text, System.Action pressed, Container parent)
     {
@@ -406,6 +407,7 @@ public partial class PanelView : CanvasLayer
         Item("Save", () => Model.OpenDialog("save"));
         Item("Load", () => Model.OpenDialog("load"));
         Item("Weather radar", () => RadarPressed?.Invoke());
+        Item("Asset editor", () => EditorPressed?.Invoke()).TooltipText = "Build voxel assets from snap pieces and props, and use them for buildings";
         Item("Graphics", () => GraphicsPressed?.Invoke());
         menu.Pressed += () => _gameMenu.Visible = !_gameMenu.Visible;
         // Placed once their contents give them a size: top right, the menu under the pill.
