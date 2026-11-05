@@ -1,5 +1,6 @@
 using Godot;
 using ToyCity.ClientModel.Voxels;
+using ToyCity.ClientModel.Voxels.Assets;
 using ToyCity.Protocol.V0;
 
 namespace ToyCity.Godot;
@@ -11,7 +12,9 @@ namespace ToyCity.Godot;
 /// graphics options' triangle budget and kept on disk under user://cache/shapes); the last two made the first
 /// time they're needed.
 ///
-/// Artists drop files in res://vox/ and nothing else changes. For a type, the first of these found is used:
+/// Artists drop files in res://vox/ and nothing else changes; models saved from the asset editor's "Use for a
+/// building" go in user://vox/ and win over res://vox/. A model with a {name}.asset.json beside it saying its
+/// detail (2 or 4 voxels a half metre) is drawn that much smaller, so a fine model keeps its size on the lot. For a type, the first of these found is used:
 /// {type}-{w}x{d}.vox, {type}.vox, {type}-{w}x{d}.glb or .gltf, {type}.glb or .gltf; otherwise the generated
 /// placeholder. A .vox model's smooth materials come from the file, or from a {name}.shape file beside it
 /// (lines like "smooth = 6 7 40-52"). A glTF model is in metres, y up, set on the lot's corner and shrunk to fit.
@@ -57,23 +60,24 @@ public sealed class BuildingModels
     public Model Get(BuildingTypeInfo t, int w, int d)
     {
         if (_cache.TryGetValue((t.Id, w, d), out var m)) return m;
-        var vox = LoadVox($"{t.Id}-{w}x{d}") ?? LoadVox(t.Id);
+        var (vox, detail) = LoadVox($"{t.Id}-{w}x{d}") ?? LoadVox(t.Id) ?? (null, 1);
         if (vox == null && (LoadGltf($"{t.Id}-{w}x{d}") ?? LoadGltf(t.Id)) is { } gltf)
             m = FromGltf(GltfFile.FitToLot(gltf, w, d));
         else
         {
             bool fromFile = vox != null;
             vox ??= Placeholder.Build(t, w, d);
-            // A file's model is scaled to fit the lot if it was made for another size.
+            // A file's model is scaled to fit the lot if it was made for another size, and a fine one drawn smaller.
             float fit = Mathf.Min((float)w * VoxModel.PerCell / vox.SizeX, (float)d * VoxModel.PerCell / vox.SizeY);
-            float scale = Mathf.Min(1, fit) / VoxModel.PerCell;
+            float scale = Mathf.Min(1f / detail, fit) / VoxModel.PerCell;
             var near = VoxMesher.Mesh(vox, scale);
-            var far = VoxMesher.Mesh(vox.Downsample(4), 4 * scale);
+            var far = VoxMesher.Mesh(vox.Downsample(4 * detail), 4 * detail * scale);
             var model = vox;
+            int mid = 2 * detail;
             m = new Model
             {
                 Near = ToMesh(near), Far = ToMesh(far),
-                Mid = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model.Downsample(2), 2 * scale))),
+                Mid = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model.Downsample(mid), mid * scale))),
                 Smooth = SmoothOf(vox, scale),
                 Height = near.Positions.Count > 0 ? near.Positions.Max(p => p.Y) : 0, FromFile = fromFile, Voxels = vox, Scale = scale,
             };
@@ -95,20 +99,33 @@ public sealed class BuildingModels
         };
     }
 
-    static VoxModel? LoadVox(string name)
+    /// <summary>Where the game looks for models, first to last: the asset editor's, then the artists'.</summary>
+    public static readonly string[] Folders = { "user://vox", "res://vox" };
+
+    static (VoxModel?, int)? LoadVox(string name)
     {
-        string path = $"res://vox/{name}.vox";
-        if (!global::Godot.FileAccess.FileExists(path)) return null;
-        try
+        foreach (string folder in Folders)
         {
-            var m = VoxFile.Read(new MemoryStream(global::Godot.FileAccess.GetFileAsBytes(path)));
-            string shapes = $"res://vox/{name}.shape";
-            if (global::Godot.FileAccess.FileExists(shapes))
-                foreach (var problem in VoxFile.ApplyShapes(m, global::Godot.FileAccess.GetFileAsString(shapes))) GD.PushWarning($"{shapes}: {problem}");
-            return m;
+            string path = $"{folder}/{name}.vox";
+            if (!global::Godot.FileAccess.FileExists(path)) continue;
+            try
+            {
+                var m = VoxFile.Read(new MemoryStream(global::Godot.FileAccess.GetFileAsBytes(path)));
+                string shapes = $"{folder}/{name}.shape";
+                if (global::Godot.FileAccess.FileExists(shapes))
+                    foreach (var problem in VoxFile.ApplyShapes(m, global::Godot.FileAccess.GetFileAsString(shapes))) GD.PushWarning($"{shapes}: {problem}");
+                string sidecar = $"{folder}/{name}.asset.json";
+                int detail = global::Godot.FileAccess.FileExists(sidecar)
+                    && AssetDoc.ParseSidecar(global::Godot.FileAccess.GetFileAsString(sidecar)) is { } info ? info.Detail : 1;
+                return (m, detail);
+            }
+            catch (Exception e) { GD.PushWarning($"{path}: {e.Message}"); }
         }
-        catch (Exception e) { GD.PushWarning($"{path}: {e.Message}"); return null; }
+        return null;
     }
+
+    /// <summary>Forgets every model, so ones saved from the asset editor are read the next time they're drawn.</summary>
+    public void Forget() => _cache.Clear();
 
     static MeshData? LoadGltf(string name)
     {

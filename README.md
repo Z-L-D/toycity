@@ -5,7 +5,13 @@ simulation runs as a headless, authoritative server; front ends only draw it and
 Later phases link side games (transport, emergency services, hospital, zoo, theme park, farm,
 life sim) to lots in the city for live joined play.
 
-This repository is working on **Beta 4**, the last beta before the release candidate. Its first part is a **GPU
+This repository is working on the **release candidate**. Its first part is **the asset library and editor**: a
+library of snap pieces (walls, floors, stairs, roofs) on a 4 m grid in six materials, and props such as trees, cars
+and lamps, and a Godot editor to build voxel assets from them and by hand, after Fortnite's building and MagicaVoxel.
+An asset can be saved as a `.vox` file or used as a building type's model in the game. Beta 4.1 before it brought
+the plant layer, farm country, storms with a weather radar, and murky foul water.
+
+**Beta 4**, the last beta before the release candidate, began with a **GPU
 test**: one command (or a double-click on Windows) builds the game, starts a server of its own, and measures each
 graphics preset and lighting level on the hill town on your own graphics card, then writes a report of frame rates,
 1% lows, GPU time and draw calls (see [GPU test](#gpu-test) below). **Snow** now lies on the ground and the roofs:
@@ -55,6 +61,15 @@ to play; the web client stays as the debug and admin client.
 From the Beta 4 and Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release
 adds a new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
+
+Release candidate, part 1: the asset editor, building the example house from the library's snap pieces and props ([`docs/screenshots/rc1-asset-editor`](docs/screenshots/rc1-asset-editor)):
+
+| | |
+| --- | --- |
+| ![Godot asset editor, a brick house built from walls, floors, a gabled roof, a porch and props, with the library down the left and the palette down the right](docs/screenshots/rc1-asset-editor/godot-editor-1-house.jpg) | ![The same house from the back, with its gable end, trees, a lamp and a hedge](docs/screenshots/rc1-asset-editor/godot-editor-2-house-back.jpg) |
+| Godot (CI-style run, software OpenGL, `--editor --shots`): the house at 0.25 m voxels, every piece placed as a player would | From the back: a gable end closing the sloping roof, the props round the garden |
+| ![Placing a wall with a window on the snap grid, its ghost on the east edge of a frame](docs/screenshots/rc1-asset-editor/godot-editor-4-placing.jpg) | ![The library's props built at 0.125 m voxels](docs/screenshots/rc1-asset-editor/godot-editor-5-props-fine.jpg) |
+| Placing a piece: the ghost of a wall turned onto the frame's east edge, on the 4 m grid | The props at 0.125 m voxels: a lamp, a tree, a conifer, a car, a planter, a bin and a café table |
 
 Beta 4.1, part 4: foul water drawn murky below the hill gate's raw sewage outfall ([`docs/screenshots/beta4-1-loose-ends`](docs/screenshots/beta4-1-loose-ends)):
 
@@ -236,8 +251,8 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
 | Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); light and shadow through the day and night (done); growing regions (done) | Done |
 | Beta 4 | GPU test (done); snow on the ground and roofs (done); water quality (done); direct dispatch (done); the floating build menu and L-shaped info bar in both clients (done); region sizes, annexing, taking in a neighbour by a deal and a region charter (done); tile hosts for growing regions (done) | Done |
-| Beta 4.1 | The plant layer: woods, scrub, reeds and orchards that regrow, a tree planter, trees in land value (part 1, done); farm country: fertility, farms on a grid of farm tracks, fields by crop and season, farmsteads and windbreaks (part 2, done); storm cells, a weather station and radar (part 3, done); loose ends: rivers on into open land, murky foul water, roads thawing with the calendar (part 4, in review) | In progress |
-| Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | |
+| Beta 4.1 | The plant layer: woods, scrub, reeds and orchards that regrow, a tree planter, trees in land value (part 1, done); farm country: fertility, farms on a grid of farm tracks, fields by crop and season, farmsteads and windbreaks (part 2, done); storm cells, a weather station and radar (part 3, done); loose ends: rivers on into open land, murky foul water, roads thawing with the calendar (part 4, done) | Done |
+| Release candidate | The voxel asset library and editor (part 1, in review); realistic assets on the realistic terrain; lot editor; path designer; terrain textures; water revisited; UI finishing; mod API; scenarios and onboarding; packaged builds and the save promise | In progress |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
 | 1.x | Holidays and seasonal events across the city and every side game, on the shared calendar | |
@@ -247,6 +262,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-05 | **Release candidate, part 1: the asset library and editor** (PR #24) | A library of snap pieces on a 4 m × 3 m grid (walls with windows, doors and arches, floors, stairs, sloping, hipped and flat roofs and gable ends, pillars, fences) in six materials, and props (trees, a car, a lamp, benches and more), all built at 0.5, 0.25 or 0.125 m voxels. The Godot asset editor (game menu, or `--editor`) places them with a ghost and quarter turns, and adds, erases, paints, fills and boxes voxels on a MagicaVoxel-style palette, with undo, mirroring, thumbnails and your own saved assets to place in others. Assets save as `.vox` files, and "use for a building" makes the game draw a building type with one, a fine model shrunk to its lot. [Gate](docs/GATE-RC1-ASSET-EDITOR.md) |
 | 2026-11-05 | **Beta 4.1, part 4: loose ends** (PR #23) | In a growing or huge region, a new tile's river carries on into open land already made, until it meets a river or the sea; a tile with a city keeps its ground. Each cell's foulness goes to the clients, and both draw foul water murky and green-brown with a scum on the worst. Snow on the roads thaws with the calendar, as the ground's does. [Gate](docs/GATE-BETA4-1-LOOSE-ENDS.md) |
 | 2026-11-05 | **Beta 4.1, part 3: storms and the weather radar** (PR #22) | Storm cells move across the country on the day's steering wind, built to agree with the hours it rains or snows on the city. A heatwave brings afternoon thunderstorms out in the country. The mayor can set a storm going from the radar, and it rains or snows on the city as it passes. A weather station reads temperature, dew point, humidity, wind, pressure, rain now and since midnight. The radar shows base reflectivity or base velocity at the four lowest NEXRAD tilts, the beam climbing with range, and loops the last hour, the same in both clients; save format 21. [Gate](docs/GATE-BETA4-1-STORMS.md) |
 | 2026-11-04 | **Beta 4.1, part 2: farm country** (PR #21) | Fertility from the ground: flat, deep soil, low down and near a river. A new region or city can be farm country, its fertile low ground already farmed on a grid of 256 m blocks that runs on across tiles: farm tracks, four fields a block of wheat, corn, soybeans, hay or canola turning with the seasons, farmsteads and conifer windbreaks. Building, zoning or bulldozing takes the farm; the farms pay a small rate. Toy Valley is farm country. Godot draws the fields in the ground shader and stands a farmstead on each yard; the web map draws them too; save format 20. [Gate](docs/GATE-BETA4-1-FARMS.md) |

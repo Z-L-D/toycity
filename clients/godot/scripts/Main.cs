@@ -14,6 +14,7 @@ namespace ToyCity.Godot;
 /// --together FILE to play the Beta 2 gate's live session as the mayor of a dedicated server, with three scripted
 /// players beside it, and write its checks to FILE;
 /// --gpu-test DIR to measure each graphics setup on the hill town and write a report into DIR (Main.GpuTest.cs);
+/// --editor to open the asset editor on its own (AssetEditor.cs), with --shots DIR to save its pictures and quit;
 /// --graphics PRESET (Low, Medium, High, Ultra) to use a preset for this run instead of the saved options;
 /// --user NAME --password PASSWORD to sign in to a dedicated server without the sign-in panel (with --new-account,
 /// making the account first).
@@ -57,11 +58,20 @@ public partial class Main : Node
     bool _regionShot;
     bool _frozen;  // the bench city is drawn from a fixed state; the server's deltas would undo it
     double _smokeTime;
+    bool _editorOnly;
 
     public override void _Ready()
     {
         UiTheme.Apply();
         var args = OS.GetCmdlineUserArgs();
+        // --editor: the asset editor on its own, with no city or server (RC part 1); with --shots DIR, its pictures.
+        if (args.Contains("--editor"))
+        {
+            int at = Array.IndexOf(args, "--shots");
+            _editorOnly = true;
+            AddChild(new AssetEditor(at >= 0 && at + 1 < args.Length ? args[at + 1] : null));
+            return;
+        }
         string server = global::Godot.FileAccess.FileExists(SignInPanel.ServerFile) && global::Godot.FileAccess.GetFileAsString(SignInPanel.ServerFile).Trim() is { Length: > 0 } last
             ? last : "ws://localhost:5180/ws";
         string? user = null, password = null;
@@ -213,6 +223,9 @@ public partial class Main : Node
         _radar = new RadarPanel(_client.City, a => _client.Connection.Act(a));
         AddChild(_radar);
         _panels.RadarPressed += _radar.Toggle;
+        // The asset editor runs in a window of its own, as the company's view does.
+        _panels.EditorPressed += () => OS.CreateProcess(OS.GetExecutablePath(),
+            OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--editor" }).ToArray());
         ApplyGraphics();
         // The region map, over everything while it's open; a city of it can open in a window of its own.
         AddChild(new RegionScreen(pm.Region, () => pm.Version));
@@ -245,6 +258,7 @@ public partial class Main : Node
 
     public override void _Process(double delta)
     {
+        if (_editorOnly) return;
         if (!_frozen) _client!.Poll();
         var c = _client!.City;
         if (c.Loaded)
