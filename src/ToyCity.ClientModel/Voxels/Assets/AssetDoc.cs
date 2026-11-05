@@ -10,7 +10,11 @@ namespace ToyCity.ClientModel.Voxels.Assets;
 /// </summary>
 public sealed class AssetDoc
 {
-    /// <summary>Voxels for every half metre: 1 is a building's own scale (0.5 m voxels), 2 is 0.25 m, 4 is 0.125 m.</summary>
+    /// <summary>
+    /// Voxels for every half metre: 1 is the placeholder buildings' scale (0.5 m voxels), 2 is 0.25 m, 4 is 0.125 m,
+    /// and 8 is 6.25 cm, about 2.5 inches, the default for houses: the finest at which a whole 16 m lot still fits in
+    /// one .vox model of 256 voxels a side.
+    /// </summary>
     public int Detail { get; private set; }
     public string Name { get; set; }
     public VoxModel Model { get; private set; }
@@ -19,12 +23,29 @@ public sealed class AssetDoc
     /// <summary>Changed since it was last saved.</summary>
     public bool Dirty { get; private set; }
 
+    RoofSpec? _roof;
+    /// <summary>The auto-roof over the walls, or null for none: settings only, the roof is made from the walls when drawn.</summary>
+    public RoofSpec? Roof
+    {
+        get => _roof;
+        set { if (_roof == value) return; _roof = value; Version++; Dirty = true; }
+    }
+
+    /// <summary>The auto-roof's mesh for the model as it is now, in <see cref="VoxMesher.Mesh"/>'s units; empty with no roof.</summary>
+    public MeshData RoofMesh(float scale) => Roof is { } r ? AutoRoof.Build(Model, Detail, r, scale) : new MeshData();
+
     /// <summary>One grid module across, in this model's voxels.</summary>
     public int ModuleVoxels => Pieces.Module * Detail;
     /// <summary>One storey, in this model's voxels.</summary>
     public int StoreyVoxels => Pieces.Storey * Detail;
 
     public const int MaxUndo = 200;
+
+    /// <summary>The details an asset can be made at.</summary>
+    public static readonly int[] Details = { 1, 2, 4, 8 };
+
+    /// <summary>A new asset's detail unless another is chosen: 6.25 cm voxels.</summary>
+    public const int DefaultDetail = 8;
 
     readonly record struct Change(int Index, byte Before, byte After);
     readonly List<Change[]> _undo = new(), _redo = new();
@@ -35,7 +56,7 @@ public sealed class AssetDoc
 
     public AssetDoc(string name, int detail, int sizeX, int sizeY, int sizeZ)
     {
-        if (detail is not (1 or 2 or 4)) throw new ArgumentOutOfRangeException(nameof(detail), "detail is 1, 2 or 4");
+        if (!Details.Contains(detail)) throw new ArgumentOutOfRangeException(nameof(detail), "detail is 1, 2, 4 or 8");
         Name = name;
         Detail = detail;
         Model = new VoxModel(Math.Clamp(sizeX, 1, 256), Math.Clamp(sizeY, 1, 256), Math.Clamp(sizeZ, 1, 256));
@@ -324,9 +345,13 @@ public sealed class AssetDoc
 
     // ---- files ---------------------------------------------------------------------------------------------------
 
-    sealed record Sidecar(string Name, int Detail);
+    sealed record Sidecar(string Name, int Detail, RoofSpec? Roof = null);
 
-    static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true };
+    static readonly JsonSerializerOptions Json = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+    };
 
     /// <summary>The sidecar beside a .vox file: name.asset.json.</summary>
     public static string SidecarOf(string voxPath) => Path.ChangeExtension(voxPath, null) + ".asset.json";
@@ -335,7 +360,7 @@ public sealed class AssetDoc
     public void Save(string voxPath)
     {
         VoxFile.Write(Model, voxPath);
-        File.WriteAllText(SidecarOf(voxPath), JsonSerializer.Serialize(new Sidecar(Name, Detail), Json));
+        File.WriteAllText(SidecarOf(voxPath), JsonSerializer.Serialize(new Sidecar(Name, Detail, Roof), Json));
         Dirty = false;
     }
 
@@ -344,7 +369,9 @@ public sealed class AssetDoc
     {
         var m = VoxFile.Read(voxPath);
         var (name, detail) = ReadSidecar(voxPath) ?? (Path.GetFileNameWithoutExtension(voxPath), 1);
-        return new AssetDoc(name, detail, m);
+        string side = SidecarOf(voxPath);
+        var roof = File.Exists(side) ? ParseRoof(File.ReadAllText(side)) : null;
+        return new AssetDoc(name, detail, m) { _roof = roof };
     }
 
     /// <summary>The name and detail saved beside a .vox file, if there are any.</summary>
@@ -356,15 +383,22 @@ public sealed class AssetDoc
         catch (Exception e) when (e is JsonException or IOException) { return null; }
     }
 
-    /// <summary>A sidecar's text as a name and a detail (1, 2 or 4).</summary>
+    /// <summary>A sidecar's text as a name and a detail (1, 2, 4 or 8).</summary>
     public static (string Name, int Detail)? ParseSidecar(string text)
     {
         try
         {
             var s = JsonSerializer.Deserialize<Sidecar>(text, Json);
             if (s == null) return null;
-            return (s.Name ?? "", s.Detail is 1 or 2 or 4 ? s.Detail : 1);
+            return (s.Name ?? "", Details.Contains(s.Detail) ? s.Detail : 1);
         }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>A sidecar's auto-roof, if it has one.</summary>
+    public static RoofSpec? ParseRoof(string text)
+    {
+        try { return JsonSerializer.Deserialize<Sidecar>(text, Json)?.Roof; }
         catch (JsonException) { return null; }
     }
 
@@ -378,7 +412,7 @@ public sealed class AssetDoc
         string name = lotW > 0 && lotD > 0 ? $"{typeId}-{lotW}x{lotD}" : typeId;
         string path = Path.Combine(folder, name + ".vox");
         VoxFile.Write(Cropped(), path);
-        File.WriteAllText(SidecarOf(path), JsonSerializer.Serialize(new Sidecar(Name, Detail), Json));
+        File.WriteAllText(SidecarOf(path), JsonSerializer.Serialize(new Sidecar(Name, Detail, Roof), Json));
         return path;
     }
 

@@ -6,11 +6,14 @@ namespace ToyCity.ClientModel.Tests;
 /// <summary>The asset library and editor (RC part 1): pieces, placing, undo, mirroring, picking and files.</summary>
 public class AssetEditorTests
 {
+    readonly Xunit.Abstractions.ITestOutputHelper _out;
+    public AssetEditorTests(Xunit.Abstractions.ITestOutputHelper o) => _out = o;
+
     [Fact]
     public void EveryPieceBuildsInEveryMaterialAndDetail()
     {
         foreach (var p in Pieces.All)
-            foreach (int k in new[] { 1, 2, 4 })
+            foreach (int k in AssetDoc.Details)
                 foreach (var mat in Enum.GetValues<Material>())
                 {
                     var m = p.Build(mat, k);
@@ -189,6 +192,17 @@ public class AssetEditorTests
     }
 
     [Fact]
+    public void HousesDefaultToVoxelsOfAboutTwoAndAHalfInches()
+    {
+        Assert.Equal(8, AssetDoc.DefaultDetail);
+        // A whole 16 m lot still fits in one .vox model: 256 voxels across.
+        var doc = AssetDoc.New("lot", AssetDoc.DefaultDetail, 4, 4, 3);
+        Assert.Equal((256, 256, 144), (doc.Model.SizeX, doc.Model.SizeY, doc.Model.SizeZ));
+        Assert.Equal((1, 1), AssetDoc.CellsOf(doc.Model, AssetDoc.DefaultDetail));
+        Assert.Equal(8, AssetDoc.ParseSidecar("{\"name\":\"x\",\"detail\":8}")!.Value.Detail);
+    }
+
+    [Fact]
     public void ADemoHouseBuildsFromThePieces()
     {
         var doc = DemoAsset.House(2);
@@ -198,5 +212,99 @@ public class AssetEditorTests
         // It undoes all the way back to an empty model.
         while (doc.Undo()) { }
         Assert.Equal(0, doc.Model.Count);
+
+        // At the houses' default detail it still meshes to a size a city can draw many of.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var fine = DemoAsset.House(AssetDoc.DefaultDetail);
+        var fineMesh = VoxMesher.Mesh(fine.Model);
+        _out.WriteLine($"detail 8 house: {fine.Model.Count:N0} voxels, {fineMesh.Quads:N0} quads, {sw.ElapsedMilliseconds} ms; " +
+            $"far {VoxMesher.Mesh(fine.Model.Downsample(32)).Quads} quads, mid {VoxMesher.Mesh(fine.Model.Downsample(16)).Quads}, near/2 {VoxMesher.Mesh(fine.Model.Downsample(2)).Quads}");
+        Assert.True(fineMesh.Quads < 200_000, $"{fineMesh.Quads}");
+    }
+
+    [Fact]
+    public void TheAutoRoofFindsTheTopOfTheWallsAndWhatTheyEnclose()
+    {
+        foreach (int k in new[] { 1, 2, 8 })
+        {
+            var doc = DemoAsset.House(k);
+            var (eaves, foot) = AutoRoof.Footprint(doc.Model, k)!.Value;
+            // Two storeys of walls; the footprint is the house's two modules square, not the porch, garden or trees.
+            Assert.Equal(2 * doc.StoreyVoxels, eaves);
+            int M = doc.ModuleVoxels, area = 0;
+            for (int y = 0; y < doc.Model.SizeY; y++)
+                for (int x = 0; x < doc.Model.SizeX; x++)
+                    if (foot[x, y])
+                    {
+                        area++;
+                        Assert.InRange(x, M, 3 * M - 1);
+                        Assert.InRange(y, M, 3 * M - 1);
+                    }
+            Assert.Equal(4 * M * M, area);
+        }
+        // Nothing to roof in an empty model or a row of props.
+        Assert.Null(AutoRoof.Footprint(AssetDoc.New("e", 1).Model, 1));
+    }
+
+    [Theory]
+    [InlineData(RoofStyle.Gable)]
+    [InlineData(RoofStyle.Hip)]
+    [InlineData(RoofStyle.Shed)]
+    [InlineData(RoofStyle.Flat)]
+    public void EachRoofStyleIsASmoothPolygonRoofOverTheWalls(RoofStyle style)
+    {
+        const int k = 8;
+        var doc = DemoAsset.House(k);
+        doc.Roof = new RoofSpec(style, 40, 40);
+        float scale = 0.5f / k;   // metres a voxel
+        var roof = doc.RoofMesh(scale);
+        var walls = VoxMesher.Mesh(doc.Model, scale);
+        int tris = roof.Indices.Count / 3;
+        Assert.InRange(tris, 10, 4000);
+        float eaves = 2 * doc.StoreyVoxels * scale, top = roof.Positions.Max(p => p.Y);
+        // 8 m across under a 40° pitch: the ridge is about 4 m × tan 40° over the eaves (the shed's twice that).
+        double rise = style switch { RoofStyle.Flat => 0.15, RoofStyle.Shed => 8.8 * Math.Tan(40 * Math.PI / 180), _ => 4.4 * Math.Tan(40 * Math.PI / 180) };
+        Assert.InRange(top - eaves, rise * 0.8, rise * 1.15);
+        // It sits on the walls: nothing much under the eaves less the overhang's dip, and it spans the house.
+        Assert.True(roof.Positions.Min(p => p.Y) > eaves - 0.6f);
+        float x0 = roof.Positions.Min(p => p.X), x1 = roof.Positions.Max(p => p.X);
+        Assert.InRange(x1 - x0, 8.7f, 8.9f);
+        // Every face of the roof's top faces up, and each normal is a unit vector.
+        Assert.All(roof.Normals, n => Assert.InRange(n.Length(), 0.99f, 1.01f));
+        Assert.Contains(roof.Normals, n => n.Y > 0.5f);
+        // Far fewer triangles than the voxel walls under it.
+        Assert.True(tris * 2 < walls.Indices.Count / 3, $"{tris} vs {walls.Indices.Count / 3}");
+    }
+
+    [Fact]
+    public void AHipRoofFollowsAnLShape()
+    {
+        var doc = DemoAsset.LHouse(4);
+        var roof = doc.RoofMesh(0.125f);
+        Assert.InRange(roof.Indices.Count / 3, 10, 4000);
+        // The ridge over each wing is half the wing's width up, no higher: the wings meet in a valley.
+        float eaves = 2 * doc.StoreyVoxels * 0.125f, top = roof.Positions.Max(p => p.Y);
+        // Each wing is one 4 m module wide, so its ridge is 2 m × tan 32° over the eaves.
+        Assert.InRange(top - eaves, 1.9 * Math.Tan(32 * Math.PI / 180), 2.1 * Math.Tan(32 * Math.PI / 180));
+    }
+
+    [Fact]
+    public void TheRoofSavesWithTheAsset()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "toycity-roof-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var doc = DemoAsset.LHouse(2);
+            doc.Save(Path.Combine(dir, "l.vox"));
+            var back = AssetDoc.Load(Path.Combine(dir, "l.vox"));
+            Assert.Equal(doc.Roof, back.Roof);
+            Assert.Contains("\"hip\"", File.ReadAllText(AssetDoc.SidecarOf(Path.Combine(dir, "l.vox"))));
+            string used = doc.UseForBuilding(Path.Combine(dir, "vox"), "r-l-l");
+            Assert.Equal(doc.Roof, AssetDoc.ParseRoof(File.ReadAllText(AssetDoc.SidecarOf(used))));
+            // The cut-down model still finds its walls.
+            Assert.NotNull(AutoRoof.Footprint(VoxFile.Read(used), 2));
+        }
+        finally { Directory.Delete(dir, true); }
     }
 }
