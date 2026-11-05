@@ -12,6 +12,9 @@ namespace ToyCity.Godot;
 /// graphics options' triangle budget and kept on disk under user://cache/shapes); the last two made the first
 /// time they're needed.
 ///
+/// Types without a file are drawn from the realistic asset set (<see cref="RealSet"/>), in a few variants so a street
+/// of one type isn't one model copied; the generated placeholder is the last resort.
+///
 /// Artists drop files in res://vox/ and nothing else changes; models saved from the asset editor's "Use for a
 /// building" go in user://vox/ and win over res://vox/. A model with a {name}.asset.json beside it saying its
 /// detail (2, 4 or 8 voxels a half metre) is drawn that much smaller, so a fine model keeps its size on the lot, and
@@ -36,7 +39,7 @@ public sealed class BuildingModels
         public MeshData Roof = new();
     }
 
-    readonly Dictionary<(string, int, int), Model> _cache = new();
+    readonly Dictionary<(string, int, int, int), Model> _cache = new();
     readonly ShapeCache _shapes = new(ProjectSettings.GlobalizePath("user://cache/shapes"));
     (int Start, int Budget) _shapeOptions = (2, 6_000);
 
@@ -60,15 +63,21 @@ public sealed class BuildingModels
         return new Lazy<ArrayMesh>(() => ToMesh(Copy(_shapes.Get(vox, scale, budget, start)).Append(roof)));
     }
 
-    public Model Get(BuildingTypeInfo t, int w, int d)
+    /// <summary>
+    /// The model for a type on a lot w × d cells, in one of the realistic set's variants (ignored for a type drawn
+    /// from a file, or one the set has no model for).
+    /// </summary>
+    public Model Get(BuildingTypeInfo t, int w, int d, int variant = 0)
     {
-        if (_cache.TryGetValue((t.Id, w, d), out var m)) return m;
+        int v = RealSet.Has(t.Id) && !HasFile(t.Id, w, d) ? Math.Clamp(variant, 0, RealSet.Variants - 1) : 0;
+        if (_cache.TryGetValue((t.Id, w, d, v), out var m)) return m;
         var (vox, detail, roof) = LoadVox($"{t.Id}-{w}x{d}") ?? LoadVox(t.Id) ?? (null, 1, null);
         if (vox == null && (LoadGltf($"{t.Id}-{w}x{d}") ?? LoadGltf(t.Id)) is { } gltf)
             m = FromGltf(GltfFile.FitToLot(gltf, w, d));
         else
         {
             bool fromFile = vox != null;
+            if (vox == null && UseRealSet && RealSet.Build(t.Id, w, d, v) is { } real) (vox, detail, roof) = (real.Model, real.Detail, real.Roof);
             vox ??= Placeholder.Build(t, w, d);
             // A file's model is scaled to fit the lot if it was made for another size, and a fine one drawn smaller.
             float fit = Mathf.Min((float)w * VoxModel.PerCell / vox.SizeX, (float)d * VoxModel.PerCell / vox.SizeY);
@@ -87,9 +96,26 @@ public sealed class BuildingModels
                 Height = near.Positions.Count > 0 ? near.Positions.Max(p => p.Y) : 0, FromFile = fromFile, Voxels = vox, Scale = scale, Roof = roofMesh,
             };
         }
-        _cache[(t.Id, w, d)] = m;
+        _cache[(t.Id, w, d, v)] = m;
         return m;
     }
+
+    /// <summary>Whether an artist's or the asset editor's file draws a type on a lot this size.</summary>
+    bool HasFile(string id, int w, int d)
+    {
+        if (_hasFile.TryGetValue((id, w, d), out bool has)) return has;
+        has = false;
+        foreach (string name in new[] { $"{id}-{w}x{d}", id })
+            foreach (string folder in Folders)
+                foreach (string ext in new[] { "vox", "glb", "gltf" })
+                    has |= global::Godot.FileAccess.FileExists($"{folder}/{name}.{ext}");
+        return _hasFile[(id, w, d)] = has;
+    }
+
+    readonly Dictionary<(string, int, int), bool> _hasFile = new();
+
+    /// <summary>Off draws the old placeholder blocks for every type without a file (for comparison shots).</summary>
+    public static bool UseRealSet = true;
 
     /// <summary>A glTF model: already smooth, so its detail levels are the same mesh cut to fewer triangles.</summary>
     static Model FromGltf(MeshData mesh)
@@ -132,7 +158,7 @@ public sealed class BuildingModels
     }
 
     /// <summary>Forgets every model, so ones saved from the asset editor are read the next time they're drawn.</summary>
-    public void Forget() => _cache.Clear();
+    public void Forget() { _cache.Clear(); _hasFile.Clear(); }
 
     static MeshData? LoadGltf(string name)
     {

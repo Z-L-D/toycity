@@ -105,12 +105,19 @@ public sealed class Draw
 
     /// <summary>A library snap piece in the 4 m frame whose north-west corner is at (x, y) metres, at storey height z.</summary>
     public void Piece(string id, Material mat, double x, double y, double z, int rot, Func<byte, byte>? map = null) =>
-        Stamp(Pieces.Find(id)!.Build(mat, K), x, y, z, rot, map);
+        Stamp(Built(id, mat), x, y, z, rot, map);
+
+    readonly Dictionary<(string, Material), VoxModel> _built = new();
+    VoxModel Built(string id, Material mat)
+    {
+        if (!_built.TryGetValue((id, mat), out var m)) _built[(id, mat)] = m = Pieces.Find(id)!.Build(mat, K);
+        return m;
+    }
 
     /// <summary>A library prop centred on (x, y) metres, standing at z.</summary>
     public void Prop(string id, double x, double y, int rot = 0, double z = 0, Func<byte, byte>? map = null)
     {
-        var m = Pieces.Find(id)!.Build(Material.Wood, K);
+        var m = Built(id, Material.Wood);
         var (tx, ty) = AssetDoc.Turned(m, rot);
         Stamp(m, x - tx * V / 2, y - ty * V / 2, z, rot, map);
     }
@@ -175,7 +182,7 @@ public sealed class Draw
             double c = (alongX ? Math.Min(ax, bx) : Math.Min(ay, by)) + step * (i + 0.5);
             // Leave the corners solid.
             double half = Math.Min(step * wfrac / 2, step / 2 - (i == 0 || i == bays - 1 ? t : 0));
-            if (half < V) continue;
+            if (half < V / 2) continue;
             double s0 = c - half, s1 = c + half;
             if (alongX)
             {
