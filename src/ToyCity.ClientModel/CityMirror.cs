@@ -410,6 +410,34 @@ public sealed class CityMirror
         Buildings.Values.Where(b => b.X == x && b.Y == y && IsRoadside(b));
 
     bool PathAt(int x, int y) => InBounds(x, y) && Paths[Idx(x, y)] != 0;
+
+    /// <summary>
+    /// Which way a building's front faces: 0 south, 1 east, 2 north, 3 west, toward the side with the most road
+    /// beside it, south first when they tie or there's none. A lot that isn't square only turns to face north, as
+    /// turning it a quarter would swap its sides.
+    /// </summary>
+    public int FacingOf(BuildingState b) => Facing(b.X, b.Y, b.Width, b.Height);
+
+    public int Facing(int x, int y, int w, int d)
+    {
+        int Along(int side)
+        {
+            int n = 0;
+            for (int i = 0; i < (side % 2 == 0 ? w : d); i++)
+                n += side switch
+                {
+                    0 => PathAt(x + i, y + d) ? 1 : 0,
+                    1 => PathAt(x + w, y + i) ? 1 : 0,
+                    2 => PathAt(x + i, y - 1) ? 1 : 0,
+                    _ => PathAt(x - 1, y + i) ? 1 : 0,
+                };
+            return n;
+        }
+        int best = 0, most = Along(0);
+        foreach (int side in w == d ? new[] { 2, 1, 3 } : new[] { 2 })
+            if (Along(side) > most) (best, most) = (side, Along(side));
+        return best;
+    }
     public bool RoadEW(int x, int y) => PathAt(x - 1, y) || PathAt(x + 1, y);
     public bool RoadNS(int x, int y) => PathAt(x, y - 1) || PathAt(x, y + 1);
 

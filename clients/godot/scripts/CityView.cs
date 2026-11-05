@@ -1,6 +1,7 @@
 using Godot;
 using ToyCity.ClientModel.Graphics;
 using ToyCity.ClientModel;
+using ToyCity.ClientModel.Voxels.Assets;
 using ToyCity.Protocol.V0;
 
 namespace ToyCity.Godot;
@@ -134,7 +135,7 @@ public partial class CityView : Node3D
         if (fullTerrain != _fullTerrain) { _fullTerrain = fullTerrain; _lodAt = 0; }
         if (_models.SetShapes(start, budget))
             foreach (var (key, mmi) in _batches)
-                if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3), key.Item4);
+                if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3, key.Item4 >> 20), key.Item4);
     }
 
     public int ShapesMade => _models.ShapesMade;
@@ -449,11 +450,24 @@ public partial class CityView : Node3D
         if (detail == _detail && (detail != ModelDetail.Smooth || focus == _focus && rest == _rest && radius == _radius)) return;
         (_detail, _rest, _focus, _radius) = (detail, rest, focus, radius);
         foreach (var (key, mmi) in _batches)
-            if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3), key.Item4);
+            if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3, key.Item4 >> 20), key.Item4);
+    }
+
+    /// <summary>
+    /// A building's instance transform: on its lot's corner at ground height, turned about the lot's middle so its
+    /// front faces a road beside it (<see cref="CityMirror.FacingOf"/>).
+    /// </summary>
+    Transform3D Placed(BuildingState b, float g)
+    {
+        int facing = _city.FacingOf(b);
+        var basis = new Basis(Vector3.Up, Mathf.Pi / 2 * facing);
+        var c = new Vector3(b.Width / 2f, 0, b.Height / 2f);
+        return new Transform3D(basis, new Vector3(b.X, g, b.Y) + c - basis * c);
     }
 
     Mesh MeshOf(BuildingModels.Model m, int region)
     {
+        region &= 0xFFFFF;  // the variant is kept above the region
         var d = _detail == ModelDetail.Smooth && (Math.Abs(region % 1024 - _focus.X) > _radius || Math.Abs(region / 1024 - _focus.Y) > _radius) ? _rest : _detail;
         return d switch { ModelDetail.Far => m.Far, ModelDetail.Mid => m.Mid.Value, ModelDetail.Smooth => m.Smooth.Value, _ => m.Near };
     }
@@ -475,7 +489,7 @@ public partial class CityView : Node3D
         void Add(BuildingState b, float left)
         {
             if (!_city.TypeById.TryGetValue(b.TypeId, out var t) || t.Roadside) { if (left < 0) stops.Add(b); return; }
-            var key = (b.TypeId, b.Width, b.Height, b.Y / Region * 1024 + b.X / Region);
+            var key = (b.TypeId, b.Width, b.Height, (b.Y / Region * 1024 + b.X / Region) | RealSet.VariantOf(b.Id) << 20);
             if (!groups.TryGetValue(key, out var list)) groups[key] = list = new();
             list.Add((b, left));
         }
@@ -484,7 +498,7 @@ public partial class CityView : Node3D
         foreach (var key in _batches.Keys.Where(k => !groups.ContainsKey(k)).ToList()) { _batches[key].QueueFree(); _batches.Remove(key); _members.Remove(key); }
         foreach (var (key, list) in groups)
         {
-            var model = _models.Get(_city.TypeById[key.Item1], key.Item2, key.Item3);
+            var model = _models.Get(_city.TypeById[key.Item1], key.Item2, key.Item3, key.Item4 >> 20);
             if (!_batches.TryGetValue(key, out var mmi))
             {
                 mmi = new MultiMeshInstance3D
@@ -505,7 +519,7 @@ public partial class CityView : Node3D
                 for (int y = b.Y; y < b.Y + b.Height; y++)
                     for (int x = b.X; x < b.X + b.Width; x++)
                         if (_city.InBounds(x, y)) g = Mathf.Max(g, Ground(_city.Idx(x, y)));
-                mm.SetInstanceTransform(k, new Transform3D(Basis.Identity, new Vector3(b.X, g, b.Y)));
+                mm.SetInstanceTransform(k, Placed(b, g));
                 var life = list[k].Left < 0 ? _life.Of(b) : _life.OfCrumbling(b, list[k].Left);
                 mm.SetInstanceCustomData(k, Custom(life, model.Height));
                 mm.SetInstanceColor(k, Colors.White);  // colours on as well: without them the compatibility renderer drops the vertex colours
@@ -556,7 +570,7 @@ public partial class CityView : Node3D
         foreach (var (key, list) in _members)
         {
             var mm = _batches[key].Multimesh;
-            var model = _models.Get(_city.TypeById[key.Item1], key.Item2, key.Item3);
+            var model = _models.Get(_city.TypeById[key.Item1], key.Item2, key.Item3, key.Item4 >> 20);
             for (int k = 0; k < list.Count && k < mm.InstanceCount; k++)
             {
                 var (b, left) = list[k];

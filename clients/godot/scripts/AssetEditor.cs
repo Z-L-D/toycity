@@ -145,7 +145,7 @@ public partial class AssetEditor : Node3D
     }
 
     /// <summary>The game's building types, read from content/buildings.json above the project, as the server reads them.</summary>
-    static IEnumerable<(string Id, string Name, int W, int H)> BuildingTypes()
+    internal static IEnumerable<(string Id, string Name, int W, int H)> BuildingTypes()
     {
         var dir = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
         while (dir != null && !File.Exists(System.IO.Path.Combine(dir.FullName, "content", "buildings.json"))) dir = dir.Parent;

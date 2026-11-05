@@ -59,9 +59,22 @@ to play; the web client stays as the debug and admin client.
 
 ## Screenshots
 
-From the Beta 4 and Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release
+From the release candidate, Beta 4 and Beta 3.2 gate runs (Godot, CI runner with software rendering) and the web client. Each release
 adds a new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
+
+Release candidate, part 2: the realistic asset set ([`docs/screenshots/rc2-assets`](docs/screenshots/rc2-assets)):
+
+| | |
+| --- | --- |
+| ![The hill town drawn with the realistic set at golden hour](docs/screenshots/rc2-assets/godot-hills-golden.jpg) | ![The hill town's streets close up](docs/screenshots/rc2-assets/godot-hills-street.jpg) |
+| Godot (local hill gate run): the hill town with real models, from the free camera at golden hour | A street close up (the dispatch screen): houses under their auto-roofs, rows of brownstones and walk-ups behind |
+| ![Gallery: houses in three variants each](docs/screenshots/rc2-assets/godot-gallery-houses.jpg) | ![Gallery: towers](docs/screenshots/rc2-assets/godot-gallery-towers.jpg) |
+| `--gallery`: bungalows, cottages and villas, three variants each, and bigger houses on bigger lots | Flats and offices: a brutalist slab, flats over shops, a glass spire, a discount tower, a stone monolith, the exchange |
+| ![Gallery: shops and offices](docs/screenshots/rc2-assets/godot-gallery-shops-offices.jpg) | ![Gallery: industry](docs/screenshots/rc2-assets/godot-gallery-industry.jpg) |
+| Shops with awnings and signs, a strip mall, offices and a glass atrium | A tannery, sawtooth works, a foundry, a smelter, a robot plant and a lab campus |
+| ![Gallery: utilities](docs/screenshots/rc2-assets/godot-gallery-utilities.jpg) | ![Gallery: parks and landmarks](docs/screenshots/rc2-assets/godot-gallery-parks-landmarks.jpg) |
+| Power, water and waste: the coal plant's stack and cooling towers, a wind turbine, a solar farm, treatment works, a landfill | Parks, a plaza, the rubber duck, the clocktower, the observation wheel, the casino and the giant pickle |
 
 Release candidate, part 1.1: houses at 6.25 cm voxels under smooth polygon auto-roofs ([`docs/screenshots/rc1-roofs`](docs/screenshots/rc1-roofs)):
 
@@ -262,7 +275,7 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); light and shadow through the day and night (done); growing regions (done) | Done |
 | Beta 4 | GPU test (done); snow on the ground and roofs (done); water quality (done); direct dispatch (done); the floating build menu and L-shaped info bar in both clients (done); region sizes, annexing, taking in a neighbour by a deal and a region charter (done); tile hosts for growing regions (done) | Done |
 | Beta 4.1 | The plant layer: woods, scrub, reeds and orchards that regrow, a tree planter, trees in land value (part 1, done); farm country: fertility, farms on a grid of farm tracks, fields by crop and season, farmsteads and windbreaks (part 2, done); storm cells, a weather station and radar (part 3, done); loose ends: rivers on into open land, murky foul water, roads thawing with the calendar (part 4, done) | Done |
-| Release candidate | The voxel asset library and editor (part 1, done); 6.25 cm houses and the auto-roof (part 1.1, in review); realistic assets on the realistic terrain; lot editor; path designer; terrain textures; water revisited; UI finishing; mod API; scenarios and onboarding; packaged builds and the save promise | In progress |
+| Release candidate | The voxel asset library and editor (part 1, done); 6.25 cm houses and the auto-roof (part 1.1, done); the realistic asset set (part 2, in review); the destruction swap and photo importer (part 2.1); lot editor; path designer; terrain textures; water revisited; UI finishing; mod API; scenarios and onboarding; packaged builds and the save promise | In progress |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
 | 1.x | Holidays and seasonal events across the city and every side game, on the shared calendar | |
@@ -272,6 +285,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-05 | **Release candidate, part 2: the realistic asset set** (PR #26) | Every building has a real model in place of the placeholder blocks: houses of library pieces under auto-roofs, walk-ups, brownstone rows and garden courts, towers, shops, strip malls and offices, sheds, foundries and a smelter, plants, services, parks, depots and the landmarks. Each zoned type comes in three variants, buildings face their road, and models use the finest detail their lot allows. `--gallery` shows them all. [Gate](docs/GATE-RC2-ASSETS.md) |
 | 2026-11-05 | **Release candidate, part 1.1: finer houses and the auto-roof** (PR #25) | Houses default to 6.25 cm voxels (about 2.5 inches), the finest that fits a whole 16 m lot in one `.vox` model. A Sims-style auto-roof of smooth polygons finds the top of the walls and roofs whatever they enclose: gable, hip (with hips and valleys round an L or T), shed or flat, at a chosen pitch, overhang and covering, with a fascia and soffit. It's saved as settings with the asset and drawn by the game on the building at every zoom level. [Gate](docs/GATE-RC1-ROOFS.md) |
 | 2026-11-05 | **Release candidate, part 1: the asset library and editor** (PR #24) | A library of snap pieces on a 4 m × 3 m grid (walls with windows, doors and arches, floors, stairs, sloping, hipped and flat roofs and gable ends, pillars, fences) in six materials, and props (trees, a car, a lamp, benches and more), all built at 0.5, 0.25 or 0.125 m voxels. The Godot asset editor (game menu, or `--editor`) places them with a ghost and quarter turns, and adds, erases, paints, fills and boxes voxels on a MagicaVoxel-style palette, with undo, mirroring, thumbnails and your own saved assets to place in others. Assets save as `.vox` files, and "use for a building" makes the game draw a building type with one, a fine model shrunk to its lot. [Gate](docs/GATE-RC1-ASSET-EDITOR.md) |
 | 2026-11-05 | **Beta 4.1, part 4: loose ends** (PR #23) | In a growing or huge region, a new tile's river carries on into open land already made, until it meets a river or the sea; a tile with a city keeps its ground. Each cell's foulness goes to the clients, and both draw foul water murky and green-brown with a scum on the worst. Snow on the roads thaws with the calendar, as the ground's does. [Gate](docs/GATE-BETA4-1-LOOSE-ENDS.md) |

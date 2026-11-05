@@ -91,6 +91,13 @@ jobs:
           grep -q "EDITOR OK" editor.log
           ! grep -n "SHADER ERROR" -A3 editor.log
           ls editor-shots/*.png
+      - name: Realistic asset set (RC part 2) draws every type in its gallery
+        run: |
+          xvfb-run -a -s "-screen 0 1600x900x24" timeout 600 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
+            --path clients/godot -- --gallery "$PWD/gallery-shots" 2>&1 | tee gallery.log
+          grep -q "GALLERY OK" gallery.log
+          ! grep -n "SHADER ERROR" -A3 gallery.log
+          ls gallery-shots/*.png
       - name: Dense-city benchmark (software OpenGL, so times are not the target hardware's)
         run: |
           xvfb-run -a -s "-screen 0 1600x900x24" timeout 600 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
@@ -179,6 +186,10 @@ jobs:
           if ls editor-shots/*.png > /dev/null 2>&1; then
             montage editor-shots/*.png -tile 2x -geometry 800x450+2+2 -quality 60 editor-sheet.jpg
             echo "::group::editor-sheet.jpg base64"; echo "EDITOR-SHEET-BEGIN"; base64 -w 0 editor-sheet.jpg; echo; echo "EDITOR-SHEET-END"; echo "::endgroup::"
+          fi
+          if ls gallery-shots/*.png > /dev/null 2>&1; then
+            montage gallery-shots/*.png -tile 3x -geometry 640x360+2+2 -quality 60 gallery-sheet.jpg
+            echo "::group::gallery-sheet.jpg base64"; echo "GALLERY-SHEET-BEGIN"; base64 -w 0 gallery-sheet.jpg; echo; echo "GALLERY-SHEET-END"; echo "::endgroup::"
           fi
           if ls room-shots/*.png > /dev/null 2>&1; then
             montage room-shots/*.png -tile 4x -geometry 400x225+1+1 -quality 50 room-sheet.jpg
