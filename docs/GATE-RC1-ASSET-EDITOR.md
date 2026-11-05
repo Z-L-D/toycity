@@ -82,6 +82,9 @@ model.
   - prints `EDITOR OK`.
 
   The contact sheet is in the job log between `EDITOR-SHEET-BEGIN` and `EDITOR-SHEET-END`.
+- In a local hill gate run, the example house (at 0.25 m) was used for the three low-density home types through
+  `user://vox`. The town's homes were drawn as the house, shrunk to their lots with its garden, car and fence
+  (`godot-editor-6-houses-in-town.jpg`).
 - Shots are in [`docs/screenshots/rc1-asset-editor`](screenshots/rc1-asset-editor).
 
 ## Known limits

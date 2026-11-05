@@ -70,6 +70,8 @@ Release candidate, part 1: the asset editor, building the example house from the
 | Godot (CI-style run, software OpenGL, `--editor --shots`): the house at 0.25 m voxels, every piece placed as a player would | From the back: a gable end closing the sloping roof, the props round the garden |
 | ![Placing a wall with a window on the snap grid, its ghost on the east edge of a frame](docs/screenshots/rc1-asset-editor/godot-editor-4-placing.jpg) | ![The library's props built at 0.125 m voxels](docs/screenshots/rc1-asset-editor/godot-editor-5-props-fine.jpg) |
 | Placing a piece: the ghost of a wall turned onto the frame's east edge, on the 4 m grid | The props at 0.125 m voxels: a lamp, a tree, a conifer, a car, a planter, a bin and a café table |
+| ![The example house used for the low-density homes, drawn across the hill town](docs/screenshots/rc1-asset-editor/godot-editor-6-houses-in-town.jpg) | ![The house's gable end close up](docs/screenshots/rc1-asset-editor/godot-editor-3-gable-close.jpg) |
+| "Use for a building": the same house as the low-density homes in the hill town (local hill gate run), shrunk to their lots with its garden, car and fence | Close up: brick speckled with darker bricks, the gable end and the tile roof's ridge |
 
 Beta 4.1, part 4: foul water drawn murky below the hill gate's raw sewage outfall ([`docs/screenshots/beta4-1-loose-ends`](docs/screenshots/beta4-1-loose-ends)):
 
