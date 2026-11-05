@@ -47,6 +47,9 @@ public sealed class BuildingModels
     /// <summary>The finest detail the city draws, in voxels a half metre.</summary>
     public const int MaxDrawnDetail = 4;
 
+    /// <summary>The finest detail the city draws a generated house at.</summary>
+    public const int HouseDrawnDetail = 2;
+
     public int Count => _cache.Count;
     /// <summary>Models made so far and the time spent making them (not their lazy mid and smooth meshes), for the gate runs.</summary>
     public static int Made;
@@ -92,9 +95,10 @@ public sealed class BuildingModels
             float scale = Mathf.Min(1f / detail, fit) / VoxModel.PerCell;
             // The city draws a model at 12.5 cm voxels at the finest: a 6.25 cm house has five to seven times the
             // faces for a difference too small to see from a city camera. Its full voxels stay in its file.
-            // A generated building on a bigger lot (flats, towers, works; not houses) is drawn at half-metre voxels, as
-            // the old blocks were: a downtown of them at finer voxels was seven times the triangles at the closest zoom.
-            int most = !fromFile && Math.Max(w, d) > 1 && !t.Id.StartsWith("r-l-") ? 1 : MaxDrawnDetail;
+            // A generated house is drawn at 25 cm: at 12.5 cm it is four to five times the faces (6,000-17,000
+            // quads), and a dense city's closest zoom held 22 million triangles. A generated building on a bigger lot
+            // (flats, towers, works) is drawn at half-metre voxels, as the old blocks were.
+            int most = fromFile ? MaxDrawnDetail : t.Id.StartsWith("r-l-") ? HouseDrawnDetail : Math.Max(w, d) > 1 ? 1 : MaxDrawnDetail;
             if (detail > most && vox.SizeX > 1)
             {
                 int f = detail / most;

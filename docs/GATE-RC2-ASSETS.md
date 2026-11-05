@@ -64,8 +64,9 @@ in three variants, so a street of them isn't one house copied, and buildings tur
   The set draws in metres, so one recipe works at any detail.
 - **What the city draws.** A whole city of fine models was far too many triangles, so the city draws lighter
   versions:
-  - **Close up**, houses and one-cell lots are drawn at 12.5 cm. A 6.25 cm house has five to seven times the faces
-    (40,000–70,000) for a difference a city camera can't show.
+  - **Close up, houses** are drawn at 25 cm. At 12.5 cm a house is 6,000–17,000 quads, four to five times as many,
+    and the dense city's closest zoom held 22 million triangles. Other one-cell lots, and models from files, are drawn
+    at 12.5 cm at the finest.
   - **Close up, bigger lots** (flats, towers, works) are drawn at 50 cm, as the old blocks were. Models from files
     keep their own detail.
   - **Mid distance** is half-metre voxels. On High this is now classic zoom 3 and free-camera views past 48 cells
@@ -119,7 +120,8 @@ in three variants, so a street of them isn't one house copied, and buildings tur
 - **Models are made on the main thread** the first time a type, lot size and variant is drawn. Each takes a tenth
   of a second to a second to make and mesh, so a new town takes a little longer to appear the first time.
 - **Heavier than the blocks.** The dense benchmark city draws more triangles than with the old blocks: far zooms
-  1.8–3 million against 0.3–1.4 million. A GPU test on real hardware should say whether the High preset needs to be
+  1.7–2.9 million against 0.3–1.4 million, zoom 3 6.2 million and zoom 4 10.1 million against
+  3.7 million. A GPU test on real hardware should say whether the High preset needs to be
   lighter.
 - **The web client is unchanged.** It draws the city as a map, not models.
 - **A lot that isn't square** can't face a road on its long side.
