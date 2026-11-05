@@ -75,4 +75,31 @@ public class SnowTests
         w.Run(10);
         Assert.Equal(0, w.GroundSnowMm);
     }
+
+    [Fact]
+    public void ASummerThawsTheRoadsEvenOnAFastCalendar()
+    {
+        // Beta 4.1, part 4: the snow on the roads and in the banks the crews pushed thaws with the calendar too.
+        var w = Fixture.Starter();
+        w.Enqueue(new SetRoadCrewsAction(0));
+        for (int k = 0; k < 400 && w.Month != 6; k++) w.Step();
+        w.Enqueue(new WeatherAction(WeatherKind.Snow, 3));
+        for (int k = 0; k < 300 && w.RoadCover.Max() < 800; k++) w.Step();
+        Assert.True(w.RoadCover.Max() >= 800, $"cover {string.Join(",", w.RoadCover)}");
+        w.Enqueue(new SetPaceAction(720));
+        w.Enqueue(new WeatherAction(WeatherKind.Clear, 0));
+        w.Run(6);
+        Assert.All(w.RoadCover, c => Assert.Equal(0, c));
+        Assert.All(w.RoadBanked, c => Assert.Equal(0, c));
+        Assert.True(w.RoadsUsual || w.RoadWet > 0 || w.RoadMud > 0);
+        // In midwinter it stays until the crews or the day clock's sun clear it.
+        var winter = Fixture.Starter();
+        winter.Enqueue(new SetRoadCrewsAction(0));
+        winter.Enqueue(new WeatherAction(WeatherKind.Snow, 3));
+        for (int k = 0; k < 300 && winter.RoadCover.Max() < 800; k++) winter.Step();
+        winter.Enqueue(new SetPaceAction(720));
+        winter.Enqueue(new WeatherAction(WeatherKind.Clear, 0));
+        winter.Run(3);
+        Assert.True(winter.RoadCover.Max() > 0);
+    }
 }

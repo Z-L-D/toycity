@@ -100,6 +100,9 @@ public sealed class CityMirror
     public byte[] Farms = Array.Empty<byte>();
     /// <summary>Bumped whenever any cell's farm changes.</summary>
     public int FarmsVersion;
+    /// <summary>The water's foulness a cell (Beta 4.1, part 4), 0 clean to 255, 0 on dry land; bumped when it changes.</summary>
+    public byte[] Foul = Array.Empty<byte>();
+    public int FoulVersion;
     /// <summary>What the dams do to each river cell (RiverFlow.Held): 2 a reservoir, 1 the river below a dam.</summary>
     public byte[] DamHeld => _held is { } h && _heldFor == TerrainVersion ? h
         : (_held = ToyCity.Sim.RiverFlow.Held(Width, Height, Heights, Rivers, Dams), _heldFor = TerrainVersion).Item1;
@@ -200,6 +203,8 @@ public sealed class CityMirror
         PlantsVersion++;
         Farms = f.Farms.Length == Width * Height ? f.Farms.ToByteArray() : new byte[Width * Height];
         FarmsVersion++;
+        Foul = f.Foul.Length == Width * Height ? f.Foul.ToByteArray() : new byte[Width * Height];
+        FoulVersion++;
         var cb = f.Corners.Span;
         Corners = new ushort[(Width + 1) * (Height + 1)];
         if (cb.Length == Corners.Length * 2)
@@ -320,6 +325,7 @@ public sealed class CityMirror
             PutBuilding(b);
         }
         if (d.Stats != null) Stats = d.Stats;
+        if (d.Foul.Length == Width * Height) { Foul = d.Foul.ToByteArray(); FoulVersion++; }
         if (d.StripsChanged)
         {
             foreach (int i in StripCells) _dirtyCells.Add(i);

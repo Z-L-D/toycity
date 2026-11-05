@@ -248,7 +248,7 @@ public static class Mapping
         {
             Width = w.Width, Height = w.HeightCells, WaterLevel = w.WaterLevel,
             Heights = ByteString.CopyFrom(w.Height), Corners = ByteString.CopyFrom(CornerBytes(w)), Rivers = ByteString.CopyFrom(w.River), Zones = ByteString.CopyFrom(w.ZoneCode), Paths = ByteString.CopyFrom(PathBytes(w)), PathSurfaces = ByteString.CopyFrom(w.PathSurface), PathDecks = ByteString.CopyFrom(U16Bytes(w.PathDeck)), MadeGround = ByteString.CopyFrom(w.Made), Bedrock = ByteString.CopyFrom(U16Bytes(w.Bedrock)), Rock = ByteString.CopyFrom(w.Rock),
-            PowerLines = ByteString.CopyFrom(w.PowerLine), WaterPipes = ByteString.CopyFrom(w.WaterPipe), Subways = ByteString.CopyFrom(w.Subway), Dams = ByteString.CopyFrom(w.Dam), Plants = ByteString.CopyFrom(PlantBytes(w)), Farms = ByteString.CopyFrom(w.Farm),
+            PowerLines = ByteString.CopyFrom(w.PowerLine), WaterPipes = ByteString.CopyFrom(w.WaterPipe), Subways = ByteString.CopyFrom(w.Subway), Dams = ByteString.CopyFrom(w.Dam), Plants = ByteString.CopyFrom(PlantBytes(w)), Farms = ByteString.CopyFrom(w.Farm), Foul = ByteString.CopyFrom(FoulBytes(w)),
             Stats = Stats(w, speed), Catalog = Catalog(w.Content), Seed = w.Seed,
         };
         foreach (var b in w.Buildings) if (b != null) f.Buildings.Add(Building(w, b));
@@ -546,6 +546,15 @@ public static class Mapping
     // ------------------------------------------------------------------
 
     /// <summary>Each cell's plant kind * 16 + tree crowns, as FullState.plants and CellUpdate.plant carry it.</summary>
+    /// <summary>The water's foulness a cell, for the clients' murky water: 0 on dry land and before it's worked out.</summary>
+    public static byte[] FoulBytes(World w)
+    {
+        var b = new byte[w.N];
+        if (w.Foul.Length != w.N) return b;
+        for (int i = 0; i < w.N; i++) if (w.IsWater(i)) b[i] = w.Foul[i];
+        return b;
+    }
+
     public static byte[] PlantBytes(World w)
     {
         var b = new byte[w.N];
@@ -626,6 +635,7 @@ public static class Mapping
 /// <summary>Remembers what a client has seen and builds the next <see cref="P.TickDelta"/>.</summary>
 public sealed class DeltaTracker
 {
+    byte[] _foul = Array.Empty<byte>();
     byte[] _heights = Array.Empty<byte>(), _zones = Array.Empty<byte>(), _lines = Array.Empty<byte>(), _pipes = Array.Empty<byte>(), _subways = Array.Empty<byte>(), _surfaces = Array.Empty<byte>();
     ushort[] _decks = Array.Empty<ushort>();
     byte[] _made = Array.Empty<byte>(), _rivers = Array.Empty<byte>(), _dams = Array.Empty<byte>(), _plants = Array.Empty<byte>(), _farms = Array.Empty<byte>();
@@ -648,6 +658,7 @@ public sealed class DeltaTracker
         _dams = (byte[])w.Dam.Clone();
         _plants = Mapping.PlantBytes(w);
         _farms = (byte[])w.Farm.Clone();
+        _foul = Mapping.FoulBytes(w);
         _paths = (ushort[])w.Path.Clone();
         _corners = (ushort[])w.Corner.Clone();
         _bedrock = (ushort[])w.Bedrock.Clone();
@@ -673,6 +684,12 @@ public sealed class DeltaTracker
                 _heights[i] == w.Height[i] && _zones[i] == w.ZoneCode[i] && _paths[i] == w.Path[i] && _surfaces[i] == w.PathSurface[i] && _decks[i] == w.PathDeck[i] && _made[i] == w.Made[i] && _lines[i] == w.PowerLine[i] && _pipes[i] == w.WaterPipe[i] && _subways[i] == w.Subway[i] && _rivers[i] == w.River[i] && _dams[i] == w.Dam[i]) continue;
             _heights[i] = w.Height[i]; _zones[i] = w.ZoneCode[i]; _paths[i] = w.Path[i]; _lines[i] = w.PowerLine[i]; _pipes[i] = w.WaterPipe[i]; _subways[i] = w.Subway[i]; _surfaces[i] = w.PathSurface[i]; _decks[i] = w.PathDeck[i]; _made[i] = w.Made[i]; _rivers[i] = w.River[i]; _dams[i] = w.Dam[i]; _plants[i] = plant; _farms[i] = w.Farm[i];
             d.Cells.Add(new P.CellUpdate { Index = i, Height = w.Height[i], Zone = w.ZoneCode[i], Path = w.Path[i], PowerLine = w.PowerLine[i] != 0, WaterPipe = w.WaterPipe[i] != 0, Subway = w.Subway[i] != 0, Surface = w.PathSurface[i], Deck = w.PathDeck[i], Made = w.Made[i] != 0, River = w.River[i], Dam = w.Dam[i], Plant = plant, Farm = w.Farm[i] });
+        }
+        var foul = Mapping.FoulBytes(w);
+        if (!foul.AsSpan().SequenceEqual(_foul))
+        {
+            _foul = foul;
+            d.Foul = ByteString.CopyFrom(foul);
         }
         for (int i = 0; i < w.Corner.Length; i++)
         {

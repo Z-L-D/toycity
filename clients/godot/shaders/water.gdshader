@@ -12,6 +12,10 @@ uniform float height_step = 0.125;
 // A map layer over the water as over the ground (Beta 4, part 3: the water quality layer colours the water itself).
 uniform sampler2D overlay : filter_nearest, repeat_disable;
 uniform bool use_overlay = false;
+// Each cell's foulness (Beta 4.1, part 4), 0 clean to 1 at 255: foul water turns a murky green-brown, clouds over
+// and carries a scum.
+uniform sampler2D murk : filter_linear, repeat_disable;
+uniform bool use_murk = false;
 
 varying vec3 world_pos;
 
@@ -54,9 +58,16 @@ void fragment() {
 	vec3 col = mix(shallow, mid, smoothstep(0.0, 3.0, depth));
 	col = mix(col, far, smoothstep(3.0, 10.0, depth));
 	float t = TIME;
+	float foul = use_murk ? texture(murk, p / map_size).r : 0.0;
+	// From about 30 (unsafe to drink) to 150 (it stinks): green-brown and cloudy, a scum drifting on the worst.
+	float murky = smoothstep(0.1, 0.6, foul);
+	vec3 silt = mix(vec3(0.30, 0.33, 0.18), vec3(0.24, 0.21, 0.12), smoothstep(0.5, 0.9, foul));
+	col = mix(col, silt, murky * 0.85);
+	float scum = smoothstep(0.55, 0.9, foul) * smoothstep(0.5, 0.8, noise(p * 0.9 + vec2(t * 0.05, t * 0.03)));
+	col = mix(col, vec3(0.42, 0.40, 0.22), scum * 0.6);
 	// Foam in a ragged band where it meets the shore.
 	float foam = (1.0 - smoothstep(0.0, 0.7, depth)) * smoothstep(0.45, 0.75, waves(p * 1.5, t * 1.4));
-	col = mix(col, vec3(0.92, 0.95, 0.95), foam * 0.8);
+	col = mix(col, mix(vec3(0.92, 0.95, 0.95), vec3(0.72, 0.70, 0.52), murky), foam * 0.8);
 	if (use_overlay) {
 		vec4 o = texture(overlay, (floor(p) + 0.5) / map_size);
 		col = mix(col, o.rgb, o.a);
@@ -69,11 +80,12 @@ void fragment() {
 	// The sky at a glancing angle (Fresnel), and light through the crests, by day.
 	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
 	float crest = smoothstep(0.55, 0.9, h0) * (1.0 - foam);
-	vec3 through = vec3(0.10, 0.62, 0.52) * sun_colour.rgb * crest * smoothstep(0.5, 6.0, depth) * (1.0 - night);
+	vec3 through = vec3(0.10, 0.62, 0.52) * sun_colour.rgb * crest * smoothstep(0.5, 6.0, depth) * (1.0 - night) * (1.0 - murky);
 	EMISSION = to_linear(sky_colour.rgb, srgb) * fresnel * 0.35 + to_linear(through, srgb) * 0.35;
 	ROUGHNESS = 0.06;
 	METALLIC = 0.0;
 	SPECULAR = 0.7;
 	// See into the shallows; deep water is opaque.
-	ALPHA = mix(0.55, 0.93, smoothstep(0.0, 4.0, depth)) + foam * 0.3;
+	// Foul water is cloudy: nothing shows through it.
+	ALPHA = mix(mix(0.55, 0.93, smoothstep(0.0, 4.0, depth)), 0.95, murky) + foam * 0.3;
 }

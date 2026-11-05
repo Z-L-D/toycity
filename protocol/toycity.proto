@@ -1250,6 +1250,7 @@ message FullState {
   bytes plants = 23;        // one byte per cell (Beta 4.1): the plant kind * 16 + tree crowns 0..8 (see PlantTrees.kind)
   bytes farms = 24;         // one byte per cell (Beta 4.1, part 2): 0 none; low 2 bits 1 field, 2 farm track, 3 farmstead;
                             // bits 2-4 a field's crop (0 wheat, 1 corn, 2 soybeans, 3 hay, 4 canola); bit 5 rows run north-south
+  bytes foul = 25;          // one byte per cell (Beta 4.1, part 4): the water's foulness, 0 clean to 255; 0 on dry land
 }
 
 // An arc or diagonal as it was drawn: clients draw this line over its cells. Straight from (x0,y0) to (x1,y1), or
@@ -1292,6 +1293,7 @@ message TickDelta {
   bool strips_changed = 6;           // the city's road strips changed: strips is the whole new list
   repeated RoadStrip strips = 7;
   repeated CornerUpdate corners = 8; // ground corners that moved
+  bytes foul = 9;                    // the whole foulness layer again, as FullState.foul, when any of it changed (monthly)
 }
 
 // One corner of the ground grid: index = y * (width + 1) + x.

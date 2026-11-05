@@ -183,6 +183,7 @@ public partial class CityView : Node3D
         UpdateDetail();
         // The rivers rose or fell with the month's rain: their banks' wet band follows the water.
         if (_city.Loaded && _banksImage != null && _banksFlow != _city.FlowPct) PaintBanks();
+        if (_city.Loaded && _waterMaterial != null && _foulFor != _city.FoulVersion && _city.Foul.Length == _city.N) PaintMurk();
         if (_city.Loaded && _ground != null && _farmsFor != _city.FarmsVersion && _city.Farms.Length == _city.N) PaintFarms();
         if (_flashUntil < 0) return;
         double now = Time.GetTicksMsec() / 1000.0, left = _flashUntil - now;
@@ -396,8 +397,29 @@ public partial class CityView : Node3D
         _ground?.SetShaderParameter("river_banks", _banksTexture);
     }
 
+    int _foulFor = -1;
+    Image? _murkImage;
+    ImageTexture? _murkTexture;
+
+    /// <summary>Each cell's foulness, one texel a cell, for the water's murk (Beta 4.1, part 4).</summary>
+    void PaintMurk()
+    {
+        _foulFor = _city.FoulVersion;
+        int w = _city.Width, h = _city.Height;
+        bool any = false;
+        foreach (var f in _city.Foul) if (f > 20) { any = true; break; }
+        _waterMaterial!.SetShaderParameter("use_murk", any);
+        if (!any) return;
+        var img = Image.CreateFromData(w, h, false, Image.Format.R8, _city.Foul);
+        if (_murkTexture == null || _murkImage == null || _murkImage.GetWidth() != w || _murkImage.GetHeight() != h) _murkTexture = ImageTexture.CreateFromImage(img);
+        else _murkTexture.Update(img);
+        _murkImage = img;
+        _waterMaterial.SetShaderParameter("murk", _murkTexture);
+    }
+
     void BuildWater()
     {
+        _foulFor = -1;
         _water?.QueueFree();
         float level = (_city.WaterLevel - 0.35f) * ClassicView.HeightStep;
         // The ground shades its shore and bed by height against the water's surface.

@@ -83,6 +83,7 @@ public sealed partial class Region
         if (g == null)
         {
             g = MakeTileGround(col, row);
+            CarryRiversOn(col, row);
             GroundChanged();
         }
         return g;
@@ -154,6 +155,7 @@ public sealed partial class Region
         var t = TileAt(col, row)!;
         _grown![row * Cols + col] = MakeTileGround(col, row);
         t.Wild = false;
+        CarryRiversOn(col, row);
         GroundChanged();
         return t;
     }
@@ -277,6 +279,108 @@ public sealed partial class Region
         var (bed, rock) = World.GenerateGeology(tile.Seed, corners, rivers, s, s, Water, ox, oy);
         for (int k = 0; k < known.Length; k++) if (known[k] >= 0) bed[k] = (ushort)Math.Min(knownBed[k], corners[k]);
         return new TileGround(corners, rivers, downstream, bed, rock);
+    }
+
+    /// <summary>
+    /// Rivers that run off a new tile's edge into a tile already made carry on across it while nobody has founded a
+    /// city there (Beta 4.1, part 4): down the open land's lowest way, cutting a channel a step deep, until they join
+    /// a river or the sea, or run off its far edge, where they carry on again into the next open tile. A tile with a
+    /// city keeps its ground: the water runs off the edge into it, as before. The shared edges never move.
+    /// </summary>
+    void CarryRiversOn(int col, int row)
+    {
+        int s = TileSize;
+        var queue = new Queue<(int Col, int Row, int Cell, int Surface)>();
+        void Exits(int c, int r)
+        {
+            if (GrownGround(c, r) is not { } g) return;
+            for (int i = 0; i < s * s; i++)
+            {
+                int x = i % s, y = i / s;
+                if (x != 0 && y != 0 && x != s - 1 && y != s - 1) continue;
+                if (g.Rivers[i] <= CellStep(g.Corners, s, i) || g.Downstream[i] >= 0) continue;
+                // Off the side whose open land across is lowest.
+                (int Col, int Row, int Cell, int Step)? best = null;
+                bool wildSide = false;
+                for (int side = 0; side < 4; side++)
+                {
+                    if (!OnSide(x, y, s, side)) continue;
+                    var (ncol, nrow) = side switch { 0 => (c, r - 1), 1 => (c + 1, r), 2 => (c, r + 1), _ => (c - 1, r) };
+                    var nt = TileAt(ncol, nrow);
+                    if (nt == null || nt.Wild || GrownGround(ncol, nrow) is not { } n) { wildSide = true; continue; }
+                    var (ax, ay) = AcrossCell(x, y, s, side);
+                    int j = ay * s + ax, st = CellStep(n.Corners, s, j);
+                    if (nt.Founded || n.Rivers[j] != 0 || st < 8 || st > g.Rivers[i]) continue;
+                    if (best == null || st < best.Value.Step) best = (ncol, nrow, j, st);
+                }
+                if (best is { } b && !wildSide) queue.Enqueue((b.Col, b.Row, b.Cell, g.Rivers[i]));
+            }
+        }
+        Exits(col, row);
+        for (int guard = 0; queue.Count > 0 && guard < 64; guard++)
+        {
+            var (c, r, entry, surface) = queue.Dequeue();
+            var g = GrownGround(c, r)!;
+            var corners = (ushort[])g.Corners.Clone();
+            var rivers = (byte[])g.Rivers.Clone();
+            var down = (int[])g.Downstream.Clone();
+            var bed = (ushort[])g.Bedrock.Clone();
+            if (rivers[entry] != 0) continue;
+            int cw = s + 1, cur = entry, prev = -1;
+            var seen = new HashSet<int>();
+            bool offEdge = false;
+            for (int k = 0; k < s * s && cur >= 0; k++)
+            {
+                int ground = CellStep(corners, s, cur);
+                if (rivers[cur] != 0 || ground < 8) { if (prev >= 0) down[prev] = cur; break; }
+                seen.Add(cur);
+                // A step's cut under the cell, but never on the tile's own edge, which its neighbours share.
+                int x = cur % s, y = cur / s;
+                // A channel a step deep, cut deeper (up to three steps) through a rise to keep the water running
+                // downhill. On the edge only the inner two corners can go down, so they go twice as far.
+                bool onEdge = x == 0 || y == 0 || x == s - 1 || y == s - 1;
+                int[] four = { y * cw + x, y * cw + x + 1, (y + 1) * cw + x, (y + 1) * cw + x + 1 };
+                int cut = ground;
+                for (int d = 0; d < 3 && (d == 0 || cut >= surface); d++)
+                {
+                    foreach (int cc in four)
+                    {
+                        int ccx = cc % cw, ccy = cc / cw;
+                        if (ccx == 0 || ccy == 0 || ccx == s || ccy == s) continue;
+                        corners[cc] = (ushort)Math.Max(0, corners[cc] - (onEdge ? 2 : 1) * World.StepDm);
+                        bed[cc] = Math.Min(bed[cc], corners[cc]);
+                    }
+                    cut = CellStep(corners, s, cur);
+                }
+                // Never higher than the water above it: where the cut leaves no room, the river ends here.
+                surface = Math.Min(surface, Math.Max(cut + 1, ground));
+                if (surface <= cut) { if (prev < 0) break; down[prev] = -1; break; }
+                rivers[cur] = (byte)Math.Min(255, surface);
+                down[cur] = -1;
+                if (prev >= 0) down[prev] = cur;
+                prev = cur;
+                // On down the lowest way that isn't back up the river.
+                int next = -1, nextStep = int.MaxValue;
+                ReadOnlySpan<int> ddx = [0, 1, 0, -1], ddy = [-1, 0, 1, 0];
+                for (int d = 0; d < 4; d++)
+                {
+                    int nx = x + ddx[d], ny = y + ddy[d];
+                    if (nx < 0 || ny < 0 || nx >= s || ny >= s) continue;
+                    int j = ny * s + nx;
+                    if (seen.Contains(j)) continue;
+                    int st = rivers[j] != 0 ? Math.Min(rivers[j], CellStep(corners, s, j)) : CellStep(corners, s, j);
+                    if (st < nextStep || st == nextStep && j < next) { next = j; nextStep = st; }
+                }
+                // At the edge, off it when nothing on the tile is lower.
+                bool edge = x == 0 || y == 0 || x == s - 1 || y == s - 1;
+                if (edge && (next < 0 || nextStep > ground)) { offEdge = true; break; }
+                // A hollow with no way out: the river ends in it.
+                if (next < 0 || nextStep > surface + 2) break;
+                cur = next;
+            }
+            _grown![r * Cols + c] = g with { Corners = corners, Rivers = rivers, Downstream = down, Bedrock = bed };
+            if (offEdge) Exits(c, r);
+        }
     }
 
     /// <summary>

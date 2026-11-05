@@ -441,6 +441,18 @@ export class Renderer {
         const soil = c.bedrock.length ? blend(soilAt, fx, fy) : 1;
         const kind = c.rock.length ? c.rock[cell(Math.floor(fx), Math.floor(fy))] : 0;
         let [r, gr, b] = groundColor(water ? Math.min(h, top - 0.01) : Math.max(h, c.waterLevel), c.waterLevel, slope, g, water ? Math.max(near > 0.3 && riverTop > 0 ? 2.5 : 0.5, top - h) : 0, made, soil, kind);
+        if (water && c.foul.length) {
+          // Foul water (Beta 4.1, part 4), as the 3D client's water has it: green-brown and cloudy from about 30
+          // (unsafe to drink) to 150 (it stinks), with a scum on the worst.
+          const f = blend((x: number, y: number) => c.foul[cell(x, y)], fx, fy) / 255;
+          const murky = smooth(0.1, 0.6, f);
+          if (murky > 0) {
+            const silt = mixRGB([77, 84, 46], [61, 54, 31], smooth(0.5, 0.9, f));
+            [r, gr, b] = mixRGB([r, gr, b], silt, murky * 0.8);
+            const scum = smooth(0.55, 0.9, f) * smooth(0.5, 0.8, g);
+            [r, gr, b] = mixRGB([r, gr, b], [107, 102, 56], scum * 0.55);
+          }
+        }
         if (!water && near > 0 && riverTop > 0) {
           // The river's banks, as the Flint Hills creek has them: a dark wet band of mud and cobbles at the waterline,
           // then lusher grass on the floodplain.

@@ -185,8 +185,12 @@ public sealed partial class World
                 else
                 {
                     int melt = PerStep(Weather == WeatherKind.Heat ? 300 : Weather == WeatherKind.Rain ? 120 : cold ? 15 : 60);
-                    RoadCover[t] = Math.Max(0, RoadCover[t] - melt);
-                    RoadBanked[t] = Math.Max(0, RoadBanked[t] - melt / 2);
+                    // And the calendar's own days thaw it with the season, as they do the snow on the ground
+                    // (Beta 4.1, part 4), so a fast calendar doesn't keep a winter's snow on the roads into summer.
+                    // Not while it's still snowing or icing on and off.
+                    int thaw = Weather is WeatherKind.Snow or WeatherKind.Ice || month is 12 or 1 or 2 ? 0 : month is 3 or 11 ? 60 : 300;
+                    RoadCover[t] = Math.Max(0, RoadCover[t] - melt - thaw);
+                    RoadBanked[t] = Math.Max(0, RoadBanked[t] - melt / 2 - thaw);
                 }
                 if (RoadCover[t] == 0) RoadIce[t] = false;
             }

@@ -145,6 +145,8 @@ export class City {
   plants = new Uint8Array(0);
   /** Each cell's farm (Beta 4.1, part 2), as farms.ts unpacks it. */
   farms = new Uint8Array(0);
+  /** The water's foulness a cell (Beta 4.1, part 4), 0 clean to 255, 0 on dry land: murky water on the map. */
+  foul = new Uint8Array(0);
   buildingAt = new Int32Array(0);
   buildings = new Map<number, Building>();
   stats: Msg = {};
@@ -177,6 +179,7 @@ export class City {
     this.dams = f.dams?.length === n ? new Uint8Array(f.dams) : new Uint8Array(n);
     this.plants = f.plants?.length === n ? new Uint8Array(f.plants) : new Uint8Array(n);
     this.farms = f.farms?.length === n ? new Uint8Array(f.farms) : new Uint8Array(n);
+    this.foul = f.foul?.length === n ? new Uint8Array(f.foul) : new Uint8Array(n);
     const cb = f.corners as Uint8Array | undefined;
     const nc = (this.width + 1) * (this.height + 1);
     this.corners = new Uint16Array(cb?.length === 2 * nc ? nc : 0);
@@ -258,6 +261,13 @@ export class City {
       const cx = u.index % (this.width + 1), cy = Math.floor(u.index / (this.width + 1));
       for (const [x, y] of [[cx - 1, cy - 1], [cx, cy - 1], [cx - 1, cy], [cx, cy]])
         if (this.inBounds(x, y)) this.terrainDirty?.push(y * this.width + x);
+    }
+    if (d.foul?.length === this.foul.length && this.foul.length) {
+      // Monthly: the water's murk changes where its foulness has moved on by enough to see.
+      const next = new Uint8Array(d.foul);
+      for (let i = 0; i < next.length; i++)
+        if (Math.abs(next[i] - this.foul[i]) > 6) { terrain = true; this.terrainDirty?.push(i); }
+      this.foul = next;
     }
     if (terrain) this.terrainVersion++;
   }

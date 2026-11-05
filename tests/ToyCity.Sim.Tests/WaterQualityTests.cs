@@ -87,6 +87,30 @@ public class WaterQualityTests
     }
 
     [Fact]
+    public void TheClientsAreSentEachCellsFoulness()
+    {
+        // Beta 4.1, part 4: the full state carries the water's foulness a cell, and a delta carries the layer again
+        // when it changes, so the clients can draw foul water murky. Dry land is always 0.
+        var (w, x, road) = Flats();
+        var tracker = new ToyCity.Protocol.DeltaTracker();
+        var before = ToyCity.Protocol.Mapping.FullState(w, 1);
+        tracker.Reset(w);
+        Assert.Equal(w.N, before.Foul.Length);
+        w.Enqueue(new SetTreatmentAction(Treatment.Raw));
+        w.Enqueue(new PlaceUtilityAction(x + 19, road, x + 19, road + 12, UtilityKind.WaterPipe));
+        w.Enqueue(new PlaceUtilityAction(x + 16, road - 1, x + 16, road + 9, UtilityKind.PowerLine));
+        w.Enqueue(new PlaceBuildingAction(x + 16, road + 10, "sewage-plant"));
+        bool sent = false;
+        for (int k = 0; k < 80 && !sent; k++) { w.Step(); sent = tracker.Next(w, 1, Array.Empty<SimNotice>()).Foul.Length == w.N; }
+        Assert.True(sent, "no delta carried the foulness");
+        var full = ToyCity.Protocol.Mapping.FullState(w, 1).Foul.ToByteArray();
+        Assert.Contains(full, f => f > 60);
+        for (int i = 0; i < w.N; i++) if (!w.IsWater(i)) Assert.Equal(0, full[i]);
+        // Nothing changed since: the next delta doesn't send it again.
+        Assert.Equal(0, tracker.Next(w, 1, Array.Empty<SimNotice>()).Foul.Length);
+    }
+
+    [Fact]
     public void FoulWaterRunsDownTheRiverNotUpIt()
     {
         var w = World.Create(Fixture.Content, 42, 128, "Riverton");

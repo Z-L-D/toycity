@@ -138,6 +138,85 @@ public class GrowingRegionTests(ITestOutputHelper output)
         Assert.Fail("no seed had a river leaving its first tile");
     }
 
+    /// <summary>The rivers of a new tile that run off its edge into the open land of a tile already made, by the way the water goes.</summary>
+    static List<(int Exit, int Entry, int Side)> IntoOld(Region r, int col, int row, int oc, int or)
+    {
+        var g = r.GrownGround(col, row)!;
+        var o = r.GrownGround(oc, or)!;
+        var st = World.StepsFromCorners(g.Corners, S, S);
+        var ost = World.StepsFromCorners(o.Corners, S, S);
+        int side = oc > col ? 1 : oc < col ? 3 : or > row ? 2 : 0;
+        var list = new List<(int, int, int)>();
+        for (int i = 0; i < S * S; i++)
+        {
+            int x = i % S, y = i / S;
+            bool on = side switch { 0 => y == 0, 1 => x == S - 1, 2 => y == S - 1, _ => x == 0 };
+            if (!on || x is 0 or S - 1 && y is 0 or S - 1) continue;
+            if (g.Rivers[i] <= st[i] || g.Downstream[i] >= 0) continue;
+            var (ax, ay) = side switch { 0 => (x, S - 1), 1 => (0, y), 2 => (x, 0), _ => (S - 1, y) };
+            int j = ay * S + ax;
+            if (ost[j] >= 8 && ost[j] <= g.Rivers[i]) list.Add((i, j, side));
+        }
+        return list;
+    }
+
+    [Fact]
+    public void ARiverCarriesOnIntoOpenLandAlreadyMade()
+    {
+        // Beta 4.1, part 4: a new tile's river heading for a tile made earlier, with no city on it, runs on across it.
+        int carried = 0;
+        for (ulong seed = 1; seed < 40 && carried < 3; seed++)
+        {
+            using var r = Region.CreateGrowing(Fixture.Content, "Downhill", seed, S);
+            int c = Region.GrowStart;
+            foreach (var (nc, nr) in new[] { (c + 1, c), (c - 1, c), (c, c + 1), (c, c - 1) })
+            {
+                var was = (byte[])r.GrownGround(c, c)!.Rivers.Clone();
+                r.Grow(nc, nr);
+                var o = r.GrownGround(c, c)!;
+                foreach (var (exit, entry, _) in IntoOld(r, nc, nr, c, c))
+                {
+                    if (was[entry] != 0) continue;
+                    var n = r.GrownGround(nc, nr)!;
+                    Assert.True(o.Rivers[entry] != 0, $"seed {seed}: the river from {nc},{nr} stops at the border of the open tile");
+                    Assert.True(o.Rivers[entry] <= n.Rivers[exit], "the river climbs over the border");
+                    var path = Follow(o, entry);
+                    for (int k = 1; k < path.Count; k++) Assert.True(o.Rivers[path[k]] <= o.Rivers[path[k - 1]], "the river climbs");
+                    output.WriteLine($"seed {seed}: from {nc},{nr} on into the first tile for {path.Count} cells");
+                    carried++;
+                }
+            }
+            // The shared edges are where they were: each pair of tiles has the same corners along its seam.
+            var mid = r.GrownGround(c, c)!.Corners;
+            for (int k = 0; k <= S; k++)
+            {
+                Assert.Equal(r.GrownGround(c + 1, c)!.Corners[k * (S + 1)], mid[k * (S + 1) + S]);
+                Assert.Equal(r.GrownGround(c - 1, c)!.Corners[k * (S + 1) + S], mid[k * (S + 1)]);
+                Assert.Equal(r.GrownGround(c, c + 1)!.Corners[k], mid[S * (S + 1) + k]);
+                Assert.Equal(r.GrownGround(c, c - 1)!.Corners[S * (S + 1) + k], mid[k]);
+            }
+        }
+        Assert.True(carried > 0, "no seed had a new tile's river run into the first tile");
+    }
+
+    [Fact]
+    public void ACitysGroundIsLeftAsItIs()
+    {
+        // With a city on the first tile, the new tiles' rivers run off into it as before, and its ground is untouched.
+        for (ulong seed = 1; seed < 12; seed++)
+        {
+            using var r = Region.CreateGrowing(Fixture.Content, "Founded", seed, S);
+            int c = Region.GrowStart;
+            r.Found(c, c, "Firstville", "May");
+            var before = r.GrownGround(c, c)!;
+            var (corners, rivers) = ((ushort[])before.Corners.Clone(), (byte[])before.Rivers.Clone());
+            foreach (var (nc, nr) in new[] { (c + 1, c), (c - 1, c), (c, c + 1), (c, c - 1) }) r.Grow(nc, nr);
+            var after = r.GrownGround(c, c)!;
+            Assert.Equal(corners, after.Corners);
+            Assert.Equal(rivers, after.Rivers);
+        }
+    }
+
     [Fact]
     public void AFixedRegionsGroundIsUnchanged()
     {
