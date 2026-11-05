@@ -676,6 +676,7 @@ public partial class Main : Node
         string json = $"{{\"city\":\"{c.Width}x{c.Height}\",\"buildings\":{c.Buildings.Count},\"models\":{_view!.Models},\"batches\":{_view.Batches},"
             + $"\"renderer\":\"{RenderingServer.GetVideoAdapterName()} / {RenderingServer.GetCurrentRenderingDriverName()}\",\"graphics\":\"{_graphics.PresetName}\",\"levels\":[{string.Join(",", _benchRows)}]}}";
         using (var f = global::Godot.FileAccess.Open(_bench, global::Godot.FileAccess.ModeFlags.Write)) f.StoreString(json);
+        GD.Print($"BENCH models: {BuildingModels.Made} made in {BuildingModels.MakingSeconds:F1} s");
         GD.Print($"BENCH wrote {_bench}");
         GetTree().Quit(0);
     }

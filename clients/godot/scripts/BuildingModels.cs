@@ -27,7 +27,8 @@ public sealed class BuildingModels
 {
     public sealed class Model
     {
-        public required ArrayMesh Near, Far;
+        public required Lazy<ArrayMesh> Near;
+        public required ArrayMesh Far;
         public required Lazy<ArrayMesh> Mid;
         public required Lazy<ArrayMesh> Smooth;
         public required float Height;
@@ -45,6 +46,9 @@ public sealed class BuildingModels
 
     /// <summary>The finest detail the city draws, in voxels a half metre.</summary>
     public const int MaxDrawnDetail = 4;
+
+    /// <summary>The finest detail the city draws a generated house at.</summary>
+    public const int HouseDrawnDetail = 2;
 
     public int Count => _cache.Count;
     /// <summary>Models made so far and the time spent making them (not their lazy mid and smooth meshes), for the gate runs.</summary>
@@ -89,27 +93,36 @@ public sealed class BuildingModels
             // A file's model is scaled to fit the lot if it was made for another size, and a fine one drawn smaller.
             float fit = Mathf.Min((float)w * VoxModel.PerCell / vox.SizeX, (float)d * VoxModel.PerCell / vox.SizeY);
             float scale = Mathf.Min(1f / detail, fit) / VoxModel.PerCell;
-            // An auto-roof is smooth polygons already, so every zoom level draws the same one on its walls.
-            var roofMesh = roof != null ? AutoRoof.Build(vox, detail, roof, scale) : new MeshData();
             // The city draws a model at 12.5 cm voxels at the finest: a 6.25 cm house has five to seven times the
             // faces for a difference too small to see from a city camera. Its full voxels stay in its file.
-            if (detail > MaxDrawnDetail && vox.SizeX > 1)
+            // A generated house is drawn at 25 cm: at 12.5 cm it is four to five times the faces (6,000-17,000
+            // quads), and a dense city's closest zoom held 22 million triangles. A generated building on a bigger lot
+            // (flats, towers, works) is drawn at half-metre voxels, as the old blocks were.
+            int most = fromFile ? MaxDrawnDetail : t.Id.StartsWith("r-l-") ? HouseDrawnDetail : Math.Max(w, d) > 1 ? 1 : MaxDrawnDetail;
+            if (detail > most && vox.SizeX > 1)
             {
-                int f = detail / MaxDrawnDetail;
+                int f = detail / most;
                 vox = vox.Downsample(f);
                 scale *= f;
-                detail = MaxDrawnDetail;
+                detail = most;
             }
-            var near = VoxMesher.Mesh(vox, scale).Append(roofMesh);
-            var far = VoxMesher.Mesh(vox.Downsample(4 * detail), 4 * detail * scale).Append(roofMesh);
+            // An auto-roof is smooth polygons already, made from the walls at each zoom level's detail: the roof of a
+            // fine model alone would outweigh a far model's walls many times over in a city of thousands.
+            var roofMesh = roof != null ? AutoRoof.Build(vox, detail, roof, scale) : new MeshData();
+            var roofMid = roof != null && detail > 1 ? AutoRoof.Build(vox.Downsample(detail), 1, roof, scale * detail) : roofMesh;
+            if (roofMid.Indices.Count == 0) roofMid = roofMesh;
+            var roofFar = Decimate.Cluster(roofMid, Math.Max(24, roofMid.Indices.Count / 3 / 4));
+            var far = VoxMesher.Mesh(vox.Downsample(4 * detail), 4 * detail * scale).Append(roofFar);
             var model = vox;
-            int mid = 2 * detail;
+            // Mid is half-metre voxels for a fine model (what the old blocks were close up), a metre for a coarse one.
+            int mid = detail > 1 ? detail : 2;
             m = new Model
             {
-                Near = ToMesh(near), Far = ToMesh(far),
-                Mid = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model.Downsample(mid), mid * scale).Append(roofMesh))),
+                // Near is made the first time a close zoom level draws it: most models in a big city are only seen far off.
+                Near = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model, scale).Append(roofMesh))), Far = ToMesh(far),
+                Mid = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model.Downsample(mid), mid * scale).Append(roofMid))),
                 Smooth = SmoothOf(vox, scale, roofMesh),
-                Height = near.Positions.Count > 0 ? near.Positions.Max(p => p.Y) : 0, FromFile = fromFile, Voxels = vox, Scale = scale, Roof = roofMesh,
+                Height = Math.Max(TopOf(vox) * scale, roofMesh.Positions.Count > 0 ? roofMesh.Positions.Max(p => p.Y) : 0), FromFile = fromFile, Voxels = vox, Scale = scale, Roof = roofMesh,
             };
         }
         _cache[(t.Id, w, d, v)] = m;
@@ -142,7 +155,7 @@ public sealed class BuildingModels
         var smooth = ToMesh(near);
         return new Model
         {
-            Near = smooth, Far = ToMesh(Decimate.Cluster(mesh, 800)),
+            Near = new Lazy<ArrayMesh>(() => smooth), Far = ToMesh(Decimate.Cluster(mesh, 800)),
             Mid = new Lazy<ArrayMesh>(() => ToMesh(Decimate.Cluster(mesh, 6_000))), Smooth = new Lazy<ArrayMesh>(() => smooth),
             Height = mesh.Positions.Count > 0 ? mesh.Positions.Max(p => p.Y) : 0, FromFile = true,
         };
@@ -152,6 +165,16 @@ public sealed class BuildingModels
     public static readonly string[] Folders = { "user://vox", "res://vox" };
 
     static MeshData Copy(MeshData m) => new MeshData().Append(m);
+
+    /// <summary>The height of a model's highest solid voxel's top, in voxels.</summary>
+    static int TopOf(VoxModel m)
+    {
+        int layer = m.SizeX * m.SizeY;
+        for (int z = m.SizeZ - 1; z >= 0; z--)
+            for (int i = z * layer, end = i + layer; i < end; i++)
+                if (m.Voxels[i] != 0) return z + 1;
+        return 0;
+    }
 
     static (VoxModel?, int, RoofSpec?)? LoadVox(string name)
     {

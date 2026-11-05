@@ -35,25 +35,33 @@ public static class VoxMesher
         var mesh = new MeshData();
         int[] size = { m.SizeX, m.SizeY, m.SizeZ };
         var air = OpenAir(m);
-        bool Open(int x, int y, int z) => !m.In(x, y, z) || air[x + m.SizeX * (y + m.SizeY * z)];
+        var vox = m.Voxels;
+        int[] stride = { 1, m.SizeX, m.SizeX * m.SizeY };
         for (int d = 0; d < 3; d++)
         {
             int u = (d + 1) % 3, v = (d + 2) % 3;
-            var mask = new byte[size[u] * size[v]];
+            int su = stride[u], sv = stride[v], sd = stride[d], nu = size[u], nv = size[v];
+            var mask = new byte[nu * nv];
             var p = new int[3];
-            var q = new int[3];
             foreach (int dir in new[] { 1, -1 })
                 for (p[d] = 0; p[d] < size[d]; p[d]++)
                 {
-                    // Faces in this slice: a solid voxel whose neighbour on this side is empty.
-                    for (p[v] = 0; p[v] < size[v]; p[v]++)
-                        for (p[u] = 0; p[u] < size[u]; p[u]++)
+                    // Faces in this slice: a solid voxel whose neighbour on this side is open air (or outside).
+                    bool edge = dir > 0 ? p[d] == size[d] - 1 : p[d] == 0;
+                    int step = dir * sd, slice = p[d] * sd;
+                    bool any = false;
+                    for (int b = 0, at = 0; b < nv; b++)
+                    {
+                        int i = slice + b * sv;
+                        for (int a = 0; a < nu; a++, i += su, at++)
                         {
-                            byte c = m[p[0], p[1], p[2]];
-                            q[0] = p[0]; q[1] = p[1]; q[2] = p[2];
-                            q[d] += dir;
-                            mask[p[u] + p[v] * size[u]] = c != 0 && Open(q[0], q[1], q[2]) ? c : (byte)0;
+                            byte c = vox[i];
+                            byte f = c != 0 && (edge || air[i + step]) ? c : (byte)0;
+                            mask[at] = f;
+                            any |= f != 0;
                         }
+                    }
+                    if (!any) continue;
                     // Merge into rectangles: grow along u, then along v while the whole row matches.
                     for (int b = 0; b < size[v]; b++)
                         for (int a = 0; a < size[u];)
@@ -84,28 +92,40 @@ public static class VoxMesher
     {
         int sx = m.SizeX, sy = m.SizeY, sz = m.SizeZ;
         var air = new bool[sx * sy * sz];
-        var queue = new Queue<int>();
-        void Visit(int x, int y, int z)
+        var stack = new int[Math.Max(16, sx * sy * sz / 8)];
+        int top = 0;
+        var vox = m.Voxels;
+        void Visit(int i)
         {
-            int i = x + sx * (y + sy * z);
-            if (air[i] || m.Voxels[i] != 0) return;
+            if (air[i] || vox[i] != 0) return;
             air[i] = true;
-            queue.Enqueue(i);
+            if (top == stack.Length) Array.Resize(ref stack, stack.Length * 2);
+            stack[top++] = i;
         }
-        for (int z = 0; z < sz; z++)
+        int plane = sx * sy;
+        // Most air is open sky: every empty voxel above a column's top is reached from above. Mark those first,
+        // then flood from the edges and from beside them into what's left (rooms through windows, under eaves).
+        for (int y = 0; y < sy; y++)
+            for (int x = 0; x < sx; x++)
+                for (int z = sz - 1, i = x + sx * (y + sy * z); z >= 0 && vox[i] == 0; z--, i -= plane) air[i] = true;
+        for (int z = 0, i = 0; z < sz; z++)
             for (int y = 0; y < sy; y++)
-                for (int x = 0; x < sx; x++)
-                    if (x == 0 || y == 0 || z == 0 || x == sx - 1 || y == sy - 1 || z == sz - 1) Visit(x, y, z);
-        while (queue.Count > 0)
+                for (int x = 0; x < sx; x++, i++)
+                {
+                    if (air[i] || vox[i] != 0) continue;
+                    if (x == 0 || y == 0 || z == 0 || x == sx - 1 || y == sy - 1 || z == sz - 1
+                        || air[i - 1] || air[i + 1] || air[i - sx] || air[i + sx] || air[i - plane] || air[i + plane]) Visit(i);
+                }
+        while (top > 0)
         {
-            int i = queue.Dequeue();
-            int x = i % sx, y = i / sx % sy, z = i / (sx * sy);
-            if (x > 0) Visit(x - 1, y, z);
-            if (x < sx - 1) Visit(x + 1, y, z);
-            if (y > 0) Visit(x, y - 1, z);
-            if (y < sy - 1) Visit(x, y + 1, z);
-            if (z > 0) Visit(x, y, z - 1);
-            if (z < sz - 1) Visit(x, y, z + 1);
+            int i = stack[--top];
+            int x = i % sx, y = i / sx % sy, z = i / plane;
+            if (x > 0) Visit(i - 1);
+            if (x < sx - 1) Visit(i + 1);
+            if (y > 0) Visit(i - sx);
+            if (y < sy - 1) Visit(i + sx);
+            if (z > 0) Visit(i - plane);
+            if (z < sz - 1) Visit(i + plane);
         }
         return air;
     }
