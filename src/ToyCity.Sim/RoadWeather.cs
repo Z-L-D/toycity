@@ -42,7 +42,7 @@ public sealed partial class World
     /// Whether rain, snow or freezing rain is falling this hour of the day clock. A front brings showers, more of the
     /// hours the stronger it is; the hours are the same over every city in the region.
     /// </summary>
-    public bool Falling => Weather is WeatherKind.Rain or WeatherKind.Snow or WeatherKind.Ice && ShowerHour(ClockMinute / 60, Weather, WeatherStrength);
+    public bool Falling => FallingKind != WeatherKind.Clear;
 
     public static bool ShowerHour(long hour, WeatherKind kind, int strength)
     {
@@ -52,7 +52,7 @@ public sealed partial class World
     }
 
     /// <summary>True when the roads are as they'd be on a dry, clear day.</summary>
-    public bool RoadsUsual => RoadWet == 0 && RoadMud == 0 && RoadCover.All(c => c == 0) && !(Falling && Weather is WeatherKind.Snow or WeatherKind.Ice) && FloodStage <= 0;
+    public bool RoadsUsual => RoadWet == 0 && RoadMud == 0 && RoadCover.All(c => c == 0) && !(Falling && FallingKind is WeatherKind.Snow or WeatherKind.Ice) && FloodStage <= 0;
 
     static int Lerp(int a, int b, int t1000) => a + (b - a) * t1000 / 1000;
 
@@ -79,7 +79,7 @@ public sealed partial class World
         var s = PathSurface[i] > 0 ? Content.Surfaces[PathSurface[i] - 1] : Asphalt;
         int share = 100;
         string c0 = "";
-        bool rain = Weather == WeatherKind.Rain && Falling;
+        bool rain = FallingKind == WeatherKind.Rain;
         // Drains and crews: a funded drained road holds up in the wet (the plan's "treated and funded" row).
         int fund = Math.Min(1000, RoadCrewFunding * 10);
         bool drained = p.Drained && RoadCrewFunding > 0;
@@ -97,11 +97,11 @@ public sealed partial class World
             int col = RoadIce[t] ? s.IcePct : s.SnowPct;
             Cut(100 - (100 - col) * RoadCover[t] / 1000, RoadIce[t] ? "ice" : "snow");
         }
-        if (Falling && Weather is WeatherKind.Snow or WeatherKind.Ice)
+        if (Falling && FallingKind is WeatherKind.Snow or WeatherKind.Ice)
         {
             // While it falls even a cleared road is slow: the treated row for a funded drained road, half the
             // surface's own cut for the rest.
-            bool ice = Weather == WeatherKind.Ice;
+            bool ice = FallingKind == WeatherKind.Ice;
             int col = ice ? s.IcePct : s.SnowPct;
             Cut(drained ? Lerp(100 - (100 - col) / 2, ice ? 75 : 85, fund) : 100 - (100 - col) / 2, ice ? "ice" : "snow");
         }
@@ -120,8 +120,8 @@ public sealed partial class World
         get
         {
             int pct = 0;
-            if (Falling && Weather == WeatherKind.Snow) pct += 5 * WeatherStrength;
-            if (Falling && Weather == WeatherKind.Ice) pct += 10 * WeatherStrength;
+            if (FallingKind == WeatherKind.Snow) pct += 5 * FallingStrength;
+            if (FallingKind == WeatherKind.Ice) pct += 10 * FallingStrength;
             // Snowed-in streets keep people home after it stops too.
             pct += RoadCover[Tiers - 1] / 100;
             return Math.Min(40, pct);
@@ -148,18 +148,19 @@ public sealed partial class World
     void RunRoadWeather()
     {
         int minutes = ClockMinutesPerTick;
-        bool falling = Falling;
-        int strength = Math.Max(1, WeatherStrength);
+        var fallingKind = FallingKind;
+        bool falling = fallingKind != WeatherKind.Clear;
+        int strength = Math.Max(1, falling ? FallingStrength : WeatherStrength);
         // Per clock hour, in thousandths, scaled to this step.
         int PerStep(int perHour) => (int)Math.Max(1, (long)perHour * minutes / 60);
         int month = Month;
         bool cold = month is 12 or 1 or 2, warm = Weather == WeatherKind.Heat || month is >= 5 and <= 9;
 
         // Rain: wet now, and mud on dirt that takes a day or more to dry.
-        if (falling && Weather is WeatherKind.Rain or WeatherKind.Ice)
+        if (falling && fallingKind is WeatherKind.Rain or WeatherKind.Ice)
         {
             RoadWet = 1000;
-            if (Weather == WeatherKind.Rain) RoadMud = Math.Min(1000, RoadMud + PerStep(250 * strength));
+            if (fallingKind == WeatherKind.Rain) RoadMud = Math.Min(1000, RoadMud + PerStep(250 * strength));
         }
         else
         {
@@ -168,7 +169,7 @@ public sealed partial class World
         }
 
         // Snow and ice on each tier.
-        bool any = falling && Weather is WeatherKind.Snow or WeatherKind.Ice || RoadCover.Any(c => c > 0) || RoadBanked.Any(c => c > 0);
+        bool any = falling && fallingKind is WeatherKind.Snow or WeatherKind.Ice || RoadCover.Any(c => c > 0) || RoadBanked.Any(c => c > 0);
         if (any)
         {
             var cells = TierCells();
@@ -176,10 +177,10 @@ public sealed partial class World
             {
                 // A tier the city hasn't built has nothing to lie on.
                 if (cells[t] == 0) { RoadCover[t] = RoadBanked[t] = 0; RoadIce[t] = false; continue; }
-                if (falling && Weather is WeatherKind.Snow or WeatherKind.Ice)
+                if (falling && fallingKind is WeatherKind.Snow or WeatherKind.Ice)
                 {
-                    RoadCover[t] = Math.Min(1000, RoadCover[t] + PerStep((Weather == WeatherKind.Ice ? 150 : 100) * strength));
-                    RoadIce[t] = Weather == WeatherKind.Ice || RoadIce[t] && RoadCover[t] > 500;
+                    RoadCover[t] = Math.Min(1000, RoadCover[t] + PerStep((fallingKind == WeatherKind.Ice ? 150 : 100) * strength));
+                    RoadIce[t] = fallingKind == WeatherKind.Ice || RoadIce[t] && RoadCover[t] > 500;
                 }
                 else
                 {
@@ -295,7 +296,7 @@ public sealed partial class World
     public string RoadWeatherText()
     {
         var parts = new List<string>();
-        if (Falling) parts.Add(Weather switch { WeatherKind.Snow => "snow falling", WeatherKind.Ice => "freezing rain falling", _ => "rain falling" });
+        if (Falling) parts.Add(FallingKind switch { WeatherKind.Snow => "snow falling", WeatherKind.Ice => "freezing rain falling", _ => "rain falling" });
         else if (RoadWet > 0) parts.Add("wet roads");
         if (RoadMud > 100) parts.Add("mud on dirt roads");
         for (int t = 0; t < Tiers; t++)

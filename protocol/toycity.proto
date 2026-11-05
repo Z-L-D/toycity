@@ -235,6 +235,7 @@ message Action {
     DigRiver dig_river = 35;
     PlaceDam dam = 36;
     PlantTrees plant_trees = 37;
+    PlaceStorm place_storm = 38;
   }
 }
 
@@ -254,6 +255,16 @@ message DigRiver {
 message PlantTrees {
   Rect area = 1;
   int32 kind = 2;
+}
+
+// Beta 4.1, part 3: sets a storm going from cell (x, y) of the map (or off it, up to a map's width beyond), toward
+// heading_deg (0 east, 90 south) at speed_kmh (0..120), light, heavy or severe by strength 1..3. Mayor only.
+message PlaceStorm {
+  int32 x = 1;
+  int32 y = 2;
+  int32 heading_deg = 3;
+  int32 speed_kmh = 4;
+  int32 strength = 5;
 }
 
 // A dam along a straight line across a river, holding its water rise (1..8) steps over the river there.
@@ -1147,6 +1158,7 @@ message CityStats {
   int64 sewage_untreated = 35;
   WaterQuality water_quality = 36;  // Beta 4, part 3
   int32 river_flow_pct = 37;        // how much the rivers carry, as a share of usual, from the month's rain upstream
+  Sky sky = 38;  // Beta 4.1, part 3: storm cells for the radar, and the weather station
 }
 
 // How clean the city's water is (Beta 4, part 3). Foulness runs 0 clean to 255.
@@ -1162,6 +1174,37 @@ message WaterQuality {
 // The state of the roads (Beta 3.2, part 4). Percentages are 0..100. Tiers are 0 highways, 1 roads, 2 streets and
 // paths, as in PathProfileInfo.winter_tier. A client works out each cell's look and share from these, its profile and
 // its surface (see the ClientModel's RoadConditions).
+// Beta 4.1, part 3: the sky over the city. Storm cells as the radar sees them at clock_minute, in km from the middle
+// of the map (x east, y south): each an ellipse `along` km down its track (the way it moves) and `across` km wide,
+// `peak` dBZ at its core falling to 18 dBZ less at its edge. A client moves them on by their velocity between ticks
+// and draws the radar from them (see the ClientModel's Radar).
+message StormCell {
+  float x = 1;
+  float y = 2;
+  float vx = 3;       // km/h
+  float vy = 4;
+  float along = 5;    // km
+  float across = 6;
+  float peak = 7;     // dBZ
+  float top_km = 8;   // echo tops
+  int32 kind = 9;     // 0 rain, 1 snow, 2 freezing rain, 3 thunderstorm
+  uint32 seed = 10;   // its texture
+}
+
+// The weather station's readings and the radar's cells.
+message Sky {
+  repeated StormCell cells = 1;
+  int64 clock_minute = 2;     // when the cells were where they are
+  float temp_c = 3;
+  float dew_c = 4;
+  int32 humidity = 5;         // percent
+  int32 wind_from_deg = 6;    // meteorological: 270 a west wind
+  int32 wind_kmh = 7;
+  float pressure_hpa = 8;
+  float rate_mm_h = 9;        // rain (as water) falling on the middle of the city now
+  float today_mm = 10;        // since midnight on the day clock
+}
+
 message RoadWeather {
   bool falling = 1;               // rain, snow or freezing rain is falling this hour of the day clock
   int32 wet = 2;                  // how wet the roads are

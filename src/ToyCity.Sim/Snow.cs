@@ -21,8 +21,8 @@ public sealed partial class World
         int minutes = ClockMinutesPerTick;
         int Per(int mmPerHour) => (int)Math.Max(1, (long)mmPerHour * minutes / 60);
         // Light snow lays half a centimetre an hour, heavy snow one and a half, a blizzard four.
-        if (Falling && Weather == WeatherKind.Snow)
-            GroundSnowMm = Math.Min(MaxSnowMm, GroundSnowMm + Per(Math.Clamp(WeatherStrength, 1, 3) switch { 1 => 5, 2 => 15, _ => 40 }));
+        if (FallingKind == WeatherKind.Snow)
+            GroundSnowMm = Math.Min(MaxSnowMm, GroundSnowMm + Per(Math.Clamp(FallingStrength, 1, 3) switch { 1 => 5, 2 => 15, _ => 40 }));
         else if (GroundSnowMm > 0 && Weather != WeatherKind.Ice)
         {
             // Melting, a millimetre an hour in the depth of winter to four centimetres in a heatwave.

@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 20;
+    public const int FormatVersion = 21;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -341,6 +341,7 @@ public sealed partial class World
         RunSnow();
         // Whatever was built over trees today has taken them.
         TrimFarms();
+        TrimStorms();
         TrimPlants();
         UpdateStats();
         // The city's own calls come on the day clock too, so a dispatcher hears them at one rate an hour whatever the
@@ -490,6 +491,8 @@ public sealed partial class World
             WC(w, Plant); WC(w, Canopy);
             // Format 20: farm country.
             WC(w, Farm); w.Write(FarmCountry);
+            // Format 21: storms set going by players.
+            WriteStorms(w);
         }
         return ms.ToArray();
     }
@@ -634,6 +637,8 @@ public sealed partial class World
         else { w.RecomputeWaterDistance(); w.PlantOldSave(); }
         // Format 20 added farms; an older city has none.
         if (version >= 20) { ReadBytes(r, w.Farm); w.FarmCountry = r.ReadBoolean(); w.FarmsChanged(); }
+        // Format 21 added placed storms; an older city has none.
+        if (version >= 21) w.ReadStorms(r);
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
         var demand = (int[])w.Demand.Clone();

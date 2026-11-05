@@ -24,6 +24,7 @@ public static class Mapping
         P.Action.KindOneofCase.Terraform => new TerraformAction(Rect(a.Terraform.Area), (TerraformMode)(int)a.Terraform.Mode),
         P.Action.KindOneofCase.DigRiver => new DigRiverAction(a.DigRiver.X0, a.DigRiver.Y0, a.DigRiver.X1, a.DigRiver.Y1, a.DigRiver.Width, a.DigRiver.Depth),
         P.Action.KindOneofCase.Dam => new PlaceDamAction(a.Dam.X0, a.Dam.Y0, a.Dam.X1, a.Dam.Y1, a.Dam.Rise),
+        P.Action.KindOneofCase.PlaceStorm => new PlaceStormAction(a.PlaceStorm.X, a.PlaceStorm.Y, a.PlaceStorm.HeadingDeg, a.PlaceStorm.SpeedKmh, a.PlaceStorm.Strength),
         P.Action.KindOneofCase.PlantTrees => new PlantTreesAction(Rect(a.PlantTrees.Area), (PlantKind)a.PlantTrees.Kind),
         P.Action.KindOneofCase.Tax => new SetTaxAction((Zone)(int)a.Tax.Zone, (Level)(int)a.Tax.Wealth, a.Tax.PercentTenths),
         P.Action.KindOneofCase.Funding => new SetFundingAction(a.Funding.BuildingId, a.Funding.Percent),
@@ -72,6 +73,7 @@ public static class Mapping
         TerraformAction x => new P.Action { Terraform = new P.Terraform { Area = Rect(x.Area), Mode = (P.TerraformMode)(int)x.Mode } },
         DigRiverAction x => new P.Action { DigRiver = new P.DigRiver { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, Width = x.Width, Depth = x.Depth } },
         PlaceDamAction x => new P.Action { Dam = new P.PlaceDam { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, Rise = x.Rise } },
+        PlaceStormAction x => new P.Action { PlaceStorm = new P.PlaceStorm { X = x.X, Y = x.Y, HeadingDeg = x.HeadingDeg, SpeedKmh = x.SpeedKmh, Strength = x.Strength } },
         PlantTreesAction x => new P.Action { PlantTrees = new P.PlantTrees { Area = Rect(x.Area), Kind = (int)x.Kind } },
         SetTaxAction x => new P.Action { Tax = new P.SetTax { Zone = (P.ZoneKind)(int)x.Zone, Wealth = (P.Wealth)(int)x.Wealth, PercentTenths = x.PercentTenths } },
         SetFundingAction x => new P.Action { Funding = new P.SetFunding { BuildingId = x.BuildingId, Percent = x.Percent } },
@@ -202,12 +204,20 @@ public static class Mapping
         s.Roads = new P.RoadWeather
         {
             Falling = w.Falling, Wet = w.RoadWet / 10, Mud = w.RoadMud / 10, CrewsPct = w.RoadCrewFunding, Text = w.RoadWeatherText(),
-            StayHomePct = w.StayHomePct, SnowMm = w.GroundSnowMm, WeatherKind = w.Weather == WeatherKind.Clear ? "" : w.Weather.ToString().ToLowerInvariant(),
+            StayHomePct = w.StayHomePct, SnowMm = w.GroundSnowMm, WeatherKind = (w.Falling ? w.FallingKind : w.Weather) is var wk && wk == WeatherKind.Clear ? "" : wk.ToString().ToLowerInvariant(),
         };
         for (int t = 0; t < World.Tiers; t++) { s.Roads.Cover.Add(w.RoadCover[t] / 10); s.Roads.Ice.Add(w.RoadIce[t]); s.Roads.Banked.Add(w.RoadBanked[t] / 10); }
         foreach (var d in w.Disasters)
             s.Disasters.Add(new P.Disaster { Id = d.Id, Kind = (P.DisasterKind)(int)d.Kind, X = d.X, Y = d.Y, DaysLeft = d.DaysLeft, Destroyed = d.Destroyed, Damaged = d.Damaged });
         foreach (var (label, amount) in w.LastBudget) s.Budget.Add(new P.BudgetLine { Label = label, Amount = amount });
+        var st = w.Station();
+        s.Sky = new P.Sky
+        {
+            ClockMinute = w.ClockMinute, TempC = (float)st.TempC, DewC = (float)st.DewC, Humidity = st.Humidity, WindFromDeg = st.WindFromDeg,
+            WindKmh = st.WindKmh, PressureHpa = (float)st.PressureHpa, RateMmH = (float)st.RateMmH, TodayMm = (float)st.TodayMm,
+        };
+        foreach (var c in w.StormCells(w.ClockMinute))
+            s.Sky.Cells.Add(new P.StormCell { X = (float)c.X, Y = (float)c.Y, Vx = (float)c.Vx, Vy = (float)c.Vy, Along = (float)c.Along, Across = (float)c.Across, Peak = (float)c.Peak, TopKm = (float)c.TopKm, Kind = (int)c.Kind, Seed = c.Seed });
         return s;
     }
 
