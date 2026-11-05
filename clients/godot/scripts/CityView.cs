@@ -469,7 +469,7 @@ public partial class CityView : Node3D
     {
         region &= 0xFFFFF;  // the variant is kept above the region
         var d = _detail == ModelDetail.Smooth && (Math.Abs(region % 1024 - _focus.X) > _radius || Math.Abs(region / 1024 - _focus.Y) > _radius) ? _rest : _detail;
-        return d switch { ModelDetail.Far => m.Far, ModelDetail.Mid => m.Mid.Value, ModelDetail.Smooth => m.Smooth.Value, _ => m.Near };
+        return d switch { ModelDetail.Far => m.Far, ModelDetail.Mid => m.Mid.Value, ModelDetail.Smooth => m.Smooth.Value, _ => m.Near.Value };
     }
 
     public int Batches => _batches.Count;

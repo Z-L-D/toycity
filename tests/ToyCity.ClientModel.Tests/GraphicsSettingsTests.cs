@@ -73,12 +73,14 @@ public class GraphicsSettingsTests
     public void DetailFollowsTheSettingAndTheCamera()
     {
         Assert.Equal(ModelDetail.Far, GraphicsSettings.High.ClassicDetail(2));
-        Assert.Equal(ModelDetail.Near, GraphicsSettings.High.ClassicDetail(3));
+        Assert.Equal(ModelDetail.Mid, GraphicsSettings.High.ClassicDetail(3));
+        Assert.Equal(ModelDetail.Near, GraphicsSettings.High.ClassicDetail(4));
         Assert.Equal(ModelDetail.Mid, GraphicsSettings.Medium.ClassicDetail(3));
         Assert.Equal(ModelDetail.Far, GraphicsSettings.Low.ClassicDetail(3));
         Assert.Equal(ModelDetail.Mid, GraphicsSettings.Low.ClassicDetail(4));
         Assert.Equal(ModelDetail.Smooth, GraphicsSettings.High.FreeDetail(18));
-        Assert.Equal(ModelDetail.Near, GraphicsSettings.High.FreeDetail(60));
+        Assert.Equal(ModelDetail.Near, GraphicsSettings.High.FreeDetail(40));
+        Assert.Equal(ModelDetail.Mid, GraphicsSettings.High.FreeDetail(60));
         Assert.Equal(ModelDetail.Far, GraphicsSettings.High.FreeDetail(160));
         Assert.Equal(ModelDetail.Mid, GraphicsSettings.Medium.FreeDetail(18));
         Assert.Equal(ModelDetail.Far, GraphicsSettings.Medium.FreeDetail(100));

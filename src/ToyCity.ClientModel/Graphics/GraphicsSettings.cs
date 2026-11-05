@@ -121,14 +121,18 @@ public sealed record GraphicsSettings
     {
         BuildingDetail.Low => zoom >= 4 ? ModelDetail.Mid : ModelDetail.Far,
         BuildingDetail.Medium => ModelDetail.Mid,
-        _ => ModelDetail.Near,
+        // The realistic set's full models are for the closest zoom: at zoom 3 a whole district is on screen.
+        _ => zoom >= 4 ? ModelDetail.Near : ModelDetail.Mid,
     };
+
+    /// <summary>How far off (cells) the free camera draws the full models on High; past it, the mid ones.</summary>
+    public const float NearDistance = 48;
 
     public ModelDetail FreeDetail(float distance)
     {
         if (distance > DetailDistance) return ModelDetail.Far;
         if (distance < 24 && Smoothing != Smoothing.Off) return ModelDetail.Smooth;
-        return Detail switch { BuildingDetail.Low => ModelDetail.Far, BuildingDetail.Medium => ModelDetail.Mid, _ => ModelDetail.Near };
+        return Detail switch { BuildingDetail.Low => ModelDetail.Far, BuildingDetail.Medium => ModelDetail.Mid, _ => distance > NearDistance ? ModelDetail.Mid : ModelDetail.Near };
     }
 
     /// <summary>The voxel size smooth shapes start from (1 full, 2 half, 4 a quarter) and the most triangles a model may take.</summary>

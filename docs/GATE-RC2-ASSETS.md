@@ -61,10 +61,24 @@ in three variants, so a street of them isn't one house copied, and buildings tur
   - bigger lots are made at 25 cm;
   - tall towers are coarser, down to 50 cm for the tallest.
 
-  The city draws at 12.5 cm at the finest. A 6.25 cm house has five to seven times the faces (40,000–70,000) for a
-  difference a city camera can't show, and drawing it at full detail made the hill run two and a half times slower.
-  The full voxels are kept for the editor and for the destruction swap. The set draws in metres, so one recipe
-  works at any detail.
+  The set draws in metres, so one recipe works at any detail.
+- **What the city draws.** A whole city of fine models was far too many triangles, so the city draws lighter
+  versions:
+  - **Close up**, houses and one-cell lots are drawn at 12.5 cm. A 6.25 cm house has five to seven times the faces
+    (40,000–70,000) for a difference a city camera can't show.
+  - **Close up, bigger lots** (flats, towers, works) are drawn at 50 cm, as the old blocks were. Models from files
+    keep their own detail.
+  - **Mid distance** is half-metre voxels. On High this is now classic zoom 3 and free-camera views past 48 cells
+    (before, both used the full models). The full models are for zoom 4 and the free camera up close.
+  - **Far off** is 2 m voxels.
+  - **Roofs** are built again at each level: at mid distance they're built at half-metre detail, and far off they're
+    also cut down. A house's fine roof alone was about 4,400 triangles, so a far view of the dense city held
+    18 million.
+  - **Close-up meshes are made only when a close view first needs them.**
+
+  The full voxels are kept for the editor and for the destruction swap.
+- **The mesher is faster.** Its pass to find the open air now fills open sky first. It makes the same faces 5–10
+  times faster, which also speeds up the smooth shapes.
 - **Variants.** Each zoned type has three variants, which differ in:
   - paint and brick;
   - storeys;
@@ -102,8 +116,11 @@ in three variants, so a street of them isn't one house copied, and buildings tur
 
 ## Known limits
 
-- **Models are made on the main thread** the first time a type, lot size and variant is drawn. Each takes 0.1–1 s
-  to make and mesh, so a new town takes a little longer to appear the first time.
+- **Models are made on the main thread** the first time a type, lot size and variant is drawn. Each takes a tenth
+  of a second to a second to make and mesh, so a new town takes a little longer to appear the first time.
+- **Heavier than the blocks.** The dense benchmark city draws more triangles than with the old blocks: far zooms
+  1.8–3 million against 0.3–1.4 million. A GPU test on real hardware should say whether the High preset needs to be
+  lighter.
 - **The web client is unchanged.** It draws the city as a map, not models.
 - **A lot that isn't square** can't face a road on its long side.
 - **No interiors.** Floors and stairs are inside the houses, but the towers are hollow above their floors.
