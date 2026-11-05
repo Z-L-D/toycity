@@ -67,6 +67,8 @@ public class RealSetTests
         Assert.Equal(8, RealSet.DetailFor(1, 1, 10));
         Assert.Equal(4, RealSet.DetailFor(1, 1, 10, 4));
         Assert.Equal(4, RealSet.DetailFor(2, 2, 20));
+        Assert.Equal(2, RealSet.Build("r-m-l", 2, 2, 0)!.Detail);
+        Assert.Equal(4, RealSet.Build("c-l-l", 1, 1, 0)!.Detail);
         Assert.Equal(2, RealSet.DetailFor(3, 3, 20));
         Assert.Equal(2, RealSet.DetailFor(4, 4, 20));
         // A tower too tall for its lot's detail is drawn coarser.

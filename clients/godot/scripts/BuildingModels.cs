@@ -43,7 +43,13 @@ public sealed class BuildingModels
     readonly ShapeCache _shapes = new(ProjectSettings.GlobalizePath("user://cache/shapes"));
     (int Start, int Budget) _shapeOptions = (2, 6_000);
 
+    /// <summary>The finest detail the city draws, in voxels a half metre.</summary>
+    public const int MaxDrawnDetail = 4;
+
     public int Count => _cache.Count;
+    /// <summary>Models made so far and the time spent making them (not their lazy mid and smooth meshes), for the gate runs.</summary>
+    public static int Made;
+    public static double MakingSeconds;
     public int ShapesMade => _shapes.Builds;
     public int ShapesRead => _shapes.Hits;
 
@@ -71,6 +77,7 @@ public sealed class BuildingModels
     {
         int v = RealSet.Has(t.Id) && !HasFile(t.Id, w, d) ? Math.Clamp(variant, 0, RealSet.Variants - 1) : 0;
         if (_cache.TryGetValue((t.Id, w, d, v), out var m)) return m;
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
         var (vox, detail, roof) = LoadVox($"{t.Id}-{w}x{d}") ?? LoadVox(t.Id) ?? (null, 1, null);
         if (vox == null && (LoadGltf($"{t.Id}-{w}x{d}") ?? LoadGltf(t.Id)) is { } gltf)
             m = FromGltf(GltfFile.FitToLot(gltf, w, d));
@@ -84,6 +91,15 @@ public sealed class BuildingModels
             float scale = Mathf.Min(1f / detail, fit) / VoxModel.PerCell;
             // An auto-roof is smooth polygons already, so every zoom level draws the same one on its walls.
             var roofMesh = roof != null ? AutoRoof.Build(vox, detail, roof, scale) : new MeshData();
+            // The city draws a model at 12.5 cm voxels at the finest: a 6.25 cm house has five to seven times the
+            // faces for a difference too small to see from a city camera. Its full voxels stay in its file.
+            if (detail > MaxDrawnDetail && vox.SizeX > 1)
+            {
+                int f = detail / MaxDrawnDetail;
+                vox = vox.Downsample(f);
+                scale *= f;
+                detail = MaxDrawnDetail;
+            }
             var near = VoxMesher.Mesh(vox, scale).Append(roofMesh);
             var far = VoxMesher.Mesh(vox.Downsample(4 * detail), 4 * detail * scale).Append(roofMesh);
             var model = vox;
@@ -97,6 +113,8 @@ public sealed class BuildingModels
             };
         }
         _cache[(t.Id, w, d, v)] = m;
+        Made++;
+        MakingSeconds += System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalSeconds;
         return m;
     }
 

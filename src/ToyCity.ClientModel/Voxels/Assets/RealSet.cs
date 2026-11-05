@@ -67,8 +67,11 @@ public static partial class RealSet
         /// <summary>The type's wealth letter for a zoned type: l, m or h.</summary>
         public char Wealth => Id.Length == 5 ? Id[4] : 'm';
         /// <summary>Starts the model for a height in metres.</summary>
-        public Draw Begin(double height, int maxDetail = 4)
+        public Draw Begin(double height, int maxDetail = 0)
         {
+            // 12.5 cm voxels on a one-cell lot and 25 cm on bigger ones, unless asked (houses ask for 6.25 cm):
+            // finer would cost more to make and draw than a city camera can show.
+            if (maxDetail == 0) maxDetail = Math.Max(Cw, Cd) == 1 ? 4 : 2;
             height = Math.Min(MaxHeight, height);
             int k = DetailFor(Cw, Cd, height, maxDetail);
             var m = new VoxModel(Cw * VoxModel.PerCell * k, Cd * VoxModel.PerCell * k, Math.Min(256, (int)Math.Ceiling(height * 2 * k) + 1));

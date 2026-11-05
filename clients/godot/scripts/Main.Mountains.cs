@@ -221,6 +221,7 @@ public partial class Main
         using (var file = global::Godot.FileAccess.Open(_mountainFile, global::Godot.FileAccess.ModeFlags.Write)) file.StoreString(json.ToString());
         foreach (var (check, ok, seen) in _mountainChecks) GD.Print($"{Tag} {(ok ? "ok" : "FAILED")}  {check}: {seen}");
         foreach (var line in table.ToString().TrimEnd().Split('\n')) GD.Print($"{Tag} {line}");
+        GD.Print($"{Tag} models: {BuildingModels.Made} made in {BuildingModels.MakingSeconds:F1} s");
         if (failure != null) GD.PrintErr($"{Tag} FAILED: {failure.Message}");
         else GD.Print($"{Tag} OK, wrote {_mountainFile}");
         GetTree().Quit(failure == null ? 0 : 1);
