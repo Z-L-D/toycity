@@ -79,3 +79,25 @@ public class RadarTests
         Assert.Contains(lines, l => l.Label == "Rain now" && l.Value == "None");
     }
 }
+
+/// <summary>Beta 4.1, part 4: the water's foulness reaches the mirror, for murky water.</summary>
+public class FoulMirrorTests
+{
+    [Fact]
+    public void TheMirrorKeepsEachCellsFoulness()
+    {
+        var w = ToyCity.Sim.World.Create(ToyCity.Sim.ContentDb.LoadDefault(), 42);
+        var c = new CityMirror();
+        c.ApplyFull(ToyCity.Protocol.Mapping.FullState(w, 0));
+        Assert.Equal(c.N, c.Foul.Length);
+        var tracker = new ToyCity.Protocol.DeltaTracker();
+        tracker.Reset(w);
+        int water = Enumerable.Range(0, w.N).First(w.IsWater);
+        if (w.Foul.Length != w.N) w.Foul = new byte[w.N];
+        w.Foul[water] = 150;
+        int version = c.FoulVersion;
+        c.ApplyDelta(tracker.Next(w, 0, Array.Empty<ToyCity.Sim.SimNotice>()));
+        Assert.Equal(150, c.Foul[water]);
+        Assert.True(c.FoulVersion > version);
+    }
+}

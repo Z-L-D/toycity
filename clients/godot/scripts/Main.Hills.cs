@@ -200,7 +200,8 @@ public partial class Main
         yield return MountainMeasure("classic, water quality");
         _panels.Model.Click("overlay:0");
         _camera.ToggleFree();
-        Look(worst % c.Width + 0.5f, worst / c.Width + 0.5f, 24, 26, 200);
+        // From over the water, steeply, so the murk below the outfall shows past the trees on the bank (Beta 4.1, part 4).
+        Look(worst % c.Width + 0.5f, worst / c.Width + 0.5f, 20, 45, 20);
         yield return MountainMeasure("free, the foul river");
         _camera.ToggleFree();
         _client.Connection.Act(new Protocol.V0.Action { Treatment = new Protocol.V0.SetTreatment { Level = 2 } });

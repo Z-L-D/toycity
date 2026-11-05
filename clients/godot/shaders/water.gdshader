@@ -59,11 +59,12 @@ void fragment() {
 	col = mix(col, far, smoothstep(3.0, 10.0, depth));
 	float t = TIME;
 	float foul = use_murk ? texture(murk, p / map_size).r : 0.0;
-	// From about 30 (unsafe to drink) to 150 (it stinks): green-brown and cloudy, a scum drifting on the worst.
-	float murky = smoothstep(0.1, 0.6, foul);
-	vec3 silt = mix(vec3(0.30, 0.33, 0.18), vec3(0.24, 0.21, 0.12), smoothstep(0.5, 0.9, foul));
+	// From about 15 (unsafe to drink at 30) to 65 (it stinks past 60): green-brown and cloudy, a scum drifting on
+	// the worst.
+	float murky = smoothstep(0.05, 0.25, foul);
+	vec3 silt = mix(vec3(0.33, 0.34, 0.18), vec3(0.27, 0.23, 0.13), smoothstep(0.3, 0.6, foul));
 	col = mix(col, silt, murky * 0.85);
-	float scum = smoothstep(0.55, 0.9, foul) * smoothstep(0.5, 0.8, noise(p * 0.9 + vec2(t * 0.05, t * 0.03)));
+	float scum = smoothstep(0.3, 0.6, foul) * smoothstep(0.5, 0.8, noise(p * 0.9 + vec2(t * 0.05, t * 0.03)));
 	col = mix(col, vec3(0.42, 0.40, 0.22), scum * 0.6);
 	// Foam in a ragged band where it meets the shore.
 	float foam = (1.0 - smoothstep(0.0, 0.7, depth)) * smoothstep(0.45, 0.75, waves(p * 1.5, t * 1.4));

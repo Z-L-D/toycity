@@ -20,7 +20,7 @@ now so the release candidate can make its save promise over them.
   - `FullState.foul` carries one byte a cell, 0 clean to 255. Dry land is 0.
   - `TickDelta.foul` sends the whole layer again only when it has changed, which happens about monthly.
   - Godot's water shader turns foul water murky, as does the web map's water:
-    - from about 30 (unsafe to drink) to 150 (it stinks), the water turns a cloudy green-brown and nothing shows
+    - from about 15 to 65 (unsafe to drink at 30, it stinks past 60), the water turns a cloudy green-brown and nothing shows
       through it;
     - the worst water carries a drifting scum, and its foam yellows.
   - The water quality layer (overlay 21) still shows the numbers.
@@ -46,7 +46,10 @@ now so the release candidate can make its save promise over them.
     calendar days after it stops, with the crews unfunded, while January's stays.
 
   All 312 sim tests pass.
-- The Godot hill gate's sewage plant lets out raw sewage, and its shots now show the river below it murky.
+- ClientModel: `FoulMirrorTests` checks that a delta's foulness reaches the mirror.
+- The Godot hill gate's sewage plant lets out raw sewage. Its free-camera shot of the foul water now looks down from
+  over the bay. Shots in [`docs/screenshots/beta4-1-loose-ends`](screenshots/beta4-1-loose-ends) were taken on that
+  city: Godot's classic view and the web map show the murky plume spreading into the bay below the outfall.
 - Web `tsc` passes.
 
 ## Known limits

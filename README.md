@@ -56,6 +56,12 @@ From the Beta 4 and Beta 3.2 gate runs (Godot, CI runner with software rendering
 adds a new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
 
+Beta 4.1, part 4: foul water drawn murky below the hill gate's raw sewage outfall ([`docs/screenshots/beta4-1-loose-ends`](docs/screenshots/beta4-1-loose-ends)):
+
+| | |
+| --- | --- |
+| ![Godot, the murky plume spreading into the bay below Hill Town's sewage plant](docs/screenshots/beta4-1-loose-ends/godot-foul-water.jpg) | ![Web client, the same plume from above](docs/screenshots/beta4-1-loose-ends/web-foul-water.jpg) |
+
 Beta 4.1, part 3: storm cells, the weather station and the radar, base reflectivity and base velocity as the NWS draws them ([`docs/screenshots/beta4-1-storms`](docs/screenshots/beta4-1-storms)):
 
 ![Godot, the radar and the weather station with three January snow storms set going round Toyville](docs/screenshots/beta4-1-storms/godot-radar.jpg)
