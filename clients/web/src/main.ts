@@ -10,7 +10,7 @@ import { Transport } from './transport';
 import { Emergency } from './emergency';
 import { TickClock } from './dispatch';
 import { Region } from './region';
-import { BuildMenuState, DISASTER_NAMES, TERRAFORM_NAMES, icon, menuFor, type BuildCategory, type BuildItem } from './buildmenu';
+import { BuildMenuState, DISASTER_NAMES, TERRAFORM_NAMES, TREE_CHOICES, TREES_PER_CELL, icon, menuFor, type BuildCategory, type BuildItem } from './buildmenu';
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -27,6 +27,7 @@ type Tool =
   | { kind: 'terraform' }
   | { kind: 'river' }
   | { kind: 'dam' }
+  | { kind: 'trees' }
   | { kind: 'disaster' };
 
 const DISASTER_SETTINGS = ['Off', 'Rare', 'Normal'];
@@ -80,6 +81,8 @@ let surfaceId = '';
 let tunnel = false;
 let buildingTypeId = 'police-station';
 let terraformMode = 0;
+/** The tree planter's plant kind (Beta 4.1). */
+let treeKind = 0;
 /** The river brush's channel, cells wide and steps deep, and how many steps a dam holds the river up. */
 let riverWidth = 2, riverDepth = 2, damRise = 3;
 /** As the sim: the longest stroke one dig takes, its cost a cell a step, and the longest dam and its costs. */
@@ -345,6 +348,7 @@ function itemCurrent(i: BuildItem): boolean {
     case 'building': return tool.kind === 'building' && buildingTypeId === i.type;
     case 'terraform': return tool.kind === 'terraform' && terraformMode === i.terraform;
     case 'disaster': return tool.kind === 'disaster' && disasterKind === i.disaster;
+    case 'trees': return tool.kind === 'trees' && treeKind === i.treeKind;
     default: return tool.kind === i.kind;
   }
 }
@@ -360,6 +364,7 @@ function pickItem(i: BuildItem) {
     case 'building': buildingTypeId = i.type!; setTool({ kind: 'building' }); break;
     case 'terraform': terraformMode = i.terraform!; setTool({ kind: 'terraform' }); break;
     case 'disaster': disasterKind = i.disaster!; setTool({ kind: 'disaster' }); break;
+    case 'trees': treeKind = i.treeKind ?? 0; setTool({ kind: 'trees' }); break;
     default: setTool({ kind: i.kind } as Tool);
   }
 }
@@ -405,6 +410,8 @@ function toolOptions(): string {
         seg('rdepth', [1, 2, 3, 4].map((k) => [String(k), `${2 * k} m`, `${k} step${k > 1 ? 's' : ''} deep`] as [string, string, string]), String(riverDepth));
     case 'dam':
       return named('water', 'Dam') + seg('rise', [1, 2, 3, 4, 5, 6, 7, 8].map((k) => [String(k), `${2 * k} m`, `Holds the river ${2 * k} m over its level`] as [string, string, string]), String(damRise));
+    case 'trees':
+      return named('parks', 'Tree planter', `$${TREES_PER_CELL} / cell`) + seg('treekind', TREE_CHOICES.map(([n, k]) => [String(k), n] as [string, string]), String(treeKind));
     case 'disaster':
       return named('disasters', 'Disaster') + seg('disaster', DISASTER_NAMES.map((n, k) => [String(k), n] as [string, string]), String(disasterKind)) +
         `<label title="How often disasters happen by themselves. The sandbox tool works either way.">By themselves<select id="sel-disaster-setting">${DISASTER_SETTINGS.map((n, k) => `<option value="${k}" ${k === (city.stats.disasterSetting ?? 1) ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
@@ -461,6 +468,9 @@ function buildToolbar() {
   el.querySelectorAll<HTMLButtonElement>('button[data-density]').forEach((b) =>
     b.addEventListener('click', () => { density = Number(b.dataset.density); buildToolbar(); updateHints(); }),
   );
+  el.querySelectorAll<HTMLButtonElement>('button[data-treekind]').forEach((b) =>
+    b.addEventListener('click', () => { treeKind = Number(b.dataset.treekind); setTool({ kind: 'trees' }); }),
+  );
   el.querySelectorAll<HTMLButtonElement>('button[data-terraform]').forEach((b) =>
     b.addEventListener('click', () => { terraformMode = Number(b.dataset.terraform); setTool({ kind: 'terraform' }); }),
   );
@@ -513,6 +523,7 @@ function updateHints() {
     terraform: [['Drag', `${TERRAFORM_NAMES[terraformMode].toLowerCase()} area`], ['Esc', 'cancel']],
     river: [['Drag', 'dig a river from where its water starts'], ['Esc', 'cancel']],
     dam: [['Drag', 'wall a river, bank to bank'], ['Esc', 'cancel']],
+    trees: [['Drag', 'plant trees on open land'], ['Esc', 'cancel']],
     disaster: [['Click', `start a ${DISASTER_NAMES[disasterKind].toLowerCase()} here`], ['Esc', 'cancel']],
   };
   $('#hints').innerHTML = [...per[tool.kind], ...common].map(([k, v]) => `<div><kbd>${k}</kbd>${v}</div>`).join('');
@@ -770,12 +781,23 @@ function updatePreview(cell: { x: number; y: number }, sx: number, sy: number) {
   } else if (drag) {
     const w = Math.abs(cell.x - drag.x) + 1;
     const h = Math.abs(cell.y - drag.y) + 1;
-    const colors: Record<string, string> = { bulldoze: 'rgba(255,90,60,0.35)', dezone: 'rgba(200,200,200,0.3)', terraform: 'rgba(200,160,90,0.4)' };
+    const colors: Record<string, string> = { bulldoze: 'rgba(255,90,60,0.35)', dezone: 'rgba(200,200,200,0.3)', terraform: 'rgba(200,160,90,0.4)', trees: 'rgba(60,140,60,0.4)' };
     const color = tool.kind === 'zone' ? ['', 'rgba(76,175,80,0.45)', 'rgba(74,127,224,0.45)', 'rgba(224,176,48,0.45)'][tool.zone] : colors[tool.kind] ?? 'rgba(255,255,255,0.2)';
     renderer.preview = { kind: 'rect', x0: drag.x, y0: drag.y, x1: cell.x, y1: cell.y, ok: true, color };
     text = `${w} × ${h}`;
     if (tool.kind === 'zone') text += `: about ${money(w * h * ZONE_COST)}`;
     if (tool.kind === 'terraform') text += `: up to ${money(w * h * 25)}`;
+    if (tool.kind === 'trees') {
+      // The planter skips what's built on, under water or already wooded.
+      let n = 0;
+      for (let y = Math.min(drag.y, cell.y); y <= Math.max(drag.y, cell.y); y++)
+        for (let x = Math.min(drag.x, cell.x); x <= Math.max(drag.x, cell.x); x++) {
+          if (x < 0 || y < 0 || x >= city.width || y >= city.height) continue;
+          const i = y * city.width + x;
+          if (!city.isWater(i) && !city.paths[i] && !city.buildingAt[i] && (city.plants[i] & 15) < 4) n++;
+        }
+      text += n ? `: ${n} cells, ${money(n * TREES_PER_CELL)}` : ': nowhere here to plant';
+    }
   }
   if (text) {
     costEl.textContent = text;
@@ -826,6 +848,9 @@ function commit(start: { x: number; y: number }, end: { x: number; y: number }) 
       break;
     case 'terraform':
       act({ terraform: { area: rect(start, end), mode: terraformMode } }, `${TERRAFORM_NAMES[terraformMode]} ${size}`);
+      break;
+    case 'trees':
+      act({ plantTrees: { area: rect(start, end), kind: treeKind } }, `Plant ${(TREE_CHOICES.find(([, k]) => k === treeKind)?.[0] ?? 'trees').toLowerCase()} over ${size}`);
       break;
     case 'river': {
       // A long stroke goes as several digs end to end, each within what one dig takes.
@@ -1599,6 +1624,7 @@ $('#btn-new').addEventListener('click', () => {
     <label>Seed (blank for random)</label><input type="number" name="seed" min="1">
     <label>Map size</label><select name="size"><option value="64">Small (64 × 64, 1 km)</option><option value="128" selected>Medium (128 × 128, 2 km)</option><option value="256">Large (256 × 256, 4 km)</option></select>
     <label><input type="checkbox" name="starter"> Start with a small working town</label>
+    <label><input type="checkbox" name="farms" checked> Farm country: the fertile low ground already farmed</label>
     <label><input type="checkbox" name="benchmark"> Benchmark city: 256 × 256, every block built (a single city)</label>
     <div class="actions"><button value="cancel">Cancel</button><button value="ok" class="active">Start</button></div>`;
   dlg.onclose = () => {
@@ -1608,12 +1634,12 @@ $('#btn-new').addEventListener('click', () => {
       const n = Number(fd.get('tiles'));
       const grows = fd.get('kind') === 'grow';
       busy('Making the region…', 'new');
-      conn.send({ newRegion: { name: `${String(fd.get('name') || 'New')} Region`, cityName: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), cols: n, rows: n, tileSize: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', grows,
+      conn.send({ newRegion: { name: `${String(fd.get('name') || 'New')} Region`, cityName: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), cols: n, rows: n, tileSize: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', grows, farms: fd.get('farms') === 'on',
         charter: { grow: Number(fd.get('chGrow')), annex: Number(fd.get('chAnnex')), maxCitySide: 0 } } });
       return;
     }
     busy(fd.get('benchmark') === 'on' ? 'Building the benchmark city…' : 'Making the city…', 'new');
-    conn.send({ newCity: { name: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), size: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', benchmark: fd.get('benchmark') === 'on' } });
+    conn.send({ newCity: { name: String(fd.get('name') || 'New City'), seed: Number(fd.get('seed') || 0), size: Number(fd.get('size')), starterTown: fd.get('starter') === 'on', benchmark: fd.get('benchmark') === 'on', farms: fd.get('farms') === 'on' } });
   };
   dlg.showModal();
 });

@@ -3,7 +3,7 @@ using PAction = ToyCity.Protocol.V0.Action;
 
 namespace ToyCity.ClientModel.Tools;
 
-public enum ToolKind { Query, Bulldoze, Path, Zone, Dezone, Utility, Building, Terraform, Disaster, River, Dam }
+public enum ToolKind { Query, Bulldoze, Path, Zone, Dezone, Utility, Building, Terraform, Disaster, River, Dam, Trees }
 
 /// <summary>What the player has picked: the tool and its options, as in the web client's toolbar.</summary>
 public sealed class ToolState
@@ -24,6 +24,8 @@ public sealed class ToolState
     public UtilityKind Utility = UtilityKind.UtilityPowerLine;
     public string BuildingTypeId = "police-station";
     public TerraformMode Terraform = TerraformMode.TerraformRaise;
+    /// <summary>The tree planter's kind (Beta 4.1): 0 what suits the ground, 1 broadleaf, 2 conifers, 5 orchard.</summary>
+    public int TreeKind;
     public DisasterKind Disaster = DisasterKind.DisasterFire;
     public bool Underground;              // bulldoze clears water pipes and subway tunnels only
     /// <summary>The river brush: how wide a channel it digs, in cells (1..5), and how deep, in steps (1..4).</summary>
@@ -64,13 +66,15 @@ public static class Planner
 {
     /// <summary>A bridge costs this many times its path, as World.BridgeCostTimes.</summary>
     public const int BridgeCostTimes = 5;
-    public const int ZoneCostPerCell = 5, PowerLinePerCell = 5, WaterPipePerCell = 3, SubwayPerCell = 150, TerraformPerCell = 25;
+    public const int ZoneCostPerCell = 5, PowerLinePerCell = 5, WaterPipePerCell = 3, SubwayPerCell = 150, TerraformPerCell = 25, TreesPerCell = 12;
     /// <summary>As World: a road's cut and fill per step a cell, a pad's, and the most a pad levels.</summary>
     public const int GradeCostPerStep = 10, PadCostPerStep = 5, MaxPadRise = 3;
     public static readonly string[] DensityNames = { "Low", "Medium", "High" };
     public static readonly string[] ZoneNames = { "", "residential", "commercial", "industrial" };
     public static readonly string[] DisasterNames = { "Fire", "Tornado", "Earthquake", "Clockwork Colossus" };
     public static readonly string[] TerraformNames = { "Raise", "Lower", "Level", "Smooth", "Even slope" };
+    /// <summary>The tree planter's choices, and the plant kind each plants (Beta 4.1).</summary>
+    public static readonly (string Name, int Kind)[] TreeChoices = { ("Trees", 0), ("Broadleaf", 1), ("Conifers", 2), ("Orchard", 5) };
     public static readonly string[] SideNames = { "north", "east", "south", "west" };
     static readonly int[] SideDx = { 0, 1, 0, -1 }, SideDy = { -1, 0, 1, 0 };
 
@@ -99,7 +103,7 @@ public static class Planner
                 return Line(c, t, s, p with { X = bx, Y = by, Free = p.Free || (bx, by) != (p.X, p.Y) });
             case ToolKind.Utility when p.DragStart is { } s:
                 return Line(c, t, s, p);
-            case ToolKind.Zone or ToolKind.Dezone or ToolKind.Bulldoze or ToolKind.Terraform when p.DragStart is { } s:
+            case ToolKind.Zone or ToolKind.Dezone or ToolKind.Bulldoze or ToolKind.Terraform or ToolKind.Trees when p.DragStart is { } s:
                 return Area(c, t, s, p);
             case ToolKind.River when p.DragStart is { } s:
                 return River(c, t, s, p);
@@ -476,11 +480,23 @@ public static class Planner
     {
         int x0 = Math.Min(s.X, p.X), x1 = Math.Max(s.X, p.X), y0 = Math.Min(s.Y, p.Y), y1 = Math.Max(s.Y, p.Y);
         int w = x1 - x0 + 1, h = y1 - y0 + 1;
-        var tint = t.Kind switch { ToolKind.Zone => Tint.Zone, ToolKind.Bulldoze => Tint.Clear, ToolKind.Terraform => Tint.Earth, _ => Tint.Leftover };
+        var tint = t.Kind switch { ToolKind.Zone => Tint.Zone, ToolKind.Bulldoze => Tint.Clear, ToolKind.Terraform => Tint.Earth, ToolKind.Trees => Tint.Zone, _ => Tint.Leftover };
         var cells = new List<(int, int, Tint)>();
+        int plantable = 0;
         for (int y = y0; y <= y1; y++)
             for (int x = x0; x <= x1; x++)
-                if (c.InBounds(x, y)) cells.Add((x, y, tint));
+            {
+                if (!c.InBounds(x, y)) continue;
+                int i = c.Idx(x, y);
+                // The planter skips what's built on, under water or already wooded.
+                if (t.Kind == ToolKind.Trees && (c.IsWater(i) || c.Paths[i] != 0 || c.BuildingAt[i] != 0 || c.CanopyAt(i) >= 4))
+                {
+                    cells.Add((x, y, Tint.Bad));
+                    continue;
+                }
+                plantable++;
+                cells.Add((x, y, tint));
+            }
         var area = RectOf(s, (p.X, p.Y));
         string size = $"{w}×{h}";
         return t.Kind switch
@@ -491,6 +507,9 @@ public static class Planner
             ToolKind.Dezone => new Preview(cells, true, size, new() { new PAction { Zone = new PaintZone { Area = area, Zone = ZoneKind.ZoneNone } } }, $"De-zone {size}"),
             ToolKind.Bulldoze => new Preview(cells, true, t.Underground ? $"{size}: pipes only" : size,
                 new() { new PAction { Bulldoze = new Bulldoze { Area = area, Underground = t.Underground } } }, $"Bulldoze {size} at {s.X},{s.Y}"),
+            ToolKind.Trees => new Preview(cells, plantable > 0, plantable > 0 ? $"{plantable} cells: {Money((long)plantable * TreesPerCell)}" : "Nowhere here to plant",
+                new() { new PAction { PlantTrees = new PlantTrees { Area = area, Kind = t.TreeKind } } },
+                $"Plant {TreeChoices.FirstOrDefault(k => k.Kind == t.TreeKind).Name?.ToLowerInvariant() ?? "trees"} over {size}"),
             _ => new Preview(cells, true, $"{size}: up to {Money((long)w * h * TerraformPerCell)}",
                 new() { new PAction { Terraform = new Terraform { Area = area, Mode = t.Terraform } } }, $"{TerraformNames[(int)t.Terraform]} {size}"),
         };

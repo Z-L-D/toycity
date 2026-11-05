@@ -3,6 +3,8 @@ import { type MapLight, litShare } from './daylight';
 import { City, lCells, SIDE_DX, SIDE_DY, stripPoints } from './state';
 import type { Building, BuildingType } from './state';
 import type { Msg } from './net';
+import { FIELD, TRACK, YARD, cropColour, farmCrop, farmWhat, rowsNorthSouth } from './farms';
+import { BROADLEAF, CONIFER, ORCHARD, REEDS, SCRUB, plantColour, treeSpots, type TreeSpot } from './trees';
 
 export interface Preview {
   kind: 'line' | 'rect' | 'footprint' | 'cell' | 'cells';
@@ -511,9 +513,11 @@ export class Renderer {
     if (this.underground) {
       this.drawPipes(x0, y0, x1, y1, px, py);
     } else {
+      this.drawFarms(x0, y0, x1, y1, px, py);
       this.drawZones(x0, y0, x1, y1, px, py);
       this.drawPaths(x0, y0, x1, y1, px, py);
       this.drawRoadWeather(x0, y0, x1, y1, px, py);
+      this.drawTrees(x0, y0, x1, y1, px, py);
       this.drawBuildings(x0, y0, x1, y1, px, py);
       this.drawFlood(x0, y0, x1, y1, px, py);
       this.drawPowerLines(x0, y0, x1, y1, px, py);
@@ -1462,6 +1466,129 @@ export class Renderer {
     ctx.fillText('Sewer', 42, k + 29);
     ctx.fillText('Road tunnel', 42, k + 43);
     ctx.fillText('Subway', 42, k + 57);
+  }
+
+  /**
+   * The plant layer (Beta 4.1, part 1): zoomed out, each wooded cell tinted by how thick its wood is; closer in,
+   * every crown from the shared layout, with its shadow to the south-east, a lit side to the north-west, the
+   * broadleaf woods turning with the month, and snow on them in winter.
+   */
+  /**
+   * Farm country (Beta 4.1, part 2): each field in its crop's colour for the time of year, its rows drawn when close
+   * enough to see; the farm tracks as dirt strips with grass either side, and each farmstead's yard with its house,
+   * barn and silo.
+   */
+  private drawFarms(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {
+    const c = this.city;
+    if (c.farms.length !== c.width * c.height) return;
+    const ctx = this.ctx, s = this.scale, w = c.width;
+    const month = (c.stats.month || 6) + ((c.stats.day || 1) - 1) / 30;
+    const snow = Math.min(1, this.snowCm / 4);
+    const css = (col: number[], a = 1) => `rgba(${col[0] | 0},${col[1] | 0},${col[2] | 0},${a})`;
+    const at = (x: number, y: number) => (x < 0 || y < 0 || x >= w || y >= c.height ? 0 : c.farms[y * w + x]);
+    const yards: [number, number][] = [];
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const f = c.farms[y * w + x], what = farmWhat(f);
+        if (!what) continue;
+        const X = px(x), Y = py(y);
+        if (what === FIELD) {
+          let col = cropColour(farmCrop(f), month);
+          if (snow > 0) col = mixRGB(col, SNOW, snow * 0.85);
+          ctx.fillStyle = css(col, 0.92);
+          ctx.fillRect(X, Y, s, s);
+          if (s >= 10) {
+            // Eight rows a cell, a ridge every two metres.
+            ctx.fillStyle = 'rgba(30,24,10,0.12)';
+            const n = s >= 24 ? 8 : 4, ns = rowsNorthSouth(f);
+            for (let k = 0; k < n; k++) {
+              const o = (k + 0.5) * s / n;
+              if (ns) ctx.fillRect(X + o, Y, Math.max(1, s / 40), s); else ctx.fillRect(X, Y + o, s, Math.max(1, s / 40));
+            }
+          }
+        } else if (what === TRACK) {
+          const ew = farmWhat(at(x - 1, y)) === TRACK || farmWhat(at(x + 1, y)) === TRACK;
+          const ns = farmWhat(at(x, y - 1)) === TRACK || farmWhat(at(x, y + 1)) === TRACK;
+          ctx.fillStyle = snow > 0.5 ? 'rgba(220,222,226,0.9)' : 'rgba(140,116,84,0.95)';
+          const t = Math.max(1, s * 0.3);
+          if (ew || !ns) ctx.fillRect(X, Y + (s - t) / 2, s, t);
+          if (ns || !ew) ctx.fillRect(X + (s - t) / 2, Y, t, s);
+        } else {
+          ctx.fillStyle = 'rgba(128,120,100,0.85)';
+          ctx.fillRect(X, Y, s, s);
+          if (farmWhat(at(x - 1, y)) !== YARD && farmWhat(at(x, y - 1)) !== YARD) yards.push([x, y]);
+        }
+      }
+    if (s < 5) return;
+    for (const [x, y] of yards) {
+      // The farmstead over its yard: a white house, a red barn and a grey silo, from above.
+      const X = px(x), Y = py(y), u = s * 3;
+      ctx.fillStyle = '#7c2a1e'; ctx.fillRect(X + u * 0.55, Y + u * 0.35, u * 0.27, u * 0.45);
+      ctx.fillStyle = '#5a1d14'; ctx.fillRect(X + u * 0.55 + u * 0.13, Y + u * 0.35, Math.max(1, u * 0.015), u * 0.45);
+      ctx.fillStyle = '#ddd6c6'; ctx.fillRect(X + u * 0.12, Y + u * 0.12, u * 0.23, u * 0.17);
+      ctx.fillStyle = '#4c4846'; ctx.fillRect(X + u * 0.12, Y + u * 0.12 + u * 0.08, u * 0.23, Math.max(1, u * 0.015));
+      ctx.fillStyle = '#a5a7aa';
+      ctx.beginPath(); ctx.arc(X + u * 0.35, Y + u * 0.72, u * 0.07, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  private drawTrees(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {
+    const c = this.city;
+    if (c.plants.length !== c.width * c.height) return;
+    const ctx = this.ctx;
+    const s = this.scale;
+    const month = (c.stats.month || 6) + ((c.stats.day || 1) - 1) / 30;
+    const snow = Math.min(1, this.snowCm / 6);
+    const css = (col: number[], a = 1) => `rgba(${col[0] | 0},${col[1] | 0},${col[2] | 0},${a})`;
+    if (s < 6) {
+      for (let y = y0; y <= y1; y++)
+        for (let x = x0; x <= x1; x++) {
+          const p = c.plants[y * c.width + x], n = p & 15;
+          if (!n) continue;
+          let col = plantColour(p >> 4, month, 0.5);
+          if (snow > 0) col = mixRGB(col as RGB, SNOW, snow * 0.4);
+          ctx.fillStyle = css(col, 0.3 + 0.08 * n);
+          ctx.fillRect(px(x), py(y), s, s);
+        }
+      return;
+    }
+    const spots: TreeSpot[] = [];
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) treeSpots(x, y, c.width, c.plants[y * c.width + x], spots);
+    const radius = (t: TreeSpot) => s * t.scale * (t.kind === CONIFER ? 0.22 : t.kind === SCRUB ? 0.13 : t.kind === REEDS ? 0.09 : t.kind === ORCHARD ? 0.17 : 0.3);
+    // Shadows first, so no crown is darkened by its neighbour's.
+    ctx.fillStyle = 'rgba(18,28,10,0.3)';
+    ctx.beginPath();
+    for (const t of spots) {
+      if (t.kind === REEDS) continue;
+      const r = radius(t), ox = px(t.x) + r * 0.45, oy = py(t.y) + r * 0.55;
+      ctx.moveTo(ox + r, oy);
+      ctx.arc(ox, oy, r, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    for (const t of spots) {
+      const bare = (t.kind === BROADLEAF || t.kind === ORCHARD) && (month < 3.5 || month >= 11.8);
+      // A bare tree in winter is its branches: smaller and see-through.
+      const r = radius(t) * (bare ? 0.75 : 1), cx = px(t.x), cy = py(t.y);
+      let col = plantColour(t.kind, month, t.shade);
+      ctx.fillStyle = css(col, bare ? 0.5 : 1);
+      ctx.beginPath();
+      if (t.kind === CONIFER) {
+        // A conifer from above: a star of short points.
+        for (let k = 0; k < 7; k++) {
+          const a = (k / 7) * Math.PI * 2 + t.shade * 3, rr = k % 2 ? r * 0.7 : r;
+          if (k === 0) ctx.moveTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); else ctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+        }
+        ctx.closePath();
+      } else ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      // The sunlit side.
+      col = mixRGB(col as RGB, snow > 0 ? SNOW : [210, 220, 150], snow > 0 ? 0.35 + 0.55 * snow : 0.22);
+      ctx.fillStyle = css(col, bare ? 0.35 : 0.9);
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.25, cy - r * 0.25, r * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   private drawBuildings(x0: number, y0: number, x1: number, y1: number, px: (x: number) => number, py: (y: number) => number) {

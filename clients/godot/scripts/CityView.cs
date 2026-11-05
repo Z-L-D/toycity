@@ -183,6 +183,7 @@ public partial class CityView : Node3D
         UpdateDetail();
         // The rivers rose or fell with the month's rain: their banks' wet band follows the water.
         if (_city.Loaded && _banksImage != null && _banksFlow != _city.FlowPct) PaintBanks();
+        if (_city.Loaded && _ground != null && _farmsFor != _city.FarmsVersion && _city.Farms.Length == _city.N) PaintFarms();
         if (_flashUntil < 0) return;
         double now = Time.GetTicksMsec() / 1000.0, left = _flashUntil - now;
         // A slow pulse, fading out over the last second.
@@ -313,6 +314,41 @@ public partial class CityView : Node3D
         else _madeTexture.Update(_madeImage!);
         _ground.SetShaderParameter("ground_layers", _madeTexture);
         _ground.SetShaderParameter("map_size", new Vector2(w, h));
+    }
+
+    Image? _farmImage;
+    ImageTexture? _farmTexture;
+    int _farmsFor = -1;
+
+    /// <summary>
+    /// Farm country (Beta 4.1, part 2), a texel a cell for the ground's shader: what the farm is, a field's crop and
+    /// the way its rows run, and which ways a farm track runs through the cell.
+    /// </summary>
+    void PaintFarms()
+    {
+        _farmsFor = _city.FarmsVersion;
+        int w = _city.Width, h = _city.Height;
+        bool fresh = _farmImage == null || _farmImage.GetWidth() != w || _farmImage.GetHeight() != h;
+        if (fresh) _farmImage = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
+        bool any = false;
+        bool Track(int x, int y) => x >= 0 && y >= 0 && x < w && y < h && (_city.Farms[y * w + x] & 3) == 2;
+        for (int i = 0; i < _city.N; i++)
+        {
+            byte f = _city.Farms[i];
+            int what = f & 3, x = i % w, y = i / w, dirs = 0;
+            if (what != 0) any = true;
+            if (what == 2)
+            {
+                if (Track(x - 1, y) || Track(x + 1, y)) dirs |= 1;
+                if (Track(x, y - 1) || Track(x, y + 1)) dirs |= 2;
+                if (dirs == 0) dirs = 3;
+            }
+            _farmImage!.SetPixel(x, y, new Color(what / 3f, ((f >> 2) & 7) / 7f, dirs / 3f, (f & 32) != 0 ? 1 : 0));
+        }
+        if (fresh || _farmTexture == null) _farmTexture = ImageTexture.CreateFromImage(_farmImage);
+        else _farmTexture.Update(_farmImage);
+        _ground!.SetShaderParameter("farms", _farmTexture);
+        _ground.SetShaderParameter("has_farms", any);
     }
 
     /// <summary>The thinnest soil at a cell's corners, as a share of deep soil (8 m): 0 is bare rock.</summary>

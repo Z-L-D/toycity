@@ -78,10 +78,12 @@ public sealed partial class RegionHost : IDisposable
         _thread.Start();
     }
 
-    /// <summary>A new server's region: Toy Valley, three tiles by three, with Toyville founded in the middle.</summary>
+    /// <summary>A new server's region: Toy Valley, three tiles by three, farm country, with Toyville founded in the middle.</summary>
     static Region StartingRegion(ContentDb content)
     {
         var r = Region.Create(content, "Toy Valley", 2026, 3, 3, 128);
+        // Farm country: the valley's low ground to the south and east is farmed.
+        r.Farms = true;
         r.Found(1, 1, "Toyville", SimHost.LocalPlayer, starter: true);
         return r;
     }
@@ -832,7 +834,7 @@ public sealed partial class RegionHost : IDisposable
                 var n = msg.NewCity;
                 int size = n.Benchmark ? BenchmarkCity.Size : n.Size is 64 or 128 or 256 ? n.Size : 128;
                 ulong seed = n.Seed != 0 ? n.Seed : (ulong)Random.Shared.NextInt64(1, long.MaxValue);
-                var w = World.Create(_content, seed, size, string.IsNullOrWhiteSpace(n.Name) ? "New City" : n.Name.Trim());
+                var w = World.Create(_content, seed, size, string.IsNullOrWhiteSpace(n.Name) ? "New City" : n.Name.Trim(), n.Farms && !n.Benchmark);
                 if (n.Benchmark) BenchmarkCity.Apply(w);
                 else if (n.StarterTown) StarterTown.Apply(w);
                 w.ApplyPending();
@@ -851,6 +853,7 @@ public sealed partial class RegionHost : IDisposable
                 var r = n.Grows ? Region.CreateGrowing(_content, regionName, seed, size) : Region.Create(_content, regionName, seed, cols, rows, size);
                 if (r.CantCharter(charter) is { } badCharter) { r.Dispose(); reply = SimHost.Error(msg.Seq, badCharter); break; }
                 r.Charter = charter;
+                r.Farms = n.Farms;
                 // Someone has to be somewhere: the middle tile always has a city, a starter town if asked for.
                 r.Found(n.Grows ? Region.GrowStart : cols / 2, n.Grows ? Region.GrowStart : rows / 2, string.IsNullOrWhiteSpace(n.CityName) ? "New City" : n.CityName.Trim()[..Math.Min(40, n.CityName.Trim().Length)], c.Player, n.StarterTown);
                 broadcast = WithAll(() => { _pace = World.IsPace(_host.Pace) ? _host.Pace : 360; return Replace(r, c.Player); });

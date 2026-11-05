@@ -93,6 +93,12 @@ public sealed partial class Region : IDisposable
     }
     int _channels = World.ChannelsVersion;
 
+    /// <summary>
+    /// Farm country (Beta 4.1, part 2): each city founded here starts with its fertile low ground farmed, on one grid
+    /// of farm tracks across the region. Saved with the region.
+    /// </summary>
+    public bool Farms { get; set; }
+
     /// <summary>A new region of open land. Found cities on it with <see cref="Found"/>.</summary>
     public static Region Create(ContentDb content, string name, ulong seed, int cols = 3, int rows = 3, int tileSize = 128)
     {
@@ -249,7 +255,7 @@ public sealed partial class Region : IDisposable
         if (computer is { } style) mayor = World.ComputerName(style, t.Seed);
         // The region's clocks, so the new city reads the same hour as its neighbours.
         var clocks = Tiles.Select(o => o.City).FirstOrDefault(c => c != null)?.Clocks;
-        var w = World.CreateTile(Content, t.Seed, TileSize, name, TileCorners(col, row), Tick, TileRivers(col, row), TileGeology(col, row), clocks);
+        var w = World.CreateTile(Content, t.Seed, TileSize, name, TileCorners(col, row), Tick, TileRivers(col, row), TileGeology(col, row), clocks, (Seed, col * TileSize, row * TileSize), Farms);
         // The seat changes hands by a logged action, so a replay of the tile puts the same mayor in it.
         if (mayor != w.MayorSeat.Owner && mayor.Length > 0) w.Enqueue(new RenameOwnerAction(w.MayorSeat.Owner, mayor));
         if (starter && StarterTown.FindSite(w) is { } site)
@@ -266,7 +272,7 @@ public sealed partial class Region : IDisposable
     {
         var w = t.City ?? throw new InvalidOperationException("nothing to replay on open land");
         if (w.Width != TileSize || w.HeightCells != TileSize) throw new InvalidOperationException($"{w.Name} has annexed land: it replays from its last save, not its founding");
-        var fresh = World.CreateTile(Content, t.Seed, TileSize, w.Name, TileCorners(t.Col, t.Row), w.FoundedTick, TileRivers(t.Col, t.Row), TileGeology(t.Col, t.Row), w.FoundedClocks);
+        var fresh = World.CreateTile(Content, t.Seed, TileSize, w.Name, TileCorners(t.Col, t.Row), w.FoundedTick, TileRivers(t.Col, t.Row), TileGeology(t.Col, t.Row), w.FoundedClocks, (Seed, t.Col * TileSize, t.Row * TileSize), w.FarmCountry);
         return World.Replay(fresh, w.Log, untilTick);
     }
 

@@ -31,6 +31,8 @@ public partial class Main : Node
     DispatchWorld? _dispatch3d;
     StreetLabels? _streets;
     RoadsView? _roads;
+    TreesView? _trees;
+    FarmsView? _farms;
     StripsView? _strips;
     UndergroundView? _underground;
     int _underBuildings = -1;
@@ -46,6 +48,7 @@ public partial class Main : Node
     DisasterView? _disasters;
     Label? _status, _hover;
     bool _smoke, _centred;
+    float _monthPin;
     string? _tile;  // --tile COL,ROW
     string _cityShown = "";
     string? _user;  // --user, the name signed in with
@@ -66,6 +69,8 @@ public partial class Main : Node
         {
             if (args[i] == "--server" && i + 1 < args.Length) server = args[++i];
             if (args[i] == "--smoke") _smoke = true;
+            // Pins the month the trees' leaves show (1..12), for pictures of each season (Beta 4.1).
+            if (args[i] == "--month" && i + 1 < args.Length && float.TryParse(args[++i], System.Globalization.CultureInfo.InvariantCulture, out var mo)) _monthPin = Math.Clamp(mo, 1, 12.9f);
             if (args[i] == "--shots" && i + 1 < args.Length) { _shots = args[++i]; _smoke = true; }
             if (args[i] == "--bench" && i + 1 < args.Length) _bench = args[++i];
             if (args[i] == "--company") _company = true;
@@ -180,6 +185,8 @@ public partial class Main : Node
         AddChild(_streets);
         AddChild(new BorderView(_client.City, _view));
         AddChild(new RiversView(_client.City, _view));
+        AddChild(_trees = new TreesView(_client.City, _view));
+        AddChild(_farms = new FarmsView(_client.City, _view));
         AddChild(_roads = new RoadsView(_client.City, _view));
         AddChild(_strips = new StripsView(_client.City, _view));
         AddChild(_underground = new UndergroundView(_client.City, _view));
@@ -312,11 +319,12 @@ public partial class Main : Node
         // The underground view (Beta 3.2): the buildings, roads and traffic go, the ground turns to a cutaway, and the
         // mains, sewers and tunnels show beneath it.
         _view.Underground = under;
-        _roads!.Visible = _strips!.Visible = !under;
+        _roads!.Visible = _strips!.Visible = _trees!.Visible = _farms!.Visible = !under;
         _agents!.Visible = !under && _graphics.CityLife;
         bool built = c.Buildings.Count != _underBuildings;
         _underBuildings = c.Buildings.Count;
         _underground!.Show(under, cellsChanged || built);
+        _trees!.Far = _camera!.IsFree ? _free!.Distance > 60 : _camera.View.Zoom <= 2;
         _streets!.Refresh(GetProcessDeltaTime());
         _streets.Visible = _camera!.IsFree ? _free!.Distance < 40 || _free.Riding >= 0 : _camera.View.Zoom >= 3;
         _streets.Visible &= _graphics.StreetLabels;
@@ -400,7 +408,17 @@ public partial class Main : Node
                 }
             }
             v.Rotation = 0;
-            GD.Print($"SMOKE OK {c.Width}x{c.Height} buildings={c.Buildings.Count} tick={c.Stats.Tick} picking=4/4");
+            // The plant layer (Beta 4.1): a city with woods draws their trees.
+            int wooded = c.Plants.Count(p => (p & 15) > 0);
+            if (wooded > 0 && _trees!.Crowns == 0)
+            {
+                // The trees are laid out the frame after the city arrives; give them a moment.
+                if (_smokeTime < 30) return;
+                GD.PrintErr($"SMOKE FAILED: {wooded} wooded cells but no trees drawn");
+                GetTree().Quit(1);
+                return;
+            }
+            GD.Print($"SMOKE OK {c.Width}x{c.Height} buildings={c.Buildings.Count} tick={c.Stats.Tick} picking=4/4 trees={_trees!.Crowns} on {wooded} cells farmsteads={_farms!.Farmsteads}");
             if (_shots == null || DisplayServer.GetName() == "headless") { GetTree().Quit(0); return; }
             DirAccess.MakeDirRecursiveAbsolute(_shots);
             _shot = 0;

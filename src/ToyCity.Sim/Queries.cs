@@ -158,6 +158,9 @@ public sealed partial class World
             string rock = PathGrade.RockKinds[Math.Min((int)Rock[i], PathGrade.RockKinds.Length - 1)].Name;
             f.Add(("Ground", soil <= 2 ? $"bare {rock}" : $"{soil / 10.0:0.#} m of soil over {rock}"));
         }
+        if (Canopy[i] > 0) f.Add(("Plants", $"{PlantAt(i).ToString().ToLowerInvariant()}, {Canopy[i]} of {FullCanopy} crowns"));
+        if (FarmName(i) is { } farm) f.Add(("Farm", farm));
+        if (!IsWater(i)) f.Add(("Fertility", $"{FertilityAt(i)} of 100"));
         if (ZoneCode[i] != 0) f.Add(("Zone", $"{ZoneName(ZoneOf(ZoneCode[i]))}, {DensityOf(ZoneCode[i]).ToString().ToLowerInvariant()} density"));
         if (ProfileAt(i) is { } p)
         {
