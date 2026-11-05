@@ -131,6 +131,7 @@ public partial class PanelView : CanvasLayer
 
     /// <summary>The Graphics button: Main opens the options.</summary>
     public event System.Action? GraphicsPressed;
+    public event System.Action? RadarPressed;
 
     Button Btn(string text, System.Action pressed, Container parent)
     {
@@ -404,6 +405,7 @@ public partial class PanelView : CanvasLayer
         Item("New city", () => Model.OpenDialog("new"));
         Item("Save", () => Model.OpenDialog("save"));
         Item("Load", () => Model.OpenDialog("load"));
+        Item("Weather radar", () => RadarPressed?.Invoke());
         Item("Graphics", () => GraphicsPressed?.Invoke());
         menu.Pressed += () => _gameMenu.Visible = !_gameMenu.Visible;
         // Placed once their contents give them a size: top right, the menu under the pill.

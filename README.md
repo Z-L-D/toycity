@@ -56,6 +56,14 @@ From the Beta 4 and Beta 3.2 gate runs (Godot, CI runner with software rendering
 adds a new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
 
+Beta 4.1, part 3: storm cells, the weather station and the radar, base reflectivity and base velocity as the NWS draws them ([`docs/screenshots/beta4-1-storms`](docs/screenshots/beta4-1-storms)):
+
+![Godot, the radar and the weather station with three January snow storms set going round Toyville](docs/screenshots/beta4-1-storms/godot-radar.jpg)
+
+| | |
+| --- | --- |
+| ![Web client, base reflectivity at the lowest tilt](docs/screenshots/beta4-1-storms/web-radar-reflectivity.jpg) | ![Web client, base velocity: green toward the radar, red away](docs/screenshots/beta4-1-storms/web-radar-velocity.jpg) |
+
 Beta 4.1, part 2: farm country, the fertile low ground farmed on a grid of 256 m blocks ([`docs/screenshots/beta4-1-farms`](docs/screenshots/beta4-1-farms)):
 
 | | |
@@ -222,7 +230,7 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 3.1 | SC4-style terrain, mountains, rivers and floods, realistic ground and roads | Done |
 | Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); light and shadow through the day and night (done); growing regions (done) | Done |
 | Beta 4 | GPU test (done); snow on the ground and roofs (done); water quality (done); direct dispatch (done); the floating build menu and L-shaped info bar in both clients (done); region sizes, annexing, taking in a neighbour by a deal and a region charter (done); tile hosts for growing regions (done) | Done |
-| Beta 4.1 | The plant layer: woods, scrub, reeds and orchards that regrow, a tree planter, trees in land value (part 1, in review); farm country: fertility, farms on a grid of farm tracks, fields by crop and season, farmsteads and windbreaks (part 2, in review); storm cells, a weather station and radar (part 3); loose ends (part 4) | In progress |
+| Beta 4.1 | The plant layer: woods, scrub, reeds and orchards that regrow, a tree planter, trees in land value (part 1, done); farm country: fertility, farms on a grid of farm tracks, fields by crop and season, farmsteads and windbreaks (part 2, done); storm cells, a weather station and radar (part 3, in review); loose ends (part 4) | In progress |
 | Release candidate | Realistic assets on the realistic terrain; mod API, asset and lot editors, path designer; scenarios; onboarding; packaged builds; save promise | |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
@@ -233,6 +241,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-05 | **Beta 4.1, part 3: storms and the weather radar** (PR #22) | Storm cells move across the country on the day's steering wind, built to agree with the hours it rains or snows on the city. A heatwave brings afternoon thunderstorms out in the country. The mayor can set a storm going from the radar, and it rains or snows on the city as it passes. A weather station reads temperature, dew point, humidity, wind, pressure, rain now and since midnight. The radar shows base reflectivity or base velocity at the four lowest NEXRAD tilts, the beam climbing with range, and loops the last hour, the same in both clients; save format 21. [Gate](docs/GATE-BETA4-1-STORMS.md) |
 | 2026-11-04 | **Beta 4.1, part 2: farm country** (PR #21) | Fertility from the ground: flat, deep soil, low down and near a river. A new region or city can be farm country, its fertile low ground already farmed on a grid of 256 m blocks that runs on across tiles: farm tracks, four fields a block of wheat, corn, soybeans, hay or canola turning with the seasons, farmsteads and conifer windbreaks. Building, zoning or bulldozing takes the farm; the farms pay a small rate. Toy Valley is farm country. Godot draws the fields in the ground shader and stands a farmstead on each yard; the web map draws them too; save format 20. [Gate](docs/GATE-BETA4-1-FARMS.md) |
 | 2026-11-04 | **Beta 4.1, part 1: the plant layer** (PR #21) | New ground is wooded: broadleaf woods and clearings from the region's seed, carrying on across tile borders, conifers high up and on north slopes, scrub on thin soil and steep ground, reeds at the water's edge. Building and paving take the trees, and bulldozing clears them for $2 a cell; open land grows back from the woods beside it. A tree planter plants broadleaf, conifers or an orchard at $12 a cell. Trees lift land value and homes' desirability and soak up a little pollution. Godot draws each crown, swaying, bare in winter and holding snow, with cheap shapes far off; the web map draws them from above; save format 19. [Gate](docs/GATE-BETA4-1-PLANTS.md) |
 | 2026-11-03 | **Rivers, round 2** (PR #20) | Rivers meander off the grid and fill ponds and lakes in the basins the rain keeps up with. Their level follows the last month's rain upstream, from a low trickle after a dry season to floods after weeks of storms. A river brush digs new channels at a chosen width and depth. Dams hold a river up to 16 m, with a reservoir that keeps its level and a river below that neither floods nor runs dry, and a hydro plant at a dam's foot makes power from the fall. [Gate](docs/GATE-RIVERS.md) |

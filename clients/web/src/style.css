@@ -673,3 +673,18 @@ body.company #toasts, body.dispatch #toasts, body.company #hints { bottom: 10px;
 .cost { background: var(--glass); border: 1px solid var(--glass-line); border-radius: 8px; padding: 3px 9px; font-weight: 600; color: var(--gold); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
 .cost.bad { color: var(--bad); }
 .rg-offer { margin: 6px 0 10px; font-size: 0.92em; }
+
+/* The weather radar (Beta 4.1, part 3). */
+#radar { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 40; display: flex; gap: 18px; padding: 16px 18px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; }
+#radar.hidden { display: none; }
+#radar .radar-title { font-size: 18px; margin-bottom: 6px; }
+#radar canvas { width: min(520px, 70vw); height: auto; aspect-ratio: 1; display: block; cursor: crosshair; }
+#radar .radar-legend { display: flex; align-items: stretch; margin-top: 6px; font-size: 10px; }
+#radar .radar-legend span { min-width: 30px; text-align: center; padding: 2px 0; }
+#radar .radar-legend span.muted { min-width: 0; padding-right: 6px; }
+#radar .radar-right { width: 240px; display: flex; flex-direction: column; gap: 6px; }
+#radar h4 { margin: 8px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+#radar dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0; }
+#radar dt { color: var(--muted); }
+#radar dd { margin: 0; }
+@media (max-width: 760px) { #radar { flex-direction: column; } #radar .radar-right { width: auto; } }

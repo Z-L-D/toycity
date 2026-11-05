@@ -21,6 +21,7 @@ namespace ToyCity.Godot;
 public partial class Main : Node
 {
     CityClient? _client;
+    RadarPanel? _radar;
     CityView? _view;
     ClassicCamera? _camera;
     MapView? _map;
@@ -209,6 +210,9 @@ public partial class Main : Node
         // The company's view in a window of its own: a second client, as the web client opens a second tab.
         LoadGraphics();
         _panels.GraphicsPressed += _graphicsPanel!.Toggle;
+        _radar = new RadarPanel(_client.City, a => _client.Connection.Act(a));
+        AddChild(_radar);
+        _panels.RadarPressed += _radar.Toggle;
         ApplyGraphics();
         // The region map, over everything while it's open; a city of it can open in a window of its own.
         AddChild(new RegionScreen(pm.Region, () => pm.Version));
@@ -418,10 +422,17 @@ public partial class Main : Node
                 GetTree().Quit(1);
                 return;
             }
-            GD.Print($"SMOKE OK {c.Width}x{c.Height} buildings={c.Buildings.Count} tick={c.Stats.Tick} picking=4/4 trees={_trees!.Crowns} on {wooded} cells farmsteads={_farms!.Farmsteads}");
+            GD.Print($"SMOKE OK {c.Width}x{c.Height} buildings={c.Buildings.Count} tick={c.Stats.Tick} picking=4/4 trees={_trees!.Crowns} on {wooded} cells farmsteads={_farms!.Farmsteads} storm-cells={c.Stats.Sky?.Cells.Count ?? 0}");
             if (_shots == null || DisplayServer.GetName() == "headless") { GetTree().Quit(0); return; }
             DirAccess.MakeDirRecursiveAbsolute(_shots);
             _shot = 0;
+            // Storms for the radar's shot, set going round the city so its own weather is untouched.
+            foreach (var (x, y, h, sp, st) in new[] { (-22.0, -14.0, 20, 45, 2), (18.0, 20.0, 340, 35, 3), (-8.0, 26.0, 0, 30, 1) })
+                _client!.Connection.Act(new Protocol.V0.Action { PlaceStorm = new Protocol.V0.PlaceStorm
+                {
+                    X = (int)(x / ToyCity.ClientModel.Graphics.Radar.CellKm + c.Width / 2.0), Y = (int)(y / ToyCity.ClientModel.Graphics.Radar.CellKm + c.Height / 2.0),
+                    HeadingDeg = h, SpeedKmh = sp, Strength = st,
+                } });
         }
         // One view per few frames: set it, let it draw, save it.
         if (_wait-- > 0) return;
@@ -437,6 +448,15 @@ public partial class Main : Node
             // Then the graphics options over the free camera's view.
             GetViewport().GetTexture().GetImage().SavePng($"{_shots}/view-{_shot}-graphics.png");
             _graphicsPanel.Visible = false;
+            _radar!.Toggle();
+            _wait = 10;
+            return;
+        }
+        if (_shot == ShotViews.Length && _radar!.Visible)
+        {
+            // Then the weather radar with the storms set going at the start.
+            GetViewport().GetTexture().GetImage().SavePng($"{_shots}/view-{_shot}-radar.png");
+            _radar.Visible = false;
             _panels!.Model.Click("rg-open");
             if (_panels.Model.Region.State is { } rs) _panels.Model.Click($"rg-pick:{Math.Max(0, rs.HereCol - 1)}:{rs.HereRow}");
             _regionShot = true;

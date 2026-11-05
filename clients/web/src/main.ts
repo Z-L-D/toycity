@@ -1,4 +1,5 @@
 import { GameClock, paceName } from './clock';
+import { RadarPanel } from './radar';
 import { mapLight } from './daylight';
 import './style.css';
 import { Connection, type Msg } from './net';
@@ -168,6 +169,7 @@ const conn = new Connection({
       case 'delta':
         city.applyDelta(body);
         for (const n of body.notices as Msg[]) toast(n.text, n.severity, n.x, n.y);
+        radar.refresh();
         updateTopBar();
         transport?.onCityTick();
     emergency?.onCityTick();
@@ -1612,6 +1614,9 @@ function busy(text: string | null, kind = '') {
   if (text) busyTimer = window.setTimeout(() => busy(null), 60_000);
 }
 
+const radar = new RadarPanel(() => city.stats.sky, () => [city.width, city.height], (a, label) => act(a, label));
+$('#btn-radar').addEventListener('click', () => radar.toggle());
+
 $('#btn-new').addEventListener('click', () => {
   form.innerHTML = `
     <h3>New region or city</h3>
@@ -1739,4 +1744,4 @@ region.admin = () => conn.admin;
 requestAnimationFrame(frame);
 
 // For debugging from the browser console and for automated checks.
-(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport, emergency, region };
+(window as any).toycity = { city, renderer, conn, setTool, query, talk, seats, transport, emergency, region, radar };
