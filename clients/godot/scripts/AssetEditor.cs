@@ -17,7 +17,7 @@ public partial class AssetEditor : Node3D
     enum Tool { Piece, Add, Erase, Paint, Fill, Box, Pick }
 
     const string AssetsDir = "user://assets";
-    AssetDoc _doc = DemoAsset.House(1);
+    AssetDoc _doc = AssetDoc.New("New asset", 1, 1, 1, 1);
     readonly string? _shots;
     Tool _tool = Tool.Piece;
     Piece? _piece = Pieces.Find("wall");
@@ -65,7 +65,49 @@ public partial class AssetEditor : Node3D
     int _shotStep;
     double _shotWait;
 
+    MeshInstance3D _roof = null!;
+    OptionButton _roofStyle = null!, _roofColour = null!;
+    HSlider _pitchSlider = null!, _overhang = null!;
+    Label _pitchLabel = null!, _overhangLabel = null!;
+    CheckBox _turnRidge = null!;
+    bool _showingRoof;
+    static readonly (byte, string)[] RoofColours =
+    {
+        (AssetPalette.RoofTile, "Clay tiles"), (AssetPalette.Slate, "Slate"), (AssetPalette.Asphalt, "Shingles"),
+        (AssetPalette.MetalDark, "Metal"), (AssetPalette.WoodDark, "Wood shakes"), (AssetPalette.Grass, "Green roof"),
+    };
+
     public AssetEditor(string? shots) { _shots = shots; }
+
+    /// <summary>The roof panel's settings onto the asset.</summary>
+    void RoofChanged()
+    {
+        if (_showingRoof) return;
+        var style = (RoofStyle)_roofStyle.GetSelectedId();
+        _doc.Roof = style == RoofStyle.None ? null
+            : new RoofSpec(style, _pitchSlider.Value, (int)_overhang.Value, (byte)_roofColour.GetSelectedId(), _turnRidge.ButtonPressed);
+        Refresh();
+    }
+
+    /// <summary>The asset's roof onto the roof panel, without it counting as a change.</summary>
+    void ShowRoof()
+    {
+        _showingRoof = true;
+        var r = _doc.Roof;
+        _roofStyle.Select(_roofStyle.GetItemIndex((int)(r?.Style ?? RoofStyle.None)));
+        if (r != null)
+        {
+            _pitchSlider.Value = r.Pitch;
+            _overhang.Value = r.OverhangCm;
+            int ci = _roofColour.GetItemIndex(r.Colour);
+            if (ci >= 0) _roofColour.Select(ci);
+            _turnRidge.ButtonPressed = r.TurnRidge;
+        }
+        _pitchLabel.Text = $"Pitch {_pitchSlider.Value:0}°";
+        _overhangLabel.Text = $"Overhang {_overhang.Value:0} cm";
+        foreach (var c in new Control[] { _pitchSlider, _overhang, _roofColour, _turnRidge }) c.Modulate = r == null ? new Color(1, 1, 1, 0.4f) : Colors.White;
+        _showingRoof = false;
+    }
 
     float Vs => 0.5f / _doc.Detail;   // metres a voxel
 
@@ -84,6 +126,7 @@ public partial class AssetEditor : Node3D
         AddChild(new DirectionalLight3D { RotationDegrees = new Vector3(-30, 150, 0), LightEnergy = 0.15f });
         AddChild(_cam = new Camera3D { Fov = 50, Current = true });
         AddChild(_mesh = new MeshInstance3D { MaterialOverride = _solid });
+        AddChild(_roof = new MeshInstance3D { MaterialOverride = _solid });
         AddChild(_ghost = new MeshInstance3D { MaterialOverride = _ghostMat, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off });
         AddChild(_lines = new MeshInstance3D { MaterialOverride = _lineMat, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off });
         AddChild(_grid = new MeshInstance3D { MaterialOverride = new StandardMaterial3D { ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded, VertexColorUseAsAlbedo = true, Transparency = BaseMaterial3D.TransparencyEnum.Alpha }, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off });
@@ -95,8 +138,8 @@ public partial class AssetEditor : Node3D
         });
         _types.AddRange(BuildingTypes().OrderBy(t => t.Name));
         BuildUi();
-        if (_shots == null) New(1);
-        else _doc = DemoAsset.House(2);
+        if (_shots == null) New(AssetDoc.DefaultDetail);
+        else _doc = DemoAsset.House(AssetDoc.DefaultDetail);
         Frame();
         Refresh();
     }
@@ -162,7 +205,9 @@ public partial class AssetEditor : Node3D
         _detail = new OptionButton { FocusMode = Control.FocusModeEnum.None, TooltipText = "Voxel size for a new asset" };
         _detail.AddItem("0.5 m voxels", 1);
         _detail.AddItem("0.25 m voxels", 2);
-        _detail.AddItem("0.125 m voxels (fine)", 4);
+        _detail.AddItem("0.125 m voxels", 4);
+        _detail.AddItem("6.25 cm voxels (houses)", 8);
+        _detail.Select(_detail.GetItemIndex(AssetDoc.DefaultDetail));
         bar.AddChild(_detail);
         Btn(bar, "New", "Start a new asset at the voxel size beside", () => New(_detail.GetSelectedId()));
         Btn(bar, "Open", "Open one of your saved assets", () => Pick(FileDialog.FileModeEnum.OpenFile, FileDialog.AccessEnum.Userdata, AssetsDir, p => Open(p)));
@@ -224,6 +269,36 @@ public partial class AssetEditor : Node3D
             b.Icon = SwatchIcon(c);
             _matButtons[m] = b;
         }
+        // The auto-roof: a smooth polygon roof over the top of the walls, made again whenever they change.
+        lcol.AddChild(UiTheme.Heading("Auto-roof"));
+        var roofRow = new HBoxContainer();
+        lcol.AddChild(roofRow);
+        _roofStyle = new OptionButton { FocusMode = Control.FocusModeEnum.None, TooltipText = "A roof over everything the top storey's walls enclose" };
+        foreach (var st in Enum.GetValues<RoofStyle>()) _roofStyle.AddItem(st == RoofStyle.None ? "No roof" : st.ToString(), (int)st);
+        _roofStyle.ItemSelected += _ => RoofChanged();
+        roofRow.AddChild(_roofStyle);
+        _roofColour = new OptionButton { FocusMode = Control.FocusModeEnum.None, TooltipText = "What the roof is covered in" };
+        foreach (var (c, label) in RoofColours) _roofColour.AddItem(label, c);
+        _roofColour.ItemSelected += _ => RoofChanged();
+        roofRow.AddChild(_roofColour);
+        var pitchRow = new HBoxContainer();
+        lcol.AddChild(pitchRow);
+        _pitchLabel = new Label { CustomMinimumSize = new Vector2(90, 0) };
+        pitchRow.AddChild(_pitchLabel);
+        _pitchSlider = new HSlider { MinValue = 10, MaxValue = 60, Step = 1, Value = 38, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, FocusMode = Control.FocusModeEnum.None };
+        _pitchSlider.ValueChanged += _ => RoofChanged();
+        pitchRow.AddChild(_pitchSlider);
+        var overRow = new HBoxContainer();
+        lcol.AddChild(overRow);
+        _overhangLabel = new Label { CustomMinimumSize = new Vector2(90, 0) };
+        overRow.AddChild(_overhangLabel);
+        _overhang = new HSlider { MinValue = 0, MaxValue = 100, Step = 5, Value = 40, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, FocusMode = Control.FocusModeEnum.None };
+        _overhang.ValueChanged += _ => RoofChanged();
+        overRow.AddChild(_overhang);
+        _turnRidge = new CheckBox { Text = "Turn the ridge", FocusMode = Control.FocusModeEnum.None };
+        _turnRidge.Toggled += _ => RoofChanged();
+        lcol.AddChild(_turnRidge);
+
         var scroll = new ScrollContainer { SizeFlagsVertical = Control.SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         lcol.AddChild(scroll);
         var lib = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
@@ -387,7 +462,7 @@ public partial class AssetEditor : Node3D
 
     void New(int detail)
     {
-        _doc = AssetDoc.New("New asset", detail is 1 or 2 or 4 ? detail : 1, detail == 4 ? 2 : 4, detail == 4 ? 2 : 4, detail == 4 ? 2 : 4);
+        _doc = AssetDoc.New("New asset", AssetDoc.Details.Contains(detail) ? detail : AssetDoc.DefaultDetail, 4, 4, 3);
         _storey = 0;
         _name.Text = _doc.Name;
         Frame();
@@ -448,6 +523,8 @@ public partial class AssetEditor : Node3D
         if (_meshed == _doc.Version) return;
         _meshed = _doc.Version;
         _mesh.Mesh = BuildingModels.ToMesh(VoxMesher.Mesh(_doc.Model, Vs));
+        _roof.Mesh = BuildingModels.ToMesh(_doc.RoofMesh(Vs));
+        ShowRoof();
         DrawGrid();
     }
 
@@ -728,11 +805,11 @@ public partial class AssetEditor : Node3D
             case 0: _forcedMouse = new Vector2(-4000, -4000); _yaw = -38; _pitch = 30; _dist = m.SizeX * Vs * 1.45f; _target = new Vector3(m.SizeX * Vs / 2, 3, m.SizeY * Vs / 2); break;
             case 1: Save("editor-1-house.png"); _yaw = 145; _pitch = 24; break;
             case 2: Save("editor-2-house-back.png"); _yaw = -62; _pitch = 16; _dist = 11; _target = new Vector3(m.SizeX * Vs * 0.25f, 6.5f, m.SizeY * Vs * 0.5f); break;
-            case 3: Save("editor-3-gable-close.png"); break;
+            case 3: Save("editor-3-roof-close.png"); break;
             case 4:
             {
                 // Placing a piece: the second storey of a new wing, with the ghost of the next wall.
-                _doc = AssetDoc.New("Wing", 1, 4, 4, 3);
+                _doc = AssetDoc.New("Wing", AssetDoc.DefaultDetail, 4, 4, 3);
                 for (int gx = 0; gx < 2; gx++) _doc.PlacePiece(Pieces.Find("floor")!, Mat.Concrete, gx + 1, 1, 0, 0);
                 _doc.PlacePiece(Pieces.Find("wall-wide-window")!, Mat.Concrete, 1, 1, 0, 0);
                 _doc.PlacePiece(Pieces.Find("wall-door")!, Mat.Concrete, 2, 1, 0, 0);
@@ -756,32 +833,24 @@ public partial class AssetEditor : Node3D
             case 6: Save("editor-4-placing.png"); break;
             case 7:
             {
-                // The props at fine detail, in a row.
-                _doc = AssetDoc.New("Props", 4, 6, 2, 2);
-                int x = 4;
-                foreach (var p in Pieces.All.Where(p => !p.Snap))
-                {
-                    var model = p.Build(Mat.Wood, 4);
-                    if (x + model.SizeX > _doc.Model.SizeX) break;
-                    _doc.PlaceProp(p, x, 24, 0, 0);
-                    x += model.SizeX + 6;
-                }
+                // An L-shaped house under a hipped auto-roof, with the roof panel showing its settings.
+                _doc = DemoAsset.LHouse(AssetDoc.DefaultDetail);
                 SetTool(Tool.Paint);
                 _forcedMouse = null;
                 Frame();
-                _yaw = -25; _pitch = 30; _dist = 21; _target = new Vector3(_doc.Model.SizeX * Vs / 2, 1.5f, _doc.Model.SizeY * Vs / 2);
+                _yaw = -35; _pitch = 32; _dist = 25; _target = new Vector3(_doc.Model.SizeX * Vs * 0.4f, 3, _doc.Model.SizeY * Vs * 0.4f);
                 break;
             }
-            case 8: Save("editor-5-props-fine.png"); break;
+            case 8: Save("editor-5-hip-roof-l.png"); break;
             case 9:
             {
                 // Files: save, open, and use for a building, checked.
-                var house = DemoAsset.House(2);
+                var house = DemoAsset.House(AssetDoc.DefaultDetail);
                 string dir = System.IO.Path.Combine(_shots!, "assets");
                 Directory.CreateDirectory(dir);
                 house.Save(System.IO.Path.Combine(dir, "brick-house.vox"));
                 var back = AssetDoc.Load(System.IO.Path.Combine(dir, "brick-house.vox"));
-                bool same = back.Model.Voxels.AsSpan().SequenceEqual(house.Model.Voxels) && back.Detail == 2 && back.Name == "Brick house";
+                bool same = back.Model.Voxels.AsSpan().SequenceEqual(house.Model.Voxels) && back.Detail == AssetDoc.DefaultDetail && back.Name == "Brick house";
                 _doc = back;
                 string used = _doc.UseForBuilding(System.IO.Path.Combine(_shots!, "vox"), "res-low-1");
                 GD.Print($"EDITOR FILES {(same ? "OK" : "DIFFER")} {System.IO.Path.GetFileName(used)} {_doc.Model.Count} voxels");

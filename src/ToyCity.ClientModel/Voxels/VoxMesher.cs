@@ -10,6 +10,17 @@ public sealed class MeshData
     public readonly List<uint> Colors = new();   // RGBA packed as in the palette
     public readonly List<int> Indices = new();
     public int Quads => Indices.Count / 6;
+
+    /// <summary>Adds another mesh's triangles to this one (the auto-roof onto its walls), and returns this.</summary>
+    public MeshData Append(MeshData other)
+    {
+        int s = Positions.Count;
+        Positions.AddRange(other.Positions);
+        Normals.AddRange(other.Normals);
+        Colors.AddRange(other.Colors);
+        foreach (int i in other.Indices) Indices.Add(s + i);
+        return this;
+    }
 }
 
 /// <summary>

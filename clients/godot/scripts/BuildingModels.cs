@@ -14,7 +14,8 @@ namespace ToyCity.Godot;
 ///
 /// Artists drop files in res://vox/ and nothing else changes; models saved from the asset editor's "Use for a
 /// building" go in user://vox/ and win over res://vox/. A model with a {name}.asset.json beside it saying its
-/// detail (2 or 4 voxels a half metre) is drawn that much smaller, so a fine model keeps its size on the lot. For a type, the first of these found is used:
+/// detail (2, 4 or 8 voxels a half metre) is drawn that much smaller, so a fine model keeps its size on the lot, and
+/// one whose sidecar has an auto-roof gets that smooth polygon roof on its walls at every zoom level. For a type, the first of these found is used:
 /// {type}-{w}x{d}.vox, {type}.vox, {type}-{w}x{d}.glb or .gltf, {type}.glb or .gltf; otherwise the generated
 /// placeholder. A .vox model's smooth materials come from the file, or from a {name}.shape file beside it
 /// (lines like "smooth = 6 7 40-52"). A glTF model is in metres, y up, set on the lot's corner and shrunk to fit.
@@ -31,6 +32,8 @@ public sealed class BuildingModels
         /// <summary>The voxels, for remaking the smooth shapes when the options change; null for a glTF model.</summary>
         public VoxModel? Voxels;
         public float Scale;
+        /// <summary>The auto-roof's mesh, added to every detail level; empty without one.</summary>
+        public MeshData Roof = new();
     }
 
     readonly Dictionary<(string, int, int), Model> _cache = new();
@@ -47,20 +50,20 @@ public sealed class BuildingModels
         if (_shapeOptions == (start, budget)) return false;
         _shapeOptions = (start, budget);
         foreach (var m in _cache.Values)
-            if (m.Voxels is { } vox) m.Smooth = SmoothOf(vox, m.Scale);
+            if (m.Voxels is { } vox) m.Smooth = SmoothOf(vox, m.Scale, m.Roof);
         return true;
     }
 
-    Lazy<ArrayMesh> SmoothOf(VoxModel vox, float scale)
+    Lazy<ArrayMesh> SmoothOf(VoxModel vox, float scale, MeshData roof)
     {
         var (start, budget) = _shapeOptions;
-        return new Lazy<ArrayMesh>(() => ToMesh(_shapes.Get(vox, scale, budget, start)));
+        return new Lazy<ArrayMesh>(() => ToMesh(Copy(_shapes.Get(vox, scale, budget, start)).Append(roof)));
     }
 
     public Model Get(BuildingTypeInfo t, int w, int d)
     {
         if (_cache.TryGetValue((t.Id, w, d), out var m)) return m;
-        var (vox, detail) = LoadVox($"{t.Id}-{w}x{d}") ?? LoadVox(t.Id) ?? (null, 1);
+        var (vox, detail, roof) = LoadVox($"{t.Id}-{w}x{d}") ?? LoadVox(t.Id) ?? (null, 1, null);
         if (vox == null && (LoadGltf($"{t.Id}-{w}x{d}") ?? LoadGltf(t.Id)) is { } gltf)
             m = FromGltf(GltfFile.FitToLot(gltf, w, d));
         else
@@ -70,16 +73,18 @@ public sealed class BuildingModels
             // A file's model is scaled to fit the lot if it was made for another size, and a fine one drawn smaller.
             float fit = Mathf.Min((float)w * VoxModel.PerCell / vox.SizeX, (float)d * VoxModel.PerCell / vox.SizeY);
             float scale = Mathf.Min(1f / detail, fit) / VoxModel.PerCell;
-            var near = VoxMesher.Mesh(vox, scale);
-            var far = VoxMesher.Mesh(vox.Downsample(4 * detail), 4 * detail * scale);
+            // An auto-roof is smooth polygons already, so every zoom level draws the same one on its walls.
+            var roofMesh = roof != null ? AutoRoof.Build(vox, detail, roof, scale) : new MeshData();
+            var near = VoxMesher.Mesh(vox, scale).Append(roofMesh);
+            var far = VoxMesher.Mesh(vox.Downsample(4 * detail), 4 * detail * scale).Append(roofMesh);
             var model = vox;
             int mid = 2 * detail;
             m = new Model
             {
                 Near = ToMesh(near), Far = ToMesh(far),
-                Mid = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model.Downsample(mid), mid * scale))),
-                Smooth = SmoothOf(vox, scale),
-                Height = near.Positions.Count > 0 ? near.Positions.Max(p => p.Y) : 0, FromFile = fromFile, Voxels = vox, Scale = scale,
+                Mid = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model.Downsample(mid), mid * scale).Append(roofMesh))),
+                Smooth = SmoothOf(vox, scale, roofMesh),
+                Height = near.Positions.Count > 0 ? near.Positions.Max(p => p.Y) : 0, FromFile = fromFile, Voxels = vox, Scale = scale, Roof = roofMesh,
             };
         }
         _cache[(t.Id, w, d)] = m;
@@ -102,7 +107,9 @@ public sealed class BuildingModels
     /// <summary>Where the game looks for models, first to last: the asset editor's, then the artists'.</summary>
     public static readonly string[] Folders = { "user://vox", "res://vox" };
 
-    static (VoxModel?, int)? LoadVox(string name)
+    static MeshData Copy(MeshData m) => new MeshData().Append(m);
+
+    static (VoxModel?, int, RoofSpec?)? LoadVox(string name)
     {
         foreach (string folder in Folders)
         {
@@ -115,9 +122,9 @@ public sealed class BuildingModels
                 if (global::Godot.FileAccess.FileExists(shapes))
                     foreach (var problem in VoxFile.ApplyShapes(m, global::Godot.FileAccess.GetFileAsString(shapes))) GD.PushWarning($"{shapes}: {problem}");
                 string sidecar = $"{folder}/{name}.asset.json";
-                int detail = global::Godot.FileAccess.FileExists(sidecar)
-                    && AssetDoc.ParseSidecar(global::Godot.FileAccess.GetFileAsString(sidecar)) is { } info ? info.Detail : 1;
-                return (m, detail);
+                string text = global::Godot.FileAccess.FileExists(sidecar) ? global::Godot.FileAccess.GetFileAsString(sidecar) : "";
+                int detail = AssetDoc.ParseSidecar(text) is { } info ? info.Detail : 1;
+                return (m, detail, text.Length > 0 ? AssetDoc.ParseRoof(text) : null);
             }
             catch (Exception e) { GD.PushWarning($"{path}: {e.Message}"); }
         }
