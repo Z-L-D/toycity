@@ -20,7 +20,6 @@ public partial class AssetEditor
     SpinBox _reliefRange = null!;
     Label _reliefInfo = null!;
     Photo? _depthMap;
-    bool _reliefFromLight;
     double _readRecess;
     HBoxContainer _photoGroups = null!;
     Label _photoInfo = null!;
@@ -100,11 +99,13 @@ public partial class AssetEditor
         relief.AddChild(new Label { Text = "Relief:", Modulate = UiTheme.Muted });
         Btn(relief, "Open depth map…", "A greyscale picture lined up with the photo, lighter nearer: each voxel stands out or sits back by it", () =>
             Pick(FileDialog.FileModeEnum.OpenFile, FileDialog.AccessEnum.Filesystem, null, OpenDepthMap));
-        Btn(relief, "From the photo's light", "A rough relief from light and shade: darker sits back, lighter stands out. A guess, not a measured depth", () =>
-        {
-            _depthMap = null; _reliefFromLight = true; ReadPhoto();
-        });
-        Btn(relief, "None", "Flat, apart from each colour's own distance", () => { _depthMap = null; _reliefFromLight = false; ReadPhoto(); });
+        // Depth from the photo itself needs a depth model on this machine; none ships yet (docs/notes/depth-from-a-photo.md).
+        var estimate = Btn(relief, "Depth from the photo", "", EstimateDepth);
+        estimate.Disabled = DepthEstimators.Current == null;
+        estimate.TooltipText = DepthEstimators.Current is { } de
+            ? $"Work out a depth map from the photo with {de.Name}"
+            : "Needs a depth model on this computer, planned for a later release. Load a depth map instead";
+        Btn(relief, "None", "Flat, apart from each colour's own distance", () => { _depthMap = null; ReadPhoto(); });
         _reliefRange = Spin(relief, "Up to", "How far the relief moves a voxel in or out at most", 0.0625, 2, 0.0625, 0.5, " m");
         _reliefInfo = new Label { Modulate = UiTheme.Muted };
         relief.AddChild(_reliefInfo);
@@ -149,7 +150,6 @@ public partial class AssetEditor
     {
         if (LoadPhoto(path) is not { } p) return;
         _depthMap = null;
-        _reliefFromLight = false;
         ShowPhoto(p.Photo, p.Image, PhotoImport.StartCorners(p.Photo), null, null);
         Say($"Opened {System.IO.Path.GetFileName(path)}: drag the corners onto the facade's corners");
     }
@@ -211,8 +211,7 @@ public partial class AssetEditor
         if (was != null && was.Entry.SequenceEqual(_facade.Entry) && _readRecess == o.RecessMetres) Array.Copy(was.Offset, _facade.Offset, was.Offset.Length);
         _readRecess = o.RecessMetres;
         if (_depthMap != null) _facade.Relief = PhotoImport.ReliefFromDepthMap(_facade, _photo, _depthMap, _photoCanvas.Corners, _reliefRange.Value);
-        else if (_reliefFromLight) _facade.Relief = PhotoImport.ReliefFromLight(_facade, _reliefRange.Value);
-        _reliefInfo.Text = _depthMap != null ? "from the depth map" : _reliefFromLight ? "from light and shade (rough)" : "";
+        _reliefInfo.Text = _depthMap != null ? "from the depth map" : "";
         ShowFacade();
     }
 
@@ -255,9 +254,22 @@ public partial class AssetEditor
     {
         if (LoadPhoto(path) is not { } d) return;
         _depthMap = d.Photo;
-        _reliefFromLight = false;
         ReadPhoto();
         Say($"Depth map {System.IO.Path.GetFileName(path)}: lighter stands out, darker sits back");
+    }
+
+    /// <summary>A depth map worked out from the photo by the installed depth model, off the main thread.</summary>
+    void EstimateDepth()
+    {
+        if (DepthEstimators.Current is not { } est || _photo is not { } photo) return;
+        Say($"Working out depth with {est.Name}…");
+        System.Threading.Tasks.Task.Run(() => est.Estimate(photo)).ContinueWith(t => Callable.From(() =>
+        {
+            if (t.IsFaulted) { Say($"Couldn't work out depth: {t.Exception?.GetBaseException().Message}"); return; }
+            _depthMap = t.Result;
+            ReadPhoto();
+            Say($"Depth from {est.Name}: lighter stands out, darker sits back");
+        }).CallDeferred());
     }
 
     void WrapPhoto()

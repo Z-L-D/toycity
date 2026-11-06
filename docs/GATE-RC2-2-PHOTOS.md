@@ -6,7 +6,8 @@ the asset's voxels, its colours matched to the palette, and its windows and door
 
 - Each colour can be moved in or out by its own distance.
 - A photo can go on any side of what's built, and one photo can be wrapped round all four sides.
-- A depth map, or a rough relief made from the photo's light and shade, pushes each voxel in or out.
+- A depth map pushes each voxel in or out. Making one from the photo itself, with a depth model on the player's
+  machine, is planned. The hook for it is in place.
 - A new select tool picks a patch of one colour anywhere in a model and pushes it in or pulls it out.
 
 ## What changed
@@ -44,10 +45,13 @@ the asset's voxels, its colours matched to the palette, and its windows and door
     (0.5 m by default).
     - **From a depth map:** a greyscale picture lined up with the photo, lighter nearer. It's read between the same
       corners, and can be a different size from the photo. The facade's middle grey stays on the face.
-    - **From the photo's light and shade:** darker than the wall sits back and lighter stands out, softened so it
-      follows shapes rather than grain. This is a guess from brightness, not a measured depth. A real depth estimate
-      needs a machine-learning model such as Depth Anything, which the game doesn't run. A depth map made with one
-      can be loaded as above.
+    - **From the photo itself: planned, not built.** `IDepthEstimator` and `DepthEstimators`
+      (`DepthEstimate.cs`) are the hook for a depth model run on the player's machine. `DepthEstimators.ToDepthMap`
+      turns a model's raw output into a depth map, which then takes the same path as a loaded one. None ships, so
+      the panel's **Depth from the photo** button is off, with a note to load a depth map instead. The plan is
+      [docs/notes/depth-from-a-photo.md](notes/depth-from-a-photo.md): Depth Anything V2 Small (Apache-2.0, about
+      100 MB, downloaded on first use) through ONNX Runtime. Marigold and the bigger Depth Anything models are ruled
+      out on weight and licence.
 - **The editor's photo panel** (Godot `AssetEditor.Photo.cs`, `PhotoCanvas.cs`), opened with **From a photo** on the
   top bar:
   - **The photo**, with four corners to drag. Inside them, dashed lines every 3 m (a storey), metre ticks along the
@@ -58,7 +62,8 @@ the asset's voxels, its colours matched to the palette, and its windows and door
   - **Settings:** width, height, depth, how far to set back, how many colours and how many filter passes. A new
     photo's height is guessed from the shape of its corners.
   - **A swatch for each colour,** marked ↓ when set back and ↑ when it stands out. Click one, then set its distance.
-  - **Relief:** open a depth map, make one from the photo's light, or none, and how far it reaches.
+  - **Relief:** open a depth map or none, and how far it reaches. **Depth from the photo** is there but off until a
+    depth model is installed.
   - **The side** to build on, **Build it**, and **Wrap all four sides**.
   - **Open photo…** takes PNG, JPEG or WebP. A photo bigger than 2048 px is cut down to it.
 - **The select tool (key 9) in the asset editor** (`AssetEditor.Select.cs`, `AssetDoc.SelectFace` and `Extrude`):
@@ -74,7 +79,7 @@ the asset's voxels, its colours matched to the palette, and its windows and door
 
 ## Checks
 
-- **ClientModel `PhotoImportTests`, 16 new tests (13 facts, one run for each side):**
+- **ClientModel `PhotoImportTests`, 17 new tests (14 facts, plus one run for each side):**
   - A homography takes the four corners where they go and back, and refuses three corners in a line.
   - The keystoned example straightens with glass in every window and brick between them.
   - Read at 25 cm, the facade is 48 × 36 voxels. The wall is brick and stays on the face. The glass in every window
@@ -88,8 +93,9 @@ the asset's voxels, its colours matched to the palette, and its windows and door
   - On each side, the facade faces outward the right way round.
   - A second photo goes onto the side of a block that's already there, centred on it.
   - One photo wrapped round a 12 m block has its windows set back on all four sides, and is one undo step.
-  - A depth map pushes the glass in and the cornice out, also at half the photo's size. Relief from the light brings
-    the white cornice out and takes the dark door in.
+  - A depth map pushes the glass in and the cornice out, also at half the photo's size. Built with it, the cornice
+    stands out of the face.
+  - A depth model's raw output becomes a depth map either way round, with outliers clipped. No model is installed.
   - The select tool picks one patch or every patch of a colour, pushes it in without holing the wall, and pulls it
     out only into open space.
 - **Godot `--editor --shots`:** five new shots, and:
@@ -104,8 +110,8 @@ the asset's voxels, its colours matched to the palette, and its windows and door
 
 - **Standing out past the north or west edge is left off.** The model only grows south and east, so a facade on the
   north or west of a model already at that edge loses whatever would stand out past it.
-- **Relief from the light is a guess.** Brightness isn't depth: on the example the glass is about as light as the
-  brick, so it isn't pushed in, and a dark band would be. A depth map is the better input.
+- **No depth from the photo yet.** The relief needs a depth map made elsewhere, for example with a Depth Anything
+  web demo, until the planned model is added.
 - **Colours are matched by eye, not by material.** A group goes to the nearest palette colour, which may be a ramp
   colour rather than a named material like Brick. Pick a swatch's colour by hand by painting it afterwards.
 - **Tested on a made-up photo.** The example is drawn in code so the checks are exact. Real photos with shadows,

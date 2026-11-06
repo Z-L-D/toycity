@@ -272,7 +272,7 @@ public class PhotoImportTests
     }
 
     [Fact]
-    public void ADepthMapOrTheLightPushesCellsInAndOut()
+    public void ADepthMapPushesCellsInAndOut()
     {
         var (photo, corners, fw, fh) = DemoAsset.FacadePhoto();
         var o = new PhotoOptions { WidthMetres = fw, HeightMetres = fh };
@@ -289,16 +289,29 @@ public class PhotoImportTests
         var (half, _, _, _) = DemoAsset.FacadePhoto(480, 360, depthMap: true);
         var small = PhotoImport.ReliefFromDepthMap(f, photo, half, corners, 0.5);
         Assert.True(small[glass] < -0.05 && small[cornice] > 0.05);
-        // From the light alone: the white cornice comes out, the dark door goes in (glass is about as light as the
-        // brick here, which is why it's only a rough guess).
-        var light = PhotoImport.ReliefFromLight(f, 0.25);
-        int door = (int)(4.5 * 4) + f.Width * (int)(7.8 * 4);
-        Assert.True(light[cornice] > 0 && light[door] < 0, $"cornice {light[cornice]}, door {light[door]}");
         // Built with relief, the cornice stands out of the face.
-        f.Relief = light;
+        f.Relief = map;
         var doc = AssetDoc.New("Terrace", 2, 4, 4, 4);
         var p = PhotoImport.Build(doc, f, o)!;
         Assert.True(p.Face < doc.Model.SizeY - 1);
         Assert.NotEqual(0, doc[p.X0 + 24, p.Face + 1, f.Height - 2]);
+    }
+
+    [Fact]
+    public void ADepthModelsOutputBecomesADepthMap()
+    {
+        // A model's raw output: bigger nearer, a ramp left to right, with one wild value.
+        var raw = new float[8 * 4];
+        for (int y = 0; y < 4; y++) for (int x = 0; x < 8; x++) raw[x + 8 * y] = x;
+        raw[0] = -1000;
+        var map = DepthEstimators.ToDepthMap(raw, 8, 4, 16, 8);
+        Assert.Equal(16, map.Width);
+        byte G(Photo p, int x, int y) => VoxModel.Unpack(p[x, y]).R;
+        Assert.True(G(map, 15, 4) > 240 && G(map, 2, 4) < G(map, 8, 4) && G(map, 8, 4) < G(map, 14, 4));
+        // The other way round for a model that gives distance.
+        var far = DepthEstimators.ToDepthMap(raw, 8, 4, 8, 4, biggerIsNearer: false);
+        Assert.True(G(far, 7, 2) < 15);
+        // None ships, so the editor's button is off.
+        Assert.Null(DepthEstimators.Current);
     }
 }

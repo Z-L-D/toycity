@@ -85,12 +85,12 @@ public sealed class Facade
 
     /// <summary>
     /// A distance from the face for each cell, in metres, added to its group's: from a depth map
-    /// (<see cref="PhotoImport.ReliefFromDepthMap"/>) or the photo's light and shade
-    /// (<see cref="PhotoImport.ReliefFromLight"/>). Null for none.
+    /// (<see cref="PhotoImport.ReliefFromDepthMap"/>), loaded by the player or made by a depth model
+    /// (<see cref="DepthEstimators"/>). Null for none.
     /// </summary>
     public double[]? Relief { get; set; }
 
-    /// <summary>Each cell's lightness in the photo, 0..1, for making relief from light and shade.</summary>
+    /// <summary>Each cell's lightness in the photo, 0..1.</summary>
     public required double[] Light { get; init; }
 
     /// <summary>A cell's distance from the face in metres: its group's plus its relief.</summary>
@@ -391,29 +391,6 @@ public static class PhotoImport
         var v = Grid(depth, scaled, f.Width, f.Height).Select(Luma).ToArray();
         double mid = Median(v);
         return v.Select(x => Math.Clamp((x - mid) * 2 * rangeMetres, -rangeMetres, rangeMetres)).ToArray();
-    }
-
-    /// <summary>
-    /// A rough relief from the photo's own light and shade, for when there's no depth map: darker than the wall sits
-    /// back, lighter stands out, up to <paramref name="rangeMetres"/>. Softened first, so it follows shapes rather
-    /// than grain. It's a guess from brightness, not a measured depth: a white sill comes out, a dark window goes in,
-    /// but a dark brick band would go in too.
-    /// </summary>
-    public static double[] ReliefFromLight(Facade f, double rangeMetres)
-    {
-        int w = f.Width, h = f.Height;
-        var soft = new double[w * h];
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++)
-            {
-                double sum = 0;
-                for (int dy = -1; dy <= 1; dy++)
-                    for (int dx = -1; dx <= 1; dx++)
-                        sum += f.Light[Math.Clamp(x + dx, 0, w - 1) + w * Math.Clamp(y + dy, 0, h - 1)];
-                soft[x + w * y] = sum / 9;
-            }
-        double wall = Median(soft);
-        return soft.Select(v => Math.Clamp((v - wall) * 3 * rangeMetres, -rangeMetres, rangeMetres)).ToArray();
     }
 
     static double Median(double[] v)
