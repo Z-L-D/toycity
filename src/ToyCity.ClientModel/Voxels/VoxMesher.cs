@@ -36,6 +36,7 @@ public static class VoxMesher
         int[] size = { m.SizeX, m.SizeY, m.SizeZ };
         var air = OpenAir(m);
         var vox = m.Voxels;
+        var ghost = m.Ghost;
         int[] stride = { 1, m.SizeX, m.SizeX * m.SizeY };
         for (int d = 0; d < 3; d++)
         {
@@ -56,7 +57,7 @@ public static class VoxMesher
                         for (int a = 0; a < nu; a++, i += su, at++)
                         {
                             byte c = vox[i];
-                            byte f = c != 0 && (edge || air[i + step]) ? c : (byte)0;
+                            byte f = c != 0 && !ghost[c] && (edge || air[i + step]) ? c : (byte)0;
                             mask[at] = f;
                             any |= f != 0;
                         }

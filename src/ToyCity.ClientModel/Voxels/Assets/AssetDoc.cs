@@ -48,8 +48,32 @@ public sealed class AssetDoc
     public const int DefaultDetail = 8;
 
     readonly record struct Change(int Index, byte Before, byte After);
-    readonly List<Change[]> _undo = new(), _redo = new();
+    /// <summary>One undo step: its voxels, and the shapes it added and took away.</summary>
+    sealed record Step_(Change[] Changes, Shape[] Added, Shape[] Removed);
+    readonly List<Step_> _undo = new(), _redo = new();
     List<Change>? _open;
+    readonly List<Shape> _openAdded = new(), _openRemoved = new();
+
+    void AddShapeInStep(Shape s) { _shapes.Add(s); _openAdded.Add(s); }
+    void RemoveShapeInStep(Shape s) { if (_shapes.Remove(s)) _openRemoved.Add(s); }
+
+    readonly List<Shape> _shapes = new();
+    /// <summary>
+    /// The smooth shapes drawn into the model (lathe, extrude, sweep): their voxels are in the model, and the game
+    /// draws them as polygons over the rest, keeping the voxels for when the building is wrecked.
+    /// </summary>
+    public IReadOnlyList<Shape> Shapes => _shapes;
+
+    /// <summary>Draws a shape into the model as one step that can be undone: its voxels, and the shape kept for its polygons.</summary>
+    public int AddShape(Shape shape) => Step(() =>
+    {
+        int n = 0;
+        var (lo, hi) = shape.Bounds();
+        double mid = (lo.Z + hi.Z) / 2 - 0.1 * (hi.Z - lo.Z), v = 0.5 / Detail;
+        shape.ForEachVoxel(Model, Detail, (x, y, z) => { Put(x, y, z, shape.Under != 0 && (z + 0.5) * v < mid ? shape.Under : shape.Colour); n++; });
+        AddShapeInStep(shape);
+        return n;
+    });
 
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
@@ -81,9 +105,13 @@ public sealed class AssetDoc
     {
         if (_open == null) return;
         var step = _open;
+        var added = _openAdded.ToArray();
+        var removed = _openRemoved.ToArray();
         _open = null;
-        if (step.Count == 0) return;
-        _undo.Add(step.ToArray());
+        _openAdded.Clear();
+        _openRemoved.Clear();
+        if (step.Count == 0 && added.Length == 0 && removed.Length == 0) return;
+        _undo.Add(new Step_(step.ToArray(), added, removed));
         if (_undo.Count > MaxUndo) _undo.RemoveAt(0);
         _redo.Clear();
         Version++;
@@ -113,14 +141,17 @@ public sealed class AssetDoc
     public bool Undo() => Swap(_undo, _redo, back: true);
     public bool Redo() => Swap(_redo, _undo, back: false);
 
-    bool Swap(List<Change[]> from, List<Change[]> to, bool back)
+    bool Swap(List<Step_> from, List<Step_> to, bool back)
     {
         if (from.Count == 0) return false;
-        var step = from[^1];
+        var entry = from[^1];
+        var step = entry.Changes;
         from.RemoveAt(from.Count - 1);
         if (back) for (int i = step.Length - 1; i >= 0; i--) Model.Voxels[step[i].Index] = step[i].Before;
         else foreach (var c in step) Model.Voxels[c.Index] = c.After;
-        to.Add(step);
+        if (back) { foreach (var sh in entry.Added) _shapes.Remove(sh); _shapes.AddRange(entry.Removed); }
+        else { foreach (var sh in entry.Removed) _shapes.Remove(sh); _shapes.AddRange(entry.Added); }
+        to.Add(entry);
         Version++;
         Dirty = true;
         return true;
@@ -169,7 +200,13 @@ public sealed class AssetDoc
     });
 
     /// <summary>Clears the whole model.</summary>
-    public void Clear() => Step(() => { for (int i = 0; i < Model.Voxels.Length; i++) if (Model.Voxels[i] != 0) { byte was = Model.Voxels[i]; Model.Voxels[i] = 0; _open!.Add(new Change(i, was, 0)); } });
+    public void Clear() => Step(() =>
+    {
+        for (int i = 0; i < Model.Voxels.Length; i++) if (Model.Voxels[i] != 0) { byte was = Model.Voxels[i]; Model.Voxels[i] = 0; _open!.Add(new Change(i, was, 0)); }
+        foreach (var sh in _shapes.ToList()) RemoveShapeInStep(sh);
+    });
+
+    double WidthMetres => Model.SizeX * 0.5 / Detail;
 
     /// <summary>Flips the model east to west, in place.</summary>
     public void MirrorX() => Step(() =>
@@ -179,6 +216,7 @@ public sealed class AssetDoc
             for (int y = 0; y < Model.SizeY; y++)
                 for (int x = 0; x < Model.SizeX; x++)
                     Put(x, y, z, copy[Model.SizeX - 1 - x + Model.SizeX * (y + Model.SizeY * z)]);
+        foreach (var sh in _shapes.ToList()) { RemoveShapeInStep(sh); AddShapeInStep(sh.MirroredX(WidthMetres)); }
     });
 
     /// <summary>Copies the west half onto the east half, flipped, so a front can be made symmetrical.</summary>
@@ -189,6 +227,10 @@ public sealed class AssetDoc
             for (int y = 0; y < Model.SizeY; y++)
                 for (int x = 0; x < w / 2; x++)
                     Put(w - 1 - x, y, z, Model[x, y, z]);
+        double half = WidthMetres / 2;
+        foreach (var sh in _shapes.ToList())
+            if (sh.X > half) RemoveShapeInStep(sh);
+            else AddShapeInStep(sh.MirroredX(WidthMetres));
     });
 
     // ---- the library ---------------------------------------------------------------------------------------------
@@ -345,7 +387,24 @@ public sealed class AssetDoc
 
     // ---- files ---------------------------------------------------------------------------------------------------
 
-    sealed record Sidecar(string Name, int Detail, RoofSpec? Roof = null);
+    sealed record Sidecar(string Name, int Detail, RoofSpec? Roof = null, System.Text.Json.Nodes.JsonArray? Shapes = null);
+
+    static System.Text.Json.Nodes.JsonArray? ShapesJson(IEnumerable<Shape> shapes, double dx = 0, double dy = 0)
+    {
+        var list = shapes.Select(sh => { var c = sh.Clone(); c.X += dx; c.Y += dy; return (System.Text.Json.Nodes.JsonNode)c.ToJson(); }).ToArray();
+        return list.Length == 0 ? null : new System.Text.Json.Nodes.JsonArray(list);
+    }
+
+    /// <summary>A sidecar's smooth shapes (none if it has none).</summary>
+    public static IReadOnlyList<Shape> ParseShapes(string text)
+    {
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(text)?["shapes"] is not System.Text.Json.Nodes.JsonArray a) return Array.Empty<Shape>();
+            return a.Select(Shape.FromJson).OfType<Shape>().ToList();
+        }
+        catch (JsonException) { return Array.Empty<Shape>(); }
+    }
 
     static readonly JsonSerializerOptions Json = new()
     {
@@ -360,7 +419,7 @@ public sealed class AssetDoc
     public void Save(string voxPath)
     {
         VoxFile.Write(Model, voxPath);
-        File.WriteAllText(SidecarOf(voxPath), JsonSerializer.Serialize(new Sidecar(Name, Detail, Roof), Json));
+        File.WriteAllText(SidecarOf(voxPath), JsonSerializer.Serialize(new Sidecar(Name, Detail, Roof, ShapesJson(_shapes)), Json));
         Dirty = false;
     }
 
@@ -370,8 +429,10 @@ public sealed class AssetDoc
         var m = VoxFile.Read(voxPath);
         var (name, detail) = ReadSidecar(voxPath) ?? (Path.GetFileNameWithoutExtension(voxPath), 1);
         string side = SidecarOf(voxPath);
-        var roof = File.Exists(side) ? ParseRoof(File.ReadAllText(side)) : null;
-        return new AssetDoc(name, detail, m) { _roof = roof };
+        string text = File.Exists(side) ? File.ReadAllText(side) : "";
+        var doc = new AssetDoc(name, detail, m) { _roof = text.Length > 0 ? ParseRoof(text) : null };
+        if (text.Length > 0) doc._shapes.AddRange(ParseShapes(text));
+        return doc;
     }
 
     /// <summary>The name and detail saved beside a .vox file, if there are any.</summary>
@@ -412,7 +473,10 @@ public sealed class AssetDoc
         string name = lotW > 0 && lotD > 0 ? $"{typeId}-{lotW}x{lotD}" : typeId;
         string path = Path.Combine(folder, name + ".vox");
         VoxFile.Write(Cropped(), path);
-        File.WriteAllText(SidecarOf(path), JsonSerializer.Serialize(new Sidecar(Name, Detail, Roof), Json));
+        // The shapes move with the crop: it starts at the model's first solid column.
+        var b = Bounds() ?? (0, 0, 0, 0, 0, 0);
+        double v = 0.5 / Detail;
+        File.WriteAllText(SidecarOf(path), JsonSerializer.Serialize(new Sidecar(Name, Detail, Roof, ShapesJson(_shapes, -b.X0 * v, -b.Y0 * v)), Json));
         return path;
     }
 

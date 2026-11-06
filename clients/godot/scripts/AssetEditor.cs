@@ -14,7 +14,7 @@ namespace ToyCity.Godot;
 /// </summary>
 public partial class AssetEditor : Node3D
 {
-    enum Tool { Piece, Add, Erase, Paint, Fill, Box, Pick }
+    enum Tool { Piece, Add, Erase, Paint, Fill, Box, Pick, Shape }
 
     const string AssetsDir = "user://assets";
     AssetDoc _doc = AssetDoc.New("New asset", 1, 1, 1, 1);
@@ -76,6 +76,18 @@ public partial class AssetEditor : Node3D
         (AssetPalette.RoofTile, "Clay tiles"), (AssetPalette.Slate, "Slate"), (AssetPalette.Asphalt, "Shingles"),
         (AssetPalette.MetalDark, "Metal"), (AssetPalette.WoodDark, "Wood shakes"), (AssetPalette.Grass, "Green roof"),
     };
+
+    // The shape tool: a profile drawn in 2D, placed as a lathe, an extrude or a sweep.
+    ProfileCanvas _canvas = null!;
+    PanelContainer _shapePanel = null!;
+    OptionButton _shapeKind = null!, _shapeAxis = null!, _preset = null!;
+    HSlider _depth = null!;
+    Label _depthLabel = null!, _shapeHint = null!;
+    CheckBox _closed = null!, _showVoxels = null!;
+    readonly List<System.Numerics.Vector3> _path = new();
+    double _shapeTurn;
+    (System.Numerics.Vector3, int, double, int, int)? _shapeGhostKey;
+    int _profileVersion;
 
     public AssetEditor(string? shots) { _shots = shots; }
 
@@ -249,6 +261,7 @@ public partial class AssetEditor : Node3D
             (Tool.Erase, "Erase", "Take voxels away (3)"), (Tool.Paint, "Paint", "Recolour voxels (4)"),
             (Tool.Fill, "Fill", "Recolour a joined patch of one colour (5)"), (Tool.Box, "Box", "Drag out a box; with Shift, empty it (6)"),
             (Tool.Pick, "Pick", "Take the colour of a voxel (7, or Alt+click)"),
+            (Tool.Shape, "Shape", "Draw a profile, then place it as a lathe, an extrude or a sweep: smooth in the game, voxels when wrecked (8)"),
         })
         {
             var b = Btn(tools, label, tip, () => SetTool(t), toggle: true);
@@ -367,6 +380,7 @@ public partial class AssetEditor : Node3D
         foot.GrowVertical = Control.GrowDirection.Begin;
         _status = new Label { Text = "" };
         foot.AddChild(_status);
+        BuildShapePanel(root);
         SetTool(Tool.Piece);
     }
 
@@ -406,6 +420,8 @@ public partial class AssetEditor : Node3D
     void SetTool(Tool t)
     {
         _tool = t;
+        if (_shapePanel != null) _shapePanel.Visible = t == Tool.Shape;
+        _path.Clear();
         _toolButtons[t].ButtonPressed = true;
         _boxFrom = null;
         _ghostKey = null;
@@ -504,6 +520,162 @@ public partial class AssetEditor : Node3D
     }
 
     void Say(string text) { _status.Text = text; GD.Print(text); _sayClock = 4; }
+
+    // ---- the shape tool ------------------------------------------------------------------------------------------
+
+    void BuildShapePanel(Control root)
+    {
+        _shapePanel = Glass(root);
+        _shapePanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.Minsize, 10);
+        _shapePanel.OffsetLeft = 272;
+        _shapePanel.OffsetBottom = -48;
+        _shapePanel.GrowVertical = Control.GrowDirection.Begin;
+        var col = new VBoxContainer();
+        col.AddThemeConstantOverride("separation", 5);
+        _shapePanel.AddChild(col);
+        col.AddChild(UiTheme.Heading("Shape"));
+        var row = new HBoxContainer();
+        col.AddChild(row);
+        _shapeKind = new OptionButton { FocusMode = Control.FocusModeEnum.None, TooltipText = "Lathe spins the profile round the axis; extrude pulls it straight; sweep draws it along a path you click out" };
+        _shapeKind.AddItem("Lathe", (int)ShapeKind.Lathe);
+        _shapeKind.AddItem("Extrude", (int)ShapeKind.Extrude);
+        _shapeKind.AddItem("Sweep", (int)ShapeKind.Sweep);
+        _shapeKind.ItemSelected += _ => ProfileSettingsChanged();
+        row.AddChild(_shapeKind);
+        _shapeAxis = new OptionButton { FocusMode = Control.FocusModeEnum.None, TooltipText = "Draw the outline as seen from the front, from the side, or from above" };
+        _shapeAxis.AddItem("Front", (int)ExtrudeAxis.Back);
+        _shapeAxis.AddItem("Side", (int)ExtrudeAxis.Across);
+        _shapeAxis.AddItem("Plan", (int)ExtrudeAxis.Up);
+        _shapeAxis.ItemSelected += _ => ProfileSettingsChanged();
+        row.AddChild(_shapeAxis);
+        _preset = new OptionButton { FocusMode = Control.FocusModeEnum.None, TooltipText = "Start from a ready profile" };
+        _preset.AddItem("Presets…");
+        foreach (string n in ShapePresets.Names) _preset.AddItem(n);
+        _preset.ItemSelected += i =>
+        {
+            if (i <= 0) return;
+            if (ShapePresets.Make(ShapePresets.Names[i - 1], _colour) is { } p) ShowProfile(p);
+            _preset.Select(0);
+        };
+        row.AddChild(_preset);
+        _canvas = new ProfileCanvas { CustomMinimumSize = new Vector2(330, 300), MouseFilter = Control.MouseFilterEnum.Stop, ClipContents = true };
+        _canvas.Changed += () => { _profileVersion++; _shapeGhostKey = null; };
+        col.AddChild(_canvas);
+        var depthRow = new HBoxContainer();
+        col.AddChild(depthRow);
+        _depthLabel = new Label { CustomMinimumSize = new Vector2(96, 0) };
+        depthRow.AddChild(_depthLabel);
+        _depth = new HSlider { MinValue = 0.125, MaxValue = 16, Step = 0.125, Value = 1, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, FocusMode = Control.FocusModeEnum.None };
+        _depth.ValueChanged += _ => ProfileSettingsChanged();
+        depthRow.AddChild(_depth);
+        var opts = new HBoxContainer();
+        col.AddChild(opts);
+        _closed = new CheckBox { Text = "Closed", ButtonPressed = true, FocusMode = Control.FocusModeEnum.None, TooltipText = "A closed outline makes a solid; an open one a thin shell, like a bowl or an awning" };
+        _closed.Toggled += _ => ProfileSettingsChanged();
+        opts.AddChild(_closed);
+        Btn(opts, "Clear", "Start the profile again", () => { _canvas.Points.Clear(); _canvas.QueueRedraw(); _profileVersion++; _shapeGhostKey = null; });
+        Btn(opts, "Finish path", "Place the sweep along the path clicked out (Enter)", FinishPath);
+        _showVoxels = new CheckBox { Text = "Show voxels", FocusMode = Control.FocusModeEnum.None, TooltipText = "See the voxels kept for when the building is wrecked" };
+        _showVoxels.Toggled += _ => { _meshed = -1; Refresh(); };
+        opts.AddChild(_showVoxels);
+        _shapeHint = new Label { Modulate = UiTheme.Muted, AutowrapMode = TextServer.AutowrapMode.WordSmart, CustomMinimumSize = new Vector2(330, 0) };
+        col.AddChild(_shapeHint);
+        _shapePanel.Visible = false;
+        ShowProfile(ShapePresets.Column(6, 0.35, _colour));
+    }
+
+    void ShowProfile(Shape s)
+    {
+        _canvas.Show(s);
+        _shapeKind.Select(_shapeKind.GetItemIndex((int)s.Kind));
+        if (s.Kind == ShapeKind.Extrude) { _shapeAxis.Select(_shapeAxis.GetItemIndex((int)s.Axis)); _depth.SetValueNoSignal(s.Depth); }
+        _closed.SetPressedNoSignal(s.Closed);
+        ProfileSettingsChanged();
+    }
+
+    void ProfileSettingsChanged()
+    {
+        var kind = (ShapeKind)_shapeKind.GetSelectedId();
+        _canvas.Kind = kind;
+        _canvas.Axis = (ExtrudeAxis)_shapeAxis.GetSelectedId();
+        _canvas.Closed = _closed.ButtonPressed;
+        _canvas.QueueRedraw();
+        _shapeAxis.Visible = kind == ShapeKind.Extrude;
+        _depth.Visible = _depthLabel.Visible = kind == ShapeKind.Extrude;
+        _depthLabel.Text = $"Depth {_depth.Value:0.###} m";
+        _shapeHint.Text = kind switch
+        {
+            ShapeKind.Lathe => "Draw half the outline right of the axis. Click in the view to place it; R turns it.",
+            ShapeKind.Extrude => "Draw the outline, then click in the view to place it. Depth is how far it's pulled back.",
+            _ => "Draw the cross-section, then click points in the view for its path; Enter places it, Esc starts again.",
+        };
+        _profileVersion++;
+        _shapeGhostKey = null;
+    }
+
+    /// <summary>Where the pointer would place a shape, in metres: the middle of the voxel in front of what it's over, at its foot.</summary>
+    System.Numerics.Vector3? ShapeAt()
+    {
+        if (_hit is not { } h) return null;
+        var f = h.Front;
+        return new System.Numerics.Vector3((f.X + 0.5f) * Vs, (f.Y + 0.5f) * Vs, f.Z * Vs);
+    }
+
+    /// <summary>The shape the panel describes, placed at a point; null while its profile is too short.</summary>
+    Shape? CurrentShape(System.Numerics.Vector3 at, List<System.Numerics.Vector3>? path = null)
+    {
+        var kind = (ShapeKind)_shapeKind.GetSelectedId();
+        var pts = _canvas.Points.ToList();
+        if (pts.Count < 2 || _closed.ButtonPressed && kind != ShapeKind.Lathe && pts.Count < 3) return null;
+        var s = new Shape
+        {
+            Kind = kind, Profile = pts, Closed = _closed.ButtonPressed, Axis = (ExtrudeAxis)_shapeAxis.GetSelectedId(),
+            Depth = _depth.Value, Colour = _colour, Turn = _shapeTurn, X = at.X, Y = at.Y, Z = at.Z,
+        };
+        if (kind == ShapeKind.Sweep)
+        {
+            if (path == null || path.Count < 2) return null;
+            // A sweep's path is kept from its first point.
+            s.X = path[0].X; s.Y = path[0].Y; s.Z = path[0].Z; s.Turn = 0;
+            s.Path = path.Select(p => p - path[0]).ToList();
+        }
+        return s;
+    }
+
+    void FinishPath()
+    {
+        if (_path.Count >= 2 && CurrentShape(_path[0], _path) is { } sh)
+        {
+            int n = _doc.AddShape(sh);
+            Say($"Placed a sweep along {_path.Count} points: {n} voxels, drawn smooth");
+            Refresh();
+        }
+        else Say("Click at least two points for the path first");
+        _path.Clear();
+        _shapeGhostKey = null;
+    }
+
+    /// <summary>The shape that would be placed, ghosted where the pointer is; for a sweep, along the path so far.</summary>
+    void ShowShapeGhost()
+    {
+        var at = ShapeAt();
+        _ghost.Position = Vector3.Zero;
+        if (at is not { } p) { if (_path.Count == 0) _ghost.Visible = false; return; }
+        var key = (p, _profileVersion, _shapeTurn, _path.Count, (int)_colour);
+        if (_shapeGhostKey != key)
+        {
+            _shapeGhostKey = key;
+            Shape? s = (ShapeKind)_shapeKind.GetSelectedId() == ShapeKind.Sweep
+                ? CurrentShape(p, _path.Count > 0 ? _path.Append(p).ToList() : null)
+                : CurrentShape(p);
+            _ghost.Mesh = s != null ? BuildingModels.ToMesh(s.Mesh(1f, 1, _doc.Model.Palette)) : null;
+            _ghost.Position = Vector3.Zero;
+        }
+        _ghost.Visible = _ghost.Mesh != null;
+    }
+
+    /// <summary>For the shots: draws a profile into the panel as a player would, point by point.</summary>
+    internal void UseProfile(Shape s) { SetTool(Tool.Shape); ShowProfile(s); }
     double _sayClock;
 
     // ---- the view ------------------------------------------------------------------------------------------------
@@ -522,7 +694,14 @@ public partial class AssetEditor : Node3D
         _title.Text = $"{(_doc.Dirty ? "• " : "")}Asset editor · {Vs:0.###} m voxels · {_doc.Model.SizeX}×{_doc.Model.SizeY}×{_doc.Model.SizeZ}";
         if (_meshed == _doc.Version) return;
         _meshed = _doc.Version;
-        _mesh.Mesh = BuildingModels.ToMesh(VoxMesher.Mesh(_doc.Model, Vs));
+        // Shapes are drawn as the game draws them, smooth over the rest; "Show voxels" shows what's kept for wrecking.
+        if (_doc.Shapes.Count > 0 && !_showVoxels.ButtonPressed)
+        {
+            var mesh = VoxMesher.Mesh(Draw.Without(_doc.Model, _doc.Detail, _doc.Shapes), Vs);
+            foreach (var sh in _doc.Shapes) mesh.Append(sh.Mesh(1f, 1, _doc.Model.Palette));
+            _mesh.Mesh = BuildingModels.ToMesh(mesh);
+        }
+        else _mesh.Mesh = BuildingModels.ToMesh(VoxMesher.Mesh(_doc.Model, Vs));
         _roof.Mesh = BuildingModels.ToMesh(_doc.RoofMesh(Vs));
         ShowRoof();
         DrawGrid();
@@ -636,6 +815,7 @@ public partial class AssetEditor : Node3D
             }
         }
         ShowGhost(stamp: _tool == Tool.Piece ? Stamp() : null);
+        if (_tool == Tool.Shape) ShowShapeGhost();
         if (_dragging && _tool is Tool.Add or Tool.Erase or Tool.Paint) DragTo();
     }
 
@@ -722,12 +902,15 @@ public partial class AssetEditor : Node3D
                 case Key.Z when ctrl && k.ShiftPressed: case Key.Y when ctrl: _doc.Redo(); break;
                 case Key.Z when ctrl: _doc.Undo(); break;
                 case Key.S when ctrl: Save(); break;
+                case Key.R when _tool == Tool.Shape: _shapeTurn += (k.ShiftPressed ? -1 : 1) * Math.PI / 2; _shapeGhostKey = null; break;
                 case Key.R: _rot = (_rot + (k.ShiftPressed ? 3 : 1)) & 3; _ghostKey = null; break;
                 case Key.Pageup: _storey = Math.Min(_doc.Model.SizeZ / _doc.StoreyVoxels - 1, _storey + 1); DrawGrid(); break;
                 case Key.Pagedown: _storey = Math.Max(0, _storey - 1); DrawGrid(); break;
                 case Key.M: _doc.MirrorX(); break;
                 case Key.F: Frame(); break;
-                case >= Key.Key1 and <= Key.Key7: SetTool((Tool)(k.Keycode - Key.Key1)); break;
+                case >= Key.Key1 and <= Key.Key8: SetTool((Tool)(k.Keycode - Key.Key1)); break;
+                case Key.Enter or Key.KpEnter when _tool == Tool.Shape: FinishPath(); break;
+                case Key.Escape when _tool == Tool.Shape: _path.Clear(); _shapeGhostKey = null; break;
                 default: return;
             }
             Refresh();
@@ -749,6 +932,11 @@ public partial class AssetEditor : Node3D
                 else if (_piece != null) _doc.PlaceProp(_piece, pl.X, pl.Y, pl.Z, _rot);
                 break;
             case Tool.Fill when _hit is { Ground: false } f: _doc.FillColour(f.X, f.Y, f.Z, _colour); break;
+            case Tool.Shape when ShapeAt() is { } at:
+                if (_shapeKind.GetSelectedId() == (int)ShapeKind.Sweep) { _path.Add(at); _shapeGhostKey = null; }
+                else if (CurrentShape(at) is { } sh) { int n = _doc.AddShape(sh); Say($"Placed a {sh.Kind.ToString().ToLowerInvariant()}: {n} voxels, drawn smooth"); }
+                else Say("Draw the profile first: at least two points, three for a closed one");
+                break;
             case Tool.Box when _hit is { } b: _boxFrom = shift && !b.Ground ? (b.X, b.Y, b.Z) : b.Front; break;
             case Tool.Add or Tool.Erase or Tool.Paint when _hit is { } h:
                 _doc.Begin();
@@ -844,6 +1032,21 @@ public partial class AssetEditor : Node3D
             case 8: Save("editor-5-hip-roof-l.png"); break;
             case 9:
             {
+                // The shape tool: a rotunda of lathes, an extruded arch and a swept rail, with the panel showing the dome's profile.
+                _doc = DemoAsset.Rotunda(4);
+                SetColour(Draw.Ramp(5, 7));
+                UseProfile(ShapePresets.Dome(4.9, _colour));
+                _forcedMouse = new Vector2(-4000, -4000);
+                _meshed = -1;
+                Frame();
+                _yaw = -28; _pitch = 22; _dist = 26; _target = new Vector3(8, 4.5f, 8);
+                break;
+            }
+            case 10: Save("editor-6-shapes.png"); _showVoxels.ButtonPressed = true; _dist = 21; _yaw = -40; _pitch = 18; _target = new Vector3(8, 6.5f, 8); break;
+            case 11: Save("editor-7-shapes-voxels.png"); _showVoxels.ButtonPressed = false; break;
+            case 12: Save("editor-8-shapes-close.png"); break;
+            case 13:
+            {
                 // Files: save, open, and use for a building, checked.
                 var house = DemoAsset.House(AssetDoc.DefaultDetail);
                 string dir = System.IO.Path.Combine(_shots!, "assets");
@@ -851,6 +1054,13 @@ public partial class AssetEditor : Node3D
                 house.Save(System.IO.Path.Combine(dir, "brick-house.vox"));
                 var back = AssetDoc.Load(System.IO.Path.Combine(dir, "brick-house.vox"));
                 bool same = back.Model.Voxels.AsSpan().SequenceEqual(house.Model.Voxels) && back.Detail == AssetDoc.DefaultDetail && back.Name == "Brick house";
+                // Shapes save beside the voxels and come back the same.
+                var rot = DemoAsset.Rotunda(4);
+                rot.Save(System.IO.Path.Combine(dir, "rotunda.vox"));
+                var rotBack = AssetDoc.Load(System.IO.Path.Combine(dir, "rotunda.vox"));
+                bool shapes = rotBack.Shapes.Count == rot.Shapes.Count && rotBack.Shapes.Zip(rot.Shapes).All(p => p.First.ToJson().ToJsonString() == p.Second.ToJson().ToJsonString());
+                GD.Print($"EDITOR SHAPES {(shapes ? "OK" : "DIFFER")} {rotBack.Shapes.Count} shapes");
+                same &= shapes;
                 _doc = back;
                 string used = _doc.UseForBuilding(System.IO.Path.Combine(_shots!, "vox"), "res-low-1");
                 GD.Print($"EDITOR FILES {(same ? "OK" : "DIFFER")} {System.IO.Path.GetFileName(used)} {_doc.Model.Count} voxels");

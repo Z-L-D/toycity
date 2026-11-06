@@ -16,7 +16,15 @@ public static partial class RealSet
     public const int Variants = 3;
 
     /// <summary>A generated model: its voxels, detail (voxels a half metre) and auto-roof, if any.</summary>
-    public sealed record Result(VoxModel Model, int Detail, RoofSpec? Roof);
+    /// <summary>
+    /// A model: its voxels (all of it, shapes too: what a wrecked building shows), its detail, its auto-roof, and its
+    /// smooth shapes, which the city draws as polygons over <see cref="Boxy"/>, the voxels without them.
+    /// </summary>
+    public sealed record Result(VoxModel Model, int Detail, RoofSpec? Roof, IReadOnlyList<Shape> Shapes)
+    {
+        VoxModel? _boxy;
+        public VoxModel Boxy => _boxy ??= Shapes.Count == 0 ? Model : Draw.Without(Model, Detail, Shapes);
+    }
 
     /// <summary>The roadside transit stops, drawn by the game itself beside the road, so not in the set.</summary>
     public static readonly HashSet<string> Roadside = new() { "bus-stop", "bus-shelter", "bus-bay", "kiosk-shelter", "tram-stop" };
@@ -34,7 +42,7 @@ public static partial class RealSet
         if (!Recipes.TryGetValue(typeId, out var recipe) || w < 1 || d < 1) return null;
         var lot = new Lot(typeId, w, d, ((variant % Variants) + Variants) % Variants);
         recipe(lot);
-        return lot.Dr == null ? null : new Result(lot.Dr.M, lot.Dr.K, lot.Roof);
+        return lot.Dr == null ? null : new Result(lot.Dr.M, lot.Dr.K, lot.Roof, lot.Dr.Shapes);
     }
 
     /// <summary>The finest detail that fits a lot w × d cells and a height in metres in 256 voxels, at most <paramref name="max"/>.</summary>

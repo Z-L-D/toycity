@@ -19,6 +19,12 @@ public sealed class VoxModel
 
     public bool AnySmooth => Smooth.Any(b => b);
 
+    /// <summary>
+    /// Which palette entries are ghosts: solid, so the faces beside them aren't drawn, but drawn with no faces of
+    /// their own. They stand in for what a smooth shape's polygons draw over (<see cref="Assets.Draw.Without"/>).
+    /// </summary>
+    public readonly bool[] Ghost = new bool[256];
+
     public VoxModel(int sx, int sy, int sz)
     {
         if (sx is < 1 or > 256 || sy is < 1 or > 256 || sz is < 1 or > 256) throw new ArgumentOutOfRangeException(nameof(sx), $"{sx}x{sy}x{sz}: a .vox model is 1..256 a side");
@@ -50,6 +56,8 @@ public sealed class VoxModel
         var m = new VoxModel(SizeX, SizeY, SizeZ);
         Array.Copy(Palette, m.Palette, 256);
         Array.Copy(Smooth, m.Smooth, 256);
+        Array.Copy(Ghost, m.Ghost, 256);
+        Array.Copy(Ghost, m.Ghost, 256);
         for (int z = 0; z < SizeZ; z++)
             for (int y = 0; y < SizeY; y++)
                 for (int x = 0; x < SizeX; x++)
@@ -72,6 +80,7 @@ public sealed class VoxModel
         var m = new VoxModel((SizeX + f - 1) / f, (SizeY + f - 1) / f, (SizeZ + f - 1) / f);
         Array.Copy(Palette, m.Palette, 256);
         Array.Copy(Smooth, m.Smooth, 256);
+        Array.Copy(Ghost, m.Ghost, 256);
         var count = new int[256];
         for (int z = 0; z < m.SizeZ; z++)
             for (int y = 0; y < m.SizeY; y++)

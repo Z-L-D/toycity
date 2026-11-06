@@ -65,6 +65,18 @@ public partial class Gallery : Node3D
             new[] { ("bus-depot", 0, 0, 0), ("rail-station", 0, 0, 0), ("subway-station", 0, 0, 0), ("freight-depot", 0, 0, 0) },
             new[] { ("tram-depot", 0, 0, 0), ("rail-depot", 0, 0, 0), ("subway-depot", 0, 0, 0) },
         }),
+        // Round things as voxels (front) and as the shapes' polygons the city draws (back).
+        ("shapes", new[]
+        {
+            new[] { ("coal-plant", 0, 0, 10), ("water-pump", 0, 0, 10), ("city-hall", 0, 0, 10), ("r-l-h", 1, 1, 10) },
+            new[] { ("coal-plant", 0, 0, 0), ("water-pump", 0, 0, 0), ("city-hall", 0, 0, 0), ("r-l-h", 1, 1, 0) },
+        }),
+        // The destruction swap: whole (front) and wrecked, its voxels holed and charred (back).
+        ("wrecked", new[]
+        {
+            new[] { ("r-l-m", 1, 1, 0), ("r-m-m", 2, 2, 0), ("c-m-m", 2, 2, 0), ("i-m-l", 2, 2, 0) },
+            new[] { ("r-l-m", 1, 1, 20), ("r-m-m", 2, 2, 20), ("c-m-m", 2, 2, 20), ("i-m-l", 2, 2, 20) },
+        }),
     };
 
     Dictionary<string, (int W, int H)> _civic = new();
@@ -112,10 +124,13 @@ public partial class Gallery : Node3D
             foreach (var (id, w0, d0, v) in row)
             {
                 var (w, d) = w0 > 0 ? (w0, d0) : _civic.GetValueOrDefault(id, (1, 1));
-                if (RealSet.Build(id, w, d, v) is not { } r) continue;
+                // A variant of 10 more is drawn all voxels (as before shapes), 20 more wrecked.
+                int mode = v / 10;
+                if (RealSet.Build(id, w, d, v % 10) is not { } r) continue;
                 float scale = 1f / r.Detail / VoxModel.PerCell * cell;
-                var mesh = VoxMesher.Mesh(r.Model, scale);
-                if (r.Roof != null) mesh.Append(AutoRoof.Build(r.Model, r.Detail, r.Roof, scale));
+                var mesh = VoxMesher.Mesh(mode == 2 ? Wreck.Carve(r.Model, r.Detail, id.Length * 7919 + v) : mode == 1 ? r.Model : r.Boxy, scale);
+                if (r.Roof != null && mode != 2) mesh.Append(AutoRoof.Build(r.Model, r.Detail, r.Roof, scale));
+                if (mode == 0) foreach (var sh in r.Shapes) mesh.Append(sh.Mesh(scale * 2 * r.Detail, 1, r.Model.Palette));
                 _stage.AddChild(new MeshInstance3D { Mesh = BuildingModels.ToMesh(mesh), MaterialOverride = _solid, Position = new Vector3(x, 0, z) });
                 tallest = Math.Max(tallest, mesh.Positions.Count > 0 ? mesh.Positions.Max(p => p.Y) : 0);
                 x += w * cell + gap;
