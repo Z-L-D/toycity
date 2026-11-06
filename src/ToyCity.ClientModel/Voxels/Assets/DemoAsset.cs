@@ -129,4 +129,61 @@ public static class DemoAsset
             doc.AddShape(At(ShapePresets.Column(1.1, 0.07, AssetPalette.Metal), x, y, 0.25));
         return doc;
     }
+
+    /// <summary>
+    /// A made-up photo for the photo importer's example and checks: a three-storey brick terrace front 12 m wide and
+    /// 9 m tall, seen from a little to the left and below so it's a keystone, against sky and pavement, with a little
+    /// grain like a real photo. Returns the photo and the facade's four corners in it (top-left, top-right,
+    /// bottom-right, bottom-left), and the facade's size in metres.
+    /// </summary>
+    public static (Photo Photo, (double X, double Y)[] Corners, double Width, double Height) FacadePhoto(int w = 960, int h = 720)
+    {
+        const double fw = 12, fh = 9;
+        var corners = new[] { (w * 0.22, h * 0.13), (w * 0.82, h * 0.21), (w * 0.80, h * 0.83), (w * 0.24, h * 0.89) };
+        // From photo pixels to facade metres: the inverse of where the facade's corners land.
+        var toFacade = PhotoImport.Homography(corners, new[] { (0.0, 0.0), (fw, 0.0), (fw, fh), (0.0, fh) })!;
+        var photo = new Photo(w, h);
+        uint seed = 2463534242;
+        double Grain() { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return (seed % 1000) / 1000.0 - 0.5; }
+        static (double, double, double) C(uint rgb) => ((rgb >> 16 & 255) / 255.0, (rgb >> 8 & 255) / 255.0, (rgb & 255) / 255.0);
+        (double, double, double) Wall(double u, double v)
+        {
+            // A cornice along the top and a stone band at each floor.
+            if (v < 0.45) return C(0xE4E0D6);
+            if (Math.Abs(v - 3.0) < 0.12 || Math.Abs(v - 6.0) < 0.12) return C(0xC9C2B2);
+            int storey = (int)(v / 3);            // 0 at the top
+            double inStorey = v - storey * 3;
+            for (int bay = 0; bay < 4; bay++)
+            {
+                double cx = 1.5 + 3 * bay;
+                bool door = storey == 2 && bay == 1;
+                double halfW = 0.6, top = door ? 0.7 : 0.8, bottom = door ? 3.0 : 2.4;
+                if (Math.Abs(u - cx) < halfW + 0.1 && inStorey > top - 0.1 && inStorey < bottom + (door ? 0 : 0.1))
+                {
+                    bool frame = Math.Abs(u - cx) > halfW || inStorey < top || inStorey > bottom || (!door && Math.Abs(u - cx) < 0.05);
+                    if (frame) return C(0xEDEAE2);
+                    if (door) return C(0x4A3426);
+                    // Glass: darker low down, with the sky caught in the top.
+                    double t = (inStorey - top) / (bottom - top);
+                    return t < 0.3 ? C(0x7F9BAE) : C(0x3E5363);
+                }
+            }
+            return C(0xA2472F);
+        }
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                var (u, v) = PhotoImport.Map(toFacade, x + 0.5, y + 0.5);
+                (double R, double G, double B) c;
+                if (u >= 0 && u <= fw && v >= 0 && v <= fh) c = Wall(u, v);
+                else if (v > fh) c = C(0x8C8A86);   // the pavement
+                else if (u < 0 || u > fw) c = v < 0.6 ? C(0xBFD3E6) : C(0x7A6E62);   // the next houses, in shade
+                else c = (0.62 + 0.2 * y / h, 0.74 + 0.15 * y / h, 0.92);   // sky
+                double g = Grain() * 0.06;
+                photo[x, y] = VoxModel.Rgba(B8(c.R + g), B8(c.G + g), B8(c.B + g));
+            }
+        return (photo, corners, fw, fh);
+    }
+
+    static byte B8(double v) => (byte)Math.Clamp(Math.Round(v * 255), 0, 255);
 }

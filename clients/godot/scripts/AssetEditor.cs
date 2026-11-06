@@ -230,6 +230,7 @@ public partial class AssetEditor : Node3D
             VoxFile.Write(_doc.Model, p);
             Say($"Exported {System.IO.Path.GetFileName(p)}");
         }));
+        Btn(bar, "From a photo", "Build a facade from a photo of a building: straightened, at scale, its windows set back", ShowPhotoPanel);
         bar.AddChild(new VSeparator());
         Btn(bar, "Undo", "Ctrl+Z", () => { _doc.Undo(); Refresh(); });
         Btn(bar, "Redo", "Ctrl+Y", () => { _doc.Redo(); Refresh(); });
@@ -381,6 +382,7 @@ public partial class AssetEditor : Node3D
         _status = new Label { Text = "" };
         foot.AddChild(_status);
         BuildShapePanel(root);
+        BuildPhotoPanel(root);
         SetTool(Tool.Piece);
     }
 
@@ -765,6 +767,7 @@ public partial class AssetEditor : Node3D
         _cam.LookAt(_target, Vector3.Up);
         if (_sayClock > 0 && (_sayClock -= delta) <= 0) _status.Text = "";
         if (_shots != null) { Shots(delta); }
+        PhotoTick(delta);
         Hover(_forcedMouse ?? GetViewport().GetMousePosition());
         Refresh();
         if (_sayClock <= 0) _status.Text = Hint();
@@ -1046,6 +1049,31 @@ public partial class AssetEditor : Node3D
             case 11: Save("editor-7-shapes-voxels.png"); _showVoxels.ButtonPressed = false; break;
             case 12: Save("editor-8-shapes-close.png"); break;
             case 13:
+            {
+                // The photo importer: a keystoned photo of a terrace front, its corners on the facade, read at 12.5 cm.
+                _showVoxels.ButtonPressed = false;
+                _doc = AssetDoc.New("Terrace", 4, 6, 6, 4);
+                SetTool(Tool.Paint);
+                Frame();
+                var (photo, corners, fw, fh) = DemoAsset.FacadePhoto();
+                _photoDepth.SetValueNoSignal(8);
+                ShowPhoto(photo, null, corners, fw, fh);
+                break;
+            }
+            case 14: Save("editor-9-photo.png"); BuildPhoto(); _yaw = -32; _pitch = 14; _dist = 19; _target = new Vector3(_doc.Model.SizeX * Vs / 2, 4.2f, _doc.Model.SizeY * Vs * 0.75f); break;
+            case 15:
+            {
+                Save("editor-10-photo-built.png");
+                var f = _facade!;
+                int set = Enumerable.Range(0, f.Colours.Length).Count(i => f.Recessed[i]);
+                bool ok = f.Width == 96 && f.Height == 72 && set > 0 && f.Entry[f.Main] == AssetPalette.Brick && _doc.Model.Count > 0;
+                GD.Print($"EDITOR PHOTO {(ok ? "OK" : "WRONG")} {f.Width}x{f.Height} voxels, {f.Colours.Length} colours, {set} set back, {_doc.Model.Count} voxels");
+                if (!ok) { GD.Print("EDITOR FAILED"); GetTree().Quit(1); }
+                _yaw = 20; _pitch = 8; _dist = 9; _target = new Vector3(_doc.Model.SizeX * Vs * 0.4f, 4.5f, _doc.Model.SizeY * Vs);
+                break;
+            }
+            case 16: Save("editor-11-photo-close.png"); break;
+            case 17:
             {
                 // Files: save, open, and use for a building, checked.
                 var house = DemoAsset.House(AssetDoc.DefaultDetail);

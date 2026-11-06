@@ -63,6 +63,15 @@ From the release candidate, Beta 4 and Beta 3.2 gate runs (Godot, CI runner with
 adds a new set under [`docs/screenshots`](docs/screenshots); the Beta 3.1 set is in
 [`docs/screenshots/beta3-1`](docs/screenshots/beta3-1).
 
+Release candidate, part 2.2: the photo importer ([`docs/screenshots/rc2-2-photos`](docs/screenshots/rc2-2-photos)):
+
+| | |
+| --- | --- |
+| ![The photo panel: corners on a keystoned photo of a brick terrace, storey lines in its perspective, and the facade as it will be built](docs/screenshots/rc2-2-photos/godot-editor-photo-panel.jpg) | ![The terrace built from the photo, its windows and door set back](docs/screenshots/rc2-2-photos/godot-editor-photo-built.jpg) |
+| From a photo: four corners on the facade, storey lines and a person in the photo's perspective, and the facade straightened at voxel scale | Built into the model as a block: brick on the face, windows and the door set back |
+| ![Close up of the built facade](docs/screenshots/rc2-2-photos/godot-editor-photo-close.jpg) | ![The example photo](docs/screenshots/rc2-2-photos/example-photo.jpg) |
+| Close up: frames and bands on the face, glass a voxel back | The example photo, seen from below and to the left |
+
 Release candidate, part 2.1: smooth shapes and the destruction swap ([`docs/screenshots/rc2-1-shapes`](docs/screenshots/rc2-1-shapes)):
 
 | | |
@@ -286,7 +295,7 @@ Each phase ends with a gate the build must pass before the next begins.
 | Beta 3.2 | Hills: paths by type and surface, grading, tunnels, stairs, ground in layers (done); two clocks, a day clock and a calendar at the mayor's pace (done); weather on the roads with freezing rain, mud, snow and a road crews budget (done); underground view with water mains, sewers and treatment plants (done); subways (done); light and shadow through the day and night (done); growing regions (done) | Done |
 | Beta 4 | GPU test (done); snow on the ground and roofs (done); water quality (done); direct dispatch (done); the floating build menu and L-shaped info bar in both clients (done); region sizes, annexing, taking in a neighbour by a deal and a region charter (done); tile hosts for growing regions (done) | Done |
 | Beta 4.1 | The plant layer: woods, scrub, reeds and orchards that regrow, a tree planter, trees in land value (part 1, done); farm country: fertility, farms on a grid of farm tracks, fields by crop and season, farmsteads and windbreaks (part 2, done); storm cells, a weather station and radar (part 3, done); loose ends: rivers on into open land, murky foul water, roads thawing with the calendar (part 4, done) | Done |
-| Release candidate | The voxel asset library and editor (part 1, done); 6.25 cm houses and the auto-roof (part 1.1, done); the realistic asset set (part 2, done); smooth shapes and the destruction swap (part 2.1, in review); the photo importer (part 2.2); lot editor; path designer; terrain textures; water revisited; UI finishing; mod API; scenarios and onboarding; packaged builds and the save promise | In progress |
+| Release candidate | The voxel asset library and editor (part 1, done); 6.25 cm houses and the auto-roof (part 1.1, done); the realistic asset set (part 2, done); smooth shapes and the destruction swap (part 2.1, done); the photo importer (part 2.2, in review); lot editor; path designer; terrain textures; water revisited; UI finishing; mod API; scenarios and onboarding; packaged builds and the save promise | In progress |
 | 1.0 | City, transport, emergency services, multiplayer, regions and mods | |
 | 1.1–1.4 | Venue core with the hospital, zoo and theme park; ordinance node editor; voice layer; scenario authoring | |
 | 1.x | Holidays and seasonal events across the city and every side game, on the shared calendar | |
@@ -296,6 +305,7 @@ Each phase ends with a gate the build must pass before the next begins.
 
 | Date | Release | Highlights |
 | --- | --- | --- |
+| 2026-11-06 | **Release candidate, part 2.2: the photo importer** (PR #29) | The asset editor builds a facade from a photo: drag four corners onto the facade and say how wide and tall it is, and it's straightened, cut to the asset's voxels, its colours matched to the palette and specks filtered out so it meshes in big flat pieces, with windows and doors set back. Storey lines and a 1.8 m person drawn in the photo's own perspective show when the size is right. [Gate](docs/GATE-RC2-2-PHOTOS.md) |
 | 2026-11-06 | **Release candidate, part 2.1: smooth shapes and the destruction swap** (PR #28) | Round things are real curves: domes, columns, tanks, cooling towers, cones and trees are drawn as polygons from a 2D profile, flat where it's straight and smoothly lit where it bends, and lighter than the voxels they replace. Buildings keep their voxels, and one that burns, falls derelict or comes down swaps to them, holed through the roof and walls, charred, with rubble. The asset editor's shape tool draws a profile on a metre grid with storey lines and a 1.8 m person for scale, then spins it (lathe), pulls it (extrude) or runs it along a path (sweep). [Gate](docs/GATE-RC2-1-SHAPES.md) |
 | 2026-11-05 | **Release candidate, part 2: the realistic asset set** (PRs #26, #27) | Every building has a real model in place of the placeholder blocks: houses of library pieces under auto-roofs, walk-ups, brownstone rows and garden courts, towers, shops, strip malls and offices, sheds, foundries and a smelter, plants, services, parks, depots and the landmarks. Each zoned type comes in three variants, buildings face their road, and models use the finest detail their lot allows. `--gallery` shows them all. [Gate](docs/GATE-RC2-ASSETS.md) |
 | 2026-11-05 | **Release candidate, part 1.1: finer houses and the auto-roof** (PR #25) | Houses default to 6.25 cm voxels (about 2.5 inches), the finest that fits a whole 16 m lot in one `.vox` model. A Sims-style auto-roof of smooth polygons finds the top of the walls and roofs whatever they enclose: gable, hip (with hips and valleys round an L or T), shed or flat, at a chosen pitch, overhang and covering, with a fascia and soffit. It's saved as settings with the asset and drawn by the game on the building at every zoom level. [Gate](docs/GATE-RC1-ROOFS.md) |
