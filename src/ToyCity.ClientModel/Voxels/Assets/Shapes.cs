@@ -217,7 +217,7 @@ public sealed class Shape
     {
         if (Segments > 0) return Math.Max(3, (int)Math.Round(Segments * Math.Min(1, quality)));
         double r = Profile.Count == 0 ? 0 : Profile.Max(p => Math.Abs(p.A)) * Math.Max(1, Squash);
-        int n = Math.Clamp((int)Math.Ceiling(2 * Math.PI * r / 0.8), 8, 40);
+        int n = Math.Clamp((int)Math.Ceiling(2 * Math.PI * r / 1.2), 12, 32);
         return Math.Max(6, (int)Math.Round(n * quality));
     }
 
@@ -574,7 +574,7 @@ public sealed class Shape
     public static Shape Ellipsoid(double x, double y, double z, double rx, double ry, double rz, byte c, byte under = 0, int rings = 0)
     {
         // Rings about a metre apart round the curve: a crown gets seven, a dome sixteen.
-        if (rings <= 0) rings = Math.Clamp((int)Math.Ceiling(Math.PI * Math.Max(rx, rz) / 1.5), 6, 16);
+        if (rings <= 0) rings = Math.Clamp((int)Math.Ceiling(Math.PI * Math.Max(rx, rz) / 2.0), 5, 12);
         var s = new Shape { Kind = ShapeKind.Lathe, X = x, Y = y, Z = z, Colour = c, Under = under, Squash = ry / rx };
         for (int i = 0; i <= rings; i++)
         {

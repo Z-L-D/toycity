@@ -60,12 +60,31 @@ The shapes are lighter than the voxels they replace:
 
 | Model | As voxels | With shapes |
 | --- | --- | --- |
-| Coal plant | 31,900 | 10,000 |
-| Smelter | 34,000 | 4,500 |
-| City hall | 13,500 | 4,600 |
-| Water tower | 3,100 | 1,800 |
+| Coal plant | 31,900 | 8,200 |
+| Water pump | 6,700 | 1,700 |
+| City hall | 13,500 | 4,100 |
 
 This counts the city hall at 25 cm and the others at their drawn detail.
+
+A round shape gets a side for about every 1.2 m of its rim, with at least 12 sides and at most 32.
+
+## Dense-city benchmark
+
+The CI benchmark (`--bench`, High, software OpenGL on the runner) now times frames by the wall clock. Godot caps a
+frame's delta at 8 physics steps (133 ms), so on software OpenGL every level read 133 ms for frames that took about a
+second, and the "8 seconds" measured at each level ran for nearly two minutes. That took the step past its 10-minute
+limit. With the wall clock the run takes about 4 minutes here, and the times are true:
+
+| Zoom | Frame (software OpenGL) | Triangles | Draw calls |
+| --- | --- | --- | --- |
+| 0 | 973 ms | 3,152,591 | 1655 |
+| 1 | 1290 ms | 3,144,089 | 1601 |
+| 2 | 977 ms | 2,477,645 | 1109 |
+| 3 | 1478 ms | 6,958,423 | 721 |
+| 4 | 1337 ms | 6,401,457 | 498 |
+
+Against part 2 (PR #27), the closest zoom draws 6.4M triangles instead of 10.1M. Software OpenGL times say nothing
+about a real graphics card; compare the triangle and draw call counts.
 
 ## Checks
 

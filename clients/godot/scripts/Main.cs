@@ -626,6 +626,7 @@ public partial class Main : Node
 
     int _benchZoom = -1, _benchFrame;
     double _benchClock;
+    ulong _benchTick;
     readonly List<double> _times = new();
     readonly List<string> _benchRows = new();
 
@@ -648,10 +649,15 @@ public partial class Main : Node
             return;
         }
         // Settle for 30 frames, then measure 240 frames or 8 seconds, whichever comes first (slow machines and CI).
+        // Frames are timed by the wall clock: Godot caps a frame's delta at 8 physics steps (133 ms), so on a slow
+        // machine delta would report 133 ms for a frame that took a second, and the 8 seconds would run for minutes.
+        ulong now = Time.GetTicksUsec();
+        double ms = _benchTick == 0 ? delta * 1000 : (now - _benchTick) / 1000.0;
+        _benchTick = now;
         _benchFrame++;
         if (_benchFrame <= 30) { _benchClock = 0; return; }
-        _times.Add(delta * 1000);
-        _benchClock += delta;
+        _times.Add(ms);
+        _benchClock += ms / 1000;
         if (_times.Count < 240 && _benchClock < 8) return;
         _times.Sort();
         double avg = _times.Average(), p95 = _times[(int)(_times.Count * 0.95)], worst = _times[^1];
