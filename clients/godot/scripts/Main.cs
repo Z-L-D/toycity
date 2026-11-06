@@ -15,6 +15,7 @@ namespace ToyCity.Godot;
 /// players beside it, and write its checks to FILE;
 /// --gpu-test DIR to measure each graphics setup on the hill town and write a report into DIR (Main.GpuTest.cs);
 /// --editor to open the asset editor on its own (AssetEditor.cs), with --shots DIR to save its pictures and quit;
+/// --lot-editor for the lot editor (LotEditor.cs), the same way;
 /// --gallery DIR to save pictures of every model in the realistic asset set (Gallery.cs) and quit;
 /// --graphics PRESET (Low, Medium, High, Ultra) to use a preset for this run instead of the saved options;
 /// --user NAME --password PASSWORD to sign in to a dedicated server without the sign-in panel (with --new-account,
@@ -71,6 +72,14 @@ public partial class Main : Node
         {
             _editorOnly = true;
             AddChild(new Gallery(args[g + 1]));
+            return;
+        }
+        // --lot-editor: the lot editor on its own (RC part 3); with --shots DIR, its pictures.
+        if (args.Contains("--lot-editor"))
+        {
+            int at = Array.IndexOf(args, "--shots");
+            _editorOnly = true;
+            AddChild(new LotEditor(at >= 0 && at + 1 < args.Length ? args[at + 1] : null));
             return;
         }
         if (args.Contains("--editor"))

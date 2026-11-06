@@ -6,9 +6,10 @@ public static class DemoAsset
     /// <summary>
     /// A two-storey brick house two modules square with a gabled tile roof, a door, windows all round, a timber
     /// porch and a garden: every kind of piece, placed as a player would. Its roof is the smooth auto-roof, or with
-    /// <paramref name="autoRoof"/> false, built of the library's voxel roof pieces.
+    /// <paramref name="autoRoof"/> false, built of the library's voxel roof pieces. Without <paramref name="garden"/>
+    /// it's the house and porch alone, cut to them, for a lot to dress.
     /// </summary>
-    public static AssetDoc House(int detail, bool autoRoof = true)
+    public static AssetDoc House(int detail, bool autoRoof = true, bool garden = true)
     {
         var doc = AssetDoc.New("Brick house", detail, 4, 4, 3);
         Piece P(string id) => Pieces.Find(id)!;
@@ -49,6 +50,7 @@ public static class DemoAsset
         doc.PlacePiece(P("pillar"), Material.Wood, ox, oy + 2, 0, 2);
         doc.PlacePiece(P("pillar"), Material.Wood, ox, oy + 2, 0, 3);
         doc.PlacePiece(P("roof-flat"), Material.Wood, ox, oy + 2, 1, 2);
+        if (!garden) return doc;
         for (int gx = 0; gx < 4; gx++) doc.PlacePiece(P("fence"), Material.Wood, gx, 3, 0, 2);
         // Props: hedges, a tree and a conifer, a bench, a lamp, a car on the drive, a planter, a bin and a crate.
         int M = doc.ModuleVoxels, h = detail;
@@ -193,4 +195,59 @@ public static class DemoAsset
     }
 
     static byte B8(double v) => (byte)Math.Clamp(Math.Round(v * 255), 0, 255);
+
+    /// <summary>
+    /// The lot editor's example (RC part 3): the brick house on a one-cell lot, its front to the street (south),
+    /// dressed as a player would: a drive with a car, a paved path to the door, a picket fence along the front with
+    /// a gap for the path, a hedge down one side and a brick wall along the back, flower beds, shrubs, a broadleaf,
+    /// a conifer and a fruit tree, a bench, a lamp and a bin.
+    /// </summary>
+    public static LotDoc HouseLot()
+    {
+        var lot = new LotDoc("Brick house lot", 1, 1) { Type = "r-l-m" };
+        lot.SetBuilding(new LotBuilding("example:house", 3.5, 1.0));
+        lot.Add(new LotItem(LotKind.Ground, "concrete", 12.5, 5.5, 15.5, 16));
+        lot.Add(new LotItem(LotKind.Ground, "paving", 5.0, 13.0, 6.5, 16));
+        lot.Add(new LotItem(LotKind.Ground, "flowerbed", 0.9, 13.6, 4.4, 15.3));
+        lot.Add(new LotItem(LotKind.Ground, "flowerbed", 7.2, 13.6, 11.6, 15.3));
+        lot.Add(new LotItem(LotKind.Ground, "paving", 12.5, 1.2, 15.5, 5.5));
+        lot.Add(new LotItem(LotKind.Fence, "picket", 0.3, 15.8, 4.9, 15.8));
+        lot.Add(new LotItem(LotKind.Fence, "picket", 6.6, 15.8, 12.3, 15.8));
+        lot.Add(new LotItem(LotKind.Fence, "hedge", 0.4, 0.6, 0.4, 15.4));
+        lot.Add(new LotItem(LotKind.Fence, "brick", 0.0, 0.15, 16, 0.15));
+        lot.Add(new LotItem(LotKind.Plant, "broadleaf", 2.2, 4.0));
+        lot.Add(new LotItem(LotKind.Plant, "orchard", 2.0, 10.2));
+        lot.Add(new LotItem(LotKind.Plant, "conifer", 14.0, 3.0));
+        lot.Add(new LotItem(LotKind.Plant, "scrub", 8.2, 13.2));
+        lot.Add(new LotItem(LotKind.Plant, "scrub", 11.2, 13.3));
+        lot.Add(new LotItem(LotKind.Plant, "reeds", 1.4, 14.4));
+        lot.Add(new LotItem(LotKind.Prop, "car", 14.0, 11.0, Turn: 1));
+        lot.Add(new LotItem(LotKind.Prop, "bench", 13.9, 7.0, Turn: 3));
+        lot.Add(new LotItem(LotKind.Prop, "lamp", 12.1, 15.4));
+        lot.Add(new LotItem(LotKind.Prop, "bin", 15.5, 15.3));
+        lot.ForgetHistory();
+        return lot;
+    }
+
+    /// <summary>
+    /// A shop on a lot two cells wide (RC part 3): the realistic set's corner shop on the west half, a car park
+    /// beside it behind a chain-link fence, a paved forecourt, and trees between them.
+    /// </summary>
+    public static LotDoc ShopLot()
+    {
+        var lot = new LotDoc("Corner shop lot", 2, 1) { Type = "c-l-m" };
+        lot.SetGround("lawn");
+        lot.SetBuilding(new LotBuilding("set:c-l-m:1x1:0", 0, 0));
+        lot.Add(new LotItem(LotKind.Ground, "paving", 0, 12.5, 16, 16));
+        lot.Add(new LotItem(LotKind.Parking, "some", 17, 0.9, 31.2, 15.4));
+        lot.Add(new LotItem(LotKind.Fence, "chainlink", 16.6, 0.4, 31.6, 0.4));
+        lot.Add(new LotItem(LotKind.Fence, "chainlink", 31.6, 0.4, 31.6, 13));
+        foreach (double y in new[] { 3.0, 8.0 }) lot.Add(new LotItem(LotKind.Plant, "broadleaf", 16.4, y));
+        lot.Add(new LotItem(LotKind.Prop, "planter", 3, 14.8));
+        lot.Add(new LotItem(LotKind.Prop, "planter", 13, 14.8));
+        lot.Add(new LotItem(LotKind.Prop, "table", 9.5, 14.4));
+        lot.Add(new LotItem(LotKind.Prop, "lamp", 16.5, 15.2));
+        lot.ForgetHistory();
+        return lot;
+    }
 }

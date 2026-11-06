@@ -232,6 +232,11 @@ public partial class AssetEditor : Node3D
             Say($"Exported {System.IO.Path.GetFileName(p)}");
         }));
         Btn(bar, "From a photo", "Build a facade from a photo of a building: straightened, at scale, its windows set back", ShowPhotoPanel);
+        Btn(bar, "Lot editor", "Put a building on a lot and dress it with ground, plants, props, fences and parking", () =>
+        {
+            GetParent().AddChild(new LotEditor(null));
+            QueueFree();
+        });
         bar.AddChild(new VSeparator());
         Btn(bar, "Undo", "Ctrl+Z", () => { _doc.Undo(); ClearSelection(); Refresh(); });
         Btn(bar, "Redo", "Ctrl+Y", () => { _doc.Redo(); ClearSelection(); Refresh(); });

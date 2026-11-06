@@ -96,6 +96,15 @@ public sealed class AssetDoc
 
     AssetDoc(string name, int detail, VoxModel model) { Name = name; Detail = detail; Model = model; }
 
+    /// <summary>An asset made from a finished model (a dressed lot, say), its roof and its shapes, with no undo history.</summary>
+    public static AssetDoc FromModel(string name, int detail, VoxModel model, RoofSpec? roof, IEnumerable<Shape> shapes)
+    {
+        if (!Details.Contains(detail)) throw new ArgumentOutOfRangeException(nameof(detail), "detail is 1, 2, 4 or 8");
+        var doc = new AssetDoc(name, detail, model) { _roof = roof };
+        doc._shapes.AddRange(shapes.Select(s => s.Clone()));
+        return doc;
+    }
+
     // ---- changes -------------------------------------------------------------------------------------------------
 
     /// <summary>Several changes as one undo step: everything until <see cref="End"/> undoes together.</summary>
@@ -550,14 +559,15 @@ public sealed class AssetDoc
     /// Saves the asset as a building type's model in a folder the game reads models from: {type}.vox cut down to
     /// what's there (standing on z 0) and its detail beside it, so the game shrinks a fine model to the lot.
     /// </summary>
-    public string UseForBuilding(string folder, string typeId, int lotW = 0, int lotD = 0)
+    public string UseForBuilding(string folder, string typeId, int lotW = 0, int lotD = 0, bool crop = true)
     {
         Directory.CreateDirectory(folder);
         string name = lotW > 0 && lotD > 0 ? $"{typeId}-{lotW}x{lotD}" : typeId;
         string path = Path.Combine(folder, name + ".vox");
-        VoxFile.Write(Cropped(), path);
+        // A dressed lot is written whole, so it lines up with the lot; an asset is cut down to what's there.
+        VoxFile.Write(crop ? Cropped() : Model, path);
         // The shapes move with the crop: it starts at the model's first solid column.
-        var b = Bounds() ?? (0, 0, 0, 0, 0, 0);
+        var b = (crop ? Bounds() : null) ?? (0, 0, 0, 0, 0, 0);
         double v = 0.5 / Detail;
         File.WriteAllText(SidecarOf(path), JsonSerializer.Serialize(new Sidecar(Name, Detail, Roof, ShapesJson(_shapes, -b.X0 * v, -b.Y0 * v)), Json));
         return path;
