@@ -115,7 +115,7 @@ public partial class PhotoCanvas : Control
 
 /// <summary>
 /// The photo importer's right half: the facade as it will be built, one pixel a voxel in palette colours, the
-/// recessed parts (windows, doors) shaded, with storey lines every 3 m, a person 1.8 m tall and a 1 m bar for scale.
+/// parts set back (windows, doors) shaded darker and those standing out lighter, with storey lines every 3 m, a person 1.8 m tall and a 1 m bar for scale.
 /// </summary>
 public partial class FacadePreview : Control
 {
@@ -132,7 +132,8 @@ public partial class FacadePreview : Control
                 byte g = f[x, row];
                 var (r, gg, b, _) = ToyCity.ClientModel.Voxels.VoxModel.Unpack(palette[f.Entry[g]]);
                 var c = Color.Color8(r, gg, b);
-                img.SetPixel(x, row, f.Recessed[g] ? c.Darkened(0.45f) : c);
+                double off = f.OffsetAt(x, row);
+                img.SetPixel(x, row, off < -0.01 ? c.Darkened((float)Math.Min(0.6, 0.25 + off * -0.8)) : off > 0.01 ? c.Lightened((float)Math.Min(0.5, 0.15 + off * 0.8)) : c);
             }
         if (_texture == null || _texture.GetSize() != new Vector2(f.Width, f.Height)) _texture = ImageTexture.CreateFromImage(img);
         else _texture.Update(img);

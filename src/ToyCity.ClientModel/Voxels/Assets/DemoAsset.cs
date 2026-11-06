@@ -134,9 +134,10 @@ public static class DemoAsset
     /// A made-up photo for the photo importer's example and checks: a three-storey brick terrace front 12 m wide and
     /// 9 m tall, seen from a little to the left and below so it's a keystone, against sky and pavement, with a little
     /// grain like a real photo. Returns the photo and the facade's four corners in it (top-left, top-right,
-    /// bottom-right, bottom-left), and the facade's size in metres.
+    /// bottom-right, bottom-left), and the facade's size in metres. With <paramref name="depthMap"/>, the photo's
+    /// depth map instead, lighter nearer: glass and the door back, frames, bands and the cornice forward.
     /// </summary>
-    public static (Photo Photo, (double X, double Y)[] Corners, double Width, double Height) FacadePhoto(int w = 960, int h = 720)
+    public static (Photo Photo, (double X, double Y)[] Corners, double Width, double Height) FacadePhoto(int w = 960, int h = 720, bool depthMap = false)
     {
         const double fw = 12, fh = 9;
         var corners = new[] { (w * 0.22, h * 0.13), (w * 0.82, h * 0.21), (w * 0.80, h * 0.83), (w * 0.24, h * 0.89) };
@@ -145,7 +146,13 @@ public static class DemoAsset
         var photo = new Photo(w, h);
         uint seed = 2463534242;
         double Grain() { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return (seed % 1000) / 1000.0 - 0.5; }
-        static (double, double, double) C(uint rgb) => ((rgb >> 16 & 255) / 255.0, (rgb >> 8 & 255) / 255.0, (rgb & 255) / 255.0);
+        (double, double, double) C(uint rgb)
+        {
+            if (!depthMap) return ((rgb >> 16 & 255) / 255.0, (rgb >> 8 & 255) / 255.0, (rgb & 255) / 255.0);
+            // In a depth map each surface is one grey: how near it is.
+            double d = rgb switch { 0xE4E0D6 => 0.7, 0xC9C2B2 => 0.62, 0xEDEAE2 => 0.6, 0x4A3426 => 0.3, 0x7F9BAE or 0x3E5363 => 0.35, _ => 0.5 };
+            return (d, d, d);
+        }
         (double, double, double) Wall(double u, double v)
         {
             // A cornice along the top and a stone band at each floor.
@@ -178,8 +185,8 @@ public static class DemoAsset
                 if (u >= 0 && u <= fw && v >= 0 && v <= fh) c = Wall(u, v);
                 else if (v > fh) c = C(0x8C8A86);   // the pavement
                 else if (u < 0 || u > fw) c = v < 0.6 ? C(0xBFD3E6) : C(0x7A6E62);   // the next houses, in shade
-                else c = (0.62 + 0.2 * y / h, 0.74 + 0.15 * y / h, 0.92);   // sky
-                double g = Grain() * 0.06;
+                else c = depthMap ? (0.1, 0.1, 0.1) : (0.62 + 0.2 * y / h, 0.74 + 0.15 * y / h, 0.92);   // sky
+                double g = depthMap ? 0 : Grain() * 0.06;
                 photo[x, y] = VoxModel.Rgba(B8(c.R + g), B8(c.G + g), B8(c.B + g));
             }
         return (photo, corners, fw, fh);

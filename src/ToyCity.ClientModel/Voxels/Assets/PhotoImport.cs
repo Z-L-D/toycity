@@ -39,6 +39,9 @@ public sealed class Photo
     }
 }
 
+/// <summary>Which side of the model a facade goes on, as the city's compass has it: south is the front.</summary>
+public enum FacadeSide { South, East, North, West }
+
 /// <summary>What <see cref="PhotoImport.Build"/> is told: the facade's real size, how deep to make it, how it's simplified.</summary>
 public sealed record PhotoOptions
 {
@@ -51,14 +54,14 @@ public sealed record PhotoOptions
     public int Colours { get; init; } = 6;
     /// <summary>How many passes of the speckle filter: each makes runs of one colour longer, so the wall meshes in fewer pieces.</summary>
     public int Smooth { get; init; } = 2;
-    /// <summary>How far the recessed colours (windows, doors) sit back from the face.</summary>
+    /// <summary>How far the colours that look like openings (windows, doors) start set back from the face.</summary>
     public double RecessMetres { get; init; } = 0.25;
 }
 
 /// <summary>
 /// A photo cut down to a facade at voxel scale: each cell's colour group, the groups' colours and the palette entries
-/// they map to, and which groups sit back from the face (windows and doors). Made by <see cref="PhotoImport.Read"/>;
-/// change <see cref="Recessed"/> or a group's <see cref="Entry"/> before building it.
+/// they map to, and how far each group sits in from the face or stands out of it. Made by
+/// <see cref="PhotoImport.Read"/>; change a group's <see cref="Offset"/> or <see cref="Entry"/> before building it.
 /// </summary>
 public sealed class Facade
 {
@@ -71,8 +74,27 @@ public sealed class Facade
     public required (double R, double G, double B)[] Colours { get; init; }
     /// <summary>The palette entry each group is drawn in.</summary>
     public required byte[] Entry { get; init; }
-    /// <summary>Whether each group sits back from the face.</summary>
-    public required bool[] Recessed { get; init; }
+    /// <summary>
+    /// How far each group sits from the face, in metres: negative is set back into the wall (windows, doors),
+    /// positive stands out of it (sills, cornices, a band).
+    /// </summary>
+    public required double[] Offset { get; init; }
+
+    /// <summary>Whether a group is set back into the wall.</summary>
+    public bool SetBack(int group) => Offset[group] < 0;
+
+    /// <summary>
+    /// A distance from the face for each cell, in metres, added to its group's: from a depth map
+    /// (<see cref="PhotoImport.ReliefFromDepthMap"/>) or the photo's light and shade
+    /// (<see cref="PhotoImport.ReliefFromLight"/>). Null for none.
+    /// </summary>
+    public double[]? Relief { get; set; }
+
+    /// <summary>Each cell's lightness in the photo, 0..1, for making relief from light and shade.</summary>
+    public required double[] Light { get; init; }
+
+    /// <summary>A cell's distance from the face in metres: its group's plus its relief.</summary>
+    public double OffsetAt(int x, int row) => Offset[this[x, row]] + (Relief?[x + Width * row] ?? 0);
     /// <summary>The share of the facade each group covers.</summary>
     public required double[] Share { get; init; }
 
@@ -222,7 +244,8 @@ public static class PhotoImport
             palette = m.Palette;
         }
         var entry = colours.Select(c => Nearest(palette, c)).ToArray();
-        return new Facade { Width = w, Height = hgt, Cells = ids, Colours = colours, Entry = entry, Recessed = Openings(colours, share), Share = share };
+        return new Facade { Width = w, Height = hgt, Cells = ids, Colours = colours, Entry = entry, Offset = Openings(colours, share).Select(o2 => o2 ? -o.RecessMetres : 0).ToArray(), Share = share,
+            Light = cells.Select(Luma).ToArray() };
     }
 
     static double Luma((double R, double G, double B) c) => 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B;
@@ -354,51 +377,212 @@ public static class PhotoImport
         return outp;
     }
 
-    /// <summary>What <see cref="Build"/> did: where the facade went, and whether the model had to grow to take it.</summary>
-    public sealed record Placed(int X0, int Z0, int FrontY, int Depth, int Voxels, bool Resized);
+    // ---- relief ---------------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Puts a facade into the model as one undo step: on the front (south) side, centred east to west, standing on the
-    /// ground, <see cref="PhotoOptions.DepthMetres"/> deep with the recessed groups set back. A deep facade is a solid
-    /// block whose sides and top are the wall's main colour. Anything already in the facade's space is replaced. The
-    /// model grows to fit if it must, which starts the undo history again. Null if the facade is bigger than a model
-    /// can be (256 voxels) at this detail.
+    /// Relief from a depth map: a greyscale picture lined up with the photo, lighter nearer. It's read between the same
+    /// corners (scaled if the map is a different size from the photo), and each cell stands out or sits back by its
+    /// lightness against the facade's middle lightness, up to <paramref name="rangeMetres"/> either way at black or white.
     /// </summary>
-    public static Placed? Build(AssetDoc doc, Facade f, PhotoOptions o)
+    public static double[] ReliefFromDepthMap(Facade f, Photo photo, Photo depth, IReadOnlyList<(double X, double Y)> corners, double rangeMetres)
+    {
+        double sx = depth.Width / (double)photo.Width, sy = depth.Height / (double)photo.Height;
+        var scaled = corners.Select(c => (c.X * sx, c.Y * sy)).ToArray();
+        var v = Grid(depth, scaled, f.Width, f.Height).Select(Luma).ToArray();
+        double mid = Median(v);
+        return v.Select(x => Math.Clamp((x - mid) * 2 * rangeMetres, -rangeMetres, rangeMetres)).ToArray();
+    }
+
+    /// <summary>
+    /// A rough relief from the photo's own light and shade, for when there's no depth map: darker than the wall sits
+    /// back, lighter stands out, up to <paramref name="rangeMetres"/>. Softened first, so it follows shapes rather
+    /// than grain. It's a guess from brightness, not a measured depth: a white sill comes out, a dark window goes in,
+    /// but a dark brick band would go in too.
+    /// </summary>
+    public static double[] ReliefFromLight(Facade f, double rangeMetres)
+    {
+        int w = f.Width, h = f.Height;
+        var soft = new double[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                double sum = 0;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        sum += f.Light[Math.Clamp(x + dx, 0, w - 1) + w * Math.Clamp(y + dy, 0, h - 1)];
+                soft[x + w * y] = sum / 9;
+            }
+        double wall = Median(soft);
+        return soft.Select(v => Math.Clamp((v - wall) * 3 * rangeMetres, -rangeMetres, rangeMetres)).ToArray();
+    }
+
+    static double Median(double[] v)
+    {
+        var s = (double[])v.Clone();
+        Array.Sort(s);
+        return s.Length == 0 ? 0 : s[s.Length / 2];
+    }
+
+    // ---- building ------------------------------------------------------------------------------------------------
+
+    /// <summary>What <see cref="Build"/> did: the side, where the face went, and whether the model had to grow.</summary>
+    public sealed record Placed(FacadeSide Side, int Along0, int Face, int Depth, int Voxels, bool Resized)
+    {
+        /// <summary>For the south side, the face's row (y) and first column (x).</summary>
+        public int FrontY => Face;
+        public int X0 => Along0;
+    }
+
+    /// <summary>
+    /// Puts a facade into the model as one undo step, on one side, standing on the ground,
+    /// <see cref="PhotoOptions.DepthMetres"/> deep. On an empty model it goes at that side's edge, centred along it;
+    /// on a model with voxels already, onto the outside of what's there on that side, centred on it, so a block built
+    /// from one photo can take another on each side. Each cell is set back or stands out by its distance
+    /// (<see cref="Facade.OffsetAt"/>). A deep facade is a solid block whose inside is the wall's main colour.
+    /// Anything already in the facade's space is replaced. The model grows to fit on its south and east sides if it
+    /// must, which starts the undo history again; anything standing out past the north or west edge is left off.
+    /// Null if the facade is bigger than a model can be (256 voxels) at this detail.
+    /// </summary>
+    public static Placed? Build(AssetDoc doc, Facade f, PhotoOptions o, FacadeSide side = FacadeSide.South)
     {
         int detail = doc.Detail;
         int depth = Math.Clamp((int)Math.Round(o.DepthMetres * 2 * detail), 1, 256);
-        int recess = Math.Clamp((int)Math.Round(o.RecessMetres * 2 * detail), 0, Math.Max(0, depth - 1));
-        if (f.Width > 256 || f.Height > 256) return null;
+        int V(double metres) => (int)Math.Round(metres * 2 * detail);
+        int outMax = 0;
+        for (int row = 0; row < f.Height; row++)
+            for (int x = 0; x < f.Width; x++)
+                outMax = Math.Max(outMax, V(f.OffsetAt(x, row)));
+        if (f.Width > 256 || f.Height > 256 || depth + outMax > 256) return null;
+        bool ns = side is FacadeSide.South or FacadeSide.North;
+        var bounds = doc.Bounds();
+        // Grow the model to fit, when that's allowed (not inside someone else's undo step).
+        bool grow = false;
+        if (!doc.InStep)
+        {
+            var m0 = doc.Model;
+            int alongSize = ns ? m0.SizeX : m0.SizeY, acrossSize = ns ? m0.SizeY : m0.SizeX;
+            int needAlong = Math.Max(alongSize, f.Width), needAcross = acrossSize;
+            if (bounds is not { } b0) needAcross = Math.Max(acrossSize, depth + outMax);
+            else if (side == FacadeSide.South) needAcross = Math.Max(acrossSize, b0.Y1 + outMax + 1);
+            else if (side == FacadeSide.East) needAcross = Math.Max(acrossSize, b0.X1 + outMax + 1);
+            int sx = ns ? needAlong : needAcross, sy = ns ? needAcross : needAlong, sz = Math.Max(m0.SizeZ, f.Height);
+            if (sx != m0.SizeX || sy != m0.SizeY || sz != m0.SizeZ) { doc.Resize(sx, sy, sz); grow = true; }
+        }
         var m = doc.Model;
-        bool grow = f.Width > m.SizeX || f.Height > m.SizeZ || depth > m.SizeY;
-        if (grow) doc.Resize(Math.Max(m.SizeX, f.Width), Math.Max(m.SizeY, depth), Math.Max(m.SizeZ, f.Height));
-        m = doc.Model;
-        int x0 = (m.SizeX - f.Width) / 2, front = m.SizeY - 1, n = 0;
+        int along = ns ? m.SizeX : m.SizeY, across = ns ? m.SizeY : m.SizeX;
+        int a0, face;
+        if (bounds != null && doc.Bounds() is { } bb)
+        {
+            a0 = ns ? (bb.X0 + bb.X1 + 1 - f.Width) / 2 : (bb.Y0 + bb.Y1 + 1 - f.Width) / 2;
+            face = side switch { FacadeSide.South => bb.Y1, FacadeSide.North => bb.Y0, FacadeSide.East => bb.X1, _ => bb.X0 };
+        }
+        else
+        {
+            a0 = (along - f.Width) / 2;
+            face = side is FacadeSide.South or FacadeSide.East ? across - 1 - outMax : outMax;
+        }
+        // Local (u across the face as seen from outside, d into the building) to the model's x and y.
+        (int X, int Y) At(int u, int d) => side switch
+        {
+            FacadeSide.South => (a0 + u, face - d),
+            FacadeSide.North => (a0 + f.Width - 1 - u, face + d),
+            FacadeSide.East => (face - d, a0 + f.Width - 1 - u),
+            _ => (face + d, a0 + u),
+        };
         byte main = f.Entry[f.Main];
         bool block = depth > 2 * detail;   // deeper than a metre
-        doc.Begin();
+        int n = 0;
+        bool mine = !doc.InStep;
+        if (mine) doc.Begin();
         try
         {
             for (int row = 0; row < f.Height; row++)
             {
                 int z = f.Height - 1 - row;
-                for (int x = 0; x < f.Width; x++)
+                for (int u = 0; u < f.Width; u++)
                 {
-                    byte g = f[x, row];
-                    int back = f.Recessed[g] ? recess : 0;
-                    for (int d = 0; d < depth; d++)
+                    byte g = f[u, row];
+                    int off = V(f.OffsetAt(u, row));
+                    // Set back: empty in front, the face (glass, a doorway) at the back of the recess, never through.
+                    // Standing out: its colour from its front back to the face. Then the same colour through a thin
+                    // facade, and the wall's main colour inside a block.
+                    int front = off > 0 ? -off : Math.Min(-off, depth - 1);
+                    for (int d = -outMax; d < depth; d++)
                     {
-                        // The face in the photo's colour (for a recessed cell, the glass or doorway behind the recess);
-                        // behind it the same colour through a thin facade, and the wall's main colour inside a block.
-                        byte c = d < back ? (byte)0 : d == back || !block ? f.Entry[g] : main;
-                        doc.Set(x0 + x, front - d, z, c);
+                        byte c = d < front ? (byte)0 : d <= Math.Max(front, 0) || !block ? f.Entry[g] : main;
+                        var (x, y) = At(u, d);
+                        if (!m.In(x, y, z)) continue;
+                        doc.Set(x, y, z, c);
                         if (c != 0) n++;
                     }
                 }
             }
         }
+        finally { if (mine) doc.End(); }
+        return new Placed(side, a0, face, depth, n, grow);
+    }
+
+    /// <summary>
+    /// The facade repeated or cut to another width: its middle kept in the middle, the rest repeated out to the sides
+    /// so bays carry on round a corner. For putting one photo on a longer or shorter side.
+    /// </summary>
+    public static Facade Fitted(Facade f, int width)
+    {
+        width = Math.Max(1, width);
+        int shift = (width - f.Width) / 2;
+        int Src(int x) => ((x - shift) % f.Width + f.Width) % f.Width;
+        var cells = new byte[width * f.Height];
+        var light = new double[width * f.Height];
+        double[]? relief = f.Relief == null ? null : new double[width * f.Height];
+        for (int row = 0; row < f.Height; row++)
+            for (int x = 0; x < width; x++)
+            {
+                int s = Src(x) + f.Width * row, t = x + width * row;
+                cells[t] = f.Cells[s];
+                light[t] = f.Light[s];
+                if (relief != null) relief[t] = f.Relief![s];
+            }
+        return new Facade { Width = width, Height = f.Height, Cells = cells, Colours = f.Colours, Entry = f.Entry, Offset = f.Offset, Share = f.Share, Light = light, Relief = relief };
+    }
+
+    /// <summary>
+    /// One photo round all four sides, as one undo step, replacing what's in the model: a block the photo's width
+    /// across and <see cref="PhotoOptions.DepthMetres"/> deep (as deep as it is wide when that's under a metre), with
+    /// the facade on the south and north and fitted to the east and west. Null if it won't fit in a model.
+    /// </summary>
+    public static Placed? Wrap(AssetDoc doc, Facade f, PhotoOptions o)
+    {
+        int detail = doc.Detail;
+        int deep = o.DepthMetres > 1 ? (int)Math.Round(o.DepthMetres * 2 * detail) : f.Width;
+        int outMax = 0;
+        for (int row = 0; row < f.Height; row++)
+            for (int x = 0; x < f.Width; x++)
+                outMax = Math.Max(outMax, (int)Math.Round(f.OffsetAt(x, row) * 2 * detail));
+        int sx = f.Width + 2 * outMax, sy = deep + 2 * outMax;
+        if (sx > 256 || sy > 256 || f.Height > 256) return null;
+        var m = doc.Model;
+        if (m.SizeX < sx || m.SizeY < sy || m.SizeZ < f.Height) doc.Resize(Math.Max(m.SizeX, sx), Math.Max(m.SizeY, sy), Math.Max(m.SizeZ, f.Height));
+        m = doc.Model;
+        // The block's footprint, centred.
+        int x0 = (m.SizeX - f.Width) / 2, y0 = (m.SizeY - deep) / 2;
+        var thin = o with { DepthMetres = Math.Min(o.DepthMetres, 0.5) };
+        doc.Begin();
+        try
+        {
+            for (int z = 0; z < m.SizeZ; z++)
+                for (int y = 0; y < m.SizeY; y++)
+                    for (int x = 0; x < m.SizeX; x++)
+                    {
+                        bool inBlock = x >= x0 && x < x0 + f.Width && y >= y0 && y < y0 + deep && z < f.Height;
+                        doc.Set(x, y, z, inBlock ? f.Entry[f.Main] : (byte)0);
+                    }
+            var placed = Build(doc, f, thin, FacadeSide.South)!;
+            Build(doc, f, thin, FacadeSide.North);
+            var side = Fitted(f, deep);
+            Build(doc, side, thin, FacadeSide.East);
+            Build(doc, side, thin, FacadeSide.West);
+            return placed;
+        }
         finally { doc.End(); }
-        return new Placed(x0, 0, front, depth, n, grow);
     }
 }
