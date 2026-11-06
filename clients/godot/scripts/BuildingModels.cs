@@ -31,6 +31,13 @@ public sealed class BuildingModels
         public required ArrayMesh Far;
         public required Lazy<ArrayMesh> Mid;
         public required Lazy<ArrayMesh> Smooth;
+        /// <summary>
+        /// The voxels with holes knocked through and charred, for a building that burns, falls derelict or comes
+        /// down: the destruction swap. The same as the others for a glTF model, which has no voxels.
+        /// </summary>
+        public required Lazy<ArrayMesh> Wrecked;
+        /// <summary>How many smooth shapes are drawn as polygons.</summary>
+        public int Shapes;
         public required float Height;
         public required bool FromFile;
         /// <summary>The voxels, for remaking the smooth shapes when the options change; null for a glTF model.</summary>
@@ -63,7 +70,7 @@ public sealed class BuildingModels
         if (_shapeOptions == (start, budget)) return false;
         _shapeOptions = (start, budget);
         foreach (var m in _cache.Values)
-            if (m.Voxels is { } vox) m.Smooth = SmoothOf(vox, m.Scale, m.Roof);
+            if (m.Voxels is { } vox && m.Shapes == 0) m.Smooth = SmoothOf(vox, m.Scale, m.Roof);
         return true;
     }
 
@@ -82,14 +89,15 @@ public sealed class BuildingModels
         int v = RealSet.Has(t.Id) && !HasFile(t.Id, w, d) ? Math.Clamp(variant, 0, RealSet.Variants - 1) : 0;
         if (_cache.TryGetValue((t.Id, w, d, v), out var m)) return m;
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
-        var (vox, detail, roof) = LoadVox($"{t.Id}-{w}x{d}") ?? LoadVox(t.Id) ?? (null, 1, null);
+        var (vox, detail, roof, shapes) = LoadVox($"{t.Id}-{w}x{d}") ?? LoadVox(t.Id) ?? (null, 1, null, Array.Empty<Shape>());
         if (vox == null && (LoadGltf($"{t.Id}-{w}x{d}") ?? LoadGltf(t.Id)) is { } gltf)
             m = FromGltf(GltfFile.FitToLot(gltf, w, d));
         else
         {
             bool fromFile = vox != null;
-            if (vox == null && UseRealSet && RealSet.Build(t.Id, w, d, v) is { } real) (vox, detail, roof) = (real.Model, real.Detail, real.Roof);
+            if (vox == null && UseRealSet && RealSet.Build(t.Id, w, d, v) is { } real) (vox, detail, roof, shapes) = (real.Model, real.Detail, real.Roof, real.Shapes);
             vox ??= Placeholder.Build(t, w, d);
+            if (!UseShapes) shapes = Array.Empty<Shape>();
             // A file's model is scaled to fit the lot if it was made for another size, and a fine one drawn smaller.
             float fit = Mathf.Min((float)w * VoxModel.PerCell / vox.SizeX, (float)d * VoxModel.PerCell / vox.SizeY);
             float scale = Mathf.Min(1f / detail, fit) / VoxModel.PerCell;
@@ -97,7 +105,8 @@ public sealed class BuildingModels
             // faces for a difference too small to see from a city camera. Its full voxels stay in its file.
             // A generated house is drawn at 25 cm: at 12.5 cm it is four to five times the faces (6,000-17,000
             // quads), and a dense city's closest zoom held 22 million triangles. A generated building on a bigger lot
-            // (flats, towers, works) is drawn at half-metre voxels, as the old blocks were.
+            // (flats, towers, works) is drawn at half-metre voxels, as the old blocks were. Its round things are
+            // polygons whatever its voxels.
             int most = fromFile ? MaxDrawnDetail : t.Id.StartsWith("r-l-") ? HouseDrawnDetail : Math.Max(w, d) > 1 ? 1 : MaxDrawnDetail;
             if (detail > most && vox.SizeX > 1)
             {
@@ -106,6 +115,9 @@ public sealed class BuildingModels
                 scale *= f;
                 detail = most;
             }
+            // The voxels the city meshes beside the shapes' polygons: the model without the shapes' own voxels, found
+            // at the detail it's drawn at (a 6.25 cm house's would be 64 times the work).
+            var boxy = shapes.Count > 0 ? Draw.Without(vox, detail, shapes) : vox;
             // An auto-roof is smooth polygons already, made from the walls at each zoom level's detail: the roof of a
             // fine model alone would outweigh a far model's walls many times over in a city of thousands.
             var roofMesh = roof != null ? AutoRoof.Build(vox, detail, roof, scale) : new MeshData();
@@ -113,16 +125,32 @@ public sealed class BuildingModels
             if (roofMid.Indices.Count == 0) roofMid = roofMesh;
             var roofFar = Decimate.Cluster(roofMid, Math.Max(24, roofMid.Indices.Count / 3 / 4));
             var far = VoxMesher.Mesh(vox.Downsample(4 * detail), 4 * detail * scale).Append(roofFar);
+            // The shapes in world units: the model's scale is a voxel's, and a voxel is half a metre over the detail.
+            float perMetre = scale * 2 * detail;
+            var palette = vox.Palette;
+            MeshData ShapesMesh(double quality)
+            {
+                var all = new MeshData();
+                foreach (var sh in shapes) all.Append(sh.Mesh(perMetre, quality, palette));
+                return all;
+            }
             var model = vox;
+            var walls = boxy;
             // Mid is half-metre voxels for a fine model (what the old blocks were close up), a metre for a coarse one.
             int mid = detail > 1 ? detail : 2;
+            var near = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(walls, scale).Append(roofMesh).Append(ShapesMesh(1))));
+            int seed = t.Id.Aggregate(17, (h, c) => h * 31 + c) ^ (w * 7919 + d * 104729 + v * 15485863);
             m = new Model
             {
                 // Near is made the first time a close zoom level draws it: most models in a big city are only seen far off.
-                Near = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model, scale).Append(roofMesh))), Far = ToMesh(far),
-                Mid = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(model.Downsample(mid), mid * scale).Append(roofMid))),
-                Smooth = SmoothOf(vox, scale, roofMesh),
+                Near = near, Far = ToMesh(far),
+                Mid = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(walls.Downsample(mid), mid * scale).Append(roofMid).Append(ShapesMesh(0.5)))),
+                // With shapes, the near model is already smooth where it's round; the smooth meshes are for voxels alone.
+                Smooth = shapes.Count > 0 ? near : SmoothOf(vox, scale, roofMesh),
+                // Wrecked: the whole model's voxels, shapes and all, holed and charred; the roof's gone with the fire.
+                Wrecked = new Lazy<ArrayMesh>(() => ToMesh(VoxMesher.Mesh(Wreck.Carve(model, detail, seed), scale))),
                 Height = Math.Max(TopOf(vox) * scale, roofMesh.Positions.Count > 0 ? roofMesh.Positions.Max(p => p.Y) : 0), FromFile = fromFile, Voxels = vox, Scale = scale, Roof = roofMesh,
+                Shapes = shapes.Count,
             };
         }
         _cache[(t.Id, w, d, v)] = m;
@@ -148,6 +176,9 @@ public sealed class BuildingModels
     /// <summary>Off draws the old placeholder blocks for every type without a file (for comparison shots).</summary>
     public static bool UseRealSet = true;
 
+    /// <summary>Off draws the set's round things as their voxels (for comparison shots).</summary>
+    public static bool UseShapes = true;
+
     /// <summary>A glTF model: already smooth, so its detail levels are the same mesh cut to fewer triangles.</summary>
     static Model FromGltf(MeshData mesh)
     {
@@ -156,7 +187,7 @@ public sealed class BuildingModels
         return new Model
         {
             Near = new Lazy<ArrayMesh>(() => smooth), Far = ToMesh(Decimate.Cluster(mesh, 800)),
-            Mid = new Lazy<ArrayMesh>(() => ToMesh(Decimate.Cluster(mesh, 6_000))), Smooth = new Lazy<ArrayMesh>(() => smooth),
+            Mid = new Lazy<ArrayMesh>(() => ToMesh(Decimate.Cluster(mesh, 6_000))), Smooth = new Lazy<ArrayMesh>(() => smooth), Wrecked = new Lazy<ArrayMesh>(() => smooth),
             Height = mesh.Positions.Count > 0 ? mesh.Positions.Max(p => p.Y) : 0, FromFile = true,
         };
     }
@@ -176,7 +207,7 @@ public sealed class BuildingModels
         return 0;
     }
 
-    static (VoxModel?, int, RoofSpec?)? LoadVox(string name)
+    static (VoxModel?, int, RoofSpec?, IReadOnlyList<Shape>)? LoadVox(string name)
     {
         foreach (string folder in Folders)
         {
@@ -191,7 +222,7 @@ public sealed class BuildingModels
                 string sidecar = $"{folder}/{name}.asset.json";
                 string text = global::Godot.FileAccess.FileExists(sidecar) ? global::Godot.FileAccess.GetFileAsString(sidecar) : "";
                 int detail = AssetDoc.ParseSidecar(text) is { } info ? info.Detail : 1;
-                return (m, detail, text.Length > 0 ? AssetDoc.ParseRoof(text) : null);
+                return (m, detail, text.Length > 0 ? AssetDoc.ParseRoof(text) : null, text.Length > 0 ? AssetDoc.ParseShapes(text) : Array.Empty<Shape>());
             }
             catch (Exception e) { GD.PushWarning($"{path}: {e.Message}"); }
         }

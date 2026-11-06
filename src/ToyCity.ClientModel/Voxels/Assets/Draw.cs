@@ -29,29 +29,56 @@ public sealed class Draw
         M.Fill(a, b, e, a1 - 1, b1 - 1, e1 - 1, c);
     }
 
+    /// <summary>
+    /// The smooth shapes drawn so far (cylinders, cones, cooling towers, blobs): the city draws them as polygons in
+    /// place of their voxels, which stay in the model for when the building is wrecked.
+    /// </summary>
+    public readonly List<Shape> Shapes = new();
+
+    /// <summary>Thinner than this a round thing is left as voxels: a post or a pipe isn't worth its polygons.</summary>
+    public const double ThinnestShape = 0.15;
+
     /// <summary>An upright cylinder, or a cone when the radius changes from bottom to top; hollow leaves a wall a voxel thick.</summary>
     public void Cyl(double cx, double cy, double r0, double z0, double z1, byte c, double? r1 = null, bool hollow = false)
     {
         double top = r1 ?? r0;
-        int za = I(z0), zb = Math.Max(za + 1, I(z1));
-        for (int z = za; z < zb; z++)
+        if (Math.Max(r0, top) < ThinnestShape)
         {
-            double f = zb - za <= 1 ? 0 : (z - za) / (double)(zb - za - 1);
-            double r = (r0 + (top - r0) * f) / V;
-            Disc(cx / V, cy / V, r, z, c, hollow);
+            int za = I(z0), zb = Math.Max(za + 1, I(z1));
+            for (int z = za; z < zb; z++)
+            {
+                double f = zb - za <= 1 ? 0 : (z - za) / (double)(zb - za - 1);
+                Disc(cx / V, cy / V, (r0 + (top - r0) * f) / V, z, c, hollow);
+            }
+            return;
         }
+        Add(Shape.Cylinder(cx, cy, r0, z0, Math.Max(z1, z0 + V), c, top, hollow ? V : 0));
+    }
+
+    /// <summary>Adds a shape and fills its voxels; one too thin to fill any still gets the voxel at its middle.</summary>
+    public Shape Add(Shape s)
+    {
+        if (s.Voxelize(M, K) == 0)
+        {
+            var (lo, hi) = s.Bounds();
+            int x = (int)Math.Floor((lo.X + hi.X) / 2 / V), y = (int)Math.Floor((lo.Y + hi.Y) / 2 / V);
+            for (int z = I(s.Z); z < Math.Max(I(s.Z) + 1, I(hi.Z)); z++) if (M.In(x, y, z)) M[x, y, z] = s.Colour;
+        }
+        Shapes.Add(s);
+        return s;
     }
 
     /// <summary>A cooling tower's waisted shape: wide at the foot, narrowest two thirds up, flaring at the lip.</summary>
     public void Waisted(double cx, double cy, double rFoot, double rWaist, double rLip, double z0, double z1, byte c)
     {
-        int za = I(z0), zb = I(z1);
-        for (int z = za; z < zb; z++)
-        {
-            double f = (z - za) / (double)Math.Max(1, zb - za - 1), w = 0.68;
-            double r = f < w ? rFoot + (rWaist - rFoot) * Math.Sin(f / w * Math.PI / 2) : rWaist + (rLip - rWaist) * ((f - w) / (1 - w)) * ((f - w) / (1 - w));
-            Disc(cx / V, cy / V, r / V, z, c, true, Math.Max(1, K / 2));
-        }
+        const double w = 0.68;
+        double Radius(double f) => f < w ? rFoot + (rWaist - rFoot) * Math.Sin(f / w * Math.PI / 2) : rWaist + (rLip - rWaist) * ((f - w) / (1 - w)) * ((f - w) / (1 - w));
+        double wall = Math.Max(1, K / 2) * V, h = z1 - z0;
+        var s = new Shape { Kind = ShapeKind.Lathe, X = cx, Y = cy, Z = z0, Colour = c };
+        const int steps = 16;
+        for (int i = 0; i <= steps; i++) s.Profile.Add((Radius(i / (double)steps), h * i / steps));
+        for (int i = steps; i >= 0; i--) s.Profile.Add((Radius(i / (double)steps) - wall, h * i / steps));
+        Add(s);
     }
 
     void Disc(double cx, double cy, double r, int z, byte c, bool hollow, int wall = 1)
@@ -77,6 +104,40 @@ public sealed class Draw
                     if (dx * dx + dy * dy + dz * dz <= 1 - lump)
                         M[x, y, z] = dark is { } dk && (dz < -0.2 || ((x + y + z) & 3) == 0) ? dk : c;
                 }
+        if (Math.Min(rx, Math.Min(ry, rz)) >= ThinnestShape)
+        {
+            var s = Shape.Ellipsoid(cx, cy, cz, rx, ry, rz, c, dark ?? 0);
+            s.Lumpy = lumpy;
+            Shapes.Add(s);
+        }
+    }
+
+    /// <summary>A copy of the model without its shapes' voxels: what the city meshes as voxels beside the shapes' polygons.</summary>
+    public VoxModel Boxy() => Without(M, K, Shapes);
+
+    /// <summary>A copy of a model at a detail without the voxels of these shapes (inside one and of its colours).</summary>
+    public static VoxModel Without(VoxModel m, int detail, IReadOnlyList<Shape> shapes)
+    {
+        var o = new VoxModel(m.SizeX, m.SizeY, m.SizeZ);
+        Array.Copy(m.Voxels, o.Voxels, m.Voxels.Length);
+        Array.Copy(m.Palette, o.Palette, 256);
+        Array.Copy(m.Smooth, o.Smooth, 256);
+        Array.Copy(m.Ghost, o.Ghost, 256);
+        if (shapes.Count == 0) return o;
+        // The shapes' voxels become a ghost colour, one the model doesn't use: solid, so the faces round them (a
+        // dome's hollow, a tank's inside) aren't drawn, but with none of their own.
+        var used = new bool[256];
+        foreach (byte c in m.Voxels) used[c] = true;
+        int g = 255;
+        while (g > 1 && (used[g] || o.Ghost[g])) g--;
+        if (o.Ghost.Any(b => b)) g = Array.IndexOf(o.Ghost, true);
+        o.Ghost[g] = true;
+        byte ghost = (byte)g;
+        foreach (var s in shapes)
+            // Grown by most of a voxel: one whose middle is just outside the polygons (between a curve's facets) would
+            // still poke through them.
+            s.ForEachVoxel(o, detail, (x, y, z) => { byte c = o[x, y, z]; if (c != 0 && (c == s.Colour || c == s.Under)) o[x, y, z] = ghost; }, 0.9 * 0.5 / detail);
+        return o;
     }
 
     /// <summary>Replaces one colour with another inside a box (the whole model if no box): repaints a library piece.</summary>

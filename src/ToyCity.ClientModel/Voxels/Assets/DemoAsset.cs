@@ -94,4 +94,39 @@ public static class DemoAsset
         for (int gx = 0; gx < 4; gx++) doc.PlacePiece(P("fence"), Material.Stone, gx, 3, 0, 2);
         return doc;
     }
+
+    /// <summary>
+    /// A round temple on a lawn, made with the shape tool: a stepped plinth, a ring of columns and a band (lathes),
+    /// a copper dome with an urn on top, an arched gateway (an extrude) and a rail round the lawn (a sweep).
+    /// </summary>
+    public static AssetDoc Rotunda(int detail = 4)
+    {
+        var doc = AssetDoc.New("Rotunda", detail, 4, 4, 5);
+        double w = doc.Model.SizeX * 0.5 / detail, cx = w / 2, cy = w / 2 - 1;
+        doc.Box(0, 0, 0, doc.Model.SizeX - 1, doc.Model.SizeY - 1, 0, AssetPalette.Grass);
+        Shape At(Shape s, double x, double y, double z) { s.X = x; s.Y = y; s.Z = z; return s; }
+        doc.AddShape(At(new Shape
+        {
+            Kind = ShapeKind.Lathe, Colour = AssetPalette.Stone,
+            Profile = new() { (0, 0), (6.4, 0), (6.4, 0.35), (6.0, 0.35), (6.0, 0.7), (5.6, 0.7), (5.6, 1.0), (0, 1.0) },
+        }, cx, cy, 0.25));
+        for (int i = 0; i < 10; i++)
+        {
+            double a = 2 * Math.PI * i / 10;
+            doc.AddShape(At(ShapePresets.Column(5, 0.3, AssetPalette.Trim), cx + Math.Cos(a) * 4.8, cy + Math.Sin(a) * 4.8, 1.25));
+        }
+        doc.AddShape(At(ShapePresets.Ring(5.4, 1.2, 0.9, AssetPalette.Stone), cx, cy, 6.25));
+        doc.AddShape(At(ShapePresets.Dome(4.9, Draw.Ramp(5, 7)), cx, cy, 7.15));
+        doc.AddShape(At(ShapePresets.Vase(AssetPalette.Trim), cx, cy, 7.15 + 4.9 * 1.2 - 0.1));
+        doc.AddShape(At(ShapePresets.Arch(2.6, 3.4, 0.5, AssetPalette.Brick), cx, w - 1.6, 0.25));
+        var rail = ShapePresets.Rail(AssetPalette.Metal, new()
+        {
+            new(0.8f, 0.8f, 1), new((float)w - 0.8f, 0.8f, 1), new((float)w - 0.8f, (float)w - 0.8f, 1), new(0.8f, (float)w - 0.8f, 1),
+        });
+        rail.PathClosed = true;
+        doc.AddShape(rail);
+        foreach (var (x, y) in new[] { (0.8, 0.8), (w - 0.8, 0.8), (w - 0.8, w - 0.8), (0.8, w - 0.8) })
+            doc.AddShape(At(ShapePresets.Column(1.1, 0.07, AssetPalette.Metal), x, y, 0.25));
+        return doc;
+    }
 }

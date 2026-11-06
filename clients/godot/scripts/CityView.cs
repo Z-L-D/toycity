@@ -135,7 +135,7 @@ public partial class CityView : Node3D
         if (fullTerrain != _fullTerrain) { _fullTerrain = fullTerrain; _lodAt = 0; }
         if (_models.SetShapes(start, budget))
             foreach (var (key, mmi) in _batches)
-                if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3, key.Item4 >> 20), key.Item4);
+                if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3, (key.Item4 >> 20) & 3), key.Item4);
     }
 
     public int ShapesMade => _models.ShapesMade;
@@ -450,7 +450,7 @@ public partial class CityView : Node3D
         if (detail == _detail && (detail != ModelDetail.Smooth || focus == _focus && rest == _rest && radius == _radius)) return;
         (_detail, _rest, _focus, _radius) = (detail, rest, focus, radius);
         foreach (var (key, mmi) in _batches)
-            if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3, key.Item4 >> 20), key.Item4);
+            if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3, (key.Item4 >> 20) & 3), key.Item4);
     }
 
     /// <summary>
@@ -465,9 +465,21 @@ public partial class CityView : Node3D
         return new Transform3D(basis, new Vector3(b.X, g, b.Y) + c - basis * c);
     }
 
+    /// <summary>Kept in a batch's key above the variant: its buildings are drawn as their wrecked voxels.</summary>
+    const int WreckedBit = 1 << 22;
+
+    /// <summary>
+    /// The destruction swap: a building drawn as polygons switches to its voxels, holed and charred, while it burns,
+    /// once it's derelict and falling apart, and while it comes down.
+    /// </summary>
+    public static bool IsWrecked(BuildingState b, float crumblingLeft) =>
+        crumblingLeft >= 0 || b.BurningDays > 0 || b.Look == BuildingLook.LookBurning || b.Abandoned && b.Condition < 30;
+
     Mesh MeshOf(BuildingModels.Model m, int region)
     {
-        region &= 0xFFFFF;  // the variant is kept above the region
+        bool wrecked = (region & WreckedBit) != 0;
+        region &= 0xFFFFF;  // the variant and whether it's wrecked are kept above the region
+        if (wrecked && _detail != ModelDetail.Far) return m.Wrecked.Value;
         var d = _detail == ModelDetail.Smooth && (Math.Abs(region % 1024 - _focus.X) > _radius || Math.Abs(region / 1024 - _focus.Y) > _radius) ? _rest : _detail;
         return d switch { ModelDetail.Far => m.Far, ModelDetail.Mid => m.Mid.Value, ModelDetail.Smooth => m.Smooth.Value, _ => m.Near.Value };
     }
@@ -489,7 +501,7 @@ public partial class CityView : Node3D
         void Add(BuildingState b, float left)
         {
             if (!_city.TypeById.TryGetValue(b.TypeId, out var t) || t.Roadside) { if (left < 0) stops.Add(b); return; }
-            var key = (b.TypeId, b.Width, b.Height, (b.Y / Region * 1024 + b.X / Region) | RealSet.VariantOf(b.Id) << 20);
+            var key = (b.TypeId, b.Width, b.Height, (b.Y / Region * 1024 + b.X / Region) | RealSet.VariantOf(b.Id) << 20 | (IsWrecked(b, left) ? WreckedBit : 0));
             if (!groups.TryGetValue(key, out var list)) groups[key] = list = new();
             list.Add((b, left));
         }
@@ -498,7 +510,7 @@ public partial class CityView : Node3D
         foreach (var key in _batches.Keys.Where(k => !groups.ContainsKey(k)).ToList()) { _batches[key].QueueFree(); _batches.Remove(key); _members.Remove(key); }
         foreach (var (key, list) in groups)
         {
-            var model = _models.Get(_city.TypeById[key.Item1], key.Item2, key.Item3, key.Item4 >> 20);
+            var model = _models.Get(_city.TypeById[key.Item1], key.Item2, key.Item3, (key.Item4 >> 20) & 3);
             if (!_batches.TryGetValue(key, out var mmi))
             {
                 mmi = new MultiMeshInstance3D
@@ -570,7 +582,7 @@ public partial class CityView : Node3D
         foreach (var (key, list) in _members)
         {
             var mm = _batches[key].Multimesh;
-            var model = _models.Get(_city.TypeById[key.Item1], key.Item2, key.Item3, key.Item4 >> 20);
+            var model = _models.Get(_city.TypeById[key.Item1], key.Item2, key.Item3, (key.Item4 >> 20) & 3);
             for (int k = 0; k < list.Count && k < mm.InstanceCount; k++)
             {
                 var (b, left) = list[k];
