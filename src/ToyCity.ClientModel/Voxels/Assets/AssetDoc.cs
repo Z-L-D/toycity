@@ -101,6 +101,9 @@ public sealed class AssetDoc
     /// <summary>Several changes as one undo step: everything until <see cref="End"/> undoes together.</summary>
     public void Begin() => _open ??= new List<Change>();
 
+    /// <summary>Whether an undo step is open (between <see cref="Begin"/> and <see cref="End"/>).</summary>
+    public bool InStep => _open != null;
+
     public void End()
     {
         if (_open == null) return;
@@ -366,6 +369,86 @@ public sealed class AssetDoc
                     m[x, y, z] = Model[b.X0 + x, b.Y0 + y, z0 + z];
         return m;
     }
+
+    // ---- select and extrude -------------------------------------------------------------------------------------
+
+    bool Solid(int x, int y, int z) => Model.In(x, y, z) && Model[x, y, z] != 0;
+
+    /// <summary>
+    /// The patch of one colour showing on one side: the voxels of the colour at (x, y, z) whose face towards
+    /// (nx, ny, nz) is open, joined to it across that face's plane, or with <paramref name="everywhere"/> every such
+    /// voxel in the model (all the windows on a front, say).
+    /// </summary>
+    public List<(int X, int Y, int Z)> SelectFace(int x, int y, int z, int nx, int ny, int nz, bool everywhere = false)
+    {
+        var found = new List<(int, int, int)>();
+        if (!Solid(x, y, z) || Math.Abs(nx) + Math.Abs(ny) + Math.Abs(nz) != 1) return found;
+        byte c = Model[x, y, z];
+        bool Shows(int a, int b, int d) => Model.In(a, b, d) && Model[a, b, d] == c && !Solid(a + nx, b + ny, d + nz);
+        if (everywhere)
+        {
+            for (int d = 0; d < Model.SizeZ; d++)
+                for (int b = 0; b < Model.SizeY; b++)
+                    for (int a = 0; a < Model.SizeX; a++)
+                        if (Shows(a, b, d)) found.Add((a, b, d));
+            return found;
+        }
+        if (!Shows(x, y, z)) return found;
+        // The two directions across the face.
+        var across = nx != 0 ? new[] { (0, 1, 0), (0, 0, 1) } : ny != 0 ? new[] { (1, 0, 0), (0, 0, 1) } : new[] { (1, 0, 0), (0, 1, 0) };
+        var seen = new HashSet<(int, int, int)> { (x, y, z) };
+        var todo = new Queue<(int X, int Y, int Z)>();
+        todo.Enqueue((x, y, z));
+        while (todo.Count > 0)
+        {
+            var p = todo.Dequeue();
+            found.Add(p);
+            foreach (var (ax, ay, az) in across)
+                foreach (int s in new[] { -1, 1 })
+                {
+                    var q = (p.X + s * ax, p.Y + s * ay, p.Z + s * az);
+                    if (Shows(q.Item1, q.Item2, q.Item3) && seen.Add(q)) todo.Enqueue(q);
+                }
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// Pulls a selection out (steps above 0) or pushes it in (below 0) along (nx, ny, nz), a voxel a step, as one
+    /// undo step. Pulling out adds voxels of each one's colour in front of it, into open space only. Pushing in takes
+    /// each voxel away and paints the one behind it in its colour, so the patch keeps its look; it stops at the last
+    /// voxel rather than holing the wall. Returns the selection where it ends up, for the next push or pull.
+    /// </summary>
+    public List<(int X, int Y, int Z)> Extrude(IReadOnlyList<(int X, int Y, int Z)> cells, int nx, int ny, int nz, int steps) => Step(() =>
+    {
+        var now = cells.ToList();
+        for (int s = 0; s < Math.Abs(steps) && now.Count > 0; s++)
+        {
+            var next = new List<(int X, int Y, int Z)>();
+            foreach (var (x, y, z) in now)
+            {
+                byte c = Model[x, y, z];
+                if (c == 0) continue;
+                if (steps > 0)
+                {
+                    var t = (x + nx, y + ny, z + nz);
+                    if (!Model.In(t.Item1, t.Item2, t.Item3) || Model[t.Item1, t.Item2, t.Item3] != 0) continue;
+                    Put(t.Item1, t.Item2, t.Item3, c);
+                    next.Add(t);
+                }
+                else
+                {
+                    var b = (x - nx, y - ny, z - nz);
+                    if (!Solid(b.Item1, b.Item2, b.Item3)) continue;
+                    Put(b.Item1, b.Item2, b.Item3, c);
+                    Put(x, y, z, 0);
+                    next.Add(b);
+                }
+            }
+            now = next;
+        }
+        return now;
+    });
 
     /// <summary>Makes the model another size, keeping what's there from the north-west bottom corner.</summary>
     public void Resize(int sx, int sy, int sz)

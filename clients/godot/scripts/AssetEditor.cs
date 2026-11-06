@@ -14,7 +14,7 @@ namespace ToyCity.Godot;
 /// </summary>
 public partial class AssetEditor : Node3D
 {
-    enum Tool { Piece, Add, Erase, Paint, Fill, Box, Pick, Shape }
+    enum Tool { Piece, Add, Erase, Paint, Fill, Box, Pick, Shape, Select }
 
     const string AssetsDir = "user://assets";
     AssetDoc _doc = AssetDoc.New("New asset", 1, 1, 1, 1);
@@ -141,6 +141,7 @@ public partial class AssetEditor : Node3D
         AddChild(_roof = new MeshInstance3D { MaterialOverride = _solid });
         AddChild(_ghost = new MeshInstance3D { MaterialOverride = _ghostMat, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off });
         AddChild(_lines = new MeshInstance3D { MaterialOverride = _lineMat, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off });
+        MakeSelectionMesh();
         AddChild(_grid = new MeshInstance3D { MaterialOverride = new StandardMaterial3D { ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded, VertexColorUseAsAlbedo = true, Transparency = BaseMaterial3D.TransparencyEnum.Alpha }, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off });
         // A floor under the model, to stand it on and to catch its shadow.
         AddChild(new MeshInstance3D
@@ -230,9 +231,10 @@ public partial class AssetEditor : Node3D
             VoxFile.Write(_doc.Model, p);
             Say($"Exported {System.IO.Path.GetFileName(p)}");
         }));
+        Btn(bar, "From a photo", "Build a facade from a photo of a building: straightened, at scale, its windows set back", ShowPhotoPanel);
         bar.AddChild(new VSeparator());
-        Btn(bar, "Undo", "Ctrl+Z", () => { _doc.Undo(); Refresh(); });
-        Btn(bar, "Redo", "Ctrl+Y", () => { _doc.Redo(); Refresh(); });
+        Btn(bar, "Undo", "Ctrl+Z", () => { _doc.Undo(); ClearSelection(); Refresh(); });
+        Btn(bar, "Redo", "Ctrl+Y", () => { _doc.Redo(); ClearSelection(); Refresh(); });
         Btn(bar, "Mirror", "Flip the whole model east to west (M)", () => { _doc.MirrorX(); Refresh(); });
         Btn(bar, "Symmetry", "Copy the west half onto the east, flipped", () => { _doc.SymmetriseX(); Refresh(); });
         Btn(bar, "Clear", "Empty the model", () => { _doc.Clear(); Refresh(); });
@@ -262,6 +264,7 @@ public partial class AssetEditor : Node3D
             (Tool.Fill, "Fill", "Recolour a joined patch of one colour (5)"), (Tool.Box, "Box", "Drag out a box; with Shift, empty it (6)"),
             (Tool.Pick, "Pick", "Take the colour of a voxel (7, or Alt+click)"),
             (Tool.Shape, "Shape", "Draw a profile, then place it as a lathe, an extrude or a sweep: smooth in the game, voxels when wrecked (8)"),
+            (Tool.Select, "Select", "Click a patch of one colour (Shift: every patch of it facing that way), then + pulls it out and − pushes it in (9)"),
         })
         {
             var b = Btn(tools, label, tip, () => SetTool(t), toggle: true);
@@ -381,6 +384,7 @@ public partial class AssetEditor : Node3D
         _status = new Label { Text = "" };
         foot.AddChild(_status);
         BuildShapePanel(root);
+        BuildPhotoPanel(root);
         SetTool(Tool.Piece);
     }
 
@@ -425,6 +429,7 @@ public partial class AssetEditor : Node3D
         _toolButtons[t].ButtonPressed = true;
         _boxFrom = null;
         _ghostKey = null;
+        if (t != Tool.Select && _selMesh != null) ClearSelection();
     }
 
     void ListMine()
@@ -765,6 +770,7 @@ public partial class AssetEditor : Node3D
         _cam.LookAt(_target, Vector3.Up);
         if (_sayClock > 0 && (_sayClock -= delta) <= 0) _status.Text = "";
         if (_shots != null) { Shots(delta); }
+        PhotoTick(delta);
         Hover(_forcedMouse ?? GetViewport().GetMousePosition());
         Refresh();
         if (_sayClock <= 0) _status.Text = Hint();
@@ -777,6 +783,7 @@ public partial class AssetEditor : Node3D
         {
             Tool.Piece => $"{(_saved?.Name ?? _piece?.Name ?? "")} · storey {_storey + 1} · R to turn, PgUp/PgDn storey",
             Tool.Box => _boxFrom == null ? "Drag out a box; Shift empties it" : "Let go to fill the box",
+            Tool.Select => _selection.Count == 0 ? "Click a patch of one colour; Shift+click for every patch of it facing that way" : $"{_selection.Count:N0} selected · + pulls out, − pushes in, Esc lets go",
             _ => _tool.ToString(),
         };
         return $"{what}    {at}    ·  right-drag to turn the view, middle-drag to move it, wheel to zoom, Ctrl+Z undo";
@@ -859,7 +866,7 @@ public partial class AssetEditor : Node3D
                 Box(W(Math.Min(from.X, f.X), Math.Min(from.Y, f.Y), Math.Min(from.Z, f.Z)), W(Math.Max(from.X, f.X) + 1, Math.Max(from.Y, f.Y) + 1, Math.Max(from.Z, f.Z) + 1), new Color(0.5f, 0.9f, 1));
             else Box(W(f.X, f.Y, f.Z), W(f.X + 1, f.Y + 1, f.Z + 1), new Color(0.5f, 0.9f, 1));
         }
-        else if (_tool is Tool.Erase or Tool.Paint or Tool.Fill or Tool.Pick && _hit is { Ground: false } g)
+        else if (_tool is Tool.Erase or Tool.Paint or Tool.Fill or Tool.Pick or Tool.Select && _hit is { Ground: false } g)
             Box(W(g.X, g.Y, g.Z), W(g.X + 1, g.Y + 1, g.Z + 1), _tool == Tool.Erase ? new Color(1, 0.4f, 0.4f) : Colors.White);
         if (any) im.SurfaceEnd();
         _lines.Mesh = im;
@@ -899,8 +906,8 @@ public partial class AssetEditor : Node3D
             bool ctrl = k.CtrlPressed || k.MetaPressed;
             switch (k.Keycode)
             {
-                case Key.Z when ctrl && k.ShiftPressed: case Key.Y when ctrl: _doc.Redo(); break;
-                case Key.Z when ctrl: _doc.Undo(); break;
+                case Key.Z when ctrl && k.ShiftPressed: case Key.Y when ctrl: _doc.Redo(); ClearSelection(); break;
+                case Key.Z when ctrl: _doc.Undo(); ClearSelection(); break;
                 case Key.S when ctrl: Save(); break;
                 case Key.R when _tool == Tool.Shape: _shapeTurn += (k.ShiftPressed ? -1 : 1) * Math.PI / 2; _shapeGhostKey = null; break;
                 case Key.R: _rot = (_rot + (k.ShiftPressed ? 3 : 1)) & 3; _ghostKey = null; break;
@@ -908,7 +915,10 @@ public partial class AssetEditor : Node3D
                 case Key.Pagedown: _storey = Math.Max(0, _storey - 1); DrawGrid(); break;
                 case Key.M: _doc.MirrorX(); break;
                 case Key.F: Frame(); break;
-                case >= Key.Key1 and <= Key.Key8: SetTool((Tool)(k.Keycode - Key.Key1)); break;
+                case >= Key.Key1 and <= Key.Key9: SetTool((Tool)(k.Keycode - Key.Key1)); break;
+                case Key.Equal or Key.KpAdd when _tool == Tool.Select: Push(1); break;
+                case Key.Minus or Key.KpSubtract when _tool == Tool.Select: Push(-1); break;
+                case Key.Escape when _tool == Tool.Select: ClearSelection(); break;
                 case Key.Enter or Key.KpEnter when _tool == Tool.Shape: FinishPath(); break;
                 case Key.Escape when _tool == Tool.Shape: _path.Clear(); _shapeGhostKey = null; break;
                 default: return;
@@ -932,6 +942,8 @@ public partial class AssetEditor : Node3D
                 else if (_piece != null) _doc.PlaceProp(_piece, pl.X, pl.Y, pl.Z, _rot);
                 break;
             case Tool.Fill when _hit is { Ground: false } f: _doc.FillColour(f.X, f.Y, f.Z, _colour); break;
+            case Tool.Select when _hit is { Ground: false } sel: Select(sel, shift); break;
+            case Tool.Select: ClearSelection(); break;
             case Tool.Shape when ShapeAt() is { } at:
                 if (_shapeKind.GetSelectedId() == (int)ShapeKind.Sweep) { _path.Add(at); _shapeGhostKey = null; }
                 else if (CurrentShape(at) is { } sh) { int n = _doc.AddShape(sh); Say($"Placed a {sh.Kind.ToString().ToLowerInvariant()}: {n} voxels, drawn smooth"); }
@@ -1046,6 +1058,73 @@ public partial class AssetEditor : Node3D
             case 11: Save("editor-7-shapes-voxels.png"); _showVoxels.ButtonPressed = false; break;
             case 12: Save("editor-8-shapes-close.png"); break;
             case 13:
+            {
+                // The photo importer: a keystoned photo of a terrace front, its corners on the facade, read at 12.5 cm.
+                _showVoxels.ButtonPressed = false;
+                _doc = AssetDoc.New("Terrace", 4, 6, 6, 4);
+                SetTool(Tool.Paint);
+                Frame();
+                var (photo, corners, fw, fh) = DemoAsset.FacadePhoto();
+                _photoDepth.SetValueNoSignal(8);
+                ShowPhoto(photo, null, corners, fw, fh);
+                // The cornice along the top picked and brought out 25 cm.
+                _photoGroup = _facade![_facade.Width / 2, 1];
+                ShowFacade();
+                _photoOffset.Value = 0.25;
+                break;
+            }
+            case 14: Save("editor-9-photo.png"); BuildPhoto(); _yaw = -32; _pitch = 14; _dist = 19; _target = new Vector3(_doc.Model.SizeX * Vs / 2, 4.2f, _doc.Model.SizeY * Vs * 0.75f); break;
+            case 15:
+            {
+                Save("editor-10-photo-built.png");
+                var f = _facade!;
+                int set = Enumerable.Range(0, f.Colours.Length).Count(f.SetBack);
+                bool ok = f.Width == 96 && f.Height == 72 && set > 0 && f.Entry[f.Main] == AssetPalette.Brick && _doc.Model.Count > 0;
+                GD.Print($"EDITOR PHOTO {(ok ? "OK" : "WRONG")} {f.Width}x{f.Height} voxels, {f.Colours.Length} colours, {set} set back, {_doc.Model.Count} voxels");
+                if (!ok) { GD.Print("EDITOR FAILED"); GetTree().Quit(1); }
+                _yaw = 20; _pitch = 8; _dist = 9; _target = new Vector3(_doc.Model.SizeX * Vs * 0.4f, 4.5f, _doc.Model.SizeY * Vs);
+                break;
+            }
+            case 16:
+            {
+                Save("editor-11-photo-close.png");
+                // The select tool: the glass of every window on the front, pushed two voxels further in.
+                SetTool(Tool.Select);
+                var f = _facade!;
+                int bx = (_doc.Model.SizeX - f.Width) / 2 + (int)(1.8 * 2 * _doc.Detail), bz = f.Height - 1 - (int)(2.0 * 2 * _doc.Detail);
+                int by = _doc.Model.SizeY - 1;
+                while (by > 0 && _doc[bx, by, bz] == 0) by--;
+                byte glass = _doc[bx, by, bz];
+                Select(new VoxHit(bx, by, bz, 0, 1, 0, false), everywhere: true);
+                int picked = _selection.Count;
+                Push(-1); Push(-1);
+                bool ok = picked > 0 && _doc[bx, by - 2, bz] == glass && _doc[bx, by, bz] == 0 && _selection.Count > 0;
+                GD.Print($"EDITOR SELECT {(ok ? "OK" : "WRONG")} {picked} voxels of {AssetPalette.NameOf(glass)} pushed in 2");
+                if (!ok) { GD.Print("EDITOR FAILED"); GetTree().Quit(1); }
+                _yaw = -22; _pitch = 10; _dist = 8; _target = new Vector3(bx * Vs + 2.5f, bz * Vs - 1, by * Vs);
+                break;
+            }
+            case 17:
+            {
+                Save("editor-12-select-push.png");
+                ClearSelection();
+                // One photo wrapped round all four sides of a 12 × 9 m block, its relief from the photo's depth map.
+                _doc = AssetDoc.New("Terrace block", 4, 6, 6, 4);
+                var (photo, corners, fw, fh) = DemoAsset.FacadePhoto();
+                _depthMap = DemoAsset.FacadePhoto(depthMap: true).Photo;
+                _reliefRange.SetValueNoSignal(0.25);
+                _photoDepth.SetValueNoSignal(9);
+                ShowPhoto(photo, null, corners, fw, fh);
+                WrapPhoto();
+                var b = _doc.Bounds()!.Value;
+                bool ok = b.X1 - b.X0 >= 95 && b.Y1 - b.Y0 >= 71 && _facade!.Relief != null;
+                GD.Print($"EDITOR WRAP {(ok ? "OK" : "WRONG")} {b.X1 - b.X0 + 1}x{b.Y1 - b.Y0 + 1}x{b.Z1 + 1} voxels, relief from a depth map");
+                if (!ok) { GD.Print("EDITOR FAILED"); GetTree().Quit(1); }
+                _yaw = 45; _pitch = 18; _dist = 30; _target = new Vector3((b.X0 + b.X1) / 2f * Vs, 3.5f, (b.Y0 + b.Y1) / 2f * Vs);
+                break;
+            }
+            case 18: Save("editor-13-wrapped.png"); break;
+            case 19:
             {
                 // Files: save, open, and use for a building, checked.
                 var house = DemoAsset.House(AssetDoc.DefaultDetail);
