@@ -24,6 +24,8 @@ public sealed partial class World
         _layers?.Add(a);
         if (_merge is not { } m) return a;
         var theirs = (T[])m.Layers[m.Next++];
+        // Their path designs go on the end of this city's list.
+        if (ReferenceEquals(a, Path)) theirs = (T[])(object)TheirPaths((ushort[])(object)theirs);
         var b = (T[])a.Clone();
         if (!corners)
         {

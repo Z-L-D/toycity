@@ -236,7 +236,30 @@ message Action {
     PlaceDam dam = 36;
     PlantTrees plant_trees = 37;
     PlaceStorm place_storm = 38;
+    DesignPath design_path = 39;
+    DeletePathDesign delete_path_design = 40;
   }
+}
+
+// RC part 4, the path designer: designs a path type from its cross-section, left to right, or redesigns one of the
+// city's own (id empty for a new one). Redesigning a built type charges the difference in cost on its cells.
+message DesignPath {
+  string id = 1;
+  string name = 2;
+  repeated PathStrip strips = 3;
+  bool one_way = 4;
+}
+
+// Takes one of the city's own path designs off its list; refused while anything is built with it.
+message DeletePathDesign {
+  string id = 1;
+}
+
+// One strip of a path's cross-section: "walk", "planter", "bike", "shared-path", "parking", "car", "turn",
+// "car-tram", "tram", "median", "shoulder" or "shared" (and "rail", "ballast" on rail lines), and its width.
+message PathStrip {
+  string type = 1;
+  double width_m = 2;
 }
 
 // The river brush (river round 2): digs a channel along a straight stroke, width 1..5 cells and depth 1..4 steps.
@@ -1021,6 +1044,12 @@ message PathProfileInfo {
   repeated string surfaces = 17;  // surface ids it may be built in; the first is the default
   int32 winter_tier = 18;         // road crews clear 0 highways, then 1 roads, then 2 streets; -1 untouched (rail)
   bool drained = 19;              // sheds rain and shallow floodwater while the crews are funded
+  repeated PathStrip strips = 20; // its cross-section, left to right (RC part 4)
+  bool custom = 21;               // one of the city's own designs, from the path designer
+  int32 capacity_per_hour = 22;
+  int32 noise_db = 23;
+  double maintenance_per_cell = 24;
+  double width_exact_m = 25;      // width_m unrounded
 }
 
 // What a path may be paved with (Beta 3.2).
@@ -1294,6 +1323,8 @@ message TickDelta {
   repeated RoadStrip strips = 7;
   repeated CornerUpdate corners = 8; // ground corners that moved
   bytes foul = 9;                    // the whole foulness layer again, as FullState.foul, when any of it changed (monthly)
+  bool profiles_changed = 10;        // the city's path types changed (a design made, redesigned or deleted): profiles is the whole new list
+  repeated PathProfileInfo profiles = 11;
 }
 
 // One corner of the ground grid: index = y * (width + 1) + x.

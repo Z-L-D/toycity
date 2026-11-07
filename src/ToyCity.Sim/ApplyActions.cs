@@ -22,6 +22,8 @@ public sealed partial class World
             case PlaceDamAction a: ApplyPlaceDam(a); break;
             case PlantTreesAction a: ApplyPlantTrees(a); break;
             case PlaceStormAction a: ApplyPlaceStorm(a); break;
+            case DesignPathAction a: ApplyDesignPath(a); break;
+            case DeletePathDesignAction a: ApplyDeletePathDesign(a); break;
             case SetTaxAction a:
                 if (a.Zone != Zone.None) TaxTenths[((int)a.Zone - 1) * 3 + (int)a.Wealth] = Math.Clamp(a.PercentTenths, 0, 200);
                 break;

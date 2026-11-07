@@ -52,6 +52,11 @@ export interface Profile {
   /** Beta 3.2, part 4: road crews clear 0 highways, then 1 roads, then 2 streets; -1 untouched (rail). */
   winterTier?: number;
   drained?: boolean;
+  /** RC part 4: one of this city's own designs, its strips left to right, and the numbers that follow from them. */
+  custom?: boolean;
+  strips?: { type: string; widthM: number }[];
+  capacityPerHour?: number;
+  noiseDb?: number;
 }
 
 /** What a path may be paved with (Beta 3.2). */
@@ -222,6 +227,8 @@ export class City {
 
   applyDelta(d: Msg) {
     let terrain = false;
+    // RC part 4: the city's path types changed (a design made, redesigned or deleted), so the whole list comes again.
+    if (d.profilesChanged) this.profiles = (d.profiles ?? []) as Profile[];
     for (const c of d.cells as Msg[]) {
       const i = c.index;
       if (this.heights[i] !== c.height) {

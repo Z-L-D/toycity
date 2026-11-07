@@ -86,7 +86,7 @@ export function menuFor(c: City): BuildCategory[] {
   const pathItem = (p: Profile): BuildItem => ({
     name: p.name, price: p.costPerCell > 0 ? `$${p.costPerCell} / cell` : '', icon: p.rail || p.tram ? 'tram' : 'road', kind: 'path', profile: p.id, locked: '',
   });
-  const paths = (which: (p: Profile) => boolean) => c.profiles.filter(which).map(pathItem);
+  const paths = (which: (p: Profile) => boolean) => c.profiles.filter((p) => !p.custom && which(p)).map(pathItem);
   const nonEmpty = (gs: BuildGroup[]) => gs.filter((g) => g.items.length > 0);
 
   const menu: BuildCategory[] = [];
@@ -104,6 +104,7 @@ export function menuFor(c: City): BuildCategory[] {
       { name: 'Roads', items: paths((p) => p.cars && p.frontage && !p.tram) },
       { name: 'Highways', items: paths((p) => p.cars && !p.frontage) },
       { name: 'Rail and tram', items: paths((p) => p.rail || !!p.tram) },
+      { name: 'Your designs', items: c.profiles.filter((p) => p.custom).map(pathItem) },
       { name: 'Stops', items: types((t) => t.category === 'transit' && !t.id.includes('depot') && !t.id.includes('yard')) },
       { name: 'Depots', items: types((t) => t.category === 'transit' && (t.id.includes('depot') || t.id.includes('yard'))) },
     ]),

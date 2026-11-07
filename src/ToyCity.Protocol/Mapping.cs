@@ -26,6 +26,8 @@ public static class Mapping
         P.Action.KindOneofCase.Dam => new PlaceDamAction(a.Dam.X0, a.Dam.Y0, a.Dam.X1, a.Dam.Y1, a.Dam.Rise),
         P.Action.KindOneofCase.PlaceStorm => new PlaceStormAction(a.PlaceStorm.X, a.PlaceStorm.Y, a.PlaceStorm.HeadingDeg, a.PlaceStorm.SpeedKmh, a.PlaceStorm.Strength),
         P.Action.KindOneofCase.PlantTrees => new PlantTreesAction(Rect(a.PlantTrees.Area), (PlantKind)a.PlantTrees.Kind),
+        P.Action.KindOneofCase.DesignPath => new DesignPathAction(a.DesignPath.Id, a.DesignPath.Name, a.DesignPath.Strips.Select(s => new PathStrip(s.Type, s.WidthM)).ToList(), a.DesignPath.OneWay),
+        P.Action.KindOneofCase.DeletePathDesign => new DeletePathDesignAction(a.DeletePathDesign.Id),
         P.Action.KindOneofCase.Tax => new SetTaxAction((Zone)(int)a.Tax.Zone, (Level)(int)a.Tax.Wealth, a.Tax.PercentTenths),
         P.Action.KindOneofCase.Funding => new SetFundingAction(a.Funding.BuildingId, a.Funding.Percent),
         P.Action.KindOneofCase.RoadCrews => new SetRoadCrewsAction(a.RoadCrews.Percent),
@@ -75,6 +77,8 @@ public static class Mapping
         PlaceDamAction x => new P.Action { Dam = new P.PlaceDam { X0 = x.X0, Y0 = x.Y0, X1 = x.X1, Y1 = x.Y1, Rise = x.Rise } },
         PlaceStormAction x => new P.Action { PlaceStorm = new P.PlaceStorm { X = x.X, Y = x.Y, HeadingDeg = x.HeadingDeg, SpeedKmh = x.SpeedKmh, Strength = x.Strength } },
         PlantTreesAction x => new P.Action { PlantTrees = new P.PlantTrees { Area = Rect(x.Area), Kind = (int)x.Kind } },
+        DesignPathAction x => new P.Action { DesignPath = new P.DesignPath { Id = x.Id, Name = x.Name, OneWay = x.OneWay, Strips = { x.Strips.Select(s => new P.PathStrip { Type = s.Type, WidthM = s.WidthM }) } } },
+        DeletePathDesignAction x => new P.Action { DeletePathDesign = new P.DeletePathDesign { Id = x.Id } },
         SetTaxAction x => new P.Action { Tax = new P.SetTax { Zone = (P.ZoneKind)(int)x.Zone, Wealth = (P.Wealth)(int)x.Wealth, PercentTenths = x.PercentTenths } },
         SetFundingAction x => new P.Action { Funding = new P.SetFunding { BuildingId = x.BuildingId, Percent = x.Percent } },
         SetRoadCrewsAction x => new P.Action { RoadCrews = new P.SetRoadCrews { Percent = x.Percent } },
@@ -122,16 +126,20 @@ public static class Mapping
 
     static string CategoryName(Category c) => c.ToString().ToLowerInvariant();
 
+    /// <summary>A path type as the clients see it, its cross-section and all.</summary>
+    public static P.PathProfileInfo Profile(PathProfile p) => new()
+    {
+        Id = p.Id, Name = p.Name, Kind = "path", SpeedKmh = p.SpeedKmh, Cars = p.Cars, Bikes = p.Bikes,
+        Pedestrians = p.Pedestrians, OneWay = p.OneWay, Frontage = p.Frontage, CostPerCell = p.CostPerCell, Color = p.Color, WidthM = (int)Math.Round(p.WidthM),
+        Tram = p.Tram, Rail = p.Rail, MaxGradePct = p.MaxGradePct, Stairs = p.Stairs, Surfaces = { p.Surfaces }, WinterTier = p.WinterTier, Drained = p.Drained,
+        Strips = { (p.Strips ?? new List<PathStrip>()).Select(s => new P.PathStrip { Type = s.Type, WidthM = s.WidthM }) },
+        Custom = p.Custom, CapacityPerHour = p.CapacityPerHour, NoiseDb = p.NoiseDb, MaintenancePerCell = p.MaintenancePerCell, WidthExactM = p.WidthM,
+    };
+
     public static P.Catalog Catalog(ContentDb c)
     {
         var cat = new P.Catalog();
-        foreach (var p in c.Profiles)
-            cat.Profiles.Add(new P.PathProfileInfo
-            {
-                Id = p.Id, Name = p.Name, Kind = "path", SpeedKmh = p.SpeedKmh, Cars = p.Cars, Bikes = p.Bikes,
-                Pedestrians = p.Pedestrians, OneWay = p.OneWay, Frontage = p.Frontage, CostPerCell = p.CostPerCell, Color = p.Color, WidthM = (int)Math.Round(p.WidthM),
-                Tram = p.Tram, Rail = p.Rail, MaxGradePct = p.MaxGradePct, Stairs = p.Stairs, Surfaces = { p.Surfaces }, WinterTier = p.WinterTier, Drained = p.Drained,
-            });
+        foreach (var p in c.Profiles) cat.Profiles.Add(Profile(p));
         foreach (var s in c.Surfaces)
             cat.Surfaces.Add(new P.SurfaceInfo { Id = s.Id, Name = s.Name, MaxGradePct = s.MaxGradePct, CostPct = s.CostPct, SpeedPct = s.SpeedPct, Color = s.Color, RainPct = s.RainPct, StormPct = s.StormPct, SnowPct = s.SnowPct, IcePct = s.IcePct, Muddy = s.Muddy });
         foreach (var t in c.Types)
@@ -640,7 +648,7 @@ public sealed class DeltaTracker
     ushort[] _decks = Array.Empty<ushort>();
     byte[] _made = Array.Empty<byte>(), _rivers = Array.Empty<byte>(), _dams = Array.Empty<byte>(), _plants = Array.Empty<byte>(), _farms = Array.Empty<byte>();
     ushort[] _paths = Array.Empty<ushort>(), _corners = Array.Empty<ushort>(), _bedrock = Array.Empty<ushort>();
-    int _strips;
+    int _strips, _profiles;
     readonly Dictionary<int, P.BuildingState> _buildings = new();
 
     /// <summary>Records the state just sent in a FullState.</summary>
@@ -663,6 +671,7 @@ public sealed class DeltaTracker
         _corners = (ushort[])w.Corner.Clone();
         _bedrock = (ushort[])w.Bedrock.Clone();
         _strips = w.StripsVersion;
+        _profiles = w.ProfilesVersion;
         _buildings.Clear();
         foreach (var b in w.Buildings) if (b != null) _buildings[b.Id] = Mapping.Building(w, b);
     }
@@ -676,6 +685,12 @@ public sealed class DeltaTracker
             _strips = w.StripsVersion;
             d.StripsChanged = true;
             d.Strips.AddRange(Mapping.Strips(w));
+        }
+        if (_profiles != w.ProfilesVersion)
+        {
+            _profiles = w.ProfilesVersion;
+            d.ProfilesChanged = true;
+            d.Profiles.AddRange(w.Content.Profiles.Select(Mapping.Profile));
         }
         for (int i = 0; i < w.N; i++)
         {

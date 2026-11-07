@@ -69,6 +69,18 @@ public partial class StripsView : Node3D
                     Ribbon(mesh, pts, 0.0056f, 0.033f, yellow, 0.012f);
                 }
                 else if (look.Centre == CentreLine.GrassMedian) Ribbon(mesh, pts, mh, 0.033f, new Color(0.30f, 0.40f, 0.19f));
+                // Bike lanes (RC part 4), green along the edges with a white line inside, as on a road cell.
+                if (look.BikeLanes > 0)
+                {
+                    float bh = look.BikeM / RoadLook.CellM / 2;
+                    Ribbon(mesh, pts, bh, 0.032f, new Color(0.13f, 0.36f, 0.19f), half - bh);
+                    Ribbon(mesh, pts, 0.004f, 0.033f, white, half - 2 * bh);
+                    if (look.BikeLanes > 1)
+                    {
+                        Ribbon(mesh, pts, bh, 0.032f, new Color(0.13f, 0.36f, 0.19f), -half + bh);
+                        Ribbon(mesh, pts, 0.004f, 0.033f, white, -half + 2 * bh);
+                    }
+                }
                 foreach (var (off, centre) in look.LaneLines())
                     if (!centre) Ribbon(mesh, pts, 0.004f, 0.033f, white, off, dashed: true);
                 if (look.EdgeLines)

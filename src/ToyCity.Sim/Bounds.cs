@@ -37,6 +37,9 @@ public sealed partial class World
             BulldozeAction d => !Rect(d.Area) ? offMap : null,
             PlaceStormAction s => Math.Abs((s.X - Width / 2.0) * CellKm) > RadarRangeKm || Math.Abs((s.Y - HeightCells / 2.0) * CellKm) > RadarRangeKm ? "That's beyond the radar's reach." : null,
             PlantTreesAction p => !Rect(p.Area) ? offMap : !Def(p.Kind) ? "Unknown trees." : null,
+            DesignPathAction d => d.Id == null || !Text(d.Id) || d.Name == null || !Text(d.Name, MaxName) ? "That name is too long."
+                : d.Strips == null || d.Strips.Count > ToyCity.Paths.PathRules.MaxStrips || d.Strips.Any(s => s == null || !Text(s.Type) || !double.IsFinite(s.WidthM)) ? "That isn't a path the designer can make." : null,
+            DeletePathDesignAction d => !Text(d.Id) ? "There's no such path design." : null,
             TerraformAction t => !Rect(t.Area) ? offMap : !Def(t.Mode) ? "Unknown terraforming." : null,
             DigRiverAction d => !Cell(d.X0, d.Y0) || !Cell(d.X1, d.Y1) ? offMap : d.Width is < 1 or > DigWidest || d.Depth is < 1 or > DigDeepest ? "That isn't a river the brush can dig." : null,
             PlaceDamAction d => !Cell(d.X0, d.Y0) || !Cell(d.X1, d.Y1) ? offMap : d.Rise is < 1 or > DamHighest ? $"A dam holds its water 1 to {DamHighest} steps up." : null,

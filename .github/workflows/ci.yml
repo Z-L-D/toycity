@@ -82,6 +82,7 @@ jobs:
           xvfb-run -a -s "-screen 0 1600x900x24" timeout 120 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
             --path clients/godot -- --shots "$PWD/shots" 2>&1 | tee shots.log
           grep -q "SMOKE OK" shots.log
+          grep "PATH DESIGNER OK" shots.log
           ! grep -n "SHADER ERROR" -A3 shots.log
           ls shots/*.png
       - name: Asset editor (RC part 1) builds the example house, saves and reopens it, and takes its pictures
@@ -214,8 +215,8 @@ jobs:
           montage shots/*.png -tile 4x -geometry 320x180+1+1 -quality 45 sheet.jpg
           echo "::group::sheet.jpg base64"; echo "SHEET-BEGIN"; base64 -w 0 sheet.jpg; echo; echo "SHEET-END"; echo "::endgroup::"
           # The screens with the most UI at full size, so the panels can be read.
-          for n in 0 9 10 11 12 13 14 15; do
-            f=$(ls shots/view-$n-*.png 2>/dev/null | head -1)
+          for n in 0 9 10 11 12 13 14 15 path-designer path-built; do
+            f=$(ls shots/view-$n-*.png shots/view-*-$n.png 2>/dev/null | head -1)
             [ -n "$f" ] || continue
             convert "$f" -quality 70 "ui-$n.jpg"
             echo "::group::ui-$n.jpg base64"; echo "UI-SHOT-BEGIN $n"; base64 -w 0 "ui-$n.jpg"; echo; echo "UI-SHOT-END"; echo "::endgroup::"

@@ -49,6 +49,8 @@ public partial class ToolController : Node
     public event Action<int, int>? Queried;
     /// <summary>Sends an action, or keeps it for a what-if plan; null sends it straight to the city.</summary>
     public Func<PAction, string, bool>? Act;
+    /// <summary>A build menu tile that opens a panel was picked: "path-designer" (RC part 4).</summary>
+    public event Action<string>? Opens;
     (int X, int Y)? _drag;
     (int X, int Y)? _held;  // a pointer held by Hold, for screenshots: the mouse is ignored while it is set
 
@@ -342,6 +344,7 @@ public partial class ToolController : Node
         b.Pressed += () =>
         {
             if (!_menu.Pick(item, State)) { Toast($"{item.Name}: {(item.Locked == "Built" ? "there can only be one, and it's built" : item.Locked)}", "warning"); return; }
+            if (item.Opens.Length > 0) { Opens?.Invoke(item.Opens); BuildFlyout(); return; }
             State.CurveEnds = null;
             _drag = null;
             BuildRail();

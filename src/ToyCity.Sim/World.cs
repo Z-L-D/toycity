@@ -68,7 +68,7 @@ public sealed class Building
 /// </summary>
 public sealed partial class World
 {
-    public const int FormatVersion = 21;
+    public const int FormatVersion = 22;
     public const int DaysPerMonth = 30;
     public const int MonthsPerYear = 12;
     public const int StartYear = 2000;
@@ -159,7 +159,8 @@ public sealed partial class World
 
     World(ContentDb content, int width, int height, ulong seed, string name)
     {
-        Content = content;
+        // Each city has its own copy of the rules, for its own path designs (RC part 4).
+        Content = content.ForCity();
         Width = width;
         HeightCells = height;
         N = width * height;
@@ -493,6 +494,8 @@ public sealed partial class World
             WC(w, Farm); w.Write(FarmCountry);
             // Format 21: storms set going by players.
             WriteStorms(w);
+            // Format 22: the city's own path designs (RC part 4).
+            WriteDesigns(w);
         }
         return ms.ToArray();
     }
@@ -639,6 +642,8 @@ public sealed partial class World
         if (version >= 20) { ReadBytes(r, w.Farm); w.FarmCountry = r.ReadBoolean(); w.FarmsChanged(); }
         // Format 21 added placed storms; an older city has none.
         if (version >= 21) w.ReadStorms(r);
+        // Format 22 added the city's own path designs; an older city has none.
+        if (version >= 22) w.ReadDesigns(r);
         // Stats are derived, but demand is kept as saved: growth reads it before the next tick recounts, and actions
         // applied while paused may have changed the counts since.
         var demand = (int[])w.Demand.Clone();

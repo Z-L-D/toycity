@@ -12,7 +12,10 @@ public enum Category : byte { Zoned, Power, Water, Garbage, Police, Fire, Health
 /// <summary>Which vehicles serve a transit stop, and which ride layer of the commute search they run on.</summary>
 public enum TransitKind : byte { None = 0, Bus = 1, Tram = 2, Rail = 3, Subway = 4 }
 
-/// <summary>A path cross-section, loaded from content/profiles.json.</summary>
+/// <summary>A strip of a path's cross-section, left to right: its kind and width, and for a lane which way it runs ("forward" on a one-way road). The kinds are in <see cref="ToyCity.Paths.PathRules.Kinds"/>.</summary>
+public sealed record PathStrip(string Type, double WidthM, string? Dir = null);
+
+/// <summary>A path cross-section, loaded from content/profiles.json or designed in a city.</summary>
 public sealed class PathProfile
 {
     public string Id { get; set; } = "";
@@ -34,8 +37,13 @@ public sealed class PathProfile
     /// <summary>A rail line: trains only, no cars, bikes, people or frontage.</summary>
     public bool Rail { get; set; }
 
-    /// <summary>How the clients draw the cross-section; the sim doesn't read it.</summary>
-    public System.Text.Json.JsonElement? Strips { get; set; }
+    /// <summary>
+    /// The cross-section, left to right: the strips the path designer (RC part 4) lays out, and the clients draw. A
+    /// built-in type's numbers are its own; a designed one's follow from its strips (<see cref="PathDesigns"/>).
+    /// </summary>
+    public List<PathStrip>? Strips { get; set; }
+    /// <summary>A path type designed in this city with the path designer, saved with it, rather than built in.</summary>
+    [JsonIgnore] public bool Custom { get; set; }
 
     /// <summary>
     /// The steepest this type of path may climb, in percent (rise over run). The surface it's built in may hold it
@@ -196,6 +204,60 @@ public sealed partial class ContentDb
     readonly int[] _zoned = new int[27];
 
     public int ProfileIndex(string id) => _profileIndex.TryGetValue(id, out var i) ? i : -1;
+
+    /// <summary>How many of <see cref="Profiles"/> are built in; the rest are the city's own designs.</summary>
+    public int BuiltInProfiles { get; private set; }
+
+    /// <summary>
+    /// A copy for one city (RC part 4): the same rules, sharing everything but the path types, so the city's own
+    /// path designs go on the end of its list without touching any other city's.
+    /// </summary>
+    public ContentDb ForCity()
+    {
+        var c = new ContentDb
+        {
+            Ordinances = Ordinances, Events = Events, Director = Director, Voice = Voice, StartingFunds = StartingFunds,
+            ZoneCostPerCell = ZoneCostPerCell, BulldozeCostPerCell = BulldozeCostPerCell, TerraformCostPerCell = TerraformCostPerCell,
+            Fingerprint = Fingerprint, BuiltInProfiles = BuiltInProfiles,
+        };
+        c.Profiles.AddRange(Profiles.Take(BuiltInProfiles));
+        for (int i = 0; i < BuiltInProfiles; i++) c._profileIndex[Profiles[i].Id] = i;
+        c.Types.AddRange(Types);
+        foreach (var (k, v) in _typeIndex) c._typeIndex[k] = v;
+        Array.Copy(_zoned, c._zoned, _zoned.Length);
+        for (int i = 0; i < LotSizes.Length; i++) c.LotSizes[i].AddRange(LotSizes[i]);
+        c.Surfaces.AddRange(Surfaces);
+        foreach (var (k, v) in _surfaceIndex) c._surfaceIndex[k] = v;
+        return c;
+    }
+
+    /// <summary>Adds a designed path type, or puts it in place of the design with its id. Returns its index.</summary>
+    internal int SetCustomProfile(PathProfile p)
+    {
+        p.Custom = true;
+        p.CellTime = CellTimeOf(p.SpeedKmh);
+        if (_profileIndex.TryGetValue(p.Id, out int i))
+        {
+            if (i < BuiltInProfiles) throw new InvalidOperationException("a built-in path type can't be redesigned");
+            Profiles[i] = p;
+            return i;
+        }
+        _profileIndex[p.Id] = Profiles.Count;
+        Profiles.Add(p);
+        return Profiles.Count - 1;
+    }
+
+    /// <summary>Takes a designed path type off the list; the ones after it move up one.</summary>
+    internal void RemoveCustomProfile(int index)
+    {
+        if (index < BuiltInProfiles || index >= Profiles.Count) return;
+        Profiles.RemoveAt(index);
+        _profileIndex.Clear();
+        for (int i = 0; i < Profiles.Count; i++) _profileIndex[Profiles[i].Id] = i;
+    }
+
+    /// <summary>16 m at the profile speed, stretched 30x so a 60 minute commute spans about 100 road cells.</summary>
+    static int CellTimeOf(int speedKmh) => Math.Max(1, (int)Math.Round(16.0 / (Math.Max(1, speedKmh) / 3.6) * 30.0 * 10));
 
     /// <summary>Path surfaces, in file order. A cell's surface code is its index + 1; 0 is none.</summary>
     public readonly List<SurfaceDef> Surfaces = new();
@@ -390,12 +452,11 @@ public sealed partial class ContentDb
         {
             foreach (var s in p.Surfaces)
                 if (!db._surfaceIndex.ContainsKey(s)) throw new InvalidDataException($"{p.Id}: unknown surface '{s}'");
-            // 16 m at the profile speed, stretched 30x so a 60 minute commute spans about 100 road cells.
-            double seconds = 16.0 / (Math.Max(1, p.SpeedKmh) / 3.6) * 30.0;
-            p.CellTime = Math.Max(1, (int)Math.Round(seconds * 10));
+            p.CellTime = CellTimeOf(p.SpeedKmh);
             db._profileIndex[p.Id] = db.Profiles.Count;
             db.Profiles.Add(p);
         }
+        db.BuiltInProfiles = db.Profiles.Count;
 
         var bf = JsonSerializer.Deserialize<BuildingsFile>(buildingsJson, Json) ?? throw new InvalidDataException("buildings.json");
         db.StartingFunds = bf.StartingFunds;

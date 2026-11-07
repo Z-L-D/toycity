@@ -16,6 +16,8 @@ public sealed record BuildItem(string Name, string Price, string Icon, ToolKind 
     public int TreeKind { get; init; }
     /// <summary>Why it can't be picked yet ("Reach 2,000 people"), or "" when it can.</summary>
     public string Locked { get; init; } = "";
+    /// <summary>A tile that opens a panel rather than picking a tool ("path-designer"), or "".</summary>
+    public string Opens { get; init; } = "";
 }
 
 /// <summary>A tab in a category's flyout: "Roads", "Power".</summary>
@@ -58,7 +60,7 @@ public sealed class BuildMenu
     public bool Pick(BuildItem item, ToolState state)
     {
         if (item.Locked.Length > 0) return false;
-        Apply(item, state);
+        if (item.Opens.Length == 0) Apply(item, state);
         if (!Pinned) Open = null;
         Version++;
         return true;
@@ -89,7 +91,7 @@ public sealed class BuildMenu
     }
 
     /// <summary>Whether a thing is what the tool is set to now (its tile is lit).</summary>
-    public static bool IsCurrent(BuildItem i, ToolState s) => i.Kind == s.Kind && i.Kind switch
+    public static bool IsCurrent(BuildItem i, ToolState s) => i.Opens.Length == 0 && i.Kind == s.Kind && i.Kind switch
     {
         ToolKind.Zone => i.Zone == s.Zone && i.Density == s.Density,
         ToolKind.Path => i.Profile == s.ProfileId,
@@ -119,7 +121,7 @@ public sealed class BuildMenu
         BuildItem Place(BuildingTypeInfo t) => new(t.Name, Money(t.Cost), Icon(t), ToolKind.Building) { Type = t.Id, Locked = Locked(t) };
         List<BuildItem> Types(Func<BuildingTypeInfo, bool> which) => c.Types.Where(t => t.Placeable && which(t)).OrderBy(t => t.Cost).ThenBy(t => t.Name).Select(Place).ToList();
         BuildItem PathItem(PathProfileInfo p) => new(p.Name, p.CostPerCell > 0 ? $"${p.CostPerCell} / cell" : "", p.Rail || p.Tram.Length > 0 ? "tram" : "road", ToolKind.Path) { Profile = p.Id };
-        List<BuildItem> Paths(Func<PathProfileInfo, bool> which) => c.Profiles.Where(which).Select(PathItem).ToList();
+        List<BuildItem> Paths(Func<PathProfileInfo, bool> which) => c.Profiles.Where(p => !p.Custom && which(p)).Select(PathItem).ToList();
 
         var menu = new List<BuildCategory>();
         var zoneGroups = new List<BuildGroup>();
@@ -134,6 +136,9 @@ public sealed class BuildMenu
             new("Roads", Paths(p => p.Cars && p.Frontage && p.Tram.Length == 0)),
             new("Highways", Paths(p => p.Cars && !p.Frontage)),
             new("Rail and tram", Paths(p => p.Rail || p.Tram.Length > 0)),
+            // RC part 4: the city's own path types, and the designer that makes them.
+            new("Your designs", c.Profiles.Where(p => p.Custom).Select(PathItem)
+                .Append(new BuildItem("Design a path…", "", "road", ToolKind.Query) { Opens = "path-designer" }).ToList()),
             new("Stops", Types(t => t.Category == "transit" && !t.Id.Contains("depot") && !t.Id.Contains("yard"))),
             new("Depots", Types(t => t.Category == "transit" && (t.Id.Contains("depot") || t.Id.Contains("yard")))),
         };

@@ -63,6 +63,8 @@ public sealed class CityMirror
     public int TerrainVersion { get; private set; }
     /// <summary>Bumped on any change at all.</summary>
     public int Version { get; private set; }
+    /// <summary>Goes up when the city's path types change: a design made, redesigned or deleted (RC part 4).</summary>
+    public int ProfilesVersion { get; private set; }
     /// <summary>Goes up when a road or the ground under one may have changed.</summary>
     public int RoadVersion { get; private set; }
     /// <summary>Cells changed since the last <see cref="TakeDirtyCells"/>, for renderers that update in chunks.</summary>
@@ -238,6 +240,7 @@ public sealed class CityMirror
         WaterPipes = f.WaterPipes.ToByteArray();
         Subways = f.Subways.Length == f.WaterPipes.Length ? f.Subways.ToByteArray() : new byte[f.WaterPipes.Length];
         Profiles = f.Catalog.Profiles.ToList();
+        ProfilesVersion++;
         Types = f.Catalog.BuildingTypes.ToList();
         Surfaces = f.Catalog.Surfaces.ToList();
         TypeById.Clear();
@@ -272,6 +275,15 @@ public sealed class CityMirror
         // the full state that follows holds all of it.
         if (!Loaded) return;
         bool terrain = d.Corners.Count > 0, roads = false, plants = false, farms = false;
+        // The city's path types changed (RC part 4): before the cells, which may be built with a new design.
+        if (d.ProfilesChanged)
+        {
+            Profiles = d.Profiles.ToList();
+            ProfilesVersion++;
+            // Every road cell may look different now.
+            for (int i = 0; i < Paths.Length; i++) if (Paths[i] != 0) _dirtyCells.Add(i);
+            roads = true;
+        }
         foreach (var c in d.Corners)
         {
             if (c.Index < 0 || c.Index >= Corners.Length) continue;
