@@ -25,6 +25,11 @@ public sealed record RoadLook(Paving Paving, float CarriagewayM, int Lanes, bool
     public const float CellM = 16f;
     const float MaxCarriagewayM = 13f, MaxHighwayM = 15f;
 
+    /// <summary>Bike lanes painted green at the carriageway's edges (RC part 4): none, one (the right) or two.</summary>
+    public int BikeLanes { get; init; }
+    /// <summary>A bike lane's width in metres, as drawn.</summary>
+    public float BikeM { get; init; }
+
     /// <summary>
     /// The look of a path in the surface it was built in (Beta 3.2). An unsealed road (dirt, gravel, limestone) has
     /// no sidewalks, kerbs or paint; a brick street keeps its sidewalks and kerbs but no paint; concrete is painted
@@ -81,6 +86,59 @@ public sealed record RoadLook(Paving Paving, float CarriagewayM, int Lanes, bool
     public static RoadLook For(PathProfileInfo? p)
     {
         if (p == null) return new RoadLook(Paving.Asphalt, 7, 2, false, CentreLine.None, 0, true, false, 0, false);
+        if (p.Custom && p.Strips.Count > 0 && !p.Rail) return FromStrips(p);
+        var look = FromSummary(p);
+        // A built-in road with bike lanes in its cross-section paints them.
+        int bikes = p.Strips.Count(s => s.Type == "bike");
+        if (p.Cars && bikes > 0 && look.Painted)
+        {
+            float bw = (float)p.Strips.Where(s => s.Type == "bike").Average(s => s.WidthM);
+            float carriage = (float)p.Strips.Where(s => CarriageStrips.Contains(s.Type)).Sum(s => s.WidthM);
+            look = look with { BikeLanes = Math.Min(2, bikes), BikeM = carriage > 0 ? bw * Math.Min(1, look.CarriagewayM / carriage) : bw };
+        }
+        return look;
+    }
+
+    /// <summary>The strips that are part of the carriageway, kerb to kerb; the rest (sidewalks, trees) are beside it.</summary>
+    static readonly HashSet<string> CarriageStrips = new() { "bike", "parking", "car", "turn", "car-tram", "tram", "median", "shoulder", "shared" };
+
+    /// <summary>
+    /// The look of a designed path, from its strips: the carriageway kerb to kerb (squeezed to fit a cell, as the
+    /// built-in types are), its lanes, median or tram reservation, bike lanes, and sidewalks if it has them.
+    /// </summary>
+    static RoadLook FromStrips(PathProfileInfo p)
+    {
+        int N(string t) => p.Strips.Count(s => s.Type == t);
+        float Wd(string t) => (float)p.Strips.Where(s => s.Type == t).Sum(s => s.WidthM);
+        float total = (float)p.Strips.Sum(s => s.WidthM);
+        if (!p.Cars)
+        {
+            var pave = N("walk") == 0 && N("bike") > 0 ? Paving.BikeLane : N("walk") == 0 && N("shared-path") > 0 ? Paving.Gravel : Paving.Concrete;
+            return new RoadLook(pave, Math.Min(Math.Max(2, total), CellM), 1, false, CentreLine.None, 0, false, false, 0, false);
+        }
+        if (N("shared") > 0) return new RoadLook(Paving.Dirt, Math.Min(Wd("shared"), 8), 2, false, CentreLine.None, 0, false, false, 0, false);
+        bool highway = !p.Frontage, walks = N("walk") > 0;
+        float raw = (float)p.Strips.Where(s => CarriageStrips.Contains(s.Type)).Sum(s => s.WidthM);
+        float most = highway ? MaxHighwayM : Math.Min(MaxCarriagewayM, CellM - (walks ? 3 : 0));
+        float f = raw > most ? most / raw : 1;
+        bool dedicated = N("tram") > 0;
+        float median = (Wd("median") + (dedicated ? Wd("tram") : 0)) * f;
+        int lanes = Math.Max(1, N("car") + N("car-tram") + N("turn"));
+        var centre = p.OneWay ? CentreLine.Dashed
+            : dedicated ? CentreLine.TramReservation
+            : median > 0 ? CentreLine.GrassMedian
+            : highway ? (lanes >= 4 ? CentreLine.Barrier : CentreLine.DoubleYellow)
+            : p.SpeedKmh <= 30 ? CentreLine.None : CentreLine.DoubleYellow;
+        int bikes = Math.Min(2, N("bike"));
+        return new RoadLook(Paving.Asphalt, raw * f, lanes, p.OneWay, centre, median, walks && !highway, highway,
+            dedicated || N("car-tram") > 0 ? 2 : 0, walks && !highway)
+        {
+            BikeLanes = bikes, BikeM = bikes > 0 ? Wd("bike") / N("bike") * f : 0,
+        };
+    }
+
+    static RoadLook FromSummary(PathProfileInfo p)
+    {
         float w = Math.Max(2, p.WidthM);
         if (p.Rail) return new RoadLook(Paving.Rail, 4.5f, 1, false, CentreLine.None, 0, false, false, 1, false);
         if (!p.Cars)
@@ -129,10 +187,12 @@ public sealed record RoadLook(Paving Paving, float CarriagewayM, int Lanes, bool
     public IEnumerable<(float Offset, bool Centre)> LaneLines()
     {
         if (!Painted || Lanes < 2) yield break;
-        float lane = (Width - MedianM / CellM) / Lanes, half = MedianM / CellM / 2;
+        // Bike lanes take the edges: two, one each side; one, the right.
+        float left = BikeLanes >= 2 ? BikeM / CellM : 0, right = BikeLanes >= 1 ? BikeM / CellM : 0;
+        float lane = (Width - MedianM / CellM - left - right) / Lanes, half = MedianM / CellM / 2;
         if (OneWay)
         {
-            for (int k = 1; k < Lanes; k++) yield return (-Width / 2 + k * lane, false);
+            for (int k = 1; k < Lanes; k++) yield return (-Width / 2 + left + k * lane, false);
             yield break;
         }
         yield return (0, true);

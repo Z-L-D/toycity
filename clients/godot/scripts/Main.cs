@@ -25,6 +25,7 @@ public partial class Main : Node
 {
     CityClient? _client;
     RadarPanel? _radar;
+    PathDesignerPanel? _designer;
     CityView? _view;
     ClassicCamera? _camera;
     MapView? _map;
@@ -58,6 +59,9 @@ public partial class Main : Node
     string? _user;  // --user, the name signed in with
     string? _shots, _bench;
     bool _regionShot;
+    /// <summary>The middle of the straight run of the shots' path design, and whether its close-up is next.</summary>
+    (int X, int Y)? _designRun;
+    bool _designShot;
     bool _frozen;  // the bench city is drawn from a fixed state; the server's deltas would undo it
     double _smokeTime;
     bool _editorOnly;
@@ -240,6 +244,10 @@ public partial class Main : Node
         _radar = new RadarPanel(_client.City, a => _client.Connection.Act(a));
         AddChild(_radar);
         _panels.RadarPressed += _radar.Toggle;
+        // The path designer (RC part 4), from the build menu's Your designs.
+        _designer = new PathDesignerPanel(_client.City, a => _client.Connection.Act(a));
+        AddChild(_designer);
+        _tools.Opens += what => { if (what == "path-designer" && !_designer.Visible) _designer.Toggle(); };
         // The asset editor runs in a window of its own, as the company's view does.
         _panels.EditorPressed += () => OS.CreateProcess(OS.GetExecutablePath(),
             OS.GetCmdlineArgs().TakeWhile(a => a != "--").Concat(new[] { "--", "--editor" }).ToArray());
@@ -464,6 +472,9 @@ public partial class Main : Node
                     X = (int)(x / ToyCity.ClientModel.Graphics.Radar.CellKm + c.Width / 2.0), Y = (int)(y / ToyCity.ClientModel.Graphics.Radar.CellKm + c.Height / 2.0),
                     HeadingDeg = h, SpeedKmh = sp, Strength = st,
                 } });
+            // A path design (RC part 4) for the road tool's shot to lay and the designer's shot to show: a boulevard
+            // with trees, bike lanes and a median.
+            _client!.Connection.Act(new Protocol.V0.Action { DesignPath = ShotDesign() });
         }
         // One view per few frames: set it, let it draw, save it.
         if (_wait-- > 0) return;
@@ -488,6 +499,38 @@ public partial class Main : Node
             // Then the weather radar with the storms set going at the start.
             GetViewport().GetTexture().GetImage().SavePng($"{_shots}/view-{_shot}-radar.png");
             _radar.Visible = false;
+            // Then the path designer, redesigning the boulevard the road tool's shot laid.
+            if (c.Profiles.LastOrDefault(p => p.Custom) is not { } design)
+            {
+                GD.PrintErr("SMOKE FAILED: the path design never reached the client");
+                GetTree().Quit(1);
+                return;
+            }
+            int designAt = c.Profiles.ToList().IndexOf(design) + 1, built = c.Paths.Count(p => p == designAt);
+            _designer!.Toggle();
+            _designer.Model.Edit(design);
+            _designer.Model.Select(2);
+            GD.Print($"PATH DESIGNER OK {design.Id} '{design.Name}' {_designer.Describe()}, {design.SpeedKmh} km/h, {design.CapacityPerHour} an hour, built on {built} cells");
+            if (built == 0) { GD.PrintErr("SMOKE FAILED: the road tool's shot didn't lay the design"); GetTree().Quit(1); return; }
+            _wait = 10;
+            return;
+        }
+        if (_shot == ShotViews.Length && _designer!.Visible)
+        {
+            GetViewport().GetTexture().GetImage().SavePng($"{_shots}/view-{_shot}-path-designer.png");
+            _designer.Visible = false;
+            // Then the design as built, up close, from the classic camera.
+            if (_camera.IsFree) _camera.ToggleFree();
+            if (_designRun is { } run) { _camera.CentreOn(run.X + 0.5f, run.Y + 0.5f); _panels!.Model.Query(run.X + 3, run.Y); }
+            (v.Rotation, v.Zoom, v.Mode) = (1, 4, ViewMode.Classic);
+            _designShot = true;
+            _wait = 15;
+            return;
+        }
+        if (_designShot)
+        {
+            GetViewport().GetTexture().GetImage().SavePng($"{_shots}/view-{_shot}-path-built.png");
+            _designShot = false;
             _panels!.Model.Click("rg-open");
             if (_panels.Model.Region.State is { } rs) _panels.Model.Click($"rg-pick:{Math.Max(0, rs.HereCol - 1)}:{rs.HereRow}");
             _regionShot = true;
@@ -536,8 +579,12 @@ public partial class Main : Node
             // under it, and a diagonal being drawn, its preview priced with the grading.
             // It goes on the nearest open land below the town, so nothing is in its way.
             bool Open(int x, int y) => c.InBounds(x, y) && c.Paths[c.Idx(x, y)] == 0 && c.BuildingAt[c.Idx(x, y)] == 0 && !c.IsWater(c.Idx(x, y));
-            int ay = Enumerable.Range(ty + 4, 40).FirstOrDefault(y => Enumerable.Range(tx - 9, 19).All(x => Enumerable.Range(y - 1, 9).All(yy => Open(x, yy))), ty + 7);
-            _client!.Connection.Act(new Protocol.V0.Action { Path = new Protocol.V0.PlacePath { X0 = tx - 8, Y0 = ay, X1 = tx + 8, Y1 = ay, ProfileId = "road", Curved = true, Cx = tx, Cy = ay + 6 } });
+            int ay = Enumerable.Range(ty + 4, 40).FirstOrDefault(y => Enumerable.Range(tx - 9, 19).All(x => Enumerable.Range(y - 1, 11).All(yy => Open(x, yy))), ty + 7);
+            // Both in the path design made at the start (RC part 4): the curve, and a straight run below it.
+            string design = c.Profiles.LastOrDefault(p => p.Custom)?.Id ?? "road";
+            _client!.Connection.Act(new Protocol.V0.Action { Path = new Protocol.V0.PlacePath { X0 = tx - 8, Y0 = ay, X1 = tx + 8, Y1 = ay, ProfileId = design, Curved = true, Cx = tx, Cy = ay + 6 } });
+            _client.Connection.Act(new Protocol.V0.Action { Path = new Protocol.V0.PlacePath { X0 = tx - 8, Y0 = ay + 8, X1 = tx + 8, Y1 = ay + 8, ProfileId = design } });
+            _designRun = (tx, ay + 8);
             _camera!.CentreOn(tx, (ty + ay) / 2f);
             _tools!.SetTool(ToolKind.Path);
             _tools.State.Diagonal = true;
@@ -585,6 +632,15 @@ public partial class Main : Node
             pm.Click("overlay:1");
             _wait = 30;  // for the server's replies
         }
+    }
+
+    /// <summary>The shots' path design: a boulevard with street trees, bike lanes and a planted median.</summary>
+    static Protocol.V0.DesignPath ShotDesign()
+    {
+        var d = new Protocol.V0.DesignPath { Name = "Tree-lined boulevard" };
+        foreach (var (t, w) in new[] { ("walk", 2.5), ("planter", 1.5), ("bike", 1.8), ("car", 3.5), ("median", 2.0), ("car", 3.5), ("bike", 1.8), ("planter", 1.5), ("walk", 2.5) })
+            d.Strips.Add(new Protocol.V0.PathStrip { Type = t, WidthM = w });
+        return d;
     }
 
     /// <summary>

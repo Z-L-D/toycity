@@ -26,6 +26,7 @@ public partial class RoadsView : Node3D
     static readonly Color Asphalt = new(0.25f, 0.25f, 0.26f), Earth = new(0.48f, 0.40f, 0.30f), Gravel = new(0.62f, 0.58f, 0.52f);
     static readonly Color BikeRed = new(0.52f, 0.25f, 0.22f), Pavers = new(0.70f, 0.68f, 0.64f);
     static readonly Color White = new(0.90f, 0.90f, 0.88f), Yellow = new(0.88f, 0.72f, 0.20f), Grass = new(0.30f, 0.40f, 0.19f);
+    static readonly Color BikeGreen = new(0.13f, 0.36f, 0.19f);
     static readonly Color Ballast = new(0.45f, 0.42f, 0.38f), Sleeper = new(0.30f, 0.24f, 0.19f), Steel = new(0.72f, 0.73f, 0.75f);
     static readonly Color Barrier = new(0.74f, 0.74f, 0.72f);
     static readonly Color Limestone = new(0.76f, 0.73f, 0.66f), Brick = new(0.55f, 0.31f, 0.24f), Concrete = new(0.63f, 0.63f, 0.60f);
@@ -225,6 +226,20 @@ public partial class RoadsView : Node3D
                 case CentreLine.GrassMedian: Arm(centre, a, s0, s1, -mh, mh, LiftPaint, Grass, false); break;
                 case CentreLine.TramReservation: Arm(centre, a, s0, s1, -mh, mh, LiftPaint, Pavers, false); break;
                 case CentreLine.Barrier: Arm(centre, a, s0, s1, -0.012f, 0.012f, LiftRail, Barrier, false); break;
+            }
+        }
+
+        // Bike lanes, painted green along the carriageway's edges (RC part 4), with a white line inside each.
+        if (look.BikeLanes > 0 && look.Painted)
+        {
+            float bw = look.BikeM / RoadLook.CellM;
+            foreach (var (a, run) in Runs(arms, straight, hw))
+            {
+                Arm(centre, a, run.S0, run.S1, hw - bw, hw, LiftPaint, BikeGreen, false);
+                Arm(centre, a, run.S0, run.S1, hw - bw - 0.008f, hw - bw, LiftPaint, White, false);
+                if (look.BikeLanes < 2) continue;
+                Arm(centre, a, run.S0, run.S1, -hw, -hw + bw, LiftPaint, BikeGreen, false);
+                Arm(centre, a, run.S0, run.S1, -hw + bw, -hw + bw + 0.008f, LiftPaint, White, false);
             }
         }
 
