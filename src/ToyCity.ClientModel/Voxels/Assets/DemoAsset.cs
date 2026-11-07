@@ -133,6 +133,26 @@ public static class DemoAsset
     }
 
     /// <summary>
+    /// The polygon example (RC part 5): a two-storey brick house 10 × 8 m built of walls rather than voxels, its
+    /// front to the south. Red brick with a stone band and lintels, sash windows with white frames and stone sills, a
+    /// panelled door on a stone step under a fanlight, a slate gable roof by the auto-roof, a brick chimney, a stone
+    /// plinth, and a paved path across the lawn. Its voxels are only for when it's wrecked, coloured from the brick.
+    /// </summary>
+    public static AssetDoc PolyHouse(int detail = 4)
+    {
+        var doc = AssetDoc.New("Brick house", detail, 4, 4, 4);
+        double v = 0.5 / detail;
+        doc.Begin();
+        doc.Box(0, 0, 0, doc.Model.SizeX - 1, doc.Model.SizeY - 1, 0, AssetPalette.Grass);
+        var roof = PolyBuild.House(sh => doc.AddShape(sh), new PolyHouseSpec(3, 4, 13, 12), v);
+        // The path to the door.
+        doc.AddShape(Parts.Box(7.3, 12.35, 0, 1.4, 16 - 12.35, 2 * v, "stone-rubble"));
+        doc.End();
+        doc.Roof = roof;
+        return doc;
+    }
+
+    /// <summary>
     /// A made-up photo for the photo importer's example and checks: a three-storey brick terrace front 12 m wide and
     /// 9 m tall, seen from a little to the left and below so it's a keystone, against sky and pavement, with a little
     /// grain like a real photo. Returns the photo and the facade's four corners in it (top-left, top-right,

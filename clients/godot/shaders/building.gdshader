@@ -13,6 +13,17 @@ varying vec3 local;
 varying vec4 life;
 varying float world_y;
 
+// RC part 5: a surface with a finish draws its texture (and relief) instead of the vertex colour. Glass lights up at
+// night in place of the windows painted on plain walls.
+uniform bool textured = false;
+uniform sampler2D finish_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D finish_normal : hint_normal, filter_linear_mipmap, repeat_enable;
+uniform bool has_normal = false;
+uniform vec2 uv_scale = vec2(1.0);
+uniform float finish_roughness = 0.85;
+uniform float finish_metallic = 0.0;
+uniform bool glassy = false;
+
 global uniform float night;
 global uniform float snow_mm;
 global uniform float snow_median_y;
@@ -52,7 +63,8 @@ void fragment() {
 	// Crumbling: voxels near the top break away first.
 	if (crumbling && r < 0.35 && local.y > cut - 6.0 * VOXEL) discard;
 
-	vec3 c = to_linear(COLOR.rgb, OUTPUT_IS_SRGB);
+	vec3 c = textured ? texture(finish_tex, UV * uv_scale).rgb : to_linear(COLOR.rgb, OUTPUT_IS_SRGB);
+	if (textured && has_normal) NORMAL_MAP = texture(finish_normal, UV * uv_scale).rgb;
 	bool building = life.r < 50.0 && !crumbling;
 	// The working edge of a building going up: scaffold planks.
 	if (building && local.y > cut - VOXEL * 1.5) c = mix(vec3(0.55, 0.38, 0.18), vec3(0.75, 0.6, 0.35), r);
@@ -73,9 +85,19 @@ void fragment() {
 		c = mix(c, to_linear(vec3(0.92, 0.93, 0.96), OUTPUT_IS_SRGB), step(r, white * 1.1));
 	}
 	ALBEDO = c;
-	ROUGHNESS = 0.95;
+	ROUGHNESS = textured ? finish_roughness : 0.95;
+	METALLIC = textured ? finish_metallic : 0.0;
+	// A finished building's real windows: each pane of glass (two metres a patch) lit or not by the room behind it.
+	if (textured && glassy && night > 0.01 && lit > 0.0 && !burning) {
+		vec3 room = floor(local * 8.0);
+		if (hash(room + 3.0) < lit) {
+			vec3 lamp = mix(vec3(1.0, 0.72, 0.38), vec3(0.85, 0.9, 1.0), step(0.8, hash(room + 11.0)));
+			EMISSION = lamp * (1.2 + 0.8 * hash(room + 5.0)) * night;
+		}
+		ALBEDO = c * (1.0 - 0.6 * night);
+	}
 	// Night (6.4): windows in rows a storey apart on the walls, some of them lit, warm or cool by the room.
-	if (night > 0.01 && wall && lit > 0.0 && !burning) {
+	if (!textured && night > 0.01 && wall && lit > 0.0 && !burning) {
 		vec3 along = abs(n.x) > 0.5 ? vec3(0.0, cell.y, cell.z) : vec3(cell.x, cell.y, 0.0);
 		float h = abs(n.x) > 0.5 ? cell.z : cell.x;
 		bool pane = mod(cell.y, 6.0) >= 2.0 && mod(cell.y, 6.0) < 4.0 && mod(h, 4.0) >= 1.0 && cell.y >= 2.0;

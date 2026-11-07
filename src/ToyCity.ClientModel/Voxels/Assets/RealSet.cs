@@ -278,6 +278,8 @@ public static partial class RealSet
     static void House(Lot l)
     {
         char w = l.Wealth;
+        // RC part 5: one in three of the better-off houses is built of textured polygon walls.
+        if (w != 'l' && l.Variant == 1) { WalledHouse(l); return; }
         int mx = (int)(l.W / 4), my = (int)(l.D / 4);
         int storeys = w == 'l' ? 1 : w == 'm' ? 1 + l.R.Next(2) : 2;
         var dr = l.Begin(Math.Max(storeys * 3 + 1, 11), 8);
@@ -311,7 +313,7 @@ public static partial class RealSet
             for (double z = 0.5; z < 2.4; z += 0.5) dr.Box(gg * 4 + 0.5, frontY - 0.35, z, gg * 4 + 3.5, frontY - 0.3, z + dr.V, Concrete);
             if (storeys > 1) dr.Box(gg * 4, gy1 * 4, 2.8, gg * 4 + 4, frontY + 0.2, 3.0, ConcreteDark);
             Path(dr, gg * 4 + 0.3, frontY, gg * 4 + 3.7, l.D, w == 'h' ? Draw.Ramp(1, 8) : Concrete);
-            dr.Prop("car", gg * 4 + 2, frontY + 3.5, 1, dr.V, c => c == Red ? dr.CarColour() : c);
+            dr.Prop("car", gg * 4 + 2, frontY + 3.5, 1, dr.V, dr.CarPaint());
         }
         else
         {
@@ -359,6 +361,47 @@ public static partial class RealSet
             }
         }
         if (w == 'l') { dr.Box(0.6, 0.6, 0, 3.2, 2.6, 2.2, Metal); dr.Box(0.6, 0.6, 2.2, 3.2, 2.6, 2.4, MetalDark); }
+    }
+
+    /// <summary>
+    /// A house of polygon walls and parts (RC part 5): brick, render, stone or clapboard by the street's wealth, with
+    /// sash windows, a panelled door, a slate, tile or shingle roof by the auto-roof, a garden, a drive and trees.
+    /// Its voxels, in its finishes' colours, are for when it's wrecked.
+    /// </summary>
+    static void WalledHouse(Lot l)
+    {
+        char w = l.Wealth;
+        var dr = l.Begin(12, 8);
+        dr.Ground(Grass);
+        double hw = Math.Min(l.W - 6, w == 'h' ? l.Between(11, 13) : l.Between(9, 11)), hd = Math.Min(l.D - 7, w == 'h' ? 9 : 8);
+        double x0 = Math.Round((l.W - hw) / 2 - (w == 'm' ? 1.5 : 0), 1), y1 = l.D - 5, y0 = y1 - hd;
+        string walls = w == 'h' ? l.Pick("brick-buff", "stone-ashlar", "brick-red", "render-cream") : l.Pick("brick-red", "siding-white", "siding-blue", "siding-sage", "render-cream", "brick-painted");
+        bool timber = walls.StartsWith("siding");
+        var spec = new PolyHouseSpec(x0, y0, x0 + hw, y1, w == 'h' ? 2 : 1 + l.R.Next(2), walls)
+        {
+            Trim = walls == "brick-buff" ? "trim-black" : "trim-white",
+            Dressing = timber ? "" : walls == "stone-ashlar" ? "concrete" : "stone-ashlar",
+            Roof = timber ? l.Pick("shingles-grey", "shingles-brown") : l.Pick("slate", "tile-clay", "slate"),
+            Style = w == 'h' && l.R.Next(2) == 0 ? RoofStyle.Hip : RoofStyle.Gable,
+            Pitch = l.Between(32, 42), OverhangCm = timber ? 40 : 30,
+            Chimney = !timber || l.R.Next(2) == 0,
+        };
+        spec = spec with { RoofColour = spec.Roof == "tile-clay" ? RoofTile : spec.Roof.StartsWith("shingles") ? Asphalt : Slate };
+        l.Roof = PolyBuild.House(sh => dr.Add(sh), spec, dr.V);
+        // The path to the front door, a drive to the east with a car, a hedge or fence along the street, trees behind.
+        double doorC = (x0 + x0 + hw) / 2;
+        dr.Add(Parts.Box(doorC - 0.7, y1 + 0.35, 0, 1.4, l.D - y1 - 0.35, 2 * dr.V, w == 'h' ? "stone-rubble" : "concrete"));
+        double dx = Math.Min(l.W - 3.4, x0 + hw + 0.8);
+        Path(dr, dx, y0 + 2, dx + 3, l.D, w == 'h' ? Draw.Ramp(1, 8) : Concrete);
+        dr.Prop("car", dx + 1.5, y1 + 1.5, 1, dr.V, dr.CarPaint());
+        for (double fx = 0; fx + 4 <= l.W; fx += 4)
+        {
+            if ((fx <= doorC && doorC < fx + 4) || (fx + 4 > dx && fx < dx + 3)) continue;
+            if (w == 'h') dr.Prop("hedge", fx + 2, l.D - 0.6, 0);
+            else dr.Piece("fence", Material.Wood, fx, l.D - 4, 0, 2, c => c is Wood or WoodDark ? Trim : c);
+        }
+        Trees(l, dr, 2 + l.R.Next(2), 1.5, 1.5, l.W - 1.5, Math.Max(2, y0 - 1), 0.35);
+        dr.Prop("planter", doorC + 1.6, y1 + 1.0);
     }
 
     /// <summary>Clothesline walk-ups: three or four storeys of plain brick flats, fire escapes, washing on the roof.</summary>

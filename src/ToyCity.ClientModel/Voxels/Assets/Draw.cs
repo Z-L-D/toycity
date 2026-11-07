@@ -136,7 +136,12 @@ public sealed class Draw
         foreach (var s in shapes)
             // Grown by most of a voxel: one whose middle is just outside the polygons (between a curve's facets) would
             // still poke through them.
-            s.ForEachVoxel(o, detail, (x, y, z) => { byte c = o[x, y, z]; if (c != 0 && (c == s.Colour || c == s.Under)) o[x, y, z] = ghost; }, 0.9 * 0.5 / detail);
+            // A shape with a finish (RC part 5) has its voxels in the texture's colours, so any colour in it is its own.
+            s.ForEachVoxel(o, detail, (x, y, z) =>
+            {
+                byte c = o[x, y, z];
+                if (c != 0 && (c == s.Colour || c == s.Under || s.Kind == ShapeKind.Imported || s.Finish.Length > 0 && Finishes.Has(s.Finish))) o[x, y, z] = ghost;
+            }, 0.9 * 0.5 / detail);
         return o;
     }
 
@@ -291,9 +296,12 @@ public sealed class Draw
         {
             Box(x, y0 + 0.5, V * 0.5, x + Math.Max(V, 0.12), y0 + 5.5, V, AssetPalette.Trim);
             if (R.NextDouble() < fill && y0 + 6 < y1)
-                Prop("car", x + bay / 2, y0 + 3, 1, V, c => c == AssetPalette.Red ? CarColour() : c);
+                Prop("car", x + bay / 2, y0 + 3, 1, V, CarPaint());
         }
     }
+
+    /// <summary>Repaints a car prop's red body one colour, picked once (not a colour a voxel).</summary>
+    public Func<byte, byte> CarPaint() { byte body = CarColour(); return c => c == AssetPalette.Red ? body : c; }
 
     public byte CarColour() => new[] { AssetPalette.Red, AssetPalette.Blue, AssetPalette.Trim, AssetPalette.Black, AssetPalette.Metal, AssetPalette.Yellow, AssetPalette.Chrome }[R.Next(7)];
 

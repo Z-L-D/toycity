@@ -358,8 +358,8 @@ public partial class LotEditor : Node3D
             float v = 0.5f / r.Detail;
             var mesh = VoxMesher.Mesh(r.Shapes.Count > 0 ? Draw.Without(r.Model, r.Detail, r.Shapes) : r.Model, v);
             foreach (var sh in r.Shapes) mesh.Append(sh.Mesh(1f, 1, r.Model.Palette));
-            _mesh.Mesh = BuildingModels.ToMesh(mesh);
-            _roof.Mesh = BuildingModels.ToMesh(r.Roof is { } spec ? AutoRoof.Build(r.Model, r.Detail, spec, v) : new MeshData());
+            FinishTextures.Show(_mesh, BuildingModels.ToMesh(mesh), _solid);
+            FinishTextures.Show(_roof, BuildingModels.ToMesh(r.Roof is { } spec ? AutoRoof.Build(r.Model, r.Detail, spec, v) : new MeshData()), _solid);
             DrawStreet();
             DrawGrid();
         }

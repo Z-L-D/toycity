@@ -91,7 +91,7 @@ public sealed class BuildingModels
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         var (vox, detail, roof, shapes) = LoadVox($"{t.Id}-{w}x{d}") ?? LoadVox(t.Id) ?? (null, 1, null, Array.Empty<Shape>());
         if (vox == null && (LoadGltf($"{t.Id}-{w}x{d}") ?? LoadGltf(t.Id)) is { } gltf)
-            m = FromGltf(GltfFile.FitToLot(gltf, w, d));
+            m = FromGltf(GltfFile.FitToLot(gltf, w, d), w, d, t.Id.Aggregate(17, (h, c) => h * 31 + c));
         else
         {
             bool fromFile = vox != null;
@@ -179,16 +179,27 @@ public sealed class BuildingModels
     /// <summary>Off draws the set's round things as their voxels (for comparison shots).</summary>
     public static bool UseShapes = true;
 
-    /// <summary>A glTF model: already smooth, so its detail levels are the same mesh cut to fewer triangles.</summary>
-    static Model FromGltf(MeshData mesh)
+    /// <summary>
+    /// A glTF model: already smooth, so its detail levels are the same mesh cut to fewer triangles; a textured one
+    /// keeps its texture close up (cutting it down would smear it). Wrecked, it's its surface in 25 cm voxels, in
+    /// its texture's colours, holed and charred like any other (RC part 5).
+    /// </summary>
+    static Model FromGltf(MeshData mesh, int w, int d, int seed)
     {
-        var near = Decimate.Cluster(mesh, 40_000);
+        var near = mesh.Textured && mesh.Indices.Count / 3 <= 200_000 ? mesh : Decimate.Cluster(mesh, 40_000);
         var smooth = ToMesh(near);
+        float height = mesh.Positions.Count > 0 ? mesh.Positions.Max(p => p.Y) : 0;
+        const int perCell = VoxModel.PerCell * 2;
         return new Model
         {
             Near = new Lazy<ArrayMesh>(() => smooth), Far = ToMesh(Decimate.Cluster(mesh, 800)),
-            Mid = new Lazy<ArrayMesh>(() => ToMesh(Decimate.Cluster(mesh, 6_000))), Smooth = new Lazy<ArrayMesh>(() => smooth), Wrecked = new Lazy<ArrayMesh>(() => smooth),
-            Height = mesh.Positions.Count > 0 ? mesh.Positions.Max(p => p.Y) : 0, FromFile = true,
+            Mid = new Lazy<ArrayMesh>(() => ToMesh(Decimate.Cluster(mesh, 6_000))), Smooth = new Lazy<ArrayMesh>(() => smooth),
+            Wrecked = new Lazy<ArrayMesh>(() =>
+            {
+                var vox = MeshVoxels.Surface(mesh, w * perCell, d * perCell, (int)Math.Ceiling(height * perCell) + 1, 1f / perCell);
+                return ToMesh(VoxMesher.Mesh(Wreck.Carve(vox, 2, seed), 1f / perCell));
+            }),
+            Height = height, FromFile = true,
         };
     }
 
@@ -254,11 +265,16 @@ public sealed class BuildingModels
         return null;
     }
 
-    /// <summary>A mesher result as a Godot mesh. Godot's front faces wind clockwise, so each triangle is turned over.</summary>
+    /// <summary>
+    /// A mesher result as a Godot mesh. Godot's front faces wind clockwise, so each triangle is turned over. A mesh
+    /// with finishes (RC part 5) gets a surface for each, named by the finish's id, after the first of plain colours;
+    /// <see cref="FinishTextures.Apply"/> gives them their materials.
+    /// </summary>
     public static ArrayMesh ToMesh(MeshData m)
     {
         var mesh = new ArrayMesh();
         if (m.Indices.Count == 0) return mesh;
+        m.Pad();
         var verts = new Vector3[m.Positions.Count];
         var normals = new Vector3[m.Positions.Count];
         var colors = new Color[m.Positions.Count];
@@ -270,15 +286,51 @@ public sealed class BuildingModels
             var (r, g, b, a) = VoxModel.Unpack(m.Colors[i]);
             colors[i] = Color.Color8(r, g, b, a);
         }
-        var index = new int[m.Indices.Count];
-        for (int i = 0; i < index.Length; i += 3) { index[i] = m.Indices[i]; index[i + 1] = m.Indices[i + 2]; index[i + 2] = m.Indices[i + 1]; }
+        if (!m.Textured)
+        {
+            var index = new int[m.Indices.Count];
+            for (int i = 0; i < index.Length; i += 3) { index[i] = m.Indices[i]; index[i + 1] = m.Indices[i + 2]; index[i + 2] = m.Indices[i + 1]; }
+            AddSurface(mesh, verts, normals, colors, null, index, "");
+            return mesh;
+        }
+        var uvs = m.UVs.Select(u => new Vector2(u.X, u.Y)).ToArray();
+        // Triangles by finish: plain colours first, then each finish its own surface.
+        var by = new List<int>[m.FinishIds.Count];
+        for (int k = 0; k < by.Length; k++) by[k] = new List<int>();
+        for (int i = 0; i + 2 < m.Indices.Count; i += 3)
+        {
+            int f = m.Finish[m.Indices[i]];
+            by[f].Add(m.Indices[i]); by[f].Add(m.Indices[i + 2]); by[f].Add(m.Indices[i + 1]);
+        }
+        for (int k = 0; k < by.Length; k++)
+        {
+            if (by[k].Count == 0) continue;
+            // Each surface holds only its own vertices.
+            var map = new Dictionary<int, int>();
+            var idx = new int[by[k].Count];
+            for (int i = 0; i < idx.Length; i++)
+            {
+                int v = by[k][i];
+                if (!map.TryGetValue(v, out int j)) map[v] = j = map.Count;
+                idx[i] = j;
+            }
+            var keep = map.OrderBy(e => e.Value).Select(e => e.Key).ToArray();
+            AddSurface(mesh, keep.Select(i => verts[i]).ToArray(), keep.Select(i => normals[i]).ToArray(), keep.Select(i => colors[i]).ToArray(),
+                keep.Select(i => uvs[i]).ToArray(), idx, m.FinishIds[k]);
+        }
+        return mesh;
+    }
+
+    static void AddSurface(ArrayMesh mesh, Vector3[] verts, Vector3[] normals, Color[] colors, Vector2[]? uvs, int[] index, string name)
+    {
         var arrays = new global::Godot.Collections.Array();
         arrays.Resize((int)Mesh.ArrayType.Max);
         arrays[(int)Mesh.ArrayType.Vertex] = verts;
         arrays[(int)Mesh.ArrayType.Normal] = normals;
         arrays[(int)Mesh.ArrayType.Color] = colors;
+        if (uvs != null) arrays[(int)Mesh.ArrayType.TexUV] = uvs;
         arrays[(int)Mesh.ArrayType.Index] = index;
         mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
-        return mesh;
+        mesh.SurfaceSetName(mesh.GetSurfaceCount() - 1, name);
     }
 }

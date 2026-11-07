@@ -68,12 +68,115 @@ public sealed class AssetDoc
     public int AddShape(Shape shape) => Step(() =>
     {
         int n = 0;
-        var (lo, hi) = shape.Bounds();
-        double mid = (lo.Z + hi.Z) / 2 - 0.1 * (hi.Z - lo.Z), v = 0.5 / Detail;
-        shape.ForEachVoxel(Model, Detail, (x, y, z) => { Put(x, y, z, shape.Under != 0 && (z + 0.5) * v < mid ? shape.Under : shape.Colour); n++; });
+        shape.ForEachVoxelColour(Model, Detail, (x, y, z, c) => { Put(x, y, z, c); n++; });
         AddShapeInStep(shape);
         return n;
     });
+
+    // ---- polygon walls and parts (RC part 5) ------------------------------------------------------------------------
+
+    /// <summary>
+    /// Takes shapes out and puts others in, as one undo step: the old ones' voxels go, the new ones' are filled in their
+    /// colours (or their finishes').
+    /// </summary>
+    public void ReplaceShapes(IEnumerable<Shape> remove, IEnumerable<Shape> add) => Step(() =>
+    {
+        foreach (var s in remove.ToList())
+        {
+            s.ForEachVoxel(Model, Detail, (x, y, z) => Put(x, y, z, 0));
+            RemoveShapeInStep(s);
+        }
+        foreach (var s in add.ToList())
+        {
+            s.ForEachVoxelColour(Model, Detail, Put);
+            AddShapeInStep(s);
+        }
+    });
+
+    /// <summary>The shape at a point in metres (the last placed, if several), within half a voxel; null for none.</summary>
+    public Shape? ShapeAt(double x, double y, double z, Func<Shape, bool>? which = null)
+    {
+        double v = 0.5 / Detail;
+        for (int i = _shapes.Count - 1; i >= 0; i--)
+            if ((which == null || which(_shapes[i])) && _shapes[i].Inside(x, y, z, v, v * 0.75)) return _shapes[i];
+        return null;
+    }
+
+    /// <summary>
+    /// Puts a part into a wall with its left edge <paramref name="along"/> metres from the wall's corner, as one undo
+    /// step: the wall gets its opening, and the part's frame, glass or leaf, and sill or step go in. False if it
+    /// doesn't fit there.
+    /// </summary>
+    public bool InsertPart(Shape wall, PartKind kind, double along, double? sill = null, string frame = "trim-white", bool fromBack = false)
+    {
+        if (wall.Kind != ShapeKind.Wall || !_shapes.Contains(wall)) return false;
+        // From behind, the wall turns round first, so the part faces the side it was put in from.
+        var holed = fromBack ? Parts.Flipped(wall) : wall.Clone();
+        if (fromBack) along = wall.Width - along - Parts.SizeOf(kind).W;
+        if (Parts.Insert(holed, kind, along, sill, frame: frame) is not { } parts) return false;
+        ReplaceShapes(new[] { wall }, parts.Prepend(holed));
+        return true;
+    }
+
+    /// <summary>
+    /// Takes the part nearest <paramref name="along"/> back out of a wall, as one undo step: its opening is filled
+    /// and its frame, glass, leaf and sill go. False if the wall has no openings.
+    /// </summary>
+    public bool RemovePart(Shape wall, double along)
+    {
+        if (wall.Kind != ShapeKind.Wall || wall.Openings.Count == 0 || !_shapes.Contains(wall)) return false;
+        var o = wall.Openings.OrderBy(op => Math.Abs(op.X + op.W / 2 - along)).First();
+        var filled = wall.Clone();
+        filled.Openings.Remove(o);
+        // The part's shapes: those whose middle is in the opening's box, a little grown, and near the wall's thickness.
+        var parts = _shapes.Where(s => s != wall).Where(s =>
+        {
+            var (lo, hi) = s.Bounds();
+            var (lx, ly, lz) = wall.Local((lo.X + hi.X) / 2, (lo.Y + hi.Y) / 2, (lo.Z + hi.Z) / 2);
+            return lx > o.X - 0.3 && lx < o.X + o.W + 0.3 && lz > o.Z - 0.4 && lz < o.Z + o.H + 0.4 && ly > -0.6 && ly < wall.Depth + 0.3;
+        }).ToList();
+        ReplaceShapes(parts.Append(wall), new[] { filled });
+        return true;
+    }
+
+    /// <summary>Gives a shape a finish (or none, for its colour), as one undo step; returns the shape now in its place.</summary>
+    public Shape SetFinish(Shape s, string finish)
+    {
+        var c = s.Clone();
+        c.Finish = finish;
+        if (Assets.Finishes.Get(finish) is { } f) c.Colour = f.Palette;
+        ReplaceShapes(new[] { s }, new[] { c });
+        return c;
+    }
+
+    /// <summary>
+    /// Puts an imported model (glTF or OBJ, read in metres, y up) into the asset as one shape, as one undo step:
+    /// standing on the ground in the middle of the model, shrunk to fit if it's bigger. Returns the shape and how
+    /// much it was shrunk (1 for not), or null for an empty model.
+    /// </summary>
+    public (Shape Shape, double Shrunk)? ImportModel(MeshData mesh, string name = "")
+    {
+        if (mesh.Positions.Count == 0 || mesh.Indices.Count < 3) return null;
+        var lo = mesh.Positions.Aggregate(System.Numerics.Vector3.Min);
+        var hi = mesh.Positions.Aggregate(System.Numerics.Vector3.Max);
+        var size = hi - lo;
+        double v = 0.5 / Detail, mx = Model.SizeX * v, my = Model.SizeY * v, mz = (Model.SizeZ - 1) * v;
+        float shrink = (float)Math.Min(1, Math.Min(mx / Math.Max(1e-3, size.X), Math.Min(my / Math.Max(1e-3, size.Z), mz / Math.Max(1e-3, size.Y))));
+        // Its corner at the origin, standing on the ground, in metres.
+        var t = new MeshData().Append(mesh).Pad();
+        for (int i = 0; i < t.Positions.Count; i++) t.Positions[i] = (t.Positions[i] - new System.Numerics.Vector3(lo.X, lo.Y, lo.Z)) * shrink;
+        var s = new Shape
+        {
+            Kind = ShapeKind.Imported, Triangles = t, Colour = AssetPalette.Concrete,
+            X = (mx - size.X * shrink) / 2, Y = (my - size.Z * shrink) / 2, Z = v,
+        };
+        AddShape(s);
+        return (s, shrink);
+    }
+
+    /// <summary>The finish most of the walls a storey or more high are in, for the auto-roof's gable ends; "" for none.</summary>
+    public string WallFinish() => _shapes.Where(s => s.Kind == ShapeKind.Wall && s.Height >= 2 && s.Finish.Length > 0 && s.Finish != "glass")
+        .GroupBy(s => s.Finish).OrderByDescending(g => g.Sum(s => s.Width * s.Height)).Select(g => g.Key).FirstOrDefault() ?? "";
 
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
@@ -218,7 +321,7 @@ public sealed class AssetDoc
         foreach (var sh in _shapes.ToList()) RemoveShapeInStep(sh);
     });
 
-    double WidthMetres => Model.SizeX * 0.5 / Detail;
+    public double WidthMetres => Model.SizeX * 0.5 / Detail;
 
     /// <summary>Flips the model east to west, in place.</summary>
     public void MirrorX() => Step(() =>
@@ -479,7 +582,15 @@ public sealed class AssetDoc
 
     // ---- files ---------------------------------------------------------------------------------------------------
 
-    sealed record Sidecar(string Name, int Detail, RoofSpec? Roof = null, System.Text.Json.Nodes.JsonArray? Shapes = null);
+    sealed record Sidecar(string Name, int Detail, RoofSpec? Roof = null, System.Text.Json.Nodes.JsonArray? Shapes = null, System.Text.Json.Nodes.JsonArray? Finishes = null);
+
+    /// <summary>The given finishes (photos, models' textures) the shapes use, saved with them since nothing else has their pixels.</summary>
+    static System.Text.Json.Nodes.JsonArray? FinishesJson(IEnumerable<Shape> shapes)
+    {
+        var list = shapes.SelectMany(s => s.FinishesUsed()).Where(Assets.Finishes.IsGiven).Distinct()
+            .Select(id => (System.Text.Json.Nodes.JsonNode?)Assets.Finishes.ToJson(id)).Where(n => n != null).ToArray();
+        return list.Length == 0 ? null : new System.Text.Json.Nodes.JsonArray(list);
+    }
 
     static System.Text.Json.Nodes.JsonArray? ShapesJson(IEnumerable<Shape> shapes, double dx = 0, double dy = 0)
     {
@@ -492,7 +603,10 @@ public sealed class AssetDoc
     {
         try
         {
-            if (System.Text.Json.Nodes.JsonNode.Parse(text)?["shapes"] is not System.Text.Json.Nodes.JsonArray a) return Array.Empty<Shape>();
+            var root = System.Text.Json.Nodes.JsonNode.Parse(text);
+            // The given finishes first, so the shapes find them.
+            if (root?["finishes"] is System.Text.Json.Nodes.JsonArray given) foreach (var f in given) Assets.Finishes.FromJson(f);
+            if (root?["shapes"] is not System.Text.Json.Nodes.JsonArray a) return Array.Empty<Shape>();
             return a.Select(Shape.FromJson).OfType<Shape>().ToList();
         }
         catch (JsonException) { return Array.Empty<Shape>(); }
@@ -511,7 +625,7 @@ public sealed class AssetDoc
     public void Save(string voxPath)
     {
         VoxFile.Write(Model, voxPath);
-        File.WriteAllText(SidecarOf(voxPath), JsonSerializer.Serialize(new Sidecar(Name, Detail, Roof, ShapesJson(_shapes)), Json));
+        File.WriteAllText(SidecarOf(voxPath), JsonSerializer.Serialize(new Sidecar(Name, Detail, Roof, ShapesJson(_shapes), FinishesJson(_shapes)), Json));
         Dirty = false;
     }
 
@@ -569,7 +683,7 @@ public sealed class AssetDoc
         // The shapes move with the crop: it starts at the model's first solid column.
         var b = (crop ? Bounds() : null) ?? (0, 0, 0, 0, 0, 0);
         double v = 0.5 / Detail;
-        File.WriteAllText(SidecarOf(path), JsonSerializer.Serialize(new Sidecar(Name, Detail, Roof, ShapesJson(_shapes, -b.X0 * v, -b.Y0 * v)), Json));
+        File.WriteAllText(SidecarOf(path), JsonSerializer.Serialize(new Sidecar(Name, Detail, Roof, ShapesJson(_shapes, -b.X0 * v, -b.Y0 * v), FinishesJson(_shapes)), Json));
         return path;
     }
 

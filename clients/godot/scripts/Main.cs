@@ -69,6 +69,7 @@ public partial class Main : Node
     public override void _Ready()
     {
         UiTheme.Apply();
+        FinishTextures.InstallDecoder();
         var args = OS.GetCmdlineUserArgs();
         // --editor: the asset editor on its own, with no city or server (RC part 1); with --shots DIR, its pictures.
         // --gallery DIR: pictures of the realistic asset set (RC part 2), then quit.

@@ -121,6 +121,7 @@ public partial class AssetEditor
         _photoSide.AddItem("West", (int)FacadeSide.West);
         foot.AddChild(_photoSide);
         Btn(foot, "Build it", "Build the facade on the side chosen: one undo step", BuildPhoto);
+        Btn(foot, "As a textured wall", "Put the photo on a smooth wall its size, straightened, on the side chosen: sharp as the photo in the game, its colours in voxels when wrecked", PhotoWall);
         Btn(foot, "Wrap all four sides", "Replace the model with a block the photo's width (and the depth, if over a metre) with this facade on every side", WrapPhoto);
         _photoPanel.Visible = false;
     }
@@ -283,6 +284,20 @@ public partial class AssetEditor
         Refresh();
         Frame();
         Say("Wrapped the photo round all four sides (Ctrl+Z takes it away)");
+    }
+
+    /// <summary>The photo as a polygon wall with it as its texture (RC part 5).</summary>
+    void PhotoWall()
+    {
+        if (_photo == null) { Say("Open a photo first"); return; }
+        if (PhotoImport.Homography(new[] { (0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0) }, _photoCanvas.Corners) == null) { Say("Three corners are in a line"); return; }
+        var wall = PhotoImport.AsWall(_doc, _photo, _photoCanvas.Corners, PhotoOptionsNow(), (FacadeSide)_photoSide.GetSelectedId());
+        if (wall == null) { Say("It doesn't fit in the model: make the model bigger or the facade smaller"); return; }
+        _photoPanel.Visible = false;
+        _meshed = -1;
+        Refresh();
+        Frame();
+        Say($"Put the photo on a wall {wall.Width:0.#} × {wall.Height:0.#} m (Ctrl+Z takes it away)");
     }
 
     void BuildPhoto()

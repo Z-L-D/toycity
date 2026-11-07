@@ -11,14 +11,110 @@ public sealed class MeshData
     public readonly List<int> Indices = new();
     public int Quads => Indices.Count / 6;
 
+    // RC part 5: textured surfaces. A vertex with a finish is drawn with that finish's texture at its UV (metres, or
+    // a model's own coordinates for a mapped finish) rather than its colour. Both lists are empty for a mesh with no
+    // finishes, and as long as the positions once any vertex has one (see Pad).
+
+    /// <summary>Texture coordinates, one a vertex, once the mesh has a finish.</summary>
+    public readonly List<Vector2> UVs = new();
+    /// <summary>Which of <see cref="FinishIds"/> each vertex is, once the mesh has a finish; 0 is none (its colour).</summary>
+    public readonly List<int> Finish = new();
+    /// <summary>The finishes the mesh uses, by id; the first is none.</summary>
+    public readonly List<string> FinishIds = new() { "" };
+    public bool Textured => FinishIds.Count > 1;
+
+    /// <summary>The index of a finish in this mesh's list, added if it's new.</summary>
+    public int FinishIndex(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return 0;
+        int i = FinishIds.IndexOf(id);
+        if (i >= 0) return i;
+        FinishIds.Add(id);
+        return FinishIds.Count - 1;
+    }
+
+    /// <summary>Fills in no finish for the vertices added without one, so the lists line up with the positions.</summary>
+    public MeshData Pad()
+    {
+        if (!Textured) return this;
+        while (UVs.Count < Positions.Count) UVs.Add(Vector2.Zero);
+        while (Finish.Count < Positions.Count) Finish.Add(0);
+        return this;
+    }
+
+    /// <summary>Adds a vertex with a finish (index from <see cref="FinishIndex"/>) at a UV.</summary>
+    public int Add(Vector3 p, Vector3 n, uint colour, int finish, Vector2 uv)
+    {
+        if (finish > 0 || Textured) Pad();
+        Positions.Add(p); Normals.Add(n); Colors.Add(colour);
+        if (finish > 0 || Textured) { UVs.Add(uv); Finish.Add(finish); }
+        return Positions.Count - 1;
+    }
+
+    /// <summary>
+    /// The mesh with a finish on the faces <paramref name="which"/> picks (by their normal, y up), each face's
+    /// texture laid along its slope by the metre (<paramref name="metresPerUnit"/> metres a world unit): across the
+    /// slope and up it, so shingles run level along a roof. The rest keep their colours.
+    /// </summary>
+    public MeshData FinishFaces(string finish, float metresPerUnit, Func<Vector3, bool> which) =>
+        FinishFaces(finish, metresPerUnit, (_, n) => which(n));
+
+    /// <summary>The same, choosing the faces by their first index (a run of triangles) as well as their slope.</summary>
+    public MeshData FinishFaces(string finish, float metresPerUnit, Func<int, Vector3, bool> which)
+    {
+        var o = new MeshData();
+        int fin = o.FinishIndex(finish);
+        uint plain = Assets.Finishes.VertexColour(finish);
+        for (int i = 0; i + 2 < Indices.Count; i += 3)
+        {
+            int a = Indices[i], b = Indices[i + 1], c = Indices[i + 2];
+            // A sliver keeps its place (so the triangles still line up with the ones asked for by index) but no finish.
+            var face = Vector3.Cross(Positions[b] - Positions[a], Positions[c] - Positions[a]);
+            bool sliver = face.LengthSquared() < 1e-14f;
+            var n = sliver ? Vector3.UnitY : Vector3.Normalize(face);
+            if (Vector3.Dot(n, Normals[a] + Normals[b] + Normals[c]) < 0) n = -n;
+            bool on = !sliver && which(i, n);
+            // Across the slope is level; up it is square to that in the face.
+            var across = MathF.Abs(n.Y) > 0.999f ? Vector3.UnitX : Vector3.Normalize(Vector3.Cross(Vector3.UnitY, n));
+            var up = Vector3.Cross(n, across);
+            int s = o.Positions.Count;
+            foreach (int v in new[] { a, b, c })
+            {
+                var p = Positions[v] * metresPerUnit;
+                // Faces left alone keep any finish they had.
+                int had = Textured && v < Finish.Count ? o.FinishIndex(FinishIds[Finish[v]]) : 0;
+                var hadUv = Textured && v < UVs.Count ? UVs[v] : Vector2.Zero;
+                o.Add(Positions[v], Normals[v], on ? plain : Colors[v], on ? fin : had, on ? new Vector2(Vector3.Dot(p, across), Vector3.Dot(p, up)) : hadUv);
+            }
+            o.Indices.AddRange(new[] { s, s + 1, s + 2 });
+        }
+        return o;
+    }
+
     /// <summary>Adds another mesh's triangles to this one (the auto-roof onto its walls), and returns this.</summary>
     public MeshData Append(MeshData other)
     {
         int s = Positions.Count;
+        bool textured = Textured || other.Textured;
+        if (textured)
+        {
+            // This mesh's own vertices first get their (empty) finish, so the lists line up before adding.
+            while (UVs.Count < s) UVs.Add(Vector2.Zero);
+            while (Finish.Count < s) Finish.Add(0);
+        }
         Positions.AddRange(other.Positions);
         Normals.AddRange(other.Normals);
         Colors.AddRange(other.Colors);
         foreach (int i in other.Indices) Indices.Add(s + i);
+        if (textured)
+        {
+            var map = other.FinishIds.Select(FinishIndex).ToArray();
+            for (int i = 0; i < other.Positions.Count; i++)
+            {
+                UVs.Add(i < other.UVs.Count ? other.UVs[i] : Vector2.Zero);
+                Finish.Add(i < other.Finish.Count ? map[other.Finish[i]] : 0);
+            }
+        }
         return this;
     }
 }

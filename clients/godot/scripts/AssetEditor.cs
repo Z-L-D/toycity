@@ -14,7 +14,7 @@ namespace ToyCity.Godot;
 /// </summary>
 public partial class AssetEditor : Node3D
 {
-    enum Tool { Piece, Add, Erase, Paint, Fill, Box, Pick, Shape, Select }
+    enum Tool { Piece, Add, Erase, Paint, Fill, Box, Pick, Shape, Select, Wall }
 
     const string AssetsDir = "user://assets";
     AssetDoc _doc = AssetDoc.New("New asset", 1, 1, 1, 1);
@@ -71,10 +71,14 @@ public partial class AssetEditor : Node3D
     Label _pitchLabel = null!, _overhangLabel = null!;
     CheckBox _turnRidge = null!;
     bool _showingRoof;
-    static readonly (byte, string)[] RoofColours =
+    /// <summary>The roof's coverings: its colour (for voxels and far off), its finish when textured, and its name.</summary>
+    static readonly (byte Colour, string Finish, string Name)[] RoofColours =
     {
-        (AssetPalette.RoofTile, "Clay tiles"), (AssetPalette.Slate, "Slate"), (AssetPalette.Asphalt, "Shingles"),
-        (AssetPalette.MetalDark, "Metal"), (AssetPalette.WoodDark, "Wood shakes"), (AssetPalette.Grass, "Green roof"),
+        (AssetPalette.RoofTile, "tile-clay", "Clay tiles"), (AssetPalette.Slate, "slate", "Slate"), (AssetPalette.Asphalt, "shingles-grey", "Grey shingles"),
+        (AssetPalette.WoodDark, "shingles-brown", "Brown shingles"), (AssetPalette.MetalDark, "metal-seam", "Standing-seam metal"),
+        (AssetPalette.Grass, "copper", "Copper"), (AssetPalette.RoofTile, "", "Clay tiles, plain"), (AssetPalette.Slate, "", "Slate, plain"),
+        (AssetPalette.Asphalt, "", "Shingles, plain"), (AssetPalette.MetalDark, "", "Metal, plain"), (AssetPalette.WoodDark, "", "Wood shakes"),
+        (AssetPalette.Grass, "", "Green roof"),
     };
 
     // The shape tool: a profile drawn in 2D, placed as a lathe, an extrude or a sweep.
@@ -96,8 +100,10 @@ public partial class AssetEditor : Node3D
     {
         if (_showingRoof) return;
         var style = (RoofStyle)_roofStyle.GetSelectedId();
+        var cover = RoofColours[Math.Max(0, _roofColour.GetSelectedId())];
+        // A textured roof's gable ends are in the walls' finish (RC part 5).
         _doc.Roof = style == RoofStyle.None ? null
-            : new RoofSpec(style, _pitchSlider.Value, (int)_overhang.Value, (byte)_roofColour.GetSelectedId(), _turnRidge.ButtonPressed);
+            : new RoofSpec(style, _pitchSlider.Value, (int)_overhang.Value, cover.Colour, _turnRidge.ButtonPressed, cover.Finish) { GableFinish = _doc.WallFinish() };
         Refresh();
     }
 
@@ -111,8 +117,10 @@ public partial class AssetEditor : Node3D
         {
             _pitchSlider.Value = r.Pitch;
             _overhang.Value = r.OverhangCm;
-            int ci = _roofColour.GetItemIndex(r.Colour);
-            if (ci >= 0) _roofColour.Select(ci);
+            int ci = Array.FindIndex(RoofColours, c => c.Colour == r.Colour && c.Finish == r.Finish);
+            if (ci < 0) ci = Array.FindIndex(RoofColours, c => c.Finish == r.Finish && r.Finish.Length > 0);
+            if (ci < 0) ci = Array.FindIndex(RoofColours, c => c.Colour == r.Colour);
+            if (ci >= 0) _roofColour.Select(_roofColour.GetItemIndex(ci));
             _turnRidge.ButtonPressed = r.TurnRidge;
         }
         _pitchLabel.Text = $"Pitch {_pitchSlider.Value:0}°";
@@ -270,6 +278,7 @@ public partial class AssetEditor : Node3D
             (Tool.Pick, "Pick", "Take the colour of a voxel (7, or Alt+click)"),
             (Tool.Shape, "Shape", "Draw a profile, then place it as a lathe, an extrude or a sweep: smooth in the game, voxels when wrecked (8)"),
             (Tool.Select, "Select", "Click a patch of one colour (Shift: every patch of it facing that way), then + pulls it out and − pushes it in (9)"),
+            (Tool.Wall, "Wall", "Draw polygon walls corner to corner, put windows and doors in them, paint finishes on: textured in the game, voxels when wrecked (0)"),
         })
         {
             var b = Btn(tools, label, tip, () => SetTool(t), toggle: true);
@@ -299,7 +308,7 @@ public partial class AssetEditor : Node3D
         _roofStyle.ItemSelected += _ => RoofChanged();
         roofRow.AddChild(_roofStyle);
         _roofColour = new OptionButton { FocusMode = Control.FocusModeEnum.None, TooltipText = "What the roof is covered in" };
-        foreach (var (c, label) in RoofColours) _roofColour.AddItem(label, c);
+        for (int i = 0; i < RoofColours.Length; i++) _roofColour.AddItem(RoofColours[i].Name, i);
         _roofColour.ItemSelected += _ => RoofChanged();
         roofRow.AddChild(_roofColour);
         var pitchRow = new HBoxContainer();
@@ -389,6 +398,7 @@ public partial class AssetEditor : Node3D
         _status = new Label { Text = "" };
         foot.AddChild(_status);
         BuildShapePanel(root);
+        BuildWallPanel(root);
         BuildPhotoPanel(root);
         SetTool(Tool.Piece);
     }
@@ -430,6 +440,7 @@ public partial class AssetEditor : Node3D
     {
         _tool = t;
         if (_shapePanel != null) _shapePanel.Visible = t == Tool.Shape;
+        if (_wallPanel != null) { _wallPanel.Visible = t == Tool.Wall; _wallFrom = _wallFirst = null; _wallGhostKey = null; }
         _path.Clear();
         _toolButtons[t].ButtonPressed = true;
         _boxFrom = null;
@@ -709,10 +720,10 @@ public partial class AssetEditor : Node3D
         {
             var mesh = VoxMesher.Mesh(Draw.Without(_doc.Model, _doc.Detail, _doc.Shapes), Vs);
             foreach (var sh in _doc.Shapes) mesh.Append(sh.Mesh(1f, 1, _doc.Model.Palette));
-            _mesh.Mesh = BuildingModels.ToMesh(mesh);
+            FinishTextures.Show(_mesh, BuildingModels.ToMesh(mesh), _solid);
         }
-        else _mesh.Mesh = BuildingModels.ToMesh(VoxMesher.Mesh(_doc.Model, Vs));
-        _roof.Mesh = BuildingModels.ToMesh(_doc.RoofMesh(Vs));
+        else FinishTextures.Show(_mesh, BuildingModels.ToMesh(VoxMesher.Mesh(_doc.Model, Vs)), _solid);
+        FinishTextures.Show(_roof, BuildingModels.ToMesh(_doc.RoofMesh(Vs)), _solid);
         ShowRoof();
         DrawGrid();
     }
@@ -828,6 +839,7 @@ public partial class AssetEditor : Node3D
         }
         ShowGhost(stamp: _tool == Tool.Piece ? Stamp() : null);
         if (_tool == Tool.Shape) ShowShapeGhost();
+        if (_tool == Tool.Wall) ShowWallGhost();
         if (_dragging && _tool is Tool.Add or Tool.Erase or Tool.Paint) DragTo();
     }
 
@@ -921,6 +933,8 @@ public partial class AssetEditor : Node3D
                 case Key.M: _doc.MirrorX(); break;
                 case Key.F: Frame(); break;
                 case >= Key.Key1 and <= Key.Key9: SetTool((Tool)(k.Keycode - Key.Key1)); break;
+                case Key.Key0: SetTool(Tool.Wall); break;
+                case Key.Escape when _tool == Tool.Wall: _wallFrom = _wallFirst = null; _wallGhostKey = null; WallSettingsChanged(); break;
                 case Key.Equal or Key.KpAdd when _tool == Tool.Select: Push(1); break;
                 case Key.Minus or Key.KpSubtract when _tool == Tool.Select: Push(-1); break;
                 case Key.Escape when _tool == Tool.Select: ClearSelection(); break;
@@ -954,6 +968,7 @@ public partial class AssetEditor : Node3D
                 else if (CurrentShape(at) is { } sh) { int n = _doc.AddShape(sh); Say($"Placed a {sh.Kind.ToString().ToLowerInvariant()}: {n} voxels, drawn smooth"); }
                 else Say("Draw the profile first: at least two points, three for a closed one");
                 break;
+            case Tool.Wall: WallPress(); break;
             case Tool.Box when _hit is { } b: _boxFrom = shift && !b.Ground ? (b.X, b.Y, b.Z) : b.Front; break;
             case Tool.Add or Tool.Erase or Tool.Paint when _hit is { } h:
                 _doc.Begin();
@@ -1131,6 +1146,150 @@ public partial class AssetEditor : Node3D
             case 18: Save("editor-13-wrapped.png"); break;
             case 19:
             {
+                // RC part 5: the polygon house, its walls, windows, doors and roof textured with finishes.
+                _doc = DemoAsset.PolyHouse(4);
+                SetTool(Tool.Paint);
+                _forcedMouse = new Vector2(-4000, -4000);
+                _meshed = -1;
+                Frame();
+                _yaw = -30; _pitch = 20; _dist = 24; _target = new Vector3(8, 3.5f, 8);
+                break;
+            }
+            case 20: Save("editor-14-poly-house.png"); _yaw = -12; _pitch = 8; _dist = 8; _target = new Vector3(8, 2.2f, 12.2f); break;
+            case 21: Save("editor-15-poly-close.png"); _yaw = 150; _pitch = 22; _dist = 22; _target = new Vector3(8, 3.5f, 8); break;
+            case 22: Save("editor-16-poly-back.png"); _showVoxels.ButtonPressed = true; _yaw = -30; _pitch = 20; _dist = 24; _target = new Vector3(8, 3.5f, 8); break;
+            case 23:
+            {
+                Save("editor-17-poly-voxels.png");
+                _showVoxels.ButtonPressed = false;
+                int walls = _doc.Shapes.Count(sh => sh.Kind == ShapeKind.Wall), finishes = _doc.Shapes.Select(sh => sh.Finish).Distinct().Count();
+                int openings = _doc.Shapes.Sum(sh => sh.Openings.Count);
+                GD.Print($"EDITOR POLY OK {walls} walls and boxes, {openings} openings, {finishes} finishes, roof {_doc.Roof?.Finish}, {_doc.Model.Count} voxels");
+                break;
+            }
+            case 24:
+            {
+                // The wall tool as a player uses it: four corners clicked round clockwise, a door and windows clicked
+                // into the walls, one taken out again, the side wall painted, and a textured roof.
+                _doc = AssetDoc.New("Cottage", 4, 4, 4, 3);
+                SetTool(Tool.Wall);
+                _wallFinish.Select(Array.IndexOf(FinishIds, "render-cream"));
+                _wallHeight.Value = 3.2;
+                _wallMode.Select(_wallMode.GetItemIndex((int)WallMode.Draw));
+                WallSettingsChanged();
+                int V(double metres) => (int)Math.Floor(metres / Vs);
+                void Click(double x, double y, double z, bool ground) { _hit = ground ? new VoxHit(V(x), V(y), -1, 0, 0, 1, true) : new VoxHit(V(x), V(y), V(z), 0, 0, 1, false); WallPress(); }
+                foreach (var (x, y) in new[] { (5.0, 7.0), (14.0, 7.0), (14.0, 13.0), (5.0, 13.0), (5.0, 7.0) }) Click(x, y, 0, true);
+                int walls = _doc.Shapes.Count(IsMainWall);
+                _wallMode.Select(_wallMode.GetItemIndex((int)WallMode.Part));
+                _partKind.Select(_partKind.GetItemIndex((int)PartKind.Door));
+                Click(9.5, 13.1, 1.0, false);
+                _partKind.Select(_partKind.GetItemIndex((int)PartKind.Window));
+                foreach (double x in new[] { 6.8, 12.2 }) Click(x, 13.1, 1.5, false);
+                Click(7.5, 6.9, 1.5, false);
+                Click(11.5, 6.9, 1.5, false);
+                int parts = _doc.Shapes.Where(IsMainWall).Sum(w => w.Openings.Count);
+                _wallMode.Select(_wallMode.GetItemIndex((int)WallMode.TakeOut));
+                Click(11.5, 6.9, 1.5, false);
+                int left = _doc.Shapes.Where(IsMainWall).Sum(w => w.Openings.Count);
+                _wallMode.Select(_wallMode.GetItemIndex((int)WallMode.Paint));
+                _wallFinish.Select(Array.IndexOf(FinishIds, "stone-rubble"));
+                Click(14.1, 10, 1.5, false);
+                bool painted = _doc.Shapes.Any(sh => IsMainWall(sh) && sh.Finish == "stone-rubble");
+                _roofStyle.Select(_roofStyle.GetItemIndex((int)RoofStyle.Gable));
+                _roofColour.Select(_roofColour.GetItemIndex(Array.FindIndex(RoofColours, c => c.Finish == "tile-clay")));
+                RoofChanged();
+                _wallMode.Select(_wallMode.GetItemIndex((int)WallMode.Part));
+                WallSettingsChanged();
+                bool ok = walls == 4 && parts == 5 && left == 4 && painted && _doc.Roof?.Finish == "tile-clay" && _doc.Roof.GableFinish == "render-cream";
+                GD.Print($"EDITOR WALLS {(ok ? "OK" : "WRONG")} {walls} walls clicked round, {parts} windows and doors put in, {parts - left} taken out, side painted {(painted ? "stone" : "-")}, roof {_doc.Roof?.Finish} with {_doc.Roof?.GableFinish} gables");
+                if (!ok) { GD.Print("EDITOR FAILED"); GetTree().Quit(1); }
+                _forcedMouse = new Vector2(-4000, -4000);
+                _hit = null;
+                _meshed = -1;
+                _yaw = -35; _pitch = 24; _dist = 21; _target = new Vector3(9.5f, 2.5f, 10);
+                break;
+            }
+            case 25:
+            {
+                Save("editor-18-wall-tool.png");
+                SetTool(Tool.Paint);
+                // A photo as a textured wall: straightened onto a wall its size, sharp, its colours kept in voxels.
+                _doc = AssetDoc.New("Photo front", 4, 4, 4, 4);
+                var (photo, corners, fw, fh) = DemoAsset.FacadePhoto();
+                _depthMap = null;
+                ShowPhoto(photo, null, corners, fw, fh);
+                _photoSide.Select(_photoSide.GetItemIndex((int)FacadeSide.South));
+                PhotoWall();
+                var w = _doc.Shapes.FirstOrDefault();
+                string dir = System.IO.Path.Combine(_shots!, "assets");
+                Directory.CreateDirectory(dir);
+                _doc.Save(System.IO.Path.Combine(dir, "photo-front.vox"));
+                bool saved = File.ReadAllText(AssetDoc.SidecarOf(System.IO.Path.Combine(dir, "photo-front.vox"))).Contains("\"finishes\"");
+                bool ok = w != null && w.Finish.StartsWith("photo:") && Math.Abs(w.Width - fw) < 0.01 && saved && _doc.Model.Count > 1000;
+                GD.Print($"EDITOR PHOTO WALL {(ok ? "OK" : "WRONG")} {w?.Finish} {w?.Width:0.#} x {w?.Height:0.#} m, {_doc.Model.Count} voxels, texture saved with it {saved}");
+                if (!ok) { GD.Print("EDITOR FAILED"); GetTree().Quit(1); }
+                _meshed = -1;
+                _yaw = -20; _pitch = 10; _dist = 17; _target = new Vector3(8, 4.5f, 12);
+                break;
+            }
+            case 26:
+            {
+                Save("editor-19-photo-wall.png");
+                // A model from a modelling program: the brick house exported as a .glb, textures inside it, then
+                // imported into a new asset, where it's drawn as it is and kept as voxels for when it's wrecked.
+                string dir = System.IO.Path.Combine(_shots!, "assets");
+                Directory.CreateDirectory(dir);
+                _doc = DemoAsset.PolyHouse(4);
+                string glb = System.IO.Path.Combine(dir, "brick-house.glb");
+                ExportGlb(glb);
+                _doc = AssetDoc.New("Imported", 4, 5, 5, 4);
+                _doc.Box(0, 0, 0, _doc.Model.SizeX - 1, _doc.Model.SizeY - 1, 0, AssetPalette.Grass);
+                ImportModelFile(glb);
+                var im = _doc.Shapes.LastOrDefault();
+                int tris = im?.Triangles?.Indices.Count / 3 ?? 0, textures = im?.FinishesUsed().Count() ?? 0;
+                bool ok = im is { Kind: ShapeKind.Imported } && tris > 2000 && textures >= 5 && _doc.Model.Count > 20_000;
+                GD.Print($"EDITOR GLB {(ok ? "OK" : "WRONG")} exported {new FileInfo(glb).Length / 1024:N0} KB, imported {tris:N0} triangles with {textures} textures, {_doc.Model.Count:N0} voxels kept");
+                if (!ok) { GD.Print("EDITOR FAILED"); GetTree().Quit(1); }
+                _meshed = -1;
+                Frame();
+                _yaw = 35; _pitch = 22; _dist = 26; _target = new Vector3(10, 3.5f, 10);
+                break;
+            }
+            case 27: Save("editor-20-imported-glb.png"); _showVoxels.ButtonPressed = true; break;
+            case 28:
+            {
+                Save("editor-21-imported-voxels.png");
+                _showVoxels.ButtonPressed = false;
+                // An OBJ with its .mtl and a texture beside it: a 6 x 4 m shed, 3 m high, in buff brick.
+                string dir = System.IO.Path.Combine(_shots!, "assets");
+                var buff = Finishes.Get("brick-buff")!;
+                File.WriteAllBytes(System.IO.Path.Combine(dir, "buff.png"), ImageDecode.WritePng(buff.Size, buff.SizeY, buff.Rgba));
+                File.WriteAllText(System.IO.Path.Combine(dir, "shed.mtl"), "newmtl brick\nKd 0.8 0.7 0.5\nmap_Kd buff.png\nnewmtl roof\nKd 0.25 0.27 0.3\n");
+                var obj = new System.Text.StringBuilder("mtllib shed.mtl\n");
+                foreach (var (x, y, z) in new[] { (0, 0, 0), (6, 0, 0), (6, 0, 4), (0, 0, 4), (0, 3, 0), (6, 3, 0), (6, 3, 4), (0, 3, 4), (0, 4.2, 2), (6, 4.2, 2) })
+                    obj.Append(System.FormattableString.Invariant($"v {x} {y} {z}\n"));
+                // Texture coordinates by the brick's tile (0.9 x 0.6 m), so it's at its real size.
+                foreach (var (u, v) in new[] { (0.0, 0.0), (6 / 0.9, 0.0), (6 / 0.9, 3 / 0.6), (0.0, 3 / 0.6), (4 / 0.9, 0.0), (4 / 0.9, 3 / 0.6) })
+                    obj.Append(System.FormattableString.Invariant($"vt {u:0.###} {v:0.###}\n"));
+                obj.Append("usemtl brick\nf 4/1 3/2 7/3 8/4\nf 2/1 1/2 5/3 6/4\nf 3/1 2/5 6/6 7/4\nf 1/1 4/5 8/6 5/4\n");
+                obj.Append("usemtl roof\nf 8 7 10 9\nf 6 5 9 10\nf 5 8 9\nf 7 6 10\n");
+                File.WriteAllText(System.IO.Path.Combine(dir, "shed.obj"), obj.ToString());
+                _doc = AssetDoc.New("Shed", 4, 3, 3, 3);
+                _doc.Box(0, 0, 0, _doc.Model.SizeX - 1, _doc.Model.SizeY - 1, 0, AssetPalette.Grass);
+                ImportModelFile(System.IO.Path.Combine(dir, "shed.obj"));
+                var im = _doc.Shapes.LastOrDefault();
+                bool ok = im?.Triangles is { } t && t.Indices.Count / 3 == 14 && im.FinishesUsed().Any(f => f.StartsWith("model:"));
+                GD.Print($"EDITOR OBJ {(ok ? "OK" : "WRONG")} {im?.Triangles?.Indices.Count / 3} triangles, textures {string.Join(", ", im?.FinishesUsed() ?? Array.Empty<string>())}");
+                if (!ok) { GD.Print("EDITOR FAILED"); GetTree().Quit(1); }
+                _meshed = -1;
+                Frame();
+                _yaw = -30; _pitch = 18; _dist = 13; _target = new Vector3(6, 1.8f, 6);
+                break;
+            }
+            case 29:
+            {
+                Save("editor-22-imported-obj.png");
                 // Files: save, open, and use for a building, checked.
                 var house = DemoAsset.House(AssetDoc.DefaultDetail);
                 string dir = System.IO.Path.Combine(_shots!, "assets");

@@ -747,7 +747,7 @@ public static partial class RealSet
             Line(dr, nx + Math.Cos(a0) * 3.5, ny, 16 + Math.Sin(a0) * 3.5, nx + Math.Cos(a1) * 3.5, ny, 16 + Math.Sin(a1) * 3.5, 0.9, Chrome);
         }
         dr.Box(nx - 1, ny - 0.8, 15, nx + 1, ny + 0.8, 17, Lamp);
-        for (double x = 3; x < W - 12; x += 3.2) dr.Prop("car", x + 1.3, D - 3, 1, dr.V, c => c == Red ? dr.CarColour() : c);
+        for (double x = 3; x < W - 12; x += 3.2) dr.Prop("car", x + 1.3, D - 3, 1, dr.V, dr.CarPaint());
     }
 
     static void PicklePlant(Lot l)
