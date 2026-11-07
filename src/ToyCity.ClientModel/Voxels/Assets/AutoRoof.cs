@@ -8,7 +8,13 @@ public enum RoofStyle { None = 0, Gable = 1, Hip = 2, Flat = 3, Shed = 4 }
 /// An auto-roof's settings, saved with the asset rather than as voxels: the roof is made again from the walls
 /// whenever they change. Pitch in degrees, overhang in centimetres past the walls' outer faces.
 /// </summary>
-public sealed record RoofSpec(RoofStyle Style = RoofStyle.Gable, double Pitch = 35, int OverhangCm = 40, byte Colour = AssetPalette.RoofTile, bool TurnRidge = false);
+public sealed record RoofSpec(RoofStyle Style = RoofStyle.Gable, double Pitch = 35, int OverhangCm = 40, byte Colour = AssetPalette.RoofTile, bool TurnRidge = false, string Finish = "")
+{
+    /// <summary>RC part 5: the roof's covering as a finish (shingles, slate, clay tile, metal); "" for its colour.</summary>
+    public string Finish { get; init; } = Finish ?? "";
+    /// <summary>RC part 5: the gable ends' finish, the walls' own (brick, render); "" for the walls' commonest colour.</summary>
+    public string GableFinish { get; init; } = "";
+}
 
 /// <summary>
 /// The Sims-style auto-roof: a smooth polygon roof over a voxel building's walls. It finds the top of the walls (the
@@ -197,6 +203,7 @@ public static class AutoRoof
             int a = d10 - d00, b = d01 - d00;
             return (a, b, d00 - a * x - b * y);
         }
+        var steepTop = new HashSet<int>();
         void Tri(Vector3 a, Vector3 b, Vector3 c, uint colour, bool up)
         {
             var n = Vector3.Cross(b - a, c - a);
@@ -204,6 +211,8 @@ public static class AutoRoof
             if ((n.Y > 0) != up) { (b, c) = (c, b); n = -n; }
             n = Vector3.Normalize(n);
             int s = mesh.Positions.Count;
+            // A steep face of the top (the gable end's overhang, standing almost upright): drawn in the walls' finish.
+            if (up && n.Y < 0.2f) steepTop.Add(mesh.Indices.Count);
             mesh.Positions.AddRange(new[] { a, b, c });
             for (int k = 0; k < 3; k++) { mesh.Normals.Add(n); mesh.Colors.Add(colour); }
             mesh.Indices.AddRange(new[] { s, s + 1, s + 2 });
@@ -251,6 +260,7 @@ public static class AutoRoof
         {
             Strip(x0, y0, x1, y1, nx, ny, (px, py) => Hgt(px, py), (px, py) => Hgt(px, py) - t, fascia);
         });
+        int gableFrom = mesh.Indices.Count;
         if (spec.Style is RoofStyle.Gable or RoofStyle.Shed)
         {
             var padded = new bool[GW, GH];
@@ -292,6 +302,12 @@ public static class AutoRoof
             for (int k = 0; k < 3; k++) { mesh.Normals.Add(outward); mesh.Colors.Add(colour); }
             mesh.Indices.AddRange(new[] { s, s + 1, s + 2 });
         }
+        int gableTo = mesh.Indices.Count;
+        // RC part 5: a covering finish on the slopes, laid along them by the metre, and the walls' finish on the gable
+        // ends; the fascia keeps its colour.
+        float mpu = (float)(vm / scale);
+        if (spec.Finish.Length > 0) mesh = mesh.FinishFaces(spec.Finish, mpu, n => n.Y > 0.2f);
+        if (spec.GableFinish.Length > 0) mesh = mesh.FinishFaces(spec.GableFinish, mpu, (i, _) => i >= gableFrom && i < gableTo || steepTop.Contains(i));
         return mesh;
     }
 

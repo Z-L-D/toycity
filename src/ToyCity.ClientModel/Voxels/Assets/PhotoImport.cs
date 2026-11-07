@@ -562,4 +562,63 @@ public static class PhotoImport
         }
         finally { doc.End(); }
     }
+
+    // ---- a photo as a texture (RC part 5) -------------------------------------------------------------------------
+
+    /// <summary>
+    /// The facade between four corners as a finish: straightened, at most <paramref name="most"/> pixels on its longer
+    /// side, tiling once over the facade's size in metres, so a wall that size starting at its corner shows it once,
+    /// whole. Its id is "photo:" and a hash of its pixels, the same for the same picture.
+    /// </summary>
+    public static Finish AsFinish(Photo photo, IReadOnlyList<(double X, double Y)> corners, PhotoOptions o, int most = 768)
+    {
+        double perMetre = Math.Min(128, most / Math.Max(o.WidthMetres, o.HeightMetres));
+        int w = Math.Max(8, (int)Math.Round(o.WidthMetres * perMetre)), h = Math.Max(8, (int)Math.Round(o.HeightMetres * perMetre));
+        var flat = Straighten(photo, corners, w, h);
+        var rgba = new byte[w * h * 4];
+        uint hash = 2166136261;
+        for (int i = 0; i < w * h; i++)
+        {
+            var (r, g, b, _) = VoxModel.Unpack(flat.Pixels[i]);
+            rgba[i * 4] = r; rgba[i * 4 + 1] = g; rgba[i * 4 + 2] = b; rgba[i * 4 + 3] = 255;
+            hash = (((hash ^ r) * 16777619 ^ g) * 16777619 ^ b) * 16777619;
+        }
+        return Finishes.Add($"photo:{hash:x8}", "Photo", rgba, w, h, o.WidthMetres, o.HeightMetres);
+    }
+
+    /// <summary>
+    /// A photo as a polygon wall (RC part 5): the facade straightened onto a wall its size in metres, standing on the
+    /// ground on one side, as one undo step. On a model with voxels above the ground already it goes against the
+    /// outside of them on that side, centred on them; otherwise half a metre in from that edge of the model, centred.
+    /// Its voxels, for when it's wrecked, are the photo's colours. Null if it doesn't fit in the model.
+    /// </summary>
+    public static Shape? AsWall(AssetDoc doc, Photo photo, IReadOnlyList<(double X, double Y)> corners, PhotoOptions o, FacadeSide side = FacadeSide.South)
+    {
+        var m = doc.Model;
+        double v = 0.5 / doc.Detail, W = o.WidthMetres, H = o.HeightMetres, t = Math.Clamp(o.DepthMetres, 0.1, 1.0);
+        double mx = m.SizeX * v, my = m.SizeY * v, mz = m.SizeZ * v;
+        // What's standing above the ground already.
+        int x0 = int.MaxValue, y0 = int.MaxValue, x1 = -1, y1 = -1;
+        for (int z = 1; z < m.SizeZ; z++)
+            for (int y = 0; y < m.SizeY; y++)
+                for (int x = 0; x < m.SizeX; x++)
+                    if (m[x, y, z] != 0) { x0 = Math.Min(x0, x); y0 = Math.Min(y0, y); x1 = Math.Max(x1, x); y1 = Math.Max(y1, y); }
+        bool built = x1 >= 0;
+        double cx = built ? (x0 + x1 + 1) * v / 2 : mx / 2, cy = built ? (y0 + y1 + 1) * v / 2 : my / 2;
+        double ground = v;
+        var finish = AsFinish(photo, corners, o);
+        Shape wall = side switch
+        {
+            FacadeSide.South => Parts.Wall(cx + W / 2, built ? (y1 + 1) * v + t : my - 0.5, cx - W / 2, built ? (y1 + 1) * v + t : my - 0.5, ground, H, t, finish.Id),
+            FacadeSide.North => Parts.Wall(cx - W / 2, built ? y0 * v - t : 0.5, cx + W / 2, built ? y0 * v - t : 0.5, ground, H, t, finish.Id),
+            FacadeSide.East => Parts.Wall(built ? (x1 + 1) * v + t : mx - 0.5, cy - W / 2, built ? (x1 + 1) * v + t : mx - 0.5, cy + W / 2, ground, H, t, finish.Id),
+            _ => Parts.Wall(built ? x0 * v - t : 0.5, cy + W / 2, built ? x0 * v - t : 0.5, cy - W / 2, ground, H, t, finish.Id),
+        };
+        wall.Colour = finish.Palette;
+        var (lo, hi) = wall.Bounds();
+        const double slack = 0.26;   // Bounds() pads a shape by a quarter metre
+        if (lo.X < -slack || lo.Y < -slack || hi.X > mx + slack || hi.Y > my + slack || ground + H > mz) return null;
+        doc.AddShape(wall);
+        return wall;
+    }
 }

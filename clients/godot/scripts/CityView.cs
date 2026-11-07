@@ -135,7 +135,7 @@ public partial class CityView : Node3D
         if (fullTerrain != _fullTerrain) { _fullTerrain = fullTerrain; _lodAt = 0; }
         if (_models.SetShapes(start, budget))
             foreach (var (key, mmi) in _batches)
-                if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3, (key.Item4 >> 20) & 3), key.Item4);
+                if (_city.TypeById.TryGetValue(key.Item1, out var t)) { mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3, (key.Item4 >> 20) & 3), key.Item4); Dress(mmi); }
     }
 
     public int ShapesMade => _models.ShapesMade;
@@ -450,7 +450,7 @@ public partial class CityView : Node3D
         if (detail == _detail && (detail != ModelDetail.Smooth || focus == _focus && rest == _rest && radius == _radius)) return;
         (_detail, _rest, _focus, _radius) = (detail, rest, focus, radius);
         foreach (var (key, mmi) in _batches)
-            if (_city.TypeById.TryGetValue(key.Item1, out var t)) mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3, (key.Item4 >> 20) & 3), key.Item4);
+            if (_city.TypeById.TryGetValue(key.Item1, out var t)) { mmi.Multimesh.Mesh = MeshOf(_models.Get(t, key.Item2, key.Item3, (key.Item4 >> 20) & 3), key.Item4); Dress(mmi); }
     }
 
     /// <summary>
@@ -474,6 +474,9 @@ public partial class CityView : Node3D
     /// </summary>
     public static bool IsWrecked(BuildingState b, float crumblingLeft) =>
         crumblingLeft >= 0 || b.BurningDays > 0 || b.Look == BuildingLook.LookBurning || b.Abandoned && b.Condition < 30;
+
+    /// <summary>A batch's materials: the building shader over it all, or on each surface when it has finishes (RC part 5).</summary>
+    void Dress(MultiMeshInstance3D mmi) => mmi.MaterialOverride = FinishTextures.Apply(mmi.Multimesh.Mesh, _voxelMaterial!) ? null : _voxelMaterial;
 
     Mesh MeshOf(BuildingModels.Model m, int region)
     {
@@ -516,8 +519,8 @@ public partial class CityView : Node3D
                 mmi = new MultiMeshInstance3D
                 {
                     Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, UseCustomData = true, Mesh = MeshOf(model, key.Item4) },
-                    MaterialOverride = _voxelMaterial,
                 };
+                Dress(mmi);
                 _buildings.AddChild(mmi);
                 _batches[key] = mmi;
             }

@@ -13,6 +13,7 @@ public partial class Gallery : Node3D
 {
     readonly string _dir;
     readonly StandardMaterial3D _solid = new() { VertexColorUseAsAlbedo = true, VertexColorIsSrgb = true, Roughness = 0.85f };
+    readonly ShaderMaterial _city = new() { Shader = GD.Load<Shader>("res://shaders/building.gdshader") };
     Camera3D _cam = null!;
     Node3D _stage = null!;
     int _step;
@@ -29,6 +30,8 @@ public partial class Gallery : Node3D
             new[] { ("r-l-m", 1, 1, 0), ("r-l-m", 1, 1, 1), ("r-l-m", 1, 1, 2), ("r-l-m", 1, 2, 1) },
             new[] { ("r-l-h", 1, 1, 0), ("r-l-h", 1, 1, 1), ("r-l-h", 1, 1, 2), ("r-l-h", 2, 2, 0) },
         }),
+        // RC part 5: the houses built of textured polygon walls, and one wrecked to its voxels.
+        ("walled-houses", new[] { new[] { ("r-l-m", 1, 1, 1), ("r-l-h", 1, 1, 1), ("r-l-h", 1, 1, 21) } }),
         ("flats", new[]
         {
             new[] { ("r-m-l", 1, 2, 0), ("r-m-l", 2, 2, 1), ("r-m-m", 1, 2, 0), ("r-m-m", 2, 2, 1) },
@@ -131,7 +134,25 @@ public partial class Gallery : Node3D
                 var mesh = VoxMesher.Mesh(mode == 2 ? Wreck.Carve(r.Model, r.Detail, id.Length * 7919 + v) : mode == 1 ? r.Model : r.Boxy, scale);
                 if (r.Roof != null && mode != 2) mesh.Append(AutoRoof.Build(r.Model, r.Detail, r.Roof, scale));
                 if (mode == 0) foreach (var sh in r.Shapes) mesh.Append(sh.Mesh(scale * 2 * r.Detail, 1, r.Model.Palette));
-                _stage.AddChild(new MeshInstance3D { Mesh = BuildingModels.ToMesh(mesh), MaterialOverride = _solid, Position = new Vector3(x, 0, z) });
+                if (g.Name == "walled-houses")
+                {
+                    // RC part 5: drawn as the city draws them, one instance of a multimesh with the building shader,
+                    // each finish its own surface with a copy of it.
+                    var arr = BuildingModels.ToMesh(mesh);
+                    var mm = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, UseCustomData = true, Mesh = arr, InstanceCount = 1 };
+                    mm.SetInstanceTransform(0, Transform3D.Identity);
+                    mm.SetInstanceColor(0, Colors.White);   // as the city does: without colours the compatibility renderer drops the vertex colours
+                    mm.SetInstanceCustomData(0, new Color(1000, 0.15f, 0, 0.5f));
+                    var mmi = new MultiMeshInstance3D { Multimesh = mm, Position = new Vector3(x, 0, z) };
+                    if (!FinishTextures.Apply(arr, _city)) mmi.MaterialOverride = _city;
+                    _stage.AddChild(mmi);
+                }
+                else
+                {
+                    var mi = new MeshInstance3D { Position = new Vector3(x, 0, z) };
+                    FinishTextures.Show(mi, BuildingModels.ToMesh(mesh), _solid);
+                    _stage.AddChild(mi);
+                }
                 tallest = Math.Max(tallest, mesh.Positions.Count > 0 ? mesh.Positions.Max(p => p.Y) : 0);
                 x += w * cell + gap;
                 deep = Math.Max(deep, d * cell);

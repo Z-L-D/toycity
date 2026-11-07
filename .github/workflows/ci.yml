@@ -85,10 +85,15 @@ jobs:
           grep "PATH DESIGNER OK" shots.log
           ! grep -n "SHADER ERROR" -A3 shots.log
           ls shots/*.png
-      - name: Asset editor (RC part 1) builds the example house, saves and reopens it, and takes its pictures
+      - name: Asset editor (RC parts 1 and 5) builds the example houses, walls, photo wall and imports, saves and reopens them, and takes their pictures
         run: |
-          xvfb-run -a -s "-screen 0 1600x900x24" timeout 180 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
+          xvfb-run -a -s "-screen 0 1600x900x24" timeout 480 "$GODOT_BIN" --rendering-method gl_compatibility --rendering-driver opengl3 \
             --path clients/godot -- --editor --shots "$PWD/editor-shots" 2>&1 | tee editor.log
+          grep "EDITOR POLY OK" editor.log
+          grep "EDITOR WALLS OK" editor.log
+          grep "EDITOR PHOTO WALL OK" editor.log
+          grep "EDITOR GLB OK" editor.log
+          grep "EDITOR OBJ OK" editor.log
           grep -q "EDITOR OK" editor.log
           ! grep -n "SHADER ERROR" -A3 editor.log
           ls editor-shots/*.png

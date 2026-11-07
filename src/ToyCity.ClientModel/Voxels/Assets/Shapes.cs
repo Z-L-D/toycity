@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace ToyCity.ClientModel.Voxels.Assets;
 
-public enum ShapeKind { Lathe, Extrude, Sweep }
+public enum ShapeKind { Lathe, Extrude, Sweep, Wall, Imported }
 
 /// <summary>Which way an extruded outline is pulled: up from a plan, or back from a front or side elevation.</summary>
 public enum ExtrudeAxis { Up, Back, Across }
@@ -49,6 +49,22 @@ public sealed class Shape
     /// <summary>How lumpy a lathe's surface is (0 smooth, 0.2 a tree's crown).</summary>
     public double Lumpy;
 
+    // RC part 5: finishes and walls.
+
+    /// <summary>What its surface is made of (<see cref="Finishes"/>), drawn as a texture by the metre; "" for its colour.</summary>
+    public string Finish = "";
+    /// <summary>A wall: how long it runs along its own x, and how high. Its thickness is <see cref="Depth"/>, along its y.</summary>
+    public double Width = 1, Height = 1;
+    /// <summary>A wall's openings, cut right through: where along it and up it (from its corner), and how wide and high, in metres.</summary>
+    public List<(double X, double Z, double W, double H)> Openings = new();
+
+    /// <summary>
+    /// An imported model (glTF or OBJ, RC part 5): its triangles in metres, world axes (x east, y up, z south), standing
+    /// on the ground at its origin, with their colours and textures. Placed and turned like any shape; its voxels are
+    /// its surface, in its texture's colours.
+    /// </summary>
+    public MeshData? Triangles;
+
     /// <summary>Corners sharper than this (degrees between the faces' normals) are drawn as a crease.</summary>
     public const double Crease = 35;
 
@@ -58,6 +74,7 @@ public sealed class Shape
         s._turned = double.NaN;
         s.Profile = new(Profile);
         s.Path = new(Path);
+        s.Openings = new(Openings);
         return s;
     }
 
@@ -81,6 +98,15 @@ public sealed class Shape
                 s.Path = Path.Select(p => new Vector3(-p.X, p.Y, p.Z)).ToList();
                 s.Profile = Profile.Select(p => (-p.A, p.B)).ToList();
                 break;
+            case ShapeKind.Imported when Triangles != null:
+                s.Triangles = MirrorTriangles(Triangles);
+                break;
+            case ShapeKind.Wall:
+                // It runs from its other end, its openings the other way along it.
+                s.X -= Width * Math.Cos(s.Turn);
+                s.Y -= Width * Math.Sin(s.Turn);
+                s.Openings = Openings.Select(o => (Width - o.X - o.W, o.Z, o.W, o.H)).ToList();
+                break;
         }
         return s;
     }
@@ -93,6 +119,7 @@ public sealed class Shape
     /// </summary>
     public MeshData Mesh(float perMetre, double quality = 1, uint[]? palette = null)
     {
+        if (Kind == ShapeKind.Imported) return ImportedMesh(perMetre);
         palette ??= DefaultPalette;
         var tris = new List<(Vector3 P, Vector3 N, bool Down)>();
         switch (Kind)
@@ -100,9 +127,13 @@ public sealed class Shape
             case ShapeKind.Lathe: LatheTris(tris, quality); break;
             case ShapeKind.Extrude: ExtrudeTris(tris); break;
             case ShapeKind.Sweep: SweepTris(tris); break;
+            case ShapeKind.Wall: WallTris(tris); break;
         }
         var mesh = new MeshData();
         uint top = palette[Colour], under = Under != 0 ? palette[Under] : top;
+        // A finish is drawn by the metre, mapped onto each face from the side it faces most, in the shape's own frame.
+        int fin = Assets.Finishes.Has(Finish) ? mesh.FinishIndex(Finish) : 0;
+        if (fin > 0) top = under = Assets.Finishes.VertexColour(Finish);
         for (int i = 0; i + 2 < tris.Count; i += 3)
         {
             var a = World(tris[i].P, perMetre); var b = World(tris[i + 1].P, perMetre); var c = World(tris[i + 2].P, perMetre);
@@ -110,9 +141,19 @@ public sealed class Shape
             if (cross.LengthSquared() < 1e-14f) continue;
             var na = Dir(tris[i].N); var nb = Dir(tris[i + 1].N); var nc = Dir(tris[i + 2].N);
             int s = mesh.Positions.Count;
-            mesh.Positions.Add(a); mesh.Positions.Add(b); mesh.Positions.Add(c);
-            mesh.Normals.Add(na); mesh.Normals.Add(nb); mesh.Normals.Add(nc);
-            mesh.Colors.Add(tris[i].Down ? under : top); mesh.Colors.Add(tris[i + 1].Down ? under : top); mesh.Colors.Add(tris[i + 2].Down ? under : top);
+            if (fin > 0)
+            {
+                var face = Vector3.Cross(tris[i + 1].P - tris[i].P, tris[i + 2].P - tris[i].P);
+                var ln = LocalDir(Vector3.Dot(face, tris[i].N + tris[i + 1].N + tris[i + 2].N) < 0 ? -face : face);
+                for (int k = 0; k < 3; k++)
+                    mesh.Add(new[] { a, b, c }[k], new[] { na, nb, nc }[k], top, fin, BoxUv(tris[i + k].P, ln));
+            }
+            else
+            {
+                mesh.Positions.Add(a); mesh.Positions.Add(b); mesh.Positions.Add(c);
+                mesh.Normals.Add(na); mesh.Normals.Add(nb); mesh.Normals.Add(nc);
+                mesh.Colors.Add(tris[i].Down ? under : top); mesh.Colors.Add(tris[i + 1].Down ? under : top); mesh.Colors.Add(tris[i + 2].Down ? under : top);
+            }
             // Counter-clockwise seen from where the normals point.
             if (Vector3.Dot(cross, na + nb + nc) > 0) mesh.Indices.AddRange(new[] { s, s + 1, s + 2 });
             else mesh.Indices.AddRange(new[] { s, s + 2, s + 1 });
@@ -127,18 +168,104 @@ public sealed class Shape
     static MeshData Weld(MeshData m)
     {
         var o = new MeshData();
-        var seen = new Dictionary<(Vector3, Vector3, uint), int>();
+        bool tex = m.Textured;
+        if (tex) foreach (var id in m.FinishIds.Skip(1)) o.FinishIndex(id);
+        var seen = new Dictionary<(Vector3, Vector3, uint, Vector2, int), int>();
         foreach (int i in m.Indices)
         {
-            var key = (m.Positions[i], m.Normals[i], m.Colors[i]);
+            var key = (m.Positions[i], m.Normals[i], m.Colors[i], tex ? m.UVs[i] : Vector2.Zero, tex ? m.Finish[i] : 0);
             if (!seen.TryGetValue(key, out int j))
             {
-                seen[key] = j = o.Positions.Count;
-                o.Positions.Add(key.Item1); o.Normals.Add(key.Item2); o.Colors.Add(key.Item3);
+                if (tex) j = o.Add(key.Item1, key.Item2, key.Item3, key.Item5, key.Item4);
+                else { j = o.Positions.Count; o.Positions.Add(key.Item1); o.Normals.Add(key.Item2); o.Colors.Add(key.Item3); }
+                seen[key] = j;
             }
             o.Indices.Add(j);
         }
         return o;
+    }
+
+    /// <summary>A model direction back in the shape's own frame (before its turn).</summary>
+    Vector3 LocalDir(Vector3 n)
+    {
+        double c = Math.Cos(Turn), s = Math.Sin(Turn);
+        return new Vector3((float)(n.X * c + n.Y * s), (float)(-n.X * s + n.Y * c), n.Z);
+    }
+
+    /// <summary>
+    /// Where a point of the shape (in the model, metres) falls on its finish: mapped from the side its face looks to
+    /// most, in the shape's own frame, so a wall's front reads left to right and up from its corner.
+    /// </summary>
+    Vector2 BoxUv(Vector3 p, Vector3 localNormal)
+    {
+        var (x, y, z) = Local(p.X, p.Y, p.Z);
+        float ax = Math.Abs(localNormal.X), ay = Math.Abs(localNormal.Y), az = Math.Abs(localNormal.Z);
+        if (az >= ax && az >= ay) return new Vector2((float)x, (float)(localNormal.Z > 0 ? -y : y));
+        if (ay >= ax) return new Vector2((float)(localNormal.Y < 0 ? x : -x), (float)z);
+        return new Vector2((float)(localNormal.X > 0 ? y : -y), (float)z);
+    }
+
+    /// <summary>
+    /// A wall's triangles: a slab <see cref="Width"/> long, <see cref="Depth"/> thick and <see cref="Height"/> high
+    /// from its corner, its front facing its -y, with each opening cut through and lined.
+    /// </summary>
+    void WallTris(List<(Vector3, Vector3, bool)> tris)
+    {
+        double w = Math.Max(0.01, Width), h = Math.Max(0.01, Height), d = Math.Max(0.005, Depth);
+        var holes = ClampedOpenings();
+        void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 e, Vector3 n)
+        {
+            var pn = PlaceDir(n);
+            var (pa, pb, pc, pe) = (Place(a), Place(b), Place(c), Place(e));
+            tris.Add((pa, pn, false)); tris.Add((pb, pn, false)); tris.Add((pc, pn, false));
+            tris.Add((pa, pn, false)); tris.Add((pc, pn, false)); tris.Add((pe, pn, false));
+        }
+        static Vector3 V(double x, double y, double z) => new((float)x, (float)y, (float)z);
+        // Front and back: the face cut into a grid at every opening's edges, and every cell not in an opening drawn.
+        var xs = new SortedSet<double> { 0, w }; var zs = new SortedSet<double> { 0, h };
+        foreach (var o in holes) { xs.Add(o.X); xs.Add(o.X + o.W); zs.Add(o.Z); zs.Add(o.Z + o.H); }
+        var xl = xs.ToList(); var zl = zs.ToList();
+        for (int i = 0; i + 1 < xl.Count; i++)
+            for (int j = 0; j + 1 < zl.Count; j++)
+            {
+                double cx = (xl[i] + xl[i + 1]) / 2, cz = (zl[j] + zl[j + 1]) / 2;
+                if (holes.Any(o => cx > o.X && cx < o.X + o.W && cz > o.Z && cz < o.Z + o.H)) continue;
+                Quad(V(xl[i], 0, zl[j]), V(xl[i + 1], 0, zl[j]), V(xl[i + 1], 0, zl[j + 1]), V(xl[i], 0, zl[j + 1]), -Vector3.UnitY);
+                Quad(V(xl[i + 1], d, zl[j]), V(xl[i], d, zl[j]), V(xl[i], d, zl[j + 1]), V(xl[i + 1], d, zl[j + 1]), Vector3.UnitY);
+            }
+        // Its ends, top and bottom.
+        Quad(V(0, d, 0), V(0, 0, 0), V(0, 0, h), V(0, d, h), -Vector3.UnitX);
+        Quad(V(w, 0, 0), V(w, d, 0), V(w, d, h), V(w, 0, h), Vector3.UnitX);
+        Quad(V(0, 0, h), V(w, 0, h), V(w, d, h), V(0, d, h), Vector3.UnitZ);
+        Quad(V(0, d, 0), V(w, d, 0), V(w, 0, 0), V(0, 0, 0), -Vector3.UnitZ);
+        // Each opening lined: its sides, its head, and its sill unless it comes down to the ground (a door).
+        foreach (var o in holes)
+        {
+            double x0 = o.X, x1 = o.X + o.W, z0 = o.Z, z1 = o.Z + o.H;
+            Quad(V(x0, 0, z0), V(x0, d, z0), V(x0, d, z1), V(x0, 0, z1), Vector3.UnitX);
+            Quad(V(x1, d, z0), V(x1, 0, z0), V(x1, 0, z1), V(x1, d, z1), -Vector3.UnitX);
+            if (z1 < h - 1e-6) Quad(V(x0, d, z1), V(x1, d, z1), V(x1, 0, z1), V(x0, 0, z1), -Vector3.UnitZ);
+            if (z0 > 1e-6) Quad(V(x0, 0, z0), V(x1, 0, z0), V(x1, d, z0), V(x0, d, z0), Vector3.UnitZ);
+        }
+    }
+
+    /// <summary>A wall's openings kept inside it.</summary>
+    List<(double X, double Z, double W, double H)> ClampedOpenings()
+    {
+        var list = new List<(double, double, double, double)>();
+        foreach (var o in Openings)
+        {
+            double x0 = Math.Clamp(o.X, 0, Width), x1 = Math.Clamp(o.X + o.W, 0, Width), z0 = Math.Clamp(o.Z, 0, Height), z1 = Math.Clamp(o.Z + o.H, 0, Height);
+            if (x1 - x0 > 1e-3 && z1 - z0 > 1e-3) list.Add((x0, z0, x1 - x0, z1 - z0));
+        }
+        return list;
+    }
+
+    /// <summary>A point in the wall's own frame (along it, into it, up it) placed in the model, for parts set into it.</summary>
+    public (double X, double Y, double Z) At(double along, double into, double up)
+    {
+        var p = Place(new Vector3((float)along, (float)into, (float)up));
+        return (p.X, p.Y, p.Z);
     }
 
     /// <summary>A local point (metres, x east, y south, z up from the origin, before the turn) in the model.</summary>
@@ -155,7 +282,7 @@ public sealed class Shape
     }
 
     double _turned = double.NaN, _cos, _sin;
-    (double X, double Y, double Z) Local(double x, double y, double z)
+    public (double X, double Y, double Z) Local(double x, double y, double z)
     {
         if (_turned != Turn) { _turned = Turn; _cos = Math.Cos(Turn); _sin = Math.Sin(Turn); }
         double dx = x - X, dy = y - Y, c = _cos, s = _sin;
@@ -413,6 +540,20 @@ public sealed class Shape
         bool In(IReadOnlyList<(double A, double B)> p, double a, double b) => InPolygon(p, a, b) || grow > 0 && NearLine(p, a, b, grow, loop: true);
         switch (Kind)
         {
+            case ShapeKind.Imported:
+            {
+                // Within its box: for picking it; its voxels are its surface (ImportedVoxels).
+                if (Triangles is not { Positions.Count: > 0 } t) return false;
+                var (lo, hi) = LocalBox();
+                return lx >= lo.X - grow && lx <= hi.X + grow && ly >= lo.Y - grow && ly <= hi.Y + grow && lz >= lo.Z - grow && lz <= hi.Z + grow;
+            }
+            case ShapeKind.Wall:
+            {
+                if (lx < -grow || lx > Width + grow || ly < -grow - voxel / 2 || ly > Depth + grow + voxel / 2 || lz < -grow || lz > Height + grow) return false;
+                foreach (var o in Openings)
+                    if (lx > o.X + grow && lx < o.X + o.W - grow && lz > o.Z + grow && lz < o.Z + o.H - grow) return false;
+                return true;
+            }
             case ShapeKind.Lathe:
             {
                 double r = Math.Sqrt(lx * lx + ly / Squash * (ly / Squash));
@@ -482,6 +623,7 @@ public sealed class Shape
     /// </summary>
     public void ForEachVoxel(VoxModel m, int detail, Action<int, int, int> visit, double grow = 0)
     {
+        if (Kind == ShapeKind.Imported) { ImportedVoxels(m, detail, (x, y, z, _) => visit(x, y, z)); return; }
         double v = 0.5 / detail;
         var (min, max) = Bounds();
         int x0 = Math.Max(0, (int)Math.Floor(min.X / v)), x1 = Math.Min(m.SizeX - 1, (int)Math.Ceiling(max.X / v));
@@ -497,11 +639,138 @@ public sealed class Shape
     public int Voxelize(VoxModel m, int detail)
     {
         int n = 0;
+        ForEachVoxelColour(m, detail, (x, y, z, c) => { m[x, y, z] = c; n++; });
+        return n;
+    }
+
+    /// <summary>
+    /// Visits each of the shape's voxels with its colour: its finish's texture there as the nearest palette colour
+    /// (RC part 5), else its colour, or the shade under its middle for one with an under colour.
+    /// </summary>
+    public void ForEachVoxelColour(VoxModel m, int detail, Action<int, int, int, byte> visit)
+    {
+        if (Kind == ShapeKind.Imported)
+        {
+            var palette = new MeshVoxels.PaletteCache();
+            ImportedVoxels(m, detail, (x, y, z, rgb) => visit(x, y, z, palette.Of(rgb)));
+            return;
+        }
         var (lo, hi) = Bounds();
         double mid = (lo.Z + hi.Z) / 2 - 0.1 * (hi.Z - lo.Z);
         double v = 0.5 / detail;
-        ForEachVoxel(m, detail, (x, y, z) => { m[x, y, z] = Under != 0 && (z + 0.5) * v < mid ? Under : Colour; n++; });
-        return n;
+        var finish = Assets.Finishes.Get(Finish);
+        ForEachVoxel(m, detail, (x, y, z) => visit(x, y, z, finish != null ? FinishColour(finish, (x + 0.5) * v, (y + 0.5) * v, (z + 0.5) * v, lo, hi)
+            : Under != 0 && (z + 0.5) * v < mid ? Under : Colour));
+    }
+
+    /// <summary>
+    /// A voxel's colour from the shape's finish: the texture at that point, as the nearest palette colour. A wall and
+    /// anything tall reads its front (along and up); something flat, its top.
+    /// </summary>
+    byte FinishColour(Finish f, double x, double y, double z, Vector3 lo, Vector3 hi)
+    {
+        var (lx, ly, lz) = Local(x, y, z);
+        bool flat = Kind != ShapeKind.Wall && hi.Z - lo.Z < 0.5 * Math.Max(hi.X - lo.X, hi.Y - lo.Y);
+        uint rgb = flat ? f.Sample(lx, -ly) : f.Sample(Kind == ShapeKind.Wall ? lx : lx + ly, lz);
+        return Assets.Finishes.Nearest(rgb);
+    }
+
+    // ---- Imported models (RC part 5) ------------------------------------------------------------------------------
+
+    /// <summary>A vertex of the triangles in the model, in metres (model axes).</summary>
+    Vector3 ImportedPoint(Vector3 w) => Place(new Vector3(w.X, w.Z, w.Y));
+
+    MeshData ImportedMesh(float perMetre)
+    {
+        var o = new MeshData();
+        if (Triangles is not { } t) return o;
+        bool tex = t.Textured && t.Finish.Count == t.Positions.Count && t.UVs.Count == t.Positions.Count;
+        var remap = t.FinishIds.Select(id => o.FinishIndex(id)).ToArray();
+        for (int i = 0; i < t.Positions.Count; i++)
+        {
+            var n = t.Normals[i];
+            o.Add(World(ImportedPoint(t.Positions[i]), perMetre), Dir(PlaceDir(new Vector3(n.X, n.Z, n.Y))), t.Colors[i],
+                tex ? remap[t.Finish[i]] : 0, tex ? t.UVs[i] : Vector2.Zero);
+        }
+        o.Indices.AddRange(t.Indices);
+        return o;
+    }
+
+    /// <summary>The voxels the model's surface passes through, each once, with its colour there.</summary>
+    void ImportedVoxels(VoxModel m, int detail, Action<int, int, int, uint> visit)
+    {
+        if (Triangles is not { } t) return;
+        float v = 0.5f / detail;
+        var seen = new HashSet<int>();
+        MeshVoxels.Sample(t, w => ImportedPoint(w) / v, (x, y, z, rgb) =>
+        {
+            if (m.In(x, y, z) && seen.Add(x + m.SizeX * (y + m.SizeY * z))) visit(x, y, z, rgb);
+        });
+    }
+
+    (Vector3 Lo, Vector3 Hi)? _box;
+    MeshData? _boxOf;
+    (Vector3 Lo, Vector3 Hi) LocalBox()
+    {
+        if (_box is { } b && _boxOf == Triangles) return b;
+        var lo = new Vector3(float.MaxValue); var hi = new Vector3(float.MinValue);
+        foreach (var w in Triangles!.Positions) { var p = new Vector3(w.X, w.Z, w.Y); lo = Vector3.Min(lo, p); hi = Vector3.Max(hi, p); }
+        _boxOf = Triangles;
+        return (_box = (lo, hi)).Value;
+    }
+
+    /// <summary>Triangles flipped east to west, each wound the other way so it still faces out.</summary>
+    static MeshData MirrorTriangles(MeshData t)
+    {
+        var o = new MeshData();
+        o.FinishIds.Clear(); o.FinishIds.AddRange(t.FinishIds);
+        o.Positions.AddRange(t.Positions.Select(p => new Vector3(-p.X, p.Y, p.Z)));
+        o.Normals.AddRange(t.Normals.Select(n => new Vector3(-n.X, n.Y, n.Z)));
+        o.Colors.AddRange(t.Colors); o.UVs.AddRange(t.UVs); o.Finish.AddRange(t.Finish);
+        for (int i = 0; i + 2 < t.Indices.Count; i += 3) o.Indices.AddRange(new[] { t.Indices[i], t.Indices[i + 2], t.Indices[i + 1] });
+        return o;
+    }
+
+    /// <summary>The finishes an imported model's triangles use (beside its own <see cref="Finish"/>).</summary>
+    public IEnumerable<string> FinishesUsed() => (Triangles?.FinishIds ?? Enumerable.Empty<string>()).Append(Finish).Where(f => f.Length > 0);
+
+    static string PackTriangles(MeshData t)
+    {
+        using var mem = new MemoryStream();
+        using (var z = new System.IO.Compression.DeflateStream(mem, System.IO.Compression.CompressionLevel.Optimal))
+        using (var w = new BinaryWriter(z))
+        {
+            bool tex = t.Textured && t.Finish.Count == t.Positions.Count && t.UVs.Count == t.Positions.Count;
+            w.Write(t.Positions.Count); w.Write(t.Indices.Count); w.Write(tex);
+            for (int i = 0; i < t.Positions.Count; i++)
+            {
+                var p = t.Positions[i]; var n = t.Normals[i];
+                w.Write(p.X); w.Write(p.Y); w.Write(p.Z); w.Write(n.X); w.Write(n.Y); w.Write(n.Z); w.Write(t.Colors[i]);
+                if (tex) { w.Write(t.UVs[i].X); w.Write(t.UVs[i].Y); w.Write((ushort)t.Finish[i]); }
+            }
+            foreach (int i in t.Indices) w.Write(i);
+        }
+        return Convert.ToBase64String(mem.ToArray());
+    }
+
+    static MeshData? UnpackTriangles(string packed, IList<string> finishIds)
+    {
+        var t = new MeshData();
+        using var r = new BinaryReader(new System.IO.Compression.DeflateStream(new MemoryStream(Convert.FromBase64String(packed)), System.IO.Compression.CompressionMode.Decompress));
+        int nv = r.ReadInt32(), ni = r.ReadInt32();
+        bool tex = r.ReadBoolean();
+        if (nv < 0 || ni < 0 || nv > 4_000_000 || ni > 12_000_000) return null;
+        if (tex) foreach (string id in finishIds.Skip(1)) t.FinishIndex(id);
+        for (int i = 0; i < nv; i++)
+        {
+            var p = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
+            var n = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
+            uint c = r.ReadUInt32();
+            if (tex) { var uv = new Vector2(r.ReadSingle(), r.ReadSingle()); int f = r.ReadUInt16(); t.Add(p, n, c, f < t.FinishIds.Count ? f : 0, uv); }
+            else { t.Positions.Add(p); t.Normals.Add(n); t.Colors.Add(c); }
+        }
+        for (int i = 0; i < ni; i++) { int k = r.ReadInt32(); if (k < 0 || k >= nv) return null; t.Indices.Add(k); }
+        return t;
     }
 
     // ---- Saving --------------------------------------------------------------------------------------------------
@@ -528,6 +797,17 @@ public sealed class Shape
         if (Under != 0) o["under"] = Under;
         if (Segments != 0) o["segments"] = Segments;
         if (Lumpy != 0) o["lumpy"] = Round(Lumpy);
+        if (Finish.Length > 0) o["finish"] = Finish;
+        if (Kind == ShapeKind.Imported && Triangles != null)
+        {
+            o["finishes"] = new JsonArray(Triangles.FinishIds.Select(f => (JsonNode)JsonValue.Create(f)).ToArray());
+            o["triangles"] = PackTriangles(Triangles);
+        }
+        if (Kind == ShapeKind.Wall)
+        {
+            o["width"] = Round(Width); o["height"] = Round(Height); o["depth"] = Round(Depth);
+            if (Openings.Count > 0) o["openings"] = new JsonArray(Openings.Select(p => (JsonNode)new JsonArray(Round(p.X), Round(p.Z), Round(p.W), Round(p.H))).ToArray());
+        }
         return o;
     }
 
@@ -550,11 +830,15 @@ public sealed class Shape
                 PathClosed = (bool?)o["pathClosed"] ?? false,
                 Thick = (double?)o["thick"] ?? 0, Colour = (byte?)(int?)o["colour"] ?? AssetPalette.Concrete, Under = (byte?)(int?)o["under"] ?? 0,
                 Segments = (int?)o["segments"] ?? 0, Lumpy = (double?)o["lumpy"] ?? 0,
+                Finish = (string?)o["finish"] ?? "", Width = (double?)o["width"] ?? 1, Height = (double?)o["height"] ?? 1,
+                Openings = o["openings"] is JsonArray op ? op.OfType<JsonArray>().Select(p => ((double)p[0]!, (double)p[1]!, (double)p[2]!, (double)p[3]!)).ToList() : new(),
             };
             if (o["at"] is JsonArray at && at.Count == 3) (s.X, s.Y, s.Z) = ((double)at[0]!, (double)at[1]!, (double)at[2]!);
-            return s.Profile.Count >= 2 ? s : null;
+            if (s.Kind == ShapeKind.Imported && (string?)o["triangles"] is { } packed)
+                s.Triangles = UnpackTriangles(packed, o["finishes"] is JsonArray fa ? fa.Select(f => (string?)f ?? "").ToList() : new List<string> { "" });
+            return s.Profile.Count >= 2 || s.Kind == ShapeKind.Wall || s.Triangles != null ? s : null;
         }
-        catch (Exception e) when (e is InvalidOperationException or FormatException or NullReferenceException) { return null; }
+        catch (Exception e) when (e is InvalidOperationException or FormatException or NullReferenceException or InvalidDataException or EndOfStreamException) { return null; }
     }
 
     // ---- Makers --------------------------------------------------------------------------------------------------
