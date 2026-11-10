@@ -24,6 +24,13 @@ public enum ShapeDetail { Low, Medium, High }
 /// </summary>
 public enum LightQuality { Simple, Occlusion, Bounce, Full }
 
+/// <summary>
+/// How the ground is drawn (RC part 6): plain colours; real textures for each material (meadow, earth, rock, sand,
+/// snow...) seen from above; those with their relief lit (detail normals and shading in the hollows) and cliffs
+/// textured from the side; or all that with textures twice as fine.
+/// </summary>
+public enum GroundLook { Plain, Textured, Relief, Fine }
+
 /// <summary>Edge smoothing for the 3D view: none, FXAA (cheap, a little soft), or 2× or 4× MSAA.</summary>
 public enum AntiAliasing { Off, Fxaa, Msaa2, Msaa4 }
 
@@ -42,6 +49,8 @@ public sealed record GraphicsSettings
     public ShapeDetail ShapeDetail { get; init; } = ShapeDetail.Medium;
     /// <summary>Ground far from the camera keeps every triangle; off, distant ground is drawn at half the detail.</summary>
     public bool FullTerrain { get; init; } = true;
+    /// <summary>How the ground is drawn (RC part 6).</summary>
+    public GroundLook Ground { get; init; } = GroundLook.Relief;
     public AntiAliasing AntiAliasing { get; init; } = AntiAliasing.Msaa2;
     /// <summary>How far, in cells, the free camera draws buildings in detail; beyond it they use their far models.</summary>
     public int DetailDistance { get; init; } = 120;
@@ -65,18 +74,19 @@ public sealed record GraphicsSettings
     {
         RenderScale = 75, Shadows = ShadowQuality.Off, Detail = BuildingDetail.Low, Smoothing = Smoothing.Off,
         AntiAliasing = AntiAliasing.Off, DetailDistance = 40, ShapeDetail = ShapeDetail.Low, FullTerrain = false,
-        Lighting = LightQuality.Simple, TiltShift = false,
+        Lighting = LightQuality.Simple, TiltShift = false, Ground = GroundLook.Textured,
     };
     public static readonly GraphicsSettings Medium = new()
     {
         RenderScale = 100, Shadows = ShadowQuality.Low, Detail = BuildingDetail.Medium, Smoothing = Smoothing.Off,
         AntiAliasing = AntiAliasing.Fxaa, DetailDistance = 80, ShapeDetail = ShapeDetail.Low, Lighting = LightQuality.Simple,
+        Ground = GroundLook.Textured,
     };
     public static readonly GraphicsSettings High = new();
     public static readonly GraphicsSettings Ultra = new()
     {
         Smoothing = Smoothing.Wide, AntiAliasing = AntiAliasing.Msaa4, DetailDistance = 200, ShapeDetail = ShapeDetail.High,
-        Lighting = LightQuality.Full,
+        Lighting = LightQuality.Full, Ground = GroundLook.Fine,
     };
 
     public static readonly (string Name, GraphicsSettings Settings)[] Presets =
@@ -144,6 +154,9 @@ public sealed record GraphicsSettings
     };
 
     /// <summary>How many map regions out from the focus get smoothed models: 0 just the focus's, 1 the ring around it.</summary>
+    /// <summary>The ground textures' size, in pixels a side, for the ground look: 0 for none.</summary>
+    public int GroundPixels => Ground switch { GroundLook.Plain => 0, GroundLook.Fine => 1024, _ => 512 };
+
     public int SmoothRadius => Smoothing == Smoothing.Wide ? 1 : 0;
 
     // ---------------------------------------------------------------------------------------------------------
@@ -163,6 +176,8 @@ public sealed record GraphicsSettings
             new[] { "Low", "Medium", "High" }, s => (int)s.ShapeDetail, (s, i) => s with { ShapeDetail = (ShapeDetail)i }),
         new("Distant terrain", "How finely the ground far from the camera is drawn. Coarse uses a quarter of the triangles there; nearby ground is always full.",
             new[] { "Coarse", "Full" }, s => s.FullTerrain ? 1 : 0, (s, i) => s with { FullTerrain = i == 1 }),
+        new("Ground", "What the ground is drawn with: plain colours, real textures, those with their relief lit and cliffs textured from the side, or finer textures still (more video memory, and a longer wait the first time).",
+            new[] { "Plain", "Textured", "Relief", "Fine" }, s => (int)s.Ground, (s, i) => s with { Ground = (GroundLook)i }),
         new("Lighting", "Light beyond the sun: contact shadows where things meet the ground, then light bounced off the ground and walls, then through the whole scene. Each costs more.",
             new[] { "Sun only", "Contact shadows", "Bounce light", "Full" }, s => (int)s.Lighting, (s, i) => s with { Lighting = (LightQuality)i }),
         new("Tilt-shift", "The miniature look while you query a cell: the foreground and the distance blur.",
@@ -199,6 +214,7 @@ public sealed record GraphicsSettings
         Line("smoothing", Smoothing);
         Line("shape_detail", ShapeDetail);
         Line("terrain_detail", FullTerrain);
+        Line("ground", Ground);
         Line("anti_aliasing", AntiAliasing);
         Line("detail_distance", DetailDistance);
         Line("vsync", VSync);
@@ -231,6 +247,7 @@ public sealed record GraphicsSettings
                 "smoothing" => s with { Smoothing = E(s.Smoothing) },
                 "shape_detail" => s with { ShapeDetail = E(s.ShapeDetail) },
                 "terrain_detail" => s with { FullTerrain = B(s.FullTerrain) },
+                "ground" => s with { Ground = E(s.Ground) },
                 "anti_aliasing" => s with { AntiAliasing = E(s.AntiAliasing) },
                 "detail_distance" => s with { DetailDistance = Math.Clamp(I(s.DetailDistance), 20, 400) },
                 "vsync" => s with { VSync = B(s.VSync) },

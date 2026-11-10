@@ -60,6 +60,26 @@ public partial class Main
         yield return MountainMeasure("free, the town from the hills");
         Look(tx, ty, 18, 30, 200);
         yield return MountainMeasure("free, a street on the slope");
+        // The ground's materials up close (RC part 6): open meadow on gentle wild ground near the town, and the
+        // steepest crag on the map.
+        {
+            (int X, int Y) meadow = ((int)tx, (int)ty), crag = ((int)tx, (int)ty);
+            float best = float.MaxValue, steep = -1;
+            for (int y = 2; y < c.Height - 2; y++)
+                for (int x = 2; x < c.Width - 2; x++)
+                {
+                    int i = c.Idx(x, y);
+                    if (c.IsWater(i) || c.Paths[i] != 0 || c.BuildingAt[i] != 0 || c.Zones[i] != 0) continue;
+                    float sl = ClientModel.TerrainShape.Slope(c, x, y);
+                    float near = MathF.Abs(x - tx) + MathF.Abs(y - ty);
+                    if (sl > 0.3f && sl < 1.2f && near < best) { best = near; meadow = (x, y); }
+                    if (sl > steep) { steep = sl; crag = (x, y); }
+                }
+            Look(meadow.X + 0.5f, meadow.Y + 0.5f, 2.5f, 50, 150);
+            yield return MountainMeasure("free, meadow up close");
+            Look(crag.X + 0.5f, crag.Y + 0.5f, 14, 30, 30);
+            yield return MountainMeasure("free, a crag up close");
+        }
         foreach (var s in spots)
         {
             bool alongX = s.Path.Y0 == s.Path.Y1;

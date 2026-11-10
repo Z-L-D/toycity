@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Draws the ground's textures (RC part 6) to PNG files to look at: each one tiled, lit by a low sun, and from far off. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/ToyCity.ClientModel/ToyCity.ClientModel.csproj" />
+  </ItemGroup>
+</Project>

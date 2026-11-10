@@ -20,6 +20,7 @@ public class GraphicsSettingsTests
             Assert.True(order[k].Smoothing >= order[k - 1].Smoothing);
             Assert.True(order[k].DetailDistance >= order[k - 1].DetailDistance);
             Assert.True(order[k].Lighting >= order[k - 1].Lighting);
+            Assert.True(order[k].Ground >= order[k - 1].Ground);
         }
     }
 

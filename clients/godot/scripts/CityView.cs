@@ -186,6 +186,7 @@ public partial class CityView : Node3D
         if (_city.Loaded && _banksImage != null && _banksFlow != _city.FlowPct) PaintBanks();
         if (_city.Loaded && _waterMaterial != null && _foulFor != _city.FoulVersion && _city.Foul.Length == _city.N) PaintMurk();
         if (_city.Loaded && _ground != null && _farmsFor != _city.FarmsVersion && _city.Farms.Length == _city.N) PaintFarms();
+        if (_city.Loaded && _ground != null && _plantsFor != _city.PlantsVersion && _city.Plants.Length == _city.N) PaintPlants();
         if (_flashUntil < 0) return;
         double now = Time.GetTicksMsec() / 1000.0, left = _flashUntil - now;
         // A slow pulse, fading out over the last second.
@@ -246,7 +247,7 @@ public partial class CityView : Node3D
                 verts.Add(new Vector3(x, H(x, y), y));
                 float gx = (H(x + 1, y) - H(x - 1, y)) / 2, gz = (H(x, y + 1) - H(x, y - 1)) / 2;
                 normals.Add(new Vector3(-gx, 1, -gz).Normalized());
-                colors.Add(Colors.White);
+                colors.Add(new Color(Hollow(x, y), 1, 1, 1));
             }
         for (int j = 0; j + 1 < ys.Count; j++)
             for (int i = 0; i + 1 < nx; i++)
@@ -288,6 +289,29 @@ public partial class CityView : Node3D
     }
 
     /// <summary>
+    /// How open a corner is to the sky, from the land's shape (RC part 6), for the ground's shader: under 1 in a
+    /// hollow or a valley bottom, where the ground around stands higher, a little over in the open on a crest.
+    /// Measured against the ground two and five corners off. Stored over 1.25 so it fits a colour.
+    /// </summary>
+    float Hollow(int x, int y)
+    {
+        float h = _city.CornerSteps(x, y), sum = 0;
+        int n = 0;
+        foreach (int r in new[] { 2, 5 })
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (dx == 0 && dy == 0) continue;
+                    float d = _city.CornerSteps(x + dx * r, y + dy * r) - h;
+                    // Ground rising round a corner shades it, by the angle it climbs; falling away opens it.
+                    sum += MathF.Atan2(d * ClassicView.HeightStep, r * (dx != 0 && dy != 0 ? 1.41f : 1f));
+                    n++;
+                }
+        float open = 1f - sum / n * 1.4f;
+        return Math.Clamp(open, 0.55f, 1.15f) / 1.25f;
+    }
+
+    /// <summary>
     /// The city's marks on the ground, one texel a cell: roads (until they have their own shapes) and a zone's tint
     /// on empty zoned land. Only the given cells, or all of them.
     /// </summary>
@@ -316,6 +340,53 @@ public partial class CityView : Node3D
         else _madeTexture.Update(_madeImage!);
         _ground.SetShaderParameter("ground_layers", _madeTexture);
         _ground.SetShaderParameter("map_size", new Vector2(w, h));
+    }
+
+    int _groundPixels = -1;
+
+    /// <summary>
+    /// How the ground is drawn (RC part 6): plain colours, or the materials' textures at this many pixels a side,
+    /// with their relief lit when <paramref name="relief"/>.
+    /// </summary>
+    public void SetGround(int pixels, bool relief)
+    {
+        if (_ground == null) return;
+        _ground.SetShaderParameter("ground_look", pixels <= 0 ? 0 : relief ? 2 : 1);
+        if (pixels <= 0 || pixels == _groundPixels) return;
+        _groundPixels = pixels;
+        var (albedo, detail) = GroundTextureSet.Get(pixels);
+        _ground.SetShaderParameter("ground_albedo", albedo);
+        _ground.SetShaderParameter("ground_detail", detail);
+        _ground.SetShaderParameter("tile_metres", GroundTextureSet.Metres);
+    }
+
+    Image? _plantImage;
+    ImageTexture? _plantTexture;
+    int _plantsFor = -1;
+
+    /// <summary>
+    /// The plant layer for the ground's shader (RC part 6), a texel a cell: each kind's canopy, 0 open to 1 closed,
+    /// in its own channel (broadleaf and orchard, conifer, scrub, reeds), so the litter under the trees blends
+    /// smoothly from cell to cell.
+    /// </summary>
+    void PaintPlants()
+    {
+        _plantsFor = _city.PlantsVersion;
+        int w = _city.Width, h = _city.Height;
+        bool fresh = _plantImage == null || _plantImage.GetWidth() != w || _plantImage.GetHeight() != h;
+        if (fresh) _plantImage = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
+        bool any = false;
+        for (int i = 0; i < _city.N; i++)
+        {
+            int kind = _city.PlantKindAt(i);
+            float canopy = Math.Clamp(_city.CanopyAt(i) / 8f, 0, 1);
+            if (kind != 0 && canopy > 0) any = true;
+            _plantImage!.SetPixel(i % w, i / w, new Color(kind is 1 or 5 ? canopy : 0, kind == 2 ? canopy : 0, kind == 3 ? canopy : 0, kind == 4 ? canopy : 0));
+        }
+        if (fresh || _plantTexture == null) _plantTexture = ImageTexture.CreateFromImage(_plantImage);
+        else _plantTexture.Update(_plantImage);
+        _ground!.SetShaderParameter("plants", _plantTexture);
+        _ground.SetShaderParameter("has_plants", any);
     }
 
     Image? _farmImage;
