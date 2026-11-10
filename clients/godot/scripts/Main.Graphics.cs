@@ -65,6 +65,7 @@ public partial class Main
         _trees!.Detail = g.Detail;
         var (start, budget) = g.Shapes;
         _view!.SetShapes(g.FullTerrain, start, budget);
+        _view.SetGround(g.GroundPixels, g.Ground >= ToyCity.ClientModel.Graphics.GroundLook.Relief);
         ApplyLighting();
     }
 

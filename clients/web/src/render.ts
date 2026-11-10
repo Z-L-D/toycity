@@ -44,8 +44,9 @@ const mixRGB = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[
 const smooth = (e0: number, e1: number, x: number) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 const rgb = (r: number, g: number, b: number): RGB => [r * 255, g * 255, b * 255];
 // The same ground as the 3D client's terrain shader (clients/godot/shaders/terrain.gdshader), seen from above.
-const MEADOW = rgb(0.33, 0.42, 0.20), DRY = rgb(0.45, 0.45, 0.26), EARTH = rgb(0.42, 0.36, 0.27), ROCK = rgb(0.47, 0.45, 0.42),
-  SAND = rgb(0.71, 0.65, 0.50), SNOW = rgb(0.93, 0.94, 0.96), BED = rgb(0.45, 0.42, 0.32),
+// The colours are what each ground texture averages to (GroundTextures.List in ToyCity.ClientModel): keep them in step.
+const MEADOW = rgb(0.337, 0.408, 0.200), DRY = rgb(0.514, 0.482, 0.310), EARTH = rgb(0.373, 0.302, 0.216), ROCK = rgb(0.475, 0.459, 0.427),
+  SAND = rgb(0.710, 0.647, 0.498), SNOW = rgb(0.878, 0.898, 0.933), BED = rgb(0.318, 0.267, 0.200), SCREE = rgb(0.494, 0.467, 0.424),
   DEEP = rgb(0.12, 0.17, 0.16), WATER = rgb(0.13, 0.30, 0.38), FLOOD = rgb(0.36, 0.31, 0.22);
 /** A steady pseudo-random 0..1 for a pixel of the ground, so grass and rock have texture that doesn't flicker. */
 function grain(x: number, y: number): number {
@@ -120,7 +121,7 @@ function noise(x: number, y: number): number {
  * Under water, the bed darkens with depth under a teal surface.
  */
 /** Each rock's colour, by kind (1 shale, 2 sandstone, 3 limestone, 4 granite): as the 3D client's shader. */
-const ROCK_COLORS: RGB[] = [rgb(0.47, 0.45, 0.42), rgb(0.38, 0.39, 0.42), rgb(0.62, 0.51, 0.37), rgb(0.70, 0.68, 0.62), rgb(0.56, 0.48, 0.46)];
+const ROCK_COLORS: RGB[] = [rgb(0.475, 0.459, 0.427), rgb(0.388, 0.400, 0.431), rgb(0.627, 0.518, 0.376), rgb(0.694, 0.671, 0.616), rgb(0.588, 0.518, 0.494)];
 
 function groundColor(h: number, water: number, slope: number, g: number, depth: number, made = 0, soil = 1, kind = 0): RGB {
   if (depth > 0) {
@@ -129,7 +130,8 @@ function groundColor(h: number, water: number, slope: number, g: number, depth: 
   }
   const m = (h - water) * 2;
   let c = mixRGB(MEADOW, DRY, smooth(0, 120, m) * 0.8 + (g - 0.5) * 0.25);
-  c = mixRGB(c, EARTH, smooth(0.18, 0.38, slope + (g - 0.5) * 0.15) * 0.7);
+  // Steepening ground breaks to earth and then scree, as in the 3D client.
+  c = mixRGB(c, mixRGB(EARTH, SCREE, 0.55 + 0.3 * g), smooth(0.18, 0.38, slope + (g - 0.5) * 0.15) * 0.6);
   // Where the soil is thin the rock shows, on gentler ground too. Made ground (a road's banks, a pad's sides) is soil,
   // seeded grass with earth showing on the steep, unless the cut went down into the rock: a raw rock face.
   const bare = 1 - smooth(0.03, 0.3, soil + (g - 0.5) * 0.1);
