@@ -113,7 +113,16 @@ public partial class TreesView : Node3D
         }
         else
             for (int i = 0; i < _city.Plants.Length; i++)
-                if (_drawn[i] != _city.Plants[i]) dirty.Add((i % _city.Width / Square, i / _city.Width / Square));
+                if (_drawn[i] != _city.Plants[i])
+                {
+                    // A road or building that took this cell's trees moves its neighbours' crowns in off it.
+                    int cx = i % _city.Width, cy = i / _city.Width;
+                    dirty.Add((cx / Square, cy / Square));
+                    if (cx > 0) dirty.Add(((cx - 1) / Square, cy / Square));
+                    if (cx + 1 < _city.Width) dirty.Add(((cx + 1) / Square, cy / Square));
+                    if (cy > 0) dirty.Add((cx / Square, (cy - 1) / Square));
+                    if (cy + 1 < _city.Height) dirty.Add((cx / Square, (cy + 1) / Square));
+                }
         (_plantsFor, _terrainFor, _drawnDetail) = (_city.PlantsVersion, _city.TerrainVersion, _detail);
         System.Array.Copy(_city.Plants, _drawn, _drawn.Length);
         var spots = new List<TreeSpot>();
@@ -125,8 +134,11 @@ public partial class TreesView : Node3D
             for (int y = sy * Square; y < Math.Min(_city.Height, (sy + 1) * Square); y++)
                 for (int x = sx * Square; x < Math.Min(_city.Width, (sx + 1) * Square); x++)
                 {
-                    TreeLayout.Spots(x, y, _city.Width, _city.Plants[_city.Idx(x, y)], _detail, spots);
-                    TreeLayout.Spots(x, y, _city.Width, _city.Plants[_city.Idx(x, y)], BuildingDetail.Low, farSpots);
+                    byte p = _city.Plants[_city.Idx(x, y)];
+                    if (p == 0) continue;
+                    int keep = KeepOff(x, y);
+                    TreeLayout.Spots(x, y, _city.Width, p, _detail, spots, keep);
+                    TreeLayout.Spots(x, y, _city.Width, p, BuildingDetail.Low, farSpots, keep);
                 }
             for (int kind = 1; kind <= 5; kind++)
             {
@@ -136,6 +148,19 @@ public partial class TreesView : Node3D
         }
         Crowns = 0;
         foreach (var n in _counts.Values) Crowns += n;
+    }
+
+    /// <summary>The sides of a cell with a road or a building beside it, which its crowns keep off.</summary>
+    int KeepOff(int x, int y)
+    {
+        bool Hard(int nx, int ny)
+        {
+            if (nx < 0 || ny < 0 || nx >= _city.Width || ny >= _city.Height) return false;
+            int j = _city.Idx(nx, ny);
+            return (_city.Paths[j] != 0 && !_city.IsTunnel(j) && !_city.IsRiver(j)) || (_city.BuildingAt.Length > j && _city.BuildingAt[j] != 0);
+        }
+        return (Hard(x - 1, y) ? TreeLayout.West : 0) | (Hard(x + 1, y) ? TreeLayout.East : 0)
+            | (Hard(x, y - 1) ? TreeLayout.North : 0) | (Hard(x, y + 1) ? TreeLayout.South : 0);
     }
 
     long[] _squareHeights = System.Array.Empty<long>();

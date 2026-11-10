@@ -93,7 +93,7 @@ public sealed partial class World
 
     /// <summary>
     /// Each month: open land that nobody uses grows back from the woods beside it, a crown at a time, and thin woods
-    /// thicken. Zoned land and land by a path stays as it is, so a city's own lots don't fill with saplings. Uses a hash
+    /// thicken. Trees growing higher than their kind lives (a player's planting, or an older save) die back. Zoned land and land by a path stays as it is, so a city's own lots don't fill with saplings. Uses a hash
     /// of the day and cell, not the city's dice, so it can't change anything else's luck.
     /// </summary>
     void RunRegrowth()
@@ -102,6 +102,14 @@ public sealed partial class World
         ulong salt = Seed * 0x9E3779B97F4A7C15UL ^ (ulong)Tick * 0xD1B54A32D192ED03UL;
         for (int i = 0; i < N; i++)
         {
+            // Trees above the height their kind can live at die back, a crown at a time.
+            if (Canopy[i] > 0 && !LivesAt((PlantKind)Plant[i], i))
+            {
+                if (Hash(salt ^ 0x5851F42D4C957F2DUL, i) % 3 != 0) continue;
+                if (--Canopy[i] == 0) Plant[i] = 0;
+                changed = true;
+                continue;
+            }
             if (Canopy[i] >= FullCanopy || ZoneCode[i] != 0 || !CanGrow(i)) continue;
             var suits = SuitedKind(i);
             if (suits == PlantKind.None) continue;
@@ -139,22 +147,44 @@ public sealed partial class World
         return Suited(Corner[c], Corner[c + 1], Corner[c + cw], Corner[c + cw + 1], WaterLevel * StepDm, CellSoilDm(i), WaterDistance[i]);
     }
 
+    /// <summary>
+    /// How high each kind grows, in dm above the sea: broadleaf woods give way to conifers at 200 m (120 m on a north
+    /// face), conifers end at the treeline at 260 m, and only low scrub grows above it, to 280 m, where the snow
+    /// starts to lie (the terrain shader's snow line). Higher than that nothing woody grows.
+    /// </summary>
+    public const int BroadleafLineDm = 2000, BroadleafLineNorthDm = 1200, TreelineDm = 2600, ScrubLineDm = 2800;
+
     /// <summary>What a cell suits from its four corners (dm), the sea's level (dm), its soil (dm) and how far water is.</summary>
     static PlantKind Suited(int nw, int ne, int sw, int se, int seaDm, int soilDm, int waterDistance)
     {
         int lo = Math.Min(Math.Min(nw, ne), Math.Min(sw, se)), hi = Math.Max(Math.Max(nw, ne), Math.Max(sw, se));
         int rise = hi - lo, above = (nw + ne + sw + se) / 4 - seaDm;
-        if (above < 0) return PlantKind.None;
-        // Steeper than 50 degrees or bare rock: at most scrub in the cracks.
-        if (rise > 190 || soilDm < 4) return rise > 260 ? PlantKind.None : PlantKind.Scrub;
-        // Over the treeline, 420 m above the sea, nothing woody; conifers from 260 m, and on north faces from 150 m.
-        if (above > 4200) return PlantKind.None;
+        if (above < 0 || above > ScrubLineDm) return PlantKind.None;
+        // Above the treeline, or steeper than 50 degrees, or bare rock: at most scrub in the cracks, and nothing on a
+        // sheer face.
+        if (above > TreelineDm || rise > 190 || soilDm < 4) return rise > 230 ? PlantKind.None : PlantKind.Scrub;
         bool northFacing = (sw + se) - (nw + ne) > 40;
-        if (above > 2600 || (above > 1500 && northFacing)) return PlantKind.Conifer;
+        if (above > BroadleafLineDm || (above > BroadleafLineNorthDm && northFacing)) return PlantKind.Conifer;
         if (waterDistance <= 1 && rise < 30 && above < 300) return PlantKind.Reeds;
         // Thin soil on a slope dries out: scrub.
         if (soilDm < 15 && rise > 60) return PlantKind.Scrub;
         return PlantKind.Broadleaf;
+    }
+
+    /// <summary>Whether a kind lives at a cell's height: broadleaf and fruit trees below their line, conifers below the treeline.</summary>
+    bool LivesAt(PlantKind kind, int i)
+    {
+        int cw = Width + 1, c = i / Width * cw + i % Width;
+        int nw = Corner[c], ne = Corner[c + 1], sw = Corner[c + cw], se = Corner[c + cw + 1];
+        int above = (nw + ne + sw + se) / 4 - WaterLevel * StepDm;
+        bool northFacing = (sw + se) - (nw + ne) > 40;
+        return kind switch
+        {
+            PlantKind.Broadleaf or PlantKind.Orchard => above <= (northFacing ? BroadleafLineNorthDm : BroadleafLineDm),
+            PlantKind.Conifer or PlantKind.Reeds => above <= TreelineDm,
+            PlantKind.Scrub => above <= ScrubLineDm,
+            _ => true,
+        };
     }
 
     /// <summary>
@@ -229,11 +259,14 @@ public sealed partial class World
             int i = Idx(x, y);
             if (!CanGrow(i) || Canopy[i] >= PlantedCanopy) continue;
             var k = a.Kind != PlantKind.None ? a.Kind : SuitedKind(i);
-            // Where nothing woody grows by itself, a planted tree is a hardy broadleaf.
+            // Where nothing woody grows by itself, a planted tree is a hardy broadleaf, or a conifer higher up; above
+            // the treeline nothing planted would live.
             if (k == PlantKind.None) k = PlantKind.Broadleaf;
+            if (!LivesAt(k, i) && k is PlantKind.Broadleaf or PlantKind.Orchard) k = PlantKind.Conifer;
+            if (!LivesAt(k, i)) continue;
             cells.Add((i, k));
         }
-        if (cells.Count == 0) { Reject("There's nowhere there to plant: it's built on, under water, or already wooded.", r.X0, r.Y0); return; }
+        if (cells.Count == 0) { Reject("There's nowhere there to plant: it's built on, under water, too high for trees, or already wooded.", r.X0, r.Y0); return; }
         if (!Spend((long)cells.Count * TreeCostPerCell, r.X0, r.Y0)) return;
         foreach (var (i, k) in cells)
         {

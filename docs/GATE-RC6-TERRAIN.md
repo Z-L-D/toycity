@@ -95,3 +95,31 @@ what each texture averages to, so the two clients show the same ground.
     hardware.
 - **Godot runs:** the gate and mountains runs pass with no shader errors. Locally, the hills run took all 19 of its
   ground and lighting views with no shader errors before the old 25-minute limit stopped it. CI runs it in full.
+
+## Part 6.1: plants in their place
+
+Zac's notes on the part 6 shots were that plants grew where they shouldn't: trees had no height limit, and bushes
+grew over the roads.
+
+- **Height bands (`Plants.cs`):**
+  - Broadleaf woods give way to conifers at 200 m above the sea, or at 120 m on a north face.
+  - Conifers stop at a treeline at 260 m.
+  - Above that only scrub grows, up to 280 m, where the snow starts to lie.
+  - Nothing grows higher than that, or on a face steeper than about 55°.
+  - Each month, trees above the band their kind lives in, from an older save or a planting, lose a crown a third of
+    the time, until they're gone.
+  - The tree planter plants a conifer where a broadleaf wouldn't live, and won't plant above the treeline.
+- **Off the roads:** a crown used to stand anywhere from 8% to 92% of the way across its cell. A bush or tree beside
+  a road could hang up to 3 m over it. Now a cell's crowns keep off any side with a road or a building next to it, by
+  as far as their crown reaches. This holds in the 3D view (`TreeLayout.Spots`, `TreesView`) and on the web map
+  (`trees.ts`). A road or building that clears a cell lays out its neighbours' crowns again.
+- **Cliffs:** the broad variation that breaks up large meadows was projected from above everywhere, so it smeared
+  down cliff faces like hair. It now keeps to the grass. A material seen from the side is no longer turned, so rock
+  beds lie level.
+
+**Checks:**
+- **New tests:**
+  - Sim: on six maps, some of them mountainous, nothing grows above its kind's band.
+  - ClientModel: crowns stay inside a cell whose four sides all keep them off.
+- **Test suites:** ClientModel (209) and Sim (322) pass.
+- **Godot runs:** the hills run and the mountains run pass.

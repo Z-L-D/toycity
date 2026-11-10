@@ -15,7 +15,11 @@ function hash(x: number): number {
 const unit = (h: number) => (h & 0xffffff) / 0x1000000;
 
 /** The crowns on cell (x, y) of a map `width` wide, from its plants byte (kind * 16 + crowns), all of them drawn. */
-export function treeSpots(x: number, y: number, width: number, plants: number, into: TreeSpot[]) {
+/** Sides of a cell that a crown keeps off (a road, a building), as the 3D client's TreeLayout has them. */
+export const WEST = 1, EAST = 2, NORTH = 4, SOUTH = 8;
+const reach = (kind: number) => (kind === 1 ? 0.3 : kind === 2 ? 0.22 : kind === 3 ? 0.13 : kind === 5 ? 0.17 : 0.09);
+
+export function treeSpots(x: number, y: number, width: number, plants: number, into: TreeSpot[], keepOff = 0) {
   const kind = plants >> 4, n = plants & 15;
   if (kind === 0 || n === 0) return;
   const seed = hash((Math.imul(y * width + x, 0x9e3779b9) + 0x632be5ab) >>> 0);
@@ -26,7 +30,14 @@ export function treeSpots(x: number, y: number, width: number, plants: number, i
       px = 0.125 + 0.25 * (k % 4) + (unit(h1) - 0.5) * 0.04;
       py = 0.25 + 0.5 * (Math.floor(k / 4) % 2) + (unit(h2) - 0.5) * 0.04;
     } else { px = 0.08 + 0.84 * unit(h1); py = 0.08 + 0.84 * unit(h2); }
-    into.push({ x: x + px, y: y + py, kind, scale: 0.75 + 0.5 * unit(h3), shade: unit(hash(h3)) });
+    const scale = 0.75 + 0.5 * unit(h3);
+    if (keepOff) {
+      // Stand far enough in that the crown doesn't hang over the road or building beside.
+      const m = Math.min(0.48, reach(kind) * scale);
+      px = Math.min(Math.max(px, keepOff & WEST ? m : 0), keepOff & EAST ? 1 - m : 1);
+      py = Math.min(Math.max(py, keepOff & NORTH ? m : 0), keepOff & SOUTH ? 1 - m : 1);
+    }
+    into.push({ x: x + px, y: y + py, kind, scale, shade: unit(hash(h3)) });
   }
 }
 
