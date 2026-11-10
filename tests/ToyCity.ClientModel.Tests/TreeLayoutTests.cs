@@ -25,4 +25,21 @@ public class TreeLayoutTests
         TreeLayout.Spots(5, 7, 128, 0, BuildingDetail.High, none);
         Assert.Empty(none);
     }
+
+    [Fact]
+    public void CrownsKeepOffTheRoadsAndBuildingsBeside()
+    {
+        foreach (int kind in new[] { TreeLayout.Broadleaf, TreeLayout.Conifer, TreeLayout.Scrub, TreeLayout.Orchard })
+            for (int cell = 0; cell < 200; cell++)
+            {
+                var spots = new List<TreeSpot>();
+                int all = TreeLayout.West | TreeLayout.East | TreeLayout.North | TreeLayout.South;
+                TreeLayout.Spots(cell % 64, cell / 64, 64, (byte)(kind * 16 + 8), BuildingDetail.Low, spots, all);
+                foreach (var s in spots)
+                {
+                    float r = TreeLayout.Reach(kind) * s.Scale, fx = s.X - cell % 64, fy = s.Y - cell / 64;
+                    Assert.True(fx - r >= -1e-4f && fx + r <= 1 + 1e-4f && fy - r >= -1e-4f && fy + r <= 1 + 1e-4f, $"kind {kind} at {fx:0.00},{fy:0.00} reach {r:0.00}");
+                }
+            }
+    }
 }

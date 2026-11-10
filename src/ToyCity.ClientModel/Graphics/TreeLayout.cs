@@ -28,8 +28,18 @@ public static class TreeLayout
 
     static float Unit(uint h) => (h & 0xFFFFFF) / (float)0x1000000;
 
-    /// <summary>The crowns on cell (x, y) of a map <paramref name="width"/> wide holding <paramref name="plants"/> (kind * 16 + crowns).</summary>
-    public static void Spots(int x, int y, int width, byte plants, BuildingDetail detail, List<TreeSpot> into)
+    /// <summary>Sides of a cell that a crown mustn't hang over (a road, a building): west, east, north (y - 1), south.</summary>
+    public const int West = 1, East = 2, North = 4, South = 8;
+
+    /// <summary>How far a kind's crown reaches from its trunk at scale 1, in cells (as the 3D client draws it).</summary>
+    public static float Reach(int kind) => kind switch { Broadleaf => 0.26f, Conifer => 0.22f, Scrub => 0.2f, Orchard => 0.13f, _ => 0.08f };
+
+    /// <summary>
+    /// The crowns on cell (x, y) of a map <paramref name="width"/> wide holding <paramref name="plants"/> (kind * 16 +
+    /// crowns). On the <paramref name="keepOff"/> sides (<see cref="West"/> and the rest) crowns stand far enough in
+    /// that they don't hang over the road or the building next door.
+    /// </summary>
+    public static void Spots(int x, int y, int width, byte plants, BuildingDetail detail, List<TreeSpot> into, int keepOff = 0)
     {
         int kind = plants >> 4, canopy = plants & 15;
         if (kind == 0 || canopy == 0) return;
@@ -49,6 +59,16 @@ public static class TreeLayout
             }
             else { px = 0.08f + 0.84f * Unit(h1); py = 0.08f + 0.84f * Unit(h2); }
             float scale = (0.75f + 0.5f * Unit(h3)) * (kind is Scrub or Reeds ? 1f : Math.Min(1.6f, fill));
+            if (keepOff != 0)
+            {
+                // No bigger than fits between two kept sides, then moved in from each.
+                float reach = Reach(kind);
+                scale = Math.Min(scale, 0.48f / reach);
+                float m = reach * scale;
+                float x0 = (keepOff & West) != 0 ? m : 0f, x1 = (keepOff & East) != 0 ? 1f - m : 1f;
+                float y0 = (keepOff & North) != 0 ? m : 0f, y1 = (keepOff & South) != 0 ? 1f - m : 1f;
+                px = Math.Clamp(px, x0, x1); py = Math.Clamp(py, y0, y1);
+            }
             into.Add(new TreeSpot(x + px, y + py, kind, scale, Unit(Hash(h3)), Unit(Hash(h3 + 1)) * 6.2831853f));
         }
     }

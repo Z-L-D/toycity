@@ -1568,7 +1568,17 @@ export class Renderer {
     }
     const spots: TreeSpot[] = [];
     for (let y = y0; y <= y1; y++)
-      for (let x = x0; x <= x1; x++) treeSpots(x, y, c.width, c.plants[y * c.width + x], spots);
+      for (let x = x0; x <= x1; x++) {
+        const p = c.plants[y * c.width + x];
+        if (!p) continue;
+        const hard = (nx: number, ny: number) => {
+          if (nx < 0 || ny < 0 || nx >= c.width || ny >= c.height) return false;
+          const j = ny * c.width + nx;
+          return (c.paths[j] !== 0 && !c.isWater(j) && !c.isTunnel(j)) || (c.buildingAt.length > j && c.buildingAt[j] !== 0);
+        };
+        const keep = (hard(x - 1, y) ? 1 : 0) | (hard(x + 1, y) ? 2 : 0) | (hard(x, y - 1) ? 4 : 0) | (hard(x, y + 1) ? 8 : 0);
+        treeSpots(x, y, c.width, p, spots, keep);
+      }
     const radius = (t: TreeSpot) => s * t.scale * (t.kind === CONIFER ? 0.22 : t.kind === SCRUB ? 0.13 : t.kind === REEDS ? 0.09 : t.kind === ORCHARD ? 0.17 : 0.3);
     // Shadows first, so no crown is darkened by its neighbour's.
     ctx.fillStyle = 'rgba(18,28,10,0.3)';

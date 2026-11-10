@@ -38,6 +38,31 @@ public class PlantTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void TreesGrowNoHigherThanTheirKindLives()
+    {
+        // Mountain maps among these: broadleaf gives way to conifers, conifers end at the treeline, scrub above it.
+        int high = 0;
+        foreach (ulong seed in new ulong[] { 1, 2, 3, 4, 5, 6 })
+        {
+            var w = World.Create(Fixture.Content, seed, 256);
+            int cw = w.Width + 1;
+            for (int i = 0; i < w.N; i++)
+            {
+                int c = i / w.Width * cw + i % w.Width;
+                int above = (w.Corner[c] + w.Corner[c + 1] + w.Corner[c + cw] + w.Corner[c + cw + 1]) / 4 - w.WaterLevel * 20;
+                if (above > World.TreelineDm) high++;
+                if (w.Canopy[i] == 0) continue;
+                var k = w.PlantAt(i);
+                Assert.True(above <= World.ScrubLineDm, $"seed {seed}: {k} at {above / 10} m");
+                if (k is PlantKind.Broadleaf or PlantKind.Orchard) Assert.True(above <= World.BroadleafLineDm, $"seed {seed}: broadleaf at {above / 10} m");
+                if (k is PlantKind.Conifer or PlantKind.Reeds) Assert.True(above <= World.TreelineDm, $"seed {seed}: {k} at {above / 10} m");
+            }
+        }
+        output.WriteLine($"{high} cells above the treeline");
+        Assert.True(high > 0);
+    }
+
+    [Fact]
     public void BuildingTakesTheTreesAndBulldozingClearsThem()
     {
         var w = City();
