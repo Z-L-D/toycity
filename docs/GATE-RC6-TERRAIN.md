@@ -109,6 +109,10 @@ grew over the roads.
   - Each month, trees above the band their kind lives in, from an older save or a planting, lose a crown a third of
     the time, until they're gone.
   - The tree planter plants a conifer where a broadleaf wouldn't live, and won't plant above the treeline.
+- **Cleared when built:** trees and fields under anything built used to be cleared only at the end of the next day
+  run. A new city's starter town, and anything built while paused, kept its woods growing through the new streets.
+  That was most of what showed on the roads in the part 6 shots. `ApplyPending` now clears them as soon as the
+  actions apply.
 - **Off the roads:** a crown used to stand anywhere from 8% to 92% of the way across its cell. A bush or tree beside
   a road could hang up to 3 m over it. Now a cell's crowns keep off any side with a road or a building next to it, by
   as far as their crown reaches. This holds in the 3D view (`TreeLayout.Spots`, `TreesView`) and on the web map
@@ -121,5 +125,6 @@ grew over the roads.
 - **New tests:**
   - Sim: on six maps, some of them mountainous, nothing grows above its kind's band.
   - ClientModel: crowns stay inside a cell whose four sides all keep them off.
+  - Sim: a street laid while paused has no trees on it before the day runs. Without the fix, this test fails.
 - **Test suites:** ClientModel (209) and Sim (322) pass.
 - **Godot runs:** the hills run and the mountains run pass.
