@@ -301,6 +301,10 @@ public sealed partial class World
             if (a is PlacePathAction or BulldozeAction) _edgeDirty = true;
         }
         _pending.Clear();
+        // What was just built takes the trees and fields under it now, not at the end of the next day: a paused city,
+        // or one founded with its starter town, would otherwise show woods growing through its new streets.
+        TrimFarms();
+        TrimPlants();
         if (_edgeDirty)
         {
             CheckStrips();

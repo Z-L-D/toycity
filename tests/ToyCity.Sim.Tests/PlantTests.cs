@@ -82,6 +82,14 @@ public class PlantTests(ITestOutputHelper output)
         var paved = Enumerable.Range(20, 10).Where(x => w2.Path[w2.Idx(x, y2)] != 0).ToList();
         Assert.NotEmpty(paved);
         Assert.All(paved, x => Assert.Equal(0, w2.Canopy[w2.Idx(x, y2)]));
+
+        // And straight away, before the day is run: a paused city's new street has no trees on it.
+        var w3 = City();
+        w3.Enqueue(new PlacePathAction(20, y2, 29, y2, "road"));
+        w3.ApplyPending();
+        var laid = Enumerable.Range(20, 10).Where(x => w3.Path[w3.Idx(x, y2)] != 0).ToList();
+        Assert.NotEmpty(laid);
+        Assert.All(laid, x => Assert.Equal(0, w3.Canopy[w3.Idx(x, y2)]));
     }
 
     [Fact]
