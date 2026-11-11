@@ -74,7 +74,7 @@ Release candidate, part 6.1: plants in their place ([`docs/screenshots/rc6-1-pla
 | | |
 |---|---|
 | ![Snowy peaks above a wooded valley, bare above the treeline](docs/screenshots/rc6-1-plants/river-valley.jpg) | ![A crag up close: the rock's beds lie level, conifers below and a little scrub on the slope](docs/screenshots/rc6-1-plants/crag.jpg) |
-| ![A street on the slope: the roads clear of bushes, which keep to the lots](docs/screenshots/rc6-1-plants/street-on-the-slope.jpg) | |
+| ![A street on the slope: the roads clear of bushes, which keep to the lots](docs/screenshots/rc6-1-plants/street-on-the-slope.jpg) | ![Mountain City's streets up close: conifers and broadleaf woods on the lots, the roads clear](docs/screenshots/rc6-1-plants/mountain-street.jpg) |
 
 Release candidate, part 6: terrain textures ([`docs/screenshots/rc6-terrain`](docs/screenshots/rc6-terrain)):
 
